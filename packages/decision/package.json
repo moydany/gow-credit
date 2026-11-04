@@ -1,0 +1,23 @@
+{
+  "name": "@gow/decision",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Perfil crediticio y motor de políticas: features desde la extracción y fuentes externas, evaluate(policy, profile) puro y determinístico, contrafactuales y simulación.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "profile": "tsx src/cli/profile.ts",
+    "simulate": "tsx src/cli/simulate.ts"
+  },
+  "dependencies": {
+    "@gow/contracts": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2"
+  }
+}
