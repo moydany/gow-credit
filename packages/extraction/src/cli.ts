@@ -97,11 +97,30 @@ async function main(): Promise<void> {
   mkdirSync(outDir, { recursive: true })
   const pdfs = collectPdfs(positionals)
   let total = 0
+  const summary: Record<string, unknown>[] = []
   for (const path of pdfs) {
     const t0 = Date.now()
     const doc = await extractStatement(path, { llm, classifier }, { ...opts, onProgress: (m) => process.stderr.write(`  · ${basename(path)}: ${m}\n`) })
     writeFileSync(join(outDir, `${basename(path, '.pdf')}.json`), `${JSON.stringify(doc, null, 2)}\n`)
     total += doc.extraction.cost_usd
+    const periods = doc.accounts.flatMap((a) => a.periods)
+    summary.push({
+      file: doc.document.file_name,
+      status: doc.extraction.status,
+      route: doc.document.route,
+      accounts: doc.accounts.length,
+      periods: periods.length,
+      transactions: periods.reduce((n, p) => n + p.transactions.length, 0),
+      reconciled: periods.filter((p) => p.reconciliation?.status === 'reconciled').length,
+      fiscal_documents: doc.fiscal_documents.length,
+      calls: doc.extraction.calls.length,
+      response_cache_hits: doc.extraction.calls.filter((c) => c.response_cache_hit).length,
+      usage: doc.extraction.usage,
+      cost_usd: doc.extraction.cost_usd,
+      seconds: Math.round((Date.now() - t0) / 1000),
+      errors: doc.issues.filter((i) => i.severity === 'error').map((i) => i.code),
+    })
+    writeFileSync(join(outDir, 'run-summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), options: { blockPages: opts.blockPages, summaryEffort: opts.summaryEffort, transactionsEffort: opts.transactionsEffort, retryEffort: opts.retryEffort }, total_cost_usd: Math.round(total * 1e6) / 1e6, documents: summary }, null, 2)}\n`)
     console.log(line(doc, (Date.now() - t0) / 1000))
     const errors = doc.issues.filter((i) => i.severity === 'error')
     for (const i of errors.slice(0, 4)) console.log(`      ! ${i.code}: ${i.message}`)

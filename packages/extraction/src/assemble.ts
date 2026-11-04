@@ -31,6 +31,11 @@ function cite<T>(c: { value: string; page: number; snippet: string }, parse: (ra
 type RawCited = Parameters<typeof cite>[0]
 const asText = (c: RawCited) => cite(c, (s) => s)
 const asAmount = (c: RawCited) => cite(c, parseAmount)
+/** Totales, comisiones, intereses e ISR son magnitudes: algunos bancos (Mercado Pago) imprimen los cargos con signo. */
+const asMagnitude = (c: RawCited) => cite(c, (raw) => {
+  const n = parseAmount(raw)
+  return n === null ? null : Math.abs(n)
+})
 const asCount = (c: RawCited) => cite(c, parseCount)
 
 const EMPTY: FieldOf<never> = { value: null, source: null, verification: 'unverified', confidence: 0, provenance: 'extracted' }
@@ -156,14 +161,14 @@ export function assembleSummary(s: SummaryOut, text: PageText): AssembledSummary
         summary: {
           opening_balance: amountField(asAmount(v('opening_balance')), text, hint),
           closing_balance: amountField(asAmount(v('closing_balance')), text, hint),
-          total_credits: amountField(asAmount(v('total_credits')), text, hint),
-          total_debits: amountField(asAmount(v('total_debits')), text, hint),
+          total_credits: amountField(asMagnitude(v('total_credits')), text, hint),
+          total_debits: amountField(asMagnitude(v('total_debits')), text, hint),
           credits_count: countField(asCount(v('credits_count')), text),
           debits_count: countField(asCount(v('debits_count')), text),
           average_balance: amountField(asAmount(v('average_balance')), text, hint),
-          fees_charged: amountField(asAmount(v('fees_charged')), text, hint),
-          interest_earned: amountField(asAmount(v('interest_earned')), text, hint),
-          tax_withheld: amountField(asAmount(v('tax_withheld')), text, hint),
+          fees_charged: amountField(asMagnitude(v('fees_charged')), text, hint),
+          interest_earned: amountField(asMagnitude(v('interest_earned')), text, hint),
+          tax_withheld: amountField(asMagnitude(v('tax_withheld')), text, hint),
         },
         transactions: [],
         reconciliation: null,

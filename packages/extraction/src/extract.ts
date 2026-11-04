@@ -446,9 +446,50 @@ function build(b: BuildInput): StatementExtraction {
   }
   const parsed = StatementExtraction.safeParse(doc)
   if (parsed.success) return parsed.data
-  // Un bug propio no debe tumbar la corrida: se reporta la ruta del error (sin datos) y se entrega lo mínimo válido.
+  // Degradación elegante: un campo que viola el contrato se vuelve desconocido y una fila que
+  // lo viola se quita, cada uno con su issue; el resto de la extracción se conserva.
+  const repaired = repairAgainstContract(doc, parsed.error.issues, b.issues)
+  if (repaired) return repaired
+  // Solo si la reparación no alcanza se entrega lo mínimo válido, con la ruta del error (sin datos).
   const where = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
   return { ...doc, accounts: [], issues: [...b.issues.issues, { id: `i${String(b.issues.issues.length + 1).padStart(4, '0')}`, code: 'block_failed', severity: 'error', message: `La extracción no validó contra el contrato y se descartó: ${where}`, page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: {} }], extraction: { ...doc.extraction, status: 'failed', failure_reason: `contrato inválido: ${where}` } }
+}
+
+type ZodIssueLike = { path: PropertyKey[]; message: string }
+
+export function repairAgainstContract(doc: StatementExtraction, problems: readonly ZodIssueLike[], issues: IssueSink): StatementExtraction | null {
+  const copy = structuredClone(doc) as unknown as Record<string, unknown>
+  const dropRows = new Map<string, Set<number>>()
+  for (const p of problems) {
+    const path = p.path.map(String)
+    const where = path.join('.')
+    const txAt = path.indexOf('transactions')
+    if (txAt >= 0 && path[txAt + 1] !== undefined) {
+      const key = path.slice(0, txAt + 1).join('.')
+      const set = dropRows.get(key) ?? new Set<number>()
+      set.add(Number(path[txAt + 1]))
+      dropRows.set(key, set)
+      issues.add({ code: 'missing_required_field', severity: 'error', message: `Se quitó un movimiento que no cumple el contrato (${path.slice(txAt + 2).join('.')}: ${p.message}).`, path: `/${path.slice(0, txAt + 2).join('/')}` })
+      continue
+    }
+    const valueAt = path.lastIndexOf('value')
+    if (valueAt <= 0) return null
+    let parent: unknown = copy
+    for (const k of path.slice(0, valueAt)) parent = (parent as Record<string, unknown> | undefined)?.[k]
+    if (typeof parent !== 'object' || parent === null) return null
+    Object.assign(parent, { value: null, source: null, verification: 'unverified', confidence: 0 })
+    issues.add({ code: 'missing_required_field', severity: 'warning', message: `Un valor no cumple el contrato y quedó como desconocido (${where}: ${p.message}).`, path: `/${path.join('/')}` })
+  }
+  for (const [key, rows] of dropRows) {
+    let list: unknown = copy
+    for (const k of key.split('.')) list = (list as Record<string, unknown> | undefined)?.[k]
+    if (!Array.isArray(list)) return null
+    const arr = list as unknown[]
+    const kept = arr.filter((_, i) => !rows.has(i))
+    arr.splice(0, arr.length, ...kept)
+  }
+  const again = StatementExtraction.safeParse({ ...copy, issues: issues.issues })
+  return again.success ? again.data : null
 }
 
 function round6(n: number): number {
