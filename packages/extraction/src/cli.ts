@@ -11,7 +11,7 @@ import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { StatementExtraction } from '@gow/contracts'
-import { CachingStructuredLlm, createClassifier, createLimiter, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, type CacheMode, type Effort } from '@gow/llm'
+import { CachingStructuredLlm, createClassifier, createLimiter, loadRootEnv, MastraStructuredLlm, providerOf, readAnthropicEnv, readGoogleEnv, type CacheMode, type Effort } from '@gow/llm'
 import { DEFAULT_OPTIONS, extractStatement } from './extract.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
@@ -69,11 +69,30 @@ async function main(): Promise<void> {
       'retry-effort': { type: 'string' },
       concurrency: { type: 'string', default: '3' },
       model: { type: 'string' },
+      'allow-third-party': { type: 'boolean', default: false },
     },
   })
   if (positionals.length === 0) {
     console.error('uso: pnpm extract <pdf|carpeta>... [--out dir] [--cache readwrite|read|off]')
     process.exit(64)
+  }
+  if (values.model) {
+    let provider: string
+    try {
+      provider = providerOf(values.model)
+    } catch {
+      console.error(`Modelo desconocido: ${values.model}. Usa claude-* o gemini-*.`)
+      process.exit(64)
+    }
+    // Los estados de cuenta tienen datos personales: salir de Anthropic exige pedirlo a propósito (ADR 0010).
+    if (provider !== 'anthropic' && !values['allow-third-party']) {
+      console.error(`${values.model} manda los PDFs a un proveedor distinto de Anthropic. Si es lo que quieres, agrega --allow-third-party.`)
+      process.exit(2)
+    }
+    if (provider === 'google' && !readGoogleEnv().apiKey) {
+      console.error('Falta GOOGLE_GENERATIVE_AI_API_KEY (entorno o .env) para usar modelos gemini-*.')
+      process.exit(2)
+    }
   }
   const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
   const env = readAnthropicEnv()

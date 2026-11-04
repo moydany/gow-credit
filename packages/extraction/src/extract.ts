@@ -23,7 +23,7 @@ import {
   type TokenUsage,
   type Transaction,
 } from '@gow/contracts'
-import { addUsage, EXTRACTION_MODEL, LIGHT_MODEL, LlmCallError, loadPrompt, ZERO_USAGE, type Classifier, type Effort, type Limiter, type StructuredLlm } from '@gow/llm'
+import { addUsage, EXPERIMENT_SONNET, EXTRACTION_MODEL, LlmCallError, loadPrompt, ZERO_USAGE, type Classifier, type Effort, type Limiter, type StructuredLlm } from '@gow/llm'
 import { assembleSummary, materialize, placeRows, type AssembledSummary, type FieldOf, type PlacedRow } from './assemble.ts'
 import { assembleFiscal, crossCheckFiscal } from './fiscal.ts'
 import { IssueSink } from './issues.ts'
@@ -143,8 +143,8 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
         promptVersion: promptId,
         effort,
         maxOutputTokens,
-        // Opus y Sonnet tienen fallback del lado del servidor ("default"); Haiku no.
-        serverFallback: extractionModel !== LIGHT_MODEL,
+        // Solo Opus y Sonnet tienen fallback del lado del servidor ("default"); Haiku y Gemini no.
+        serverFallback: extractionModel === EXTRACTION_MODEL || extractionModel === EXPERIMENT_SONNET,
       }),
     )
     record(purpose, promptId, effort, pages, res)

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.94",
+    "@ai-sdk/google": "4.0.109",
     "@gow/contracts": "workspace:*",
     "@mastra/core": "1.81.0",
     "@typesafe-ai/sdk": "0.7.0",

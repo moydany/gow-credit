@@ -15,6 +15,17 @@ export interface AnthropicEnv {
   baseURL: string | null
 }
 
+export interface GoogleEnv {
+  apiKey: string | null
+  baseURL: string | null
+}
+
+/** Proveedor experimental (ADR 0010). Sin esta llave, los modelos gemini-* no están disponibles. */
+export function readGoogleEnv(env: NodeJS.ProcessEnv = process.env): GoogleEnv {
+  const blank = (v: string | undefined) => (v && v.trim().length > 0 ? v.trim() : null)
+  return { apiKey: blank(env.GOOGLE_GENERATIVE_AI_API_KEY), baseURL: blank(env.GOW_GOOGLE_BASE_URL) }
+}
+
 export function readAnthropicEnv(env: NodeJS.ProcessEnv = process.env): AnthropicEnv {
   const blank = (v: string | undefined) => (v && v.trim().length > 0 ? v.trim() : null)
   return {

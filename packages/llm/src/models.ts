@@ -9,6 +9,16 @@ export const LIGHT_MODEL = 'claude-haiku-5-5'
 export const JEV_MODEL = 'jev-1.13.0'
 /** Solo para experimentos (`pnpm extract --model`); no es un modelo fijado del sistema (ADR 0003). */
 export const EXPERIMENT_SONNET = 'claude-sonnet-5-5'
+/** Proveedor experimental (ADR 0010). Apagado salvo `--model` y GOOGLE_GENERATIVE_AI_API_KEY. */
+export const EXPERIMENT_GEMINI_FLASH = 'gemini-3.8-flash'
+
+export type Provider = 'anthropic' | 'google'
+
+export function providerOf(model: string): Provider {
+  if (model.startsWith('claude-')) return 'anthropic'
+  if (model.startsWith('gemini-')) return 'google'
+  throw new Error(`modelo sin proveedor conocido: ${model}`)
+}
 
 export type ClaudeModel = typeof EXTRACTION_MODEL | typeof LIGHT_MODEL
 
@@ -21,12 +31,20 @@ interface Price {
 
 const OPUS: Price = { input: 4, output: 20, cacheWrite5m: 5, cacheRead: 0.2 }
 const SONNET: Price = { input: 2, output: 10, cacheWrite5m: 2.5, cacheRead: 0.2 }
+/**
+ * Precio de introducción citado por agregadores (no por la página oficial de Google) el
+ * 2026-11-04; subiría a 1.50 / 7.50 / 0.15 el 2027-01-01. VERIFICAR en
+ * ai.google.dev/gemini-api/docs/pricing antes de reportar costos. Sin escritura de caché:
+ * Gemini cachea de forma implícita y cobra solo la lectura.
+ */
+const GEMINI_FLASH: Price = { input: 0.75, output: 3.75, cacheWrite5m: 0, cacheRead: 0.075 }
 const HAIKU_UP_TO_100K: Price = { input: 0.1, output: 0.5, cacheWrite5m: 0.125, cacheRead: 0.01 }
 const HAIKU_ABOVE_100K: Price = { input: 0.5, output: 2.5, cacheWrite5m: 0.625, cacheRead: 0.05 }
 
 function priceFor(model: string, promptTokens: number): Price {
   if (model === EXTRACTION_MODEL) return OPUS
   if (model === EXPERIMENT_SONNET) return SONNET
+  if (model === EXPERIMENT_GEMINI_FLASH) return GEMINI_FLASH
   if (model === LIGHT_MODEL) return promptTokens > 100_000 ? HAIKU_ABOVE_100K : HAIKU_UP_TO_100K
   // Un modelo de fallback del servidor (refusal) se cobra a su tarifa; sin tabla, se usa Opus como cota.
   return OPUS
