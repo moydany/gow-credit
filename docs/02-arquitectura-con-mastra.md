@@ -446,3 +446,7 @@ no cambia el resto del diseño.
   la instrucción final. Medido en vivo en el spike 1; ADR 0005.
 - **`ANTHROPIC_WORKSPACE_ID` opcional.** Las llaves de usuario sin workspace exigen el
   header `anthropic-workspace-id`; si la variable existe, el cliente lo manda.
+- **Bloque fiscal (CFDI) en la pasada 1** (`docs/09`, ADR 0008). `StatementExtraction`
+  1.1.0 gana `fiscal_documents`; el esquema del modelo pasa a `extraction_chunk.v2` con los
+  campos fiscales en la misma lista citada, así que no rompe la caché (ADR 0005). Los sellos
+  y la cadena original completa no se piden ni se guardan.

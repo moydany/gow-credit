@@ -240,3 +240,10 @@ poder validarse.
   `buyer_payments_count == 0 → qualified_with_limit`, que pide el escenario 11 de `06`
   ("perfil sano sin pagos del comprador → máximo `qualified_with_limit`"); con solo la
   dimensión `buyer` ese escenario podía salir `qualified`.
+
+### Fase 2 (2026-11-04)
+
+- `docs/09` §5 agrega `fiscal_regime` y `cfdi_sat_status` al catálogo, y hace que
+  `identity_match` tome el RFC del receptor del CFDI cuando el encabezado viene
+  enmascarado. Se implementa en la fase 4 (`FEATURE_CATALOG_VERSION` 1.1.0); en la fase 2
+  solo se extrae y se cruza el bloque fiscal.

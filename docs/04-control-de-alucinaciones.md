@@ -136,3 +136,27 @@ una fila se inventa o se omite, el saldo corrido se rompe en esa página, y la v
 leer solo ahí. Lo que no cuadra o no se puede verificar no entra a la decisión: se le
 pregunta al proveedor o va a revisión. Y mido invención y omisión por separado, en CI
 contra ground truth y en producción con la tasa de corrección de los revisores."
+
+---
+
+## Cambios durante la implementación
+
+### Fase 2 (2026-11-04)
+
+- **Sellos del CFDI fuera del contrato** (`docs/09` §4, ADR 0008). Son base64 largo, a
+  veces cortado (Hey) o fuera de la capa de texto (Banamex): un modelo al que se le piden
+  los completa. Solo se registra si están presentes y si se ven truncados.
+- **Cruces fiscales** como verificación gratuita adicional (capa 2): UUID contra la cadena
+  original, certificado del SAT, total = subtotal + IVA, subtotal contra comisiones del
+  periodo, RFC del receptor contra el titular, régimen fiscal contra el tipo de persona.
+- **Saldo corrido tolerante al orden dentro del día.** Algunos bancos aplican los
+  movimientos de un día en otro orden que el impreso (Fondeadora lista intereses e ISR al
+  final del día con saldos de antes del último depósito). Dentro de cada fecha se aplica
+  primero la fila que encadena; si ninguna encadena, es ruptura.
+- **El cuadre global manda sobre los totales impresos.** Si el saldo inicial más abonos
+  menos cargos da exacto el saldo final, una diferencia contra el total impreso de cargos o
+  abonos es de presentación (Fondeadora no cuenta el ISR en su total de retiros) y se
+  reporta como aviso, o como dato informativo si coincide con ISR, comisiones o intereses.
+- **Valor sin cita = no verificado.** Un valor extraído sin página ni texto, que tampoco se
+  ubica en la capa de texto, se conserva como `unverified` (no decide) en lugar de inventar
+  una cita.
