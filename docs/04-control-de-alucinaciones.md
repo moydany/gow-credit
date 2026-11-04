@@ -174,3 +174,12 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   comparten menos sesgos que dos prompts del mismo modelo: un acuerdo vale más y un
   desacuerdo marca `unverified` igual que antes. Las citas nativas de Claude (§3.7) quedan
   solo en el camino de emergencia.
+- **Métricas de §6 implementadas** (ADR 0012, `evals/`). Filas emparejadas en dos rondas
+  (exacta por fecha, monto y sentido; luego un solo campo mal leído), así que invención,
+  omisión y lectura errónea se cuentan aparte. Un valor en un campo que el PDF trae
+  redactado (titular, RFC, CLABE, receptor del CFDI) cuenta como invención. Descripción
+  difusa: `description + reference` contra la fila del banco. Umbrales por documento en
+  `evals/src/thresholds.ts`: precisión ≥ 99.5 %, recall ≥ 99 %, monto y sentido ≥ 99.5 %,
+  fecha y saldo ≥ 99 %, descripción ≥ 90 %, encabezado ≥ 90 %, CFDI ≥ 85 %, documento
+  cuadrado. El cuadre a la primera se reporta sin bloquear. La fidelidad del texto generado
+  (preguntas y `next_steps`) llega con la fase 5, que es donde se genera ese texto.
