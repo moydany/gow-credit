@@ -160,3 +160,7 @@ contra ground truth y en producción con la tasa de corrección de los revisores
 - **Valor sin cita = no verificado.** Un valor extraído sin página ni texto, que tampoco se
   ubica en la capa de texto, se conserva como `unverified` (no decide) en lugar de inventar
   una cita.
+- **Resúmenes consolidados con apartados** (ADR 0009). Si la fórmula directa no cuadra, el
+  cuadre global prueba sin los traspasos internos (`internal_transfer`) y con conceptos del
+  resumen no detallados (rendimientos, comisiones, ISR); una fórmula alternativa solo se
+  acepta exacta al centavo y queda registrada.
