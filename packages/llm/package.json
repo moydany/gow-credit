@@ -1,0 +1,20 @@
+{
+  "name": "@gow/llm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Clientes de modelos: puerto de llamadas estructuradas, adaptador de Mastra sobre Anthropic, precios, caché de respuestas y la interfaz Classifier (Jev o Haiku).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.94",
+    "@gow/contracts": "workspace:*",
+    "@mastra/core": "1.81.0",
+    "@typesafe-ai/sdk": "0.7.0",
+    "zod": "4.6.7"
+  }
+}
