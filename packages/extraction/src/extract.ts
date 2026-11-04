@@ -58,7 +58,7 @@ export const DEFAULT_OPTIONS = {
   maxRetryPages: 4,
 } as const satisfies Partial<ExtractOptions>
 
-const PROMPTS = { system: 1, summary: 2, transactions: 1, retry: 1 } as const
+const PROMPTS = { system: 1, summary: 2, transactions: 2, retry: 1 } as const
 
 function chunkPages(pages: readonly number[], size: number): number[][] {
   const blocks: number[][] = []
@@ -320,6 +320,9 @@ function printedOf(p: Period) {
     totalDebits: p.summary.total_debits.value,
     creditsCount: p.summary.credits_count.value,
     debitsCount: p.summary.debits_count.value,
+    interestEarned: p.summary.interest_earned.value,
+    feesCharged: p.summary.fees_charged.value,
+    taxWithheld: p.summary.tax_withheld.value,
   }
 }
 

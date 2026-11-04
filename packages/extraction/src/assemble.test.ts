@@ -50,6 +50,7 @@ const row = (o: Partial<TransactionOut>): TransactionOut => ({
   amount: '5,000.00',
   type: 'credit',
   balance: '15,000.00',
+  internal_transfer: false,
   snippet: '05/03 SPEI RECIBIDO 5,000.00 15,000.00',
   ...o,
 })

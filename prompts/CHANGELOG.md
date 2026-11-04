@@ -16,7 +16,15 @@ subtotal, IVA, total, RFC y régimen del receptor.
 | `extract_summary.v2` | Pide `fiscal_documents` en la misma pasada que el encabezado (mismo esquema único, ADR 0005): buscar el CFDI en todas las páginas, uno o varios, receptor solo del comprobante, de la cadena original solo tres campos cortos, y nunca transcribir sellos ni la cadena completa. |
 | `classify_document.v2` | Un documento con movimientos y saldos es `bank_statement` aunque traiga la representación impresa de un CFDI; `invoice` solo si el documento entero es el comprobante. |
 
-`extract_system`, `extract_transactions` y `extract_retry_page` siguen en v1. El esquema del
+| `extract_transactions.v2` | Agrega `internal_transfer`: traspasos entre la cuenta y sus propios apartados o cajitas (Nu), que en un resumen consolidado no son entradas ni salidas. |
+
+`extract_summary.v2` también pide no listar en `movement_pages` las secciones de detalle de
+apartados que solo repiten traspasos, y mapear "dinero generado" a `interest_earned`. Motivo:
+en la corrida 1, Nu cuadraba exacto contra los depósitos y gastos impresos sin los traspasos
+con cajitas, y la diferencia global (10,708.38) era exactamente lo movido a cajitas más los
+rendimientos no detallados (ADR 0009).
+
+`extract_system` y `extract_retry_page` siguen en v1. El esquema del
 modelo pasa a `extraction_chunk.v2` (agrega `fiscal_documents`), así que la caché de prompt y
 la de respuestas empiezan de cero para la pasada 1 y los bloques.
 

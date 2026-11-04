@@ -9,6 +9,8 @@ import { round2 } from './normalize.ts'
 export const GLOBAL_TOLERANCE = 1
 /** Fila por fila la aritmética es exacta salvo redondeo. */
 export const ROW_TOLERANCE = 0.011
+/** Una fórmula de cuadre alternativa (sin traspasos internos o con conceptos no detallados) solo se acepta exacta. */
+export const EXACT_TOLERANCE = 0.011
 
 export interface PrintedSummary {
   opening: number | null
@@ -17,6 +19,10 @@ export interface PrintedSummary {
   totalDebits: number | null
   creditsCount: number | null
   debitsCount: number | null
+  /** Conceptos que el banco puede imprimir en el resumen sin detallarlos como movimiento. */
+  interestEarned?: number | null
+  feesCharged?: number | null
+  taxWithheld?: number | null
 }
 
 export interface RowCheck {
@@ -110,28 +116,77 @@ function runChain(txs: readonly Transaction[], opening: number | null): ChainRes
   return { rows, breaks, checked, withoutBalance }
 }
 
+type Adjustment = { item: 'interest_earned' | 'fees_charged' | 'tax_withheld'; amount: number }
+
+interface Sums {
+  credits: number
+  debits: number
+  nCredits: number
+  nDebits: number
+}
+
+function sums(txs: readonly Transaction[]): Sums {
+  const cr = txs.filter((t) => t.type === 'credit')
+  const db = txs.filter((t) => t.type === 'debit')
+  return { credits: round2(cr.reduce((s, t) => s + t.amount, 0)), debits: round2(db.reduce((s, t) => s + t.amount, 0)), nCredits: cr.length, nDebits: db.length }
+}
+
+/** Combinaciones de conceptos del resumen no detallados que pueden entrar al cuadre. */
+function adjustmentSets(p: PrintedSummary): Adjustment[][] {
+  const parts: Adjustment[] = []
+  if (p.interestEarned) parts.push({ item: 'interest_earned', amount: p.interestEarned })
+  if (p.feesCharged) parts.push({ item: 'fees_charged', amount: -p.feesCharged })
+  if (p.taxWithheld) parts.push({ item: 'tax_withheld', amount: -p.taxWithheld })
+  const sets: Adjustment[][] = []
+  for (let mask = 1; mask < 1 << parts.length; mask++) sets.push(parts.filter((_, i) => (mask >> i) & 1))
+  return sets
+}
+
 export function reconcilePeriod(transactions: readonly Transaction[], printed: PrintedSummary): PeriodReconciliation {
-  const credits = round2(transactions.filter((t) => t.type === 'credit').reduce((s, t) => s + t.amount, 0))
-  const debits = round2(transactions.filter((t) => t.type === 'debit').reduce((s, t) => s + t.amount, 0))
-  const nCredits = transactions.filter((t) => t.type === 'credit').length
-  const nDebits = transactions.length - nCredits
+  const all = sums(transactions)
+  const hasInternal = transactions.some((t) => t.internal_transfer)
+  // Resumen consolidado (Nu): los traspasos entre la cuenta y sus apartados no son entradas ni salidas.
+  const external = hasInternal ? sums(transactions.filter((t) => !t.internal_transfer)) : null
 
   const global =
     printed.opening !== null && printed.closing !== null
       ? (() => {
-          const expected = round2(printed.opening + credits - debits)
-          const difference = round2(printed.closing - expected)
-          return { opening_balance: printed.opening, credits, debits, expected_closing: expected, printed_closing: printed.closing, difference, ok: Math.abs(difference) <= GLOBAL_TOLERANCE }
+          const opening = printed.opening
+          const closing = printed.closing
+          const attempt = (base: Sums, excludes: boolean, adj: Adjustment[]) => {
+            const expected = round2(opening + base.credits - base.debits + adj.reduce((s, a) => s + a.amount, 0))
+            const difference = round2(closing - expected)
+            return { opening_balance: opening, credits: base.credits, debits: base.debits, expected_closing: expected, printed_closing: closing, difference, ok: false, excludes_internal_transfers: excludes, adjustments: adj.map((a) => ({ item: a.item, amount: round2(a.amount) })) }
+          }
+          const direct = attempt(all, false, [])
+          if (Math.abs(direct.difference) <= GLOBAL_TOLERANCE) return { ...direct, ok: true }
+          // Fórmulas alternativas, solo si cuadran al centavo: una coincidencia exacta con un concepto impreso no es casualidad.
+          const bases: [Sums, boolean][] = external ? [[external, true], [all, false]] : [[all, false]]
+          for (const [base, excludes] of bases) {
+            for (const adj of [[], ...adjustmentSets(printed)]) {
+              if (!excludes && adj.length === 0) continue
+              const a = attempt(base, excludes, adj)
+              if (Math.abs(a.difference) <= EXACT_TOLERANCE) return { ...a, ok: true }
+            }
+          }
+          return direct
         })()
       : null
 
-  const amountCheck = (printedValue: number | null, extracted: number) => ({
-    printed: printedValue,
-    extracted,
-    difference: printedValue === null ? null : round2(extracted - printedValue),
-    ok: printedValue === null ? null : Math.abs(extracted - printedValue) <= GLOBAL_TOLERANCE,
-  })
-  const countCheck = (printedValue: number | null, extracted: number) => ({ printed: printedValue, extracted, ok: printedValue === null ? null : printedValue === extracted })
+  const amountCheck = (printedValue: number | null, values: number[]) => {
+    const extracted = values.find((v) => printedValue !== null && Math.abs(v - printedValue) <= GLOBAL_TOLERANCE) ?? values[0] ?? 0
+    return {
+      printed: printedValue,
+      extracted,
+      difference: printedValue === null ? null : round2(extracted - printedValue),
+      ok: printedValue === null ? null : Math.abs(extracted - printedValue) <= GLOBAL_TOLERANCE,
+    }
+  }
+  const countCheck = (printedValue: number | null, values: number[]) => {
+    const extracted = values.find((v) => v === printedValue) ?? values[0] ?? 0
+    return { printed: printedValue, extracted, ok: printedValue === null ? null : printedValue === extracted }
+  }
+  const pick = (f: (s: Sums) => number) => (external ? [f(all), f(external)] : [f(all)])
 
   // Saldo corrido: en el orden impreso y, si hay muchas rupturas, al revés (estados que listan del más reciente al más antiguo).
   const withBalance = transactions.filter((t) => t.balance !== null).length
@@ -149,10 +204,10 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
   }
 
   const totals = {
-    credits: amountCheck(printed.totalCredits, credits),
-    debits: amountCheck(printed.totalDebits, debits),
-    credits_count: countCheck(printed.creditsCount, nCredits),
-    debits_count: countCheck(printed.debitsCount, nDebits),
+    credits: amountCheck(printed.totalCredits, pick((s) => s.credits)),
+    debits: amountCheck(printed.totalDebits, pick((s) => s.debits)),
+    credits_count: countCheck(printed.creditsCount, pick((s) => s.nCredits)),
+    debits_count: countCheck(printed.debitsCount, pick((s) => s.nDebits)),
   }
 
   const checks = [global?.ok ?? null, totals.credits.ok, totals.debits.ok, totals.credits_count.ok, totals.debits_count.ok, running?.ok ?? null].filter((x): x is boolean => x !== null)

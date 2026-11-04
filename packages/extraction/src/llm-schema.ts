@@ -129,6 +129,7 @@ export const TransactionOut = z.object({
   amount: z.string().describe('Monto tal como está impreso'),
   type: TransactionType,
   balance: z.string().describe('Saldo impreso en la fila; cadena vacía si la fila no lo trae'),
+  internal_transfer: z.boolean().describe('Traspaso entre la cuenta y sus propios apartados o cajitas'),
   snippet: z.string(),
 })
 export type TransactionOut = z.infer<typeof TransactionOut>

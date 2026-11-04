@@ -68,6 +68,25 @@ describe('reconcilePeriod', () => {
     expect(r.status).toBe('reconciled')
   })
 
+  it('resumen consolidado con apartados (Nu): cuadra sin traspasos internos y con rendimientos no detallados', () => {
+    const rows = [
+      tx('n1', '2025-07-02', 1000, 'credit', null),
+      { ...tx('n2', '2025-07-02', 600, 'debit', null), internal_transfer: true },
+      { ...tx('n3', '2025-07-05', 100, 'credit', null), internal_transfer: true },
+      tx('n4', '2025-07-06', 300, 'debit', null),
+    ]
+    const r = reconcilePeriod(rows, { opening: 500, closing: 1218.24, totalCredits: 1000, totalDebits: 300, creditsCount: null, debitsCount: null, interestEarned: 18.24 }).reconciliation
+    expect(r.global).toMatchObject({ ok: true, excludes_internal_transfers: true, adjustments: [{ item: 'interest_earned', amount: 18.24 }], difference: 0 })
+    expect(r.totals.credits).toMatchObject({ extracted: 1000, ok: true })
+    expect(r.status).toBe('reconciled')
+  })
+
+  it('una fórmula alternativa solo se acepta exacta al centavo', () => {
+    const rows = [tx('a', '2025-07-02', 1000, 'credit', null)]
+    const r = reconcilePeriod(rows, { opening: 0, closing: 1018.74, totalCredits: null, totalDebits: null, creditsCount: null, debitsCount: null, interestEarned: 18.24 }).reconciliation
+    expect(r.global?.ok).toBe(false)
+  })
+
   it('sin saldos ni totales impresos no se puede verificar', () => {
     const r = reconcilePeriod([tx('t1', '2026-03-05', 100, 'debit', null)], printed(null, null)).reconciliation
     expect(r.status).toBe('not_checkable')

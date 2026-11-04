@@ -26,8 +26,11 @@ Pasada 1: llena `summary` y deja `transactions` vacío. El documento tiene {{pag
   periodo, cada una con su página y su texto. Si no aparece una, no la incluyas; no la
   calcules.
 - `movement_pages`: las páginas donde está la tabla de movimientos de ese periodo y esa
-  cuenta. `prints_running_balance`: si la tabla trae una columna de saldo después de cada
-  movimiento (o de la mayoría).
+  cuenta. Si el estado trae además secciones de detalle de sus apartados o cajitas que solo
+  repiten los traspasos con la cuenta, esas páginas no van. `prints_running_balance`: si la
+  tabla trae una columna de saldo después de cada movimiento (o de la mayoría).
+- Si el resumen trae rendimientos o "dinero generado" del periodo, va como
+  `interest_earned`.
 - `fiscal_documents`: los CFDI impresos dentro del documento. Muchos bancos imprimen la
   factura electrónica de sus comisiones ("representación impresa de un CFDI", "Folio fiscal",
   "UUID"), a veces a la mitad del documento y no al final; uno puede traer más de uno, como

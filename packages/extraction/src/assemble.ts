@@ -275,6 +275,7 @@ export function placeRows(rows: readonly TransactionOut[], blockPages: readonly 
         amount,
         type: r.type,
         balance,
+        internal_transfer: r.internal_transfer,
         source: { page: r.page, snippet: (r.snippet.replace(/\s+/g, ' ').trim() || description).slice(0, 600) },
         verification: 'unverified',
         confidence: 0.5,
