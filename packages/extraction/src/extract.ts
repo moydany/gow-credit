@@ -35,6 +35,8 @@ import { pagesWithBreaks, reconcilePeriod, reconciliationScore, type PeriodRecon
 import { checkClabe, checkRfc } from './validators.ts'
 
 export interface ExtractOptions {
+  /** Modelo de extracción. Por defecto claude-opus-5-5; otro valor es un experimento (ADR 0003). */
+  extractionModel?: string
   blockPages: number
   summaryEffort: Effort
   transactionsEffort: Effort
@@ -126,12 +128,13 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
 
   // ---------- Pasada 1
   const system = loadPrompt('extract_system', PROMPTS.system).text
+  const extractionModel = opts.extractionModel ?? EXTRACTION_MODEL
   const visionNote = route === 'vision_only' ? '\n\nLa capa de texto de este PDF está corrupta: lee las imágenes de las páginas.' : ''
   const callChunk = async (purpose: string, promptId: string, instruction: string, effort: Effort, pages: number[], maxOutputTokens: number) => {
     const res = await opts.limit(() =>
       deps.llm.call({
         purpose,
-        model: EXTRACTION_MODEL,
+        model: extractionModel,
         system,
         document: pdfInput,
         instruction: instruction + visionNote,
@@ -140,7 +143,8 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
         promptVersion: promptId,
         effort,
         maxOutputTokens,
-        serverFallback: true,
+        // Solo Opus y Sonnet tienen fallback del lado del servidor; Haiku no.
+        serverFallback: extractionModel === EXTRACTION_MODEL,
       }),
     )
     record(purpose, promptId, effort, pages, res)
@@ -161,7 +165,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   }
   if (summaryOut === null) {
     failureReason = 'no se obtuvo el resumen del documento (pasada 1)'
-    return build({ pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason, status: 'failed' })
+    return build({ extractionModel, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason, status: 'failed' })
   }
   if (summaryOut.document_kind !== 'bank_statement' || (documentType !== 'bank_statement' && classConfidence >= 0.7)) {
     flags.add('not_a_bank_statement')
@@ -174,7 +178,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     }
   }
   const summary = assembleSummary(summaryOut, text)
-  const fiscal = assembleFiscal(summaryOut.fiscal_documents, text)
+  const fiscal = assembleFiscal(summaryOut.fiscal_documents, text, issues)
   if (fiscal.length > 0) flags.add('fiscal_document_present')
   if (summary.accounts.length > 1) flags.add('multi_account')
   if (summary.accounts.some((a) => a.periods.length > 1)) flags.add('multi_period')
@@ -307,7 +311,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   crossCheckFiscal(fiscal, summary.holder, summary.accounts.flatMap((a) => a.periods), issues)
   if (outcome.partial) flags.add('partial_extraction')
 
-  return build({ pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary, fiscal, periodsTx, issues, flags, calls, failureReason, status: outcome.partial ? 'partial' : 'complete' })
+  return build({ extractionModel, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary, fiscal, periodsTx, issues, flags, calls, failureReason, status: outcome.partial ? 'partial' : 'complete' })
 }
 
 // ---------------------------------------------------------------- helpers
@@ -399,6 +403,7 @@ function checkRfcField(rfc: FieldOf<string>, issues: IssueSink): void {
 }
 
 interface BuildInput {
+  extractionModel: string
   pdf: LoadedPdf
   route: 'text_and_vision' | 'vision_only'
   started: Date
@@ -438,7 +443,7 @@ function build(b: BuildInput): StatementExtraction {
       started_at: b.started.toISOString(),
       finished_at: finished.toISOString(),
       duration_ms: finished.getTime() - b.started.getTime(),
-      extraction_model: EXTRACTION_MODEL,
+      extraction_model: b.extractionModel,
       classifier: b.classifier,
       prompts: Object.fromEntries([...new Set(b.calls.map((c) => c.prompt).filter((p): p is string => p !== null))].map((id) => [id.split('.v')[0] ?? id, `v${id.split('.v')[1] ?? '?'}`])),
       calls: b.calls,
@@ -505,6 +510,6 @@ async function finalizeFailed(path: string, bytes: Buffer, started: Date, reason
   const issues = new IssueSink()
   issues.add({ code: 'page_unreadable', severity: 'error', message: reason })
   return Promise.resolve(
-    build({ pdf, route: 'vision_only', started, documentType: 'other', classConfidence: 0, classifierBank: null, classifier: { implementation: 'claude', model: 'none', fallback: true }, summary: null, fiscal: [], periodsTx: new Map(), issues, flags: new Set(['partial_extraction']), calls: [], failureReason: reason, status: 'failed' }),
+    build({ extractionModel: EXTRACTION_MODEL, pdf, route: 'vision_only', started, documentType: 'other', classConfidence: 0, classifierBank: null, classifier: { implementation: 'claude', model: 'none', fallback: true }, summary: null, fiscal: [], periodsTx: new Map(), issues, flags: new Set(['partial_extraction']), calls: [], failureReason: reason, status: 'failed' }),
   )
 }

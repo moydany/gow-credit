@@ -15,31 +15,25 @@ import { checkRfc } from './validators.ts'
 const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i
 const CERT = /^\d{20}$/
 
-/** "2025-02-01T10:12:33", "2025-02-01 10:12:33", "06/08/2025 03:06:55 AM" → "YYYY-MM-DDTHH:mm:ss". */
+/**
+ * Fecha y hora impresa de un CFDI → "YYYY-MM-DDTHH:mm:ss" (hora local): "2025-02-01T10:12:33",
+ * "2025-02-01 10:12:33", "06/08/2025 03:06:55 AM", "01 de Octubre de 2025 a las 23:28:07".
+ * Se separa la hora del texto y la fecha se interpreta con el mismo parser de fechas.
+ */
 export function parseLocalDateTime(raw: string): string | null {
   const s = raw.trim().replace(/\s+/g, ' ')
-  let m = /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s)
-  let date: string | null
-  let hh: number
-  let mm: number
-  let ss: number
-  if (m) {
-    date = m[1] ?? null
-    hh = Number(m[2])
-    mm = Number(m[3])
-    ss = Number(m[4] ?? 0)
-  } else {
-    m = /^(\d{1,2}\/\d{1,2}\/\d{4}) (\d{1,2}):(\d{2})(?::(\d{2}))? ?(AM|PM|a\.? ?m\.?|p\.? ?m\.?)?$/i.exec(s)
-    if (!m) return null
-    date = parseLooseDate(m[1] ?? '', null)
-    hh = Number(m[2])
-    mm = Number(m[3])
-    ss = Number(m[4] ?? 0)
-    const ampm = (m[5] ?? '').toLowerCase().replace(/[^ap]/g, '')
-    if (ampm === 'p' && hh < 12) hh += 12
-    if (ampm === 'a' && hh === 12) hh = 0
-  }
-  if (date === null || hh > 23 || mm > 59 || ss > 59) return null
+  const iso = /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s)
+  const time = iso ? null : /(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(a\.?\s?m\.?|p\.?\s?m\.?|AM|PM))?/i.exec(s)
+  const date = iso ? (iso[1] ?? null) : time ? parseLooseDate(s.slice(0, time.index).replace(/\b(a las|hrs?\.?)\s*$/i, '').trim(), null) : null
+  const parts = iso ? [iso[2], iso[3], iso[4]] : time ? [time[1], time[2], time[3]] : null
+  if (date === null || parts === null) return null
+  let hh = Number(parts[0])
+  const mm = Number(parts[1])
+  const ss = Number(parts[2] ?? 0)
+  const ampm = (time?.[4] ?? '').toLowerCase().replace(/[^ap]/g, '')
+  if (ampm === 'p' && hh < 12) hh += 12
+  if (ampm === 'a' && hh === 12) hh = 0
+  if (hh > 23 || mm > 59 || ss > 59) return null
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date}T${pad(hh)}:${pad(mm)}:${pad(ss)}`
 }
@@ -56,9 +50,23 @@ function upperField(c: { value: string; page: number; snippet: string }, text: P
   return f
 }
 
-export function assembleFiscal(list: readonly FiscalOut[], text: PageText): FiscalDocument[] {
+/**
+ * Un comprobante sin folio fiscal, y sin total más RFC del emisor, no se puede identificar ni
+ * cruzar: es un falso positivo del modelo (Banamex en desarrollo trajo un "withholding" con un
+ * solo campo). Se descarta con un issue informativo.
+ */
+function identifiable(f: FiscalOut): boolean {
+  const has = (n: string) => pick(f.values, n).value.trim().length > 0
+  return has('uuid') || (has('total') && has('issuer_rfc'))
+}
+
+export function assembleFiscal(list: readonly FiscalOut[], text: PageText, issues?: IssueSink): FiscalDocument[] {
   return list
-    .filter((f) => f.values.some((v) => v.value.trim().length > 0))
+    .filter((f) => {
+      if (identifiable(f)) return true
+      issues?.add({ code: 'invalid_uuid', severity: 'info', message: `Se descartó un comprobante fiscal de la página ${String(f.page)} sin folio fiscal ni total con RFC del emisor: no se puede identificar.`, page: f.page > 0 ? f.page : null })
+      return false
+    })
     .map((f, i) => {
       const v = (name: string) => pick(f.values, name)
       const page = text.validPage(f.page) ? f.page : (f.values.find((x) => text.validPage(x.page))?.page ?? 1)

@@ -68,6 +68,7 @@ async function main(): Promise<void> {
       'summary-effort': { type: 'string' },
       'retry-effort': { type: 'string' },
       concurrency: { type: 'string', default: '3' },
+      model: { type: 'string' },
     },
   })
   if (positionals.length === 0) {
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
   const limit = createLimiter(Math.max(1, Number(values.concurrency) || 3))
   const opts = {
     ...DEFAULT_OPTIONS,
+    ...(values.model ? { extractionModel: values.model } : {}),
     blockPages: Math.max(1, Number(values['block-pages']) || DEFAULT_OPTIONS.blockPages),
     transactionsEffort: effort(values['tx-effort'], DEFAULT_OPTIONS.transactionsEffort),
     summaryEffort: effort(values['summary-effort'], DEFAULT_OPTIONS.summaryEffort),
@@ -120,7 +122,7 @@ async function main(): Promise<void> {
       seconds: Math.round((Date.now() - t0) / 1000),
       errors: doc.issues.filter((i) => i.severity === 'error').map((i) => i.code),
     })
-    writeFileSync(join(outDir, 'run-summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), options: { blockPages: opts.blockPages, summaryEffort: opts.summaryEffort, transactionsEffort: opts.transactionsEffort, retryEffort: opts.retryEffort }, total_cost_usd: Math.round(total * 1e6) / 1e6, documents: summary }, null, 2)}\n`)
+    writeFileSync(join(outDir, 'run-summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), options: { extractionModel: values.model ?? 'claude-opus-5-5', blockPages: opts.blockPages, summaryEffort: opts.summaryEffort, transactionsEffort: opts.transactionsEffort, retryEffort: opts.retryEffort }, total_cost_usd: Math.round(total * 1e6) / 1e6, documents: summary }, null, 2)}\n`)
     console.log(line(doc, (Date.now() - t0) / 1000))
     const errors = doc.issues.filter((i) => i.severity === 'error')
     for (const i of errors.slice(0, 4)) console.log(`      ! ${i.code}: ${i.message}`)

@@ -1,6 +1,7 @@
 import { fiscalDocument, missing } from '@gow/contracts/testing'
 import { describe, expect, it } from 'vitest'
-import { crossCheckFiscal, parseLocalDateTime } from './fiscal.ts'
+import { assembleFiscal, crossCheckFiscal, parseLocalDateTime } from './fiscal.ts'
+import { PageText } from './page-text.ts'
 import { IssueSink } from './issues.ts'
 
 const holder = (rfc: string | null, type: 'legal_entity' | 'individual' | null = 'legal_entity') => ({
@@ -14,9 +15,30 @@ describe('parseLocalDateTime', () => {
     ['2025-02-01 10:12:33', '2025-02-01T10:12:33'],
     ['06/08/2025 03:06:55 AM', '2025-08-06T03:06:55'],
     ['06/08/2025 03:06:55 PM', '2025-08-06T15:06:55'],
+    ['01 de Octubre de 2025 a las 23:28:07', '2025-10-01T23:28:07'],
+    ['2025-10-02T00:24:06', '2025-10-02T00:24:06'],
     ['ayer', null],
   ])('%s → %s', (raw, expected) => {
     expect(parseLocalDateTime(raw)).toBe(expected)
+  })
+})
+
+describe('assembleFiscal', () => {
+  it('descarta un comprobante que no se puede identificar', () => {
+    const text = new PageText({ pageTexts: ['x'], textLayer: 'ok', textRepaired: false })
+    const base = { page: 1, snippet: 'CFDI', issuer_seal_present: false, sat_seal_present: false, original_chain_present: false, seals_look_truncated: 'unknown' as const }
+    const issues = new IssueSink()
+    const out = assembleFiscal(
+      [
+        { ...base, kind: 'withholding', values: [{ field: 'cfdi_version', value: '2.0', page: 1, snippet: '2.0' }] },
+        { ...base, kind: 'income', values: [{ field: 'uuid', value: 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B', page: 1, snippet: 'Folio fiscal' }] },
+      ],
+      text,
+      issues,
+    )
+    expect(out.map((f) => f.kind)).toEqual(['income'])
+    expect(out[0]?.id).toBe('f1')
+    expect(issues.issues[0]?.severity).toBe('info')
   })
 })
 
