@@ -1,0 +1,79 @@
+{
+  "$id": "https://gow-credit.local/schema/application-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ApplicationRequest",
+  "$defs": {
+    "ApplicationRequest": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maturity": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Vencimiento de la factura o cuenta por cobrar"
+        },
+        "buyer": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Razón social o nombre comercial del comprador o cadena"
+                },
+                "rfc": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "aliases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Otros nombres con los que puede aparecer en el estado de cuenta"
+                }
+              },
+              "required": [
+                "name",
+                "rfc",
+                "aliases"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "amount",
+        "maturity",
+        "buyer"
+      ],
+      "additionalProperties": false,
+      "title": "Datos de la solicitud"
+    }
+  }
+}

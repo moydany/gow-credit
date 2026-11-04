@@ -1,0 +1,453 @@
+{
+  "$id": "https://gow-credit.local/schema/policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/Policy",
+  "$defs": {
+    "Policy": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "gates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Gate"
+          }
+        },
+        "score": {
+          "type": "object",
+          "properties": {
+            "dimensions": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Dimension"
+              }
+            },
+            "minConfidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Una feature con menor confianza no se usa en la dimensión"
+            }
+          },
+          "required": [
+            "dimensions",
+            "minConfidence"
+          ],
+          "additionalProperties": false
+        },
+        "decision": {
+          "$ref": "#/$defs/DecisionRules"
+        },
+        "clarification": {
+          "type": "object",
+          "properties": {
+            "maxRounds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3,
+              "description": "Rondas de preguntas al proveedor; el producto usa 1"
+            },
+            "askWhenAmountAbovePctOfIncome": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000,
+              "description": "Pregunta por abonos mayores a este % de los ingresos del periodo"
+            }
+          },
+          "required": [
+            "maxRounds",
+            "askWhenAmountAbovePctOfIncome"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "gates",
+        "score",
+        "decision",
+        "clarification"
+      ],
+      "additionalProperties": false,
+      "title": "Política de crédito del tenant",
+      "description": "DSL cerrado validado contra el catálogo de features (docs/03 §4)"
+    },
+    "Gate": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "when": {
+          "description": "La compuerta pasa si la condición se cumple",
+          "$ref": "#/$defs/Condition"
+        },
+        "onFail": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "needs_clarification",
+                "human_review",
+                "not_qualified"
+              ]
+            },
+            "ask": {
+              "type": "string",
+              "enum": [
+                "recent_statement",
+                "identity_fields",
+                "deposit_classification",
+                "reconciliation_gap",
+                "additional_months",
+                "missing_pages"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "onUnknown": {
+          "default": "fail",
+          "description": "Qué hacer si la feature es desconocida (null)",
+          "type": "string",
+          "enum": [
+            "ask",
+            "pass",
+            "fail",
+            "human_review"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "when",
+        "onFail"
+      ],
+      "additionalProperties": false
+    },
+    "Condition": {
+      "type": "object",
+      "properties": {
+        "feature": {
+          "type": "string",
+          "enum": [
+            "months_of_history",
+            "document_age_days",
+            "identity_match",
+            "integrity_ok",
+            "red_flags",
+            "activity_count",
+            "operating_income_monthly",
+            "operating_expenses_monthly",
+            "debt_service_monthly",
+            "new_debt_in_period",
+            "free_cash_flow_monthly",
+            "payment_capacity_pct",
+            "debt_capacity",
+            "avg_daily_balance",
+            "low_balance_days",
+            "income_trend",
+            "buyer_payments_count",
+            "buyer_payments_amount",
+            "recurring_income_share",
+            "top_payer_concentration",
+            "existing_exposure_balance",
+            "existing_exposure_days_past_due",
+            "existing_exposure_payment_ratio",
+            "external_debt_signal",
+            "program_available_limit",
+            "prior_applications",
+            "requested_amount",
+            "buro_score",
+            "sat_status"
+          ]
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "==",
+            "!=",
+            "in",
+            "not_in",
+            "empty",
+            "not_empty"
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "feature",
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    "Dimension": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
+        },
+        "feature": {
+          "type": "string",
+          "enum": [
+            "months_of_history",
+            "document_age_days",
+            "identity_match",
+            "integrity_ok",
+            "red_flags",
+            "activity_count",
+            "operating_income_monthly",
+            "operating_expenses_monthly",
+            "debt_service_monthly",
+            "new_debt_in_period",
+            "free_cash_flow_monthly",
+            "payment_capacity_pct",
+            "debt_capacity",
+            "avg_daily_balance",
+            "low_balance_days",
+            "income_trend",
+            "buyer_payments_count",
+            "buyer_payments_amount",
+            "recurring_income_share",
+            "top_payer_concentration",
+            "existing_exposure_balance",
+            "existing_exposure_days_past_due",
+            "existing_exposure_payment_ratio",
+            "external_debt_signal",
+            "program_available_limit",
+            "prior_applications",
+            "requested_amount",
+            "buro_score",
+            "sat_status"
+          ]
+        },
+        "relativeTo": {
+          "description": "Si existe, la dimensión mide feature / relativeTo",
+          "type": "string",
+          "enum": [
+            "months_of_history",
+            "document_age_days",
+            "identity_match",
+            "integrity_ok",
+            "red_flags",
+            "activity_count",
+            "operating_income_monthly",
+            "operating_expenses_monthly",
+            "debt_service_monthly",
+            "new_debt_in_period",
+            "free_cash_flow_monthly",
+            "payment_capacity_pct",
+            "debt_capacity",
+            "avg_daily_balance",
+            "low_balance_days",
+            "income_trend",
+            "buyer_payments_count",
+            "buyer_payments_amount",
+            "recurring_income_share",
+            "top_payer_concentration",
+            "existing_exposure_balance",
+            "existing_exposure_days_past_due",
+            "existing_exposure_payment_ratio",
+            "external_debt_signal",
+            "program_available_limit",
+            "prior_applications",
+            "requested_amount",
+            "buro_score",
+            "sat_status"
+          ]
+        },
+        "zeroAt": {
+          "type": "number",
+          "description": "Valor (o razón) donde la dimensión da 0 puntos"
+        },
+        "fullAt": {
+          "type": "number",
+          "description": "Valor (o razón) donde la dimensión da todos sus puntos"
+        },
+        "inverse": {
+          "default": false,
+          "description": "true si menos es mejor; exige zeroAt > fullAt",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "weight",
+        "feature",
+        "zeroAt",
+        "fullAt"
+      ],
+      "additionalProperties": false
+    },
+    "DecisionRules": {
+      "type": "object",
+      "properties": {
+        "bands": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Band"
+          }
+        },
+        "caps": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Cap"
+          }
+        },
+        "limitFormula": {
+          "type": "string",
+          "description": "min(band, ...) con términos band, feature o feature - feature (docs/03 §4)"
+        }
+      },
+      "required": [
+        "bands",
+        "limitFormula"
+      ],
+      "additionalProperties": false
+    },
+    "Band": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Puntaje mínimo (0 a 100) para caer en esta banda"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "qualified",
+            "qualified_with_limit",
+            "not_qualified"
+          ]
+        },
+        "limit": {
+          "type": "object",
+          "properties": {
+            "pctOf": {
+              "type": "string",
+              "enum": [
+                "months_of_history",
+                "document_age_days",
+                "identity_match",
+                "integrity_ok",
+                "red_flags",
+                "activity_count",
+                "operating_income_monthly",
+                "operating_expenses_monthly",
+                "debt_service_monthly",
+                "new_debt_in_period",
+                "free_cash_flow_monthly",
+                "payment_capacity_pct",
+                "debt_capacity",
+                "avg_daily_balance",
+                "low_balance_days",
+                "income_trend",
+                "buyer_payments_count",
+                "buyer_payments_amount",
+                "recurring_income_share",
+                "top_payer_concentration",
+                "existing_exposure_balance",
+                "existing_exposure_days_past_due",
+                "existing_exposure_payment_ratio",
+                "external_debt_signal",
+                "program_available_limit",
+                "prior_applications",
+                "requested_amount",
+                "buro_score",
+                "sat_status"
+              ]
+            },
+            "pct": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "pctOf",
+            "pct"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "min",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Cap": {
+      "type": "object",
+      "properties": {
+        "when": {
+          "description": "Si la condición se cumple, el estado no puede ser mejor que maxStatus",
+          "$ref": "#/$defs/Condition"
+        },
+        "maxStatus": {
+          "type": "string",
+          "enum": [
+            "qualified_with_limit",
+            "not_qualified"
+          ]
+        }
+      },
+      "required": [
+        "when",
+        "maxStatus"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

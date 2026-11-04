@@ -12,7 +12,8 @@
     "typecheck": "pnpm -r --if-present run typecheck",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "schema:export": "pnpm -F @gow/contracts schema:export"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
