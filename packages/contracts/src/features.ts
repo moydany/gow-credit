@@ -17,6 +17,12 @@ export type FeatureSource = z.infer<typeof FeatureSource>
 export const IDENTITY_MATCH = ['match', 'partial', 'mismatch'] as const
 export const RED_FLAGS = ['overdraft', 'returned_check', 'garnishment', 'judicial_order', 'tax_requirement'] as const
 export const SAT_STATUS = ['compliant', 'non_compliant'] as const
+/** Claves de régimen fiscal del SAT que acepta `fiscal_regime` (docs/09 §5); otra clave es `other`. */
+export const FISCAL_REGIMES = ['601', '603', '605', '606', '607', '608', '610', '611', '612', '614', '615', '616', '620', '621', '622', '623', '624', '625', '626', 'other'] as const
+/** Estado del CFDI ante el servicio "Verifica CFDI" del SAT (docs/09 §6). Faltan datos → null, nunca not_found. */
+export const CFDI_SAT_STATUS = ['valid', 'cancelled', 'not_found'] as const
+/** Situación del RFC del titular en las listas públicas del SAT: 69-B (EFOS) y no localizados (docs/09 §9.4). */
+export const SAT_LIST_STATUS = ['clear', 'efos_presumed', 'efos_definitive', 'not_located'] as const
 
 export const PriorApplication = z
   .strictObject({
@@ -67,12 +73,22 @@ export const FEATURE_CATALOG = {
   existing_exposure_balance: money({ source: 'existing_credits', unit: 'MXN', description: 'Saldo de créditos vigentes con este prestamista' }),
   existing_exposure_days_past_due: int({ source: 'existing_credits', unit: 'days', description: 'Días de atraso en créditos vigentes con este prestamista' }),
   existing_exposure_payment_ratio: ratio({ source: 'existing_credits', unit: 'ratio', description: 'Cuota vigente / flujo libre' }),
+  existing_exposure_past_due_amount: money({ source: 'existing_credits', unit: 'MXN', description: 'Monto vencido en créditos vigentes con este prestamista: lo que hay que pagar para quedar al corriente' }),
   external_debt_signal: money({ source: 'statement', unit: 'MXN', description: 'Préstamos recibidos y pagos a otras instituciones; buró los confirma cuando exista' }),
   program_available_limit: money({ source: 'program', unit: 'MXN', description: 'Cupo disponible del programa del comprador, configurado por el tenant' }),
   prior_applications: { kind: 'record_list', schema: z.array(PriorApplication), source: 'internal', unit: 'none', description: 'Solicitudes previas del proveedor con este tenant' } as const,
   requested_amount: money({ source: 'request', unit: 'MXN', description: 'Monto solicitado; null si la solicitud no lo trae' }),
   buro_score: int({ source: 'credit_bureau', unit: 'score', description: 'Score de buró; null mientras no exista el adaptador' }),
   sat_status: enumOf(SAT_STATUS, { source: 'tax_authority', unit: 'none', description: 'Opinión de cumplimiento del SAT; null mientras no exista el adaptador' }),
+  // Catálogo 1.1.0: el bloque fiscal (CFDI) como ancla (docs/09 §5 y §9).
+  fiscal_regime: enumOf(FISCAL_REGIMES, { source: 'statement', unit: 'none', description: 'Régimen fiscal del receptor del CFDI del estado de cuenta; null si no hay CFDI o no lo imprime' }),
+  cfdi_sat_status: enumOf(CFDI_SAT_STATUS, { source: 'tax_authority', unit: 'none', description: 'Estado del CFDI ante el SAT; el peor de los comprobantes; null si no se consultó o faltan datos' }),
+  fiscal_anchor_ok: bool({ source: 'statement', unit: 'none', description: 'Comisiones e IVA del CFDI (firmado por el SAT) contra las filas de comisión del estado de cuenta' }),
+  statement_reuse_count: int({ source: 'internal', unit: 'count', description: 'Otras solicitudes de este tenant con el mismo UUID de CFDI' }),
+  statement_seen_elsewhere_days: int({ source: 'internal', unit: 'days', description: 'Días desde que otro prestamista vio el mismo UUID; null si nunca' }),
+  sat_list_status: enumOf(SAT_LIST_STATUS, { source: 'tax_authority', unit: 'none', description: 'Situación del RFC del titular en las listas 69-B y de no localizados' }),
+  income_from_listed_rfc_share: ratio({ source: 'tax_authority', unit: 'ratio', description: 'Parte de los ingresos operativos que viene de pagadores en 69-B definitivo' }),
+  regime_income_plausible: bool({ source: 'statement', unit: 'none', description: 'Ingresos anualizados dentro del tope del régimen (RESICO 626: 3.5 millones)' }),
 } as const
 
 export type FeatureCatalog = typeof FEATURE_CATALOG
@@ -82,7 +98,7 @@ export type FeatureKind = FeatureCatalog[FeatureName]['kind']
 export const FEATURE_NAMES = Object.keys(FEATURE_CATALOG) as [FeatureName, ...FeatureName[]]
 
 /** Versión del catálogo: sube cuando se agrega, quita o cambia una feature. */
-export const FEATURE_CATALOG_VERSION = '1.0.0'
+export const FEATURE_CATALOG_VERSION = '1.1.0'
 
 export const FeatureName = z.enum(FEATURE_NAMES, {
   error: (issue) => `feature desconocida ${JSON.stringify(issue.input)}; el catálogo (docs/03 §3) no la tiene`,

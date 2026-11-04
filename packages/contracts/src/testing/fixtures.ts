@@ -158,7 +158,7 @@ export function sampleProfile(values: FeatureOverrides = {}, provenance: Provena
     catalog_version: FEATURE_CATALOG_VERSION,
     computed_at: '2026-11-04T12:00:00.000Z',
     inputs: { document_sha256: ['a'.repeat(64)], request: null, external: [] },
-    parameters: { low_balance_threshold: 1000, min_classification_confidence: 0.7 },
+    parameters: { low_balance_threshold: 1000, min_classification_confidence: 0.7, debt_capacity_months: 3 },
     features,
   }
 }

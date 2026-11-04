@@ -173,12 +173,21 @@
             "existing_exposure_balance",
             "existing_exposure_days_past_due",
             "existing_exposure_payment_ratio",
+            "existing_exposure_past_due_amount",
             "external_debt_signal",
             "program_available_limit",
             "prior_applications",
             "requested_amount",
             "buro_score",
-            "sat_status"
+            "sat_status",
+            "fiscal_regime",
+            "cfdi_sat_status",
+            "fiscal_anchor_ok",
+            "statement_reuse_count",
+            "statement_seen_elsewhere_days",
+            "sat_list_status",
+            "income_from_listed_rfc_share",
+            "regime_income_plausible"
           ]
         },
         "op": {
@@ -261,12 +270,21 @@
             "existing_exposure_balance",
             "existing_exposure_days_past_due",
             "existing_exposure_payment_ratio",
+            "existing_exposure_past_due_amount",
             "external_debt_signal",
             "program_available_limit",
             "prior_applications",
             "requested_amount",
             "buro_score",
-            "sat_status"
+            "sat_status",
+            "fiscal_regime",
+            "cfdi_sat_status",
+            "fiscal_anchor_ok",
+            "statement_reuse_count",
+            "statement_seen_elsewhere_days",
+            "sat_list_status",
+            "income_from_listed_rfc_share",
+            "regime_income_plausible"
           ]
         },
         "relativeTo": {
@@ -296,12 +314,21 @@
             "existing_exposure_balance",
             "existing_exposure_days_past_due",
             "existing_exposure_payment_ratio",
+            "existing_exposure_past_due_amount",
             "external_debt_signal",
             "program_available_limit",
             "prior_applications",
             "requested_amount",
             "buro_score",
-            "sat_status"
+            "sat_status",
+            "fiscal_regime",
+            "cfdi_sat_status",
+            "fiscal_anchor_ok",
+            "statement_reuse_count",
+            "statement_seen_elsewhere_days",
+            "sat_list_status",
+            "income_from_listed_rfc_share",
+            "regime_income_plausible"
           ]
         },
         "zeroAt": {
@@ -401,12 +428,21 @@
                 "existing_exposure_balance",
                 "existing_exposure_days_past_due",
                 "existing_exposure_payment_ratio",
+                "existing_exposure_past_due_amount",
                 "external_debt_signal",
                 "program_available_limit",
                 "prior_applications",
                 "requested_amount",
                 "buro_score",
-                "sat_status"
+                "sat_status",
+                "fiscal_regime",
+                "cfdi_sat_status",
+                "fiscal_anchor_ok",
+                "statement_reuse_count",
+                "statement_seen_elsewhere_days",
+                "sat_list_status",
+                "income_from_listed_rfc_share",
+                "regime_income_plausible"
               ]
             },
             "pct": {

@@ -32,10 +32,20 @@ export type ProfileFeatures = z.infer<typeof ProfileFeatures>
 export type FeatureValue<K extends keyof FeatureCatalog> = ProfileFeatures[K]
 
 export const ExternalSourceUse = z.strictObject({
-  source: z.enum(['existing_credits', 'credit_bureau', 'tax_authority', 'program']),
+  source: z.enum(['existing_credits', 'credit_bureau', 'tax_authority', 'program', 'internal']),
   simulated: z.boolean(),
   available: z.boolean(),
 })
+
+/** Parámetros con los que se calculó el perfil; se guardan con él para poder re-explicarlo. */
+export const ProfileParameters = z
+  .strictObject({
+    low_balance_threshold: Money.describe('Umbral de saldo bajo para low_balance_days'),
+    min_classification_confidence: Confidence.describe('Debajo de esto un movimiento clasificado cuenta como no clasificado'),
+    debt_capacity_months: z.int().min(1).max(36).describe('Meses de flujo libre que soporta la línea: debt_capacity = flujo libre mensual × este número'),
+  })
+  .meta({ id: 'ProfileParameters' })
+export type ProfileParameters = z.infer<typeof ProfileParameters>
 
 export const Profile = z
   .strictObject({
@@ -46,10 +56,7 @@ export const Profile = z
       request: ApplicationRequest.nullable(),
       external: z.array(ExternalSourceUse),
     }),
-    parameters: z.strictObject({
-      low_balance_threshold: Money.describe('Umbral de saldo bajo para low_balance_days'),
-      min_classification_confidence: Confidence.describe('Debajo de esto un movimiento clasificado cuenta como no clasificado'),
-    }),
+    parameters: ProfileParameters,
     features: ProfileFeatures,
   })
   .meta({ id: 'Profile', title: 'Perfil crediticio', description: 'Catálogo fijo de features (docs/03 §3)' })

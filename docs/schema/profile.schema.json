@@ -8,7 +8,7 @@
       "properties": {
         "catalog_version": {
           "type": "string",
-          "const": "1.0.0"
+          "const": "1.1.0"
         },
         "computed_at": {
           "type": "string",
@@ -46,7 +46,8 @@
                       "existing_credits",
                       "credit_bureau",
                       "tax_authority",
-                      "program"
+                      "program",
+                      "internal"
                     ]
                   },
                   "simulated": {
@@ -73,24 +74,7 @@
           "additionalProperties": false
         },
         "parameters": {
-          "type": "object",
-          "properties": {
-            "low_balance_threshold": {
-              "type": "number",
-              "description": "Umbral de saldo bajo para low_balance_days"
-            },
-            "min_classification_confidence": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "description": "Debajo de esto un movimiento clasificado cuenta como no clasificado"
-            }
-          },
-          "required": [
-            "low_balance_threshold",
-            "min_classification_confidence"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/ProfileParameters"
         },
         "features": {
           "$ref": "#/$defs/ProfileFeatures"
@@ -178,6 +162,33 @@
       ],
       "additionalProperties": false,
       "title": "Datos de la solicitud"
+    },
+    "ProfileParameters": {
+      "type": "object",
+      "properties": {
+        "low_balance_threshold": {
+          "type": "number",
+          "description": "Umbral de saldo bajo para low_balance_days"
+        },
+        "min_classification_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Debajo de esto un movimiento clasificado cuenta como no clasificado"
+        },
+        "debt_capacity_months": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 36,
+          "description": "Meses de flujo libre que soporta la línea: debt_capacity = flujo libre mensual × este número"
+        }
+      },
+      "required": [
+        "low_balance_threshold",
+        "min_classification_confidence",
+        "debt_capacity_months"
+      ],
+      "additionalProperties": false
     },
     "ProfileFeatures": {
       "type": "object",
@@ -1622,6 +1633,68 @@
           ],
           "additionalProperties": false
         },
+        "existing_exposure_past_due_amount": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Monto no negativo, a lo más dos decimales"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
         "external_debt_signal": {
           "type": "object",
           "properties": {
@@ -1999,6 +2072,524 @@
             "note"
           ],
           "additionalProperties": false
+        },
+        "fiscal_regime": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "601",
+                    "603",
+                    "605",
+                    "606",
+                    "607",
+                    "608",
+                    "610",
+                    "611",
+                    "612",
+                    "614",
+                    "615",
+                    "616",
+                    "620",
+                    "621",
+                    "622",
+                    "623",
+                    "624",
+                    "625",
+                    "626",
+                    "other"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "cfdi_sat_status": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "valid",
+                    "cancelled",
+                    "not_found"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "fiscal_anchor_ok": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "null = desconocido",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "statement_reuse_count": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "statement_seen_elsewhere_days": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "sat_list_status": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "clear",
+                    "efos_presumed",
+                    "efos_definitive",
+                    "not_located"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "income_from_listed_rfc_share": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Fracción: 0.25 = 25 %"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "regime_income_plausible": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "null = desconocido",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -2025,12 +2616,21 @@
         "existing_exposure_balance",
         "existing_exposure_days_past_due",
         "existing_exposure_payment_ratio",
+        "existing_exposure_past_due_amount",
         "external_debt_signal",
         "program_available_limit",
         "prior_applications",
         "requested_amount",
         "buro_score",
-        "sat_status"
+        "sat_status",
+        "fiscal_regime",
+        "cfdi_sat_status",
+        "fiscal_anchor_ok",
+        "statement_reuse_count",
+        "statement_seen_elsewhere_days",
+        "sat_list_status",
+        "income_from_listed_rfc_share",
+        "regime_income_plausible"
       ],
       "additionalProperties": false
     },
