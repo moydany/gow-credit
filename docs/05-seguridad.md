@@ -246,3 +246,18 @@ fijadas, gitleaks y osv-scanner en CI, logs sin PII, límites de tamaño y pági
 extractor sin herramientas, y el eval de inyección. Lo demás (cifrado de columna, ARCO,
 política de retención, DAST, pentest, runbook) queda en este documento como plan con
 prioridad, para discutirlo en la llamada.
+
+---
+
+## Cambios durante la implementación
+
+### Fase 2 (2026-11-04)
+
+- **Excepción planeada al aislamiento por tenant** (`docs/09` §9.2): índice de plataforma
+  de `HMAC(UUID del CFDI)` con llave de plataforma, fuera del RLS de los tenants, de solo
+  escritura para ellos, cuya lectura devuelve únicamente "visto en otro prestamista hace N
+  días". Detecta solicitudes simultáneas a varios prestamistas sin revelar RFC, montos ni
+  quién. Línea de corte: **si alcanza**; se diseña en la fase 6.
+- **Sellos del CFDI fuera del contrato** (ADR 0008): ni se piden al modelo ni se guardan.
+- **Sin PII en logs**: el logger de Mastra se silencia porque imprime el error crudo con
+  headers y partes del request; los errores salen saneados con código estable.

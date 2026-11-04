@@ -164,3 +164,7 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   cuadre global prueba sin los traspasos internos (`internal_transfer`) y con conceptos del
   resumen no detallados (rendimientos, comisiones, ISR); una fórmula alternativa solo se
   acepta exacta al centavo y queda registrada.
+- **Fecha de timbrado como reloj confiable** (`docs/09` §9.6): si el timbrado del CFDI
+  queda a más de 30 días del fin del periodo, aviso (documento generado mucho después o
+  periodo editado). El ancla de comisiones (`09` §9.1) entra en la fase 4, cuando los
+  movimientos estén clasificados como `fee`.

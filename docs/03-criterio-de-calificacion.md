@@ -247,3 +247,9 @@ poder validarse.
   `identity_match` tome el RFC del receptor del CFDI cuando el encabezado viene
   enmascarado. Se implementa en la fase 4 (`FEATURE_CATALOG_VERSION` 1.1.0); en la fase 2
   solo se extrae y se cruza el bloque fiscal.
+- `docs/09` §9 agrega al catálogo, para la fase 4: `fiscal_anchor_ok` (comisiones del CFDI
+  contra las filas `fee`), `statement_reuse_count`, `statement_seen_elsewhere_days`,
+  `sat_list_status`, `income_from_listed_rfc_share` y `regime_income_plausible`; y que
+  `buyer_payments_*` y `top_payer_concentration` agrupen por `counterparty_rfc` cuando
+  existe. En la fase 2 ya quedan `TransactionClassification.counterparty_rfc` en el contrato
+  y `findCounterpartyRfc` (regex validada) listos para la clasificación de movimientos.

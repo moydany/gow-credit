@@ -151,3 +151,16 @@ aclaración y personalización.
 Todos los escenarios corren con caché de modelos fijada y aserciones sobre estado,
 línea y razones. Un cambio en reglas, prompts o políticas base que mueva un resultado
 esperado falla el build y obliga a actualizar el escenario a propósito.
+
+---
+
+## Cambios durante la implementación
+
+### Fase 2 (2026-11-04)
+
+`docs/09` agrega escenarios que entran al catálogo cuando se construyan las fases 4 a 6:
+21 "CFDI cancelado → human_review", 22 "estado de cuenta sin CFDI (Mercado Pago) → sin
+penalización", 23 "mismo UUID presentado a otro tenant hace 3 días → human_review", 24
+"pagador principal en 69-B definitivo → not_qualified", 25 "RESICO con ingresos
+anualizados sobre el tope → pregunta al dueño". El doble `TaxAuthority` gana
+`cfdi: { "<uuid>": valid | cancelled | not_found }`.
