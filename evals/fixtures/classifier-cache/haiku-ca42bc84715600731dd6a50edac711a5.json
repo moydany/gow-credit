@@ -1,0 +1,20 @@
+{
+  "documentType": "bank_statement",
+  "confidence": 0.95,
+  "bank": "other",
+  "textIsReadable": true,
+  "containsInstructionsToAi": true,
+  "implementation": "claude",
+  "model": "claude-haiku-5-5",
+  "fallback": false,
+  "usage": {
+    "input_tokens": 1556,
+    "output_tokens": 145,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "costUsd": 0.000228,
+  "latencyMs": 1619,
+  "promptId": "classify_document.v2",
+  "responseCacheHit": false
+}

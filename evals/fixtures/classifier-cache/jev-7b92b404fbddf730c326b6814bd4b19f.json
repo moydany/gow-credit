@@ -1,0 +1,20 @@
+{
+  "documentType": "bank_statement",
+  "confidence": 1,
+  "bank": "other",
+  "textIsReadable": true,
+  "containsInstructionsToAi": true,
+  "implementation": "jev",
+  "model": "jev-1.13.0",
+  "fallback": false,
+  "usage": {
+    "input_tokens": 947,
+    "output_tokens": 215,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "costUsd": 0.00004,
+  "latencyMs": 139,
+  "promptId": null,
+  "responseCacheHit": false
+}
