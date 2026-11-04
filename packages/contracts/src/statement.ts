@@ -12,9 +12,9 @@
  */
 import { z } from 'zod'
 import { DocumentType, Provenance, TransactionCategory, TransactionType, Verification } from './enums.ts'
-import { Confidence, Count, Currency, field, IsoDate, IsoDateTime, LocalId, Money, Sha256, SignedMoney, SourceRef, TokenUsage } from './primitives.ts'
+import { Confidence, Count, Currency, field, IsoDate, IsoDateTime, IsoLocalDateTime, LocalId, Money, Sha256, SignedMoney, SourceRef, TokenUsage } from './primitives.ts'
 
-export const STATEMENT_SCHEMA_VERSION = '1.0.0'
+export const STATEMENT_SCHEMA_VERSION = '1.1.0'
 
 /** Tipo de producto de la cuenta. */
 export const AccountType = z.enum(['checking', 'savings', 'investment', 'credit_card', 'other'])
@@ -168,6 +168,50 @@ export const Holder = z
   .meta({ id: 'Holder' })
 export type Holder = z.infer<typeof Holder>
 
+/**
+ * CFDI impreso dentro del estado de cuenta (docs/09 §3): la factura que el banco emite al
+ * titular por sus comisiones, o la constancia de retenciones de ISR. Es del titular, no de
+ * una cuenta. Los sellos y la cadena original completa **no tienen campo**: un modelo al que
+ * se le piden los "completa"; solo se registra si están y si se ven cortados. De la cadena
+ * original se leen solo tres campos cortos, para cruzarlos con el encabezado del CFDI.
+ */
+export const FiscalDocument = z
+  .strictObject({
+    id: LocalId.describe('f1, f2, ...'),
+    kind: z.enum(['income', 'withholding', 'other']).describe('income: CFDI de ingreso (tipo I); withholding: constancia de retenciones'),
+    version: field(z.string()).describe('"4.0", "3.3"; "2.0" en retenciones'),
+    uuid: field(z.string()).describe('Folio fiscal, 8-4-4-4-12 hexadecimal'),
+    series: field(z.string()),
+    folio: field(z.string()),
+    issued_at: field(IsoLocalDateTime).describe('Fecha de expedición o emisión, hora local'),
+    certified_at: field(IsoLocalDateTime).describe('Fecha de timbrado o certificación, hora local'),
+    issuer_certificate: field(z.string()).describe('Número de serie del certificado del emisor (20 dígitos)'),
+    sat_certificate: field(z.string()).describe('Número de serie del certificado del SAT (20 dígitos)'),
+    pac_rfc: field(z.string()).describe('RFC del proveedor de certificación'),
+    issuer: z.strictObject({ rfc: field(z.string()), name: field(z.string()), tax_regime: field(z.string()) }),
+    receiver: z
+      .strictObject({ rfc: field(z.string()), name: field(z.string()), tax_regime: field(z.string()), cfdi_use: field(z.string()), postal_code: field(z.string()) })
+      .describe('Solo del bloque fiscal; si viene vacío es null, nunca se rellena con el titular del encabezado'),
+    payment_form: field(z.string()).describe('Clave de forma de pago, por ejemplo "03"'),
+    payment_method: field(z.string()).describe('"PUE" o "PPD"'),
+    currency: field(Currency),
+    subtotal: field(Money),
+    tax: field(Money).describe('IVA trasladado'),
+    total: field(Money),
+    seals: z.strictObject({
+      issuer_present: z.boolean(),
+      sat_present: z.boolean(),
+      chain_present: z.boolean(),
+      looks_truncated: z.boolean().nullable().describe('true si algún sello se ve cortado; null si no se puede saber'),
+    }),
+    original_chain: z
+      .strictObject({ uuid: field(z.string()), certified_at: field(IsoLocalDateTime), sat_certificate: field(z.string()) })
+      .describe('Solo los tres campos cortos de la cadena original del complemento de certificación'),
+    source: SourceRef,
+  })
+  .meta({ id: 'FiscalDocument' })
+export type FiscalDocument = z.infer<typeof FiscalDocument>
+
 /** Códigos de los problemas que produce la verificación. Cerrados: el reporte y los evals los cuentan. */
 export const IssueCode = z.enum([
   'reconciliation_mismatch',
@@ -188,6 +232,11 @@ export const IssueCode = z.enum([
   'possible_prompt_injection',
   'not_a_bank_statement',
   'large_unclassified_credit',
+  'invalid_uuid',
+  'fiscal_chain_mismatch',
+  'fiscal_totals_mismatch',
+  'fiscal_fees_mismatch',
+  'fiscal_receiver_mismatch',
 ])
 export type IssueCode = z.infer<typeof IssueCode>
 
@@ -217,6 +266,7 @@ export const DocumentFlag = z.enum([
   'partial_extraction',
   'reconciliation_failed',
   'possible_prompt_injection',
+  'fiscal_document_present',
 ])
 export type DocumentFlag = z.infer<typeof DocumentFlag>
 
@@ -278,6 +328,7 @@ export const StatementExtraction = z
     bank_name: field(z.string()).describe('Institución emisora tal como aparece'),
     holder: Holder,
     accounts: z.array(Account),
+    fiscal_documents: z.array(FiscalDocument).describe('CFDI impresos en el documento (docs/09); lista vacía si no hay'),
     issues: z.array(Issue),
     flags: z.array(DocumentFlag),
     extraction: ExtractionRun,
@@ -302,6 +353,12 @@ export const StatementExtraction = z
     })
     doc.issues.forEach((i, ii) => {
       claim(i.id, ['issues', ii, 'id'])
+    })
+    doc.fiscal_documents.forEach((f, fi) => {
+      claim(f.id, ['fiscal_documents', fi, 'id'])
+      if (f.source.page > doc.document.page_count) {
+        ctx.addIssue({ code: 'custom', path: ['fiscal_documents', fi, 'source', 'page'], message: `la página ${String(f.source.page)} no existe; el documento tiene ${String(doc.document.page_count)}` })
+      }
     })
   })
   .meta({ id: 'StatementExtraction', title: 'Extracción de estado de cuenta', description: 'Contrato de extracción de GOW Credit (docs/07 B)' })

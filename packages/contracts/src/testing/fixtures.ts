@@ -5,7 +5,7 @@
 import type { Provenance } from '../enums.ts'
 import { FEATURE_CATALOG, FEATURE_CATALOG_VERSION, type FeatureName } from '../features.ts'
 import type { Profile, ProfileFeatures } from '../profile.ts'
-import { STATEMENT_SCHEMA_VERSION, type Account, type Period, type StatementExtraction, type Transaction } from '../statement.ts'
+import { STATEMENT_SCHEMA_VERSION, type Account, type FiscalDocument, type Period, type StatementExtraction, type Transaction } from '../statement.ts'
 
 export function extracted<T>(value: T, page = 1, snippet = String(value)) {
   return { value, source: { page, snippet }, verification: 'verified' as const, confidence: 1, provenance: 'extracted' as const }
@@ -76,6 +76,37 @@ export function account(id: string, periods: Period[], type: 'checking' | 'inves
   }
 }
 
+/** CFDI sintético de comisiones (tipo I), con todos sus campos legibles y sellos completos. */
+export function fiscalDocument(id = 'f1', page = 3, overrides: Partial<FiscalDocument> = {}): FiscalDocument {
+  const uuid = 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B'
+  const sat = '00001000000700000001'
+  return {
+    id,
+    kind: 'income',
+    version: extracted('4.0', page),
+    uuid: extracted(uuid, page),
+    series: missing(),
+    folio: extracted('F-1001', page),
+    issued_at: extracted('2026-04-01T10:15:00', page),
+    certified_at: extracted('2026-04-01T10:15:07', page),
+    issuer_certificate: extracted('00001000000500000002', page),
+    sat_certificate: extracted(sat, page),
+    pac_rfc: extracted('SAT970701NN3', page),
+    issuer: { rfc: extracted('BFI990101AB1', page), name: extracted('BANCO FICTICIO', page), tax_regime: extracted('601', page) },
+    receiver: { rfc: extracted('XAXX010101000', page), name: extracted('COMERCIALIZADORA DE PRUEBA', page), tax_regime: extracted('601', page), cfdi_use: extracted('G03', page), postal_code: extracted('06600', page) },
+    payment_form: extracted('03', page),
+    payment_method: extracted('PUE', page),
+    currency: extracted('MXN', page),
+    subtotal: extracted(240, page),
+    tax: extracted(38.4, page),
+    total: extracted(278.4, page),
+    seals: { issuer_present: true, sat_present: true, chain_present: true, looks_truncated: false },
+    original_chain: { uuid: extracted(uuid, page), certified_at: extracted('2026-04-01T10:15:07', page), sat_certificate: extracted(sat, page) },
+    source: { page, snippet: 'Este documento es una representación impresa de un CFDI' },
+    ...overrides,
+  }
+}
+
 /** Estado sintético con dos cuentas (cheques + inversión) y dos periodos en la primera. */
 export function sampleStatement(): StatementExtraction {
   const p1 = period('a1.p1', '2026-03-01', '2026-03-31', [tx('a1.p1.t1', '2026-03-05', 5000, 'credit', 15000), tx('a1.p1.t2', '2026-03-12', 1250.5, 'debit', 13749.5)], 10000)
@@ -88,6 +119,7 @@ export function sampleStatement(): StatementExtraction {
     bank_name: extracted('BANCO FICTICIO'),
     holder: { name: extracted('COMERCIALIZADORA DE PRUEBA SA DE CV'), rfc: extracted('XAXX010101000'), holder_type: extracted('legal_entity') },
     accounts: [account('a1', [p1, p2]), account('a2', [inv], 'investment')],
+    fiscal_documents: [],
     issues: [],
     flags: ['multi_account', 'multi_period'],
     extraction: {

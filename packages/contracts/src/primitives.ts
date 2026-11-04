@@ -38,6 +38,9 @@ export const IsoDate = z.iso.date()
 /** Fecha y hora ISO 8601 con zona. */
 export const IsoDateTime = z.iso.datetime({ offset: true })
 
+/** Fecha y hora local sin zona (YYYY-MM-DDTHH:mm:ss): así imprimen los CFDI (hora de México). */
+export const IsoLocalDateTime = z.iso.datetime({ local: true, offset: true })
+
 /** Moneda ISO 4217. */
 export const Currency = z.string().regex(/^[A-Z]{3}$/, { error: 'la moneda debe ser un código ISO 4217 de tres letras (MXN, USD)' })
 

@@ -8,7 +8,7 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "1.0.0"
+          "const": "1.1.0"
         },
         "document": {
           "type": "object",
@@ -151,6 +151,13 @@
             "$ref": "#/$defs/Account"
           }
         },
+        "fiscal_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FiscalDocument"
+          },
+          "description": "CFDI impresos en el documento (docs/09); lista vacía si no hay"
+        },
         "issues": {
           "type": "array",
           "items": {
@@ -169,7 +176,8 @@
               "multi_period",
               "partial_extraction",
               "reconciliation_failed",
-              "possible_prompt_injection"
+              "possible_prompt_injection",
+              "fiscal_document_present"
             ]
           }
         },
@@ -184,6 +192,7 @@
         "bank_name",
         "holder",
         "accounts",
+        "fiscal_documents",
         "issues",
         "flags",
         "extraction"
@@ -1966,6 +1975,1489 @@
       ],
       "additionalProperties": false
     },
+    "FiscalDocument": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "description": "f1, f2, ..."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "income",
+            "withholding",
+            "other"
+          ],
+          "description": "income: CFDI de ingreso (tipo I); withholding: constancia de retenciones"
+        },
+        "version": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "\"4.0\", \"3.3\"; \"2.0\" en retenciones"
+        },
+        "uuid": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "Folio fiscal, 8-4-4-4-12 hexadecimal"
+        },
+        "series": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false
+        },
+        "folio": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false
+        },
+        "issued_at": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d))|(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "Fecha de expedición o emisión, hora local"
+        },
+        "certified_at": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d))|(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "Fecha de timbrado o certificación, hora local"
+        },
+        "issuer_certificate": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "Número de serie del certificado del emisor (20 dígitos)"
+        },
+        "sat_certificate": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "Número de serie del certificado del SAT (20 dígitos)"
+        },
+        "pac_rfc": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "RFC del proveedor de certificación"
+        },
+        "issuer": {
+          "type": "object",
+          "properties": {
+            "rfc": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "name": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "tax_regime": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "rfc",
+            "name",
+            "tax_regime"
+          ],
+          "additionalProperties": false
+        },
+        "receiver": {
+          "type": "object",
+          "properties": {
+            "rfc": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "name": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "tax_regime": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "cfdi_use": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "postal_code": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "rfc",
+            "name",
+            "tax_regime",
+            "cfdi_use",
+            "postal_code"
+          ],
+          "additionalProperties": false,
+          "description": "Solo del bloque fiscal; si viene vacío es null, nunca se rellena con el titular del encabezado"
+        },
+        "payment_form": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "Clave de forma de pago, por ejemplo \"03\""
+        },
+        "payment_method": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "\"PUE\" o \"PPD\""
+        },
+        "currency": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false
+        },
+        "subtotal": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Monto no negativo, a lo más dos decimales"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false
+        },
+        "tax": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Monto no negativo, a lo más dos decimales"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false,
+          "description": "IVA trasladado"
+        },
+        "total": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Monto no negativo, a lo más dos decimales"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "verification",
+            "confidence",
+            "provenance"
+          ],
+          "additionalProperties": false
+        },
+        "seals": {
+          "type": "object",
+          "properties": {
+            "issuer_present": {
+              "type": "boolean"
+            },
+            "sat_present": {
+              "type": "boolean"
+            },
+            "chain_present": {
+              "type": "boolean"
+            },
+            "looks_truncated": {
+              "description": "true si algún sello se ve cortado; null si no se puede saber",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "issuer_present",
+            "sat_present",
+            "chain_present",
+            "looks_truncated"
+          ],
+          "additionalProperties": false
+        },
+        "original_chain": {
+          "type": "object",
+          "properties": {
+            "uuid": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "certified_at": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d))|(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            },
+            "sat_certificate": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SourceRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "verification": {
+                  "type": "string",
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "conflict"
+                  ]
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "extracted",
+                    "owner_answer",
+                    "analyst_answer",
+                    "external"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "source",
+                "verification",
+                "confidence",
+                "provenance"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "uuid",
+            "certified_at",
+            "sat_certificate"
+          ],
+          "additionalProperties": false,
+          "description": "Solo los tres campos cortos de la cadena original del complemento de certificación"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "uuid",
+        "series",
+        "folio",
+        "issued_at",
+        "certified_at",
+        "issuer_certificate",
+        "sat_certificate",
+        "pac_rfc",
+        "issuer",
+        "receiver",
+        "payment_form",
+        "payment_method",
+        "currency",
+        "subtotal",
+        "tax",
+        "total",
+        "seals",
+        "original_chain",
+        "source"
+      ],
+      "additionalProperties": false
+    },
     "Issue": {
       "type": "object",
       "properties": {
@@ -1993,7 +3485,12 @@
             "duplicate_transaction_removed",
             "possible_prompt_injection",
             "not_a_bank_statement",
-            "large_unclassified_credit"
+            "large_unclassified_credit",
+            "invalid_uuid",
+            "fiscal_chain_mismatch",
+            "fiscal_totals_mismatch",
+            "fiscal_fees_mismatch",
+            "fiscal_receiver_mismatch"
           ]
         },
         "severity": {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { StatementExtraction } from './statement.ts'
-import { sampleStatement, tx } from './testing/fixtures.ts'
+import { fiscalDocument, missing, sampleStatement, tx } from './testing/fixtures.ts'
 
 function issues(input: unknown) {
   const res = StatementExtraction.safeParse(input)
@@ -75,8 +75,42 @@ describe('StatementExtraction', () => {
     expect(issues(doc)[0]).toEqual({ path: 'accounts.0.periods.0.transactions.2.source.page', message: 'la página 9 no existe; el documento tiene 3' })
   })
 
+  it('acepta un CFDI con receptor vacío y sellos truncados (como Hey)', () => {
+    const doc = sampleStatement()
+    doc.fiscal_documents = [
+      fiscalDocument('f1', 3, {
+        receiver: { rfc: missing(), name: missing(), tax_regime: extracted612(), cfdi_use: missing(), postal_code: missing() },
+        seals: { issuer_present: true, sat_present: true, chain_present: true, looks_truncated: true },
+      }),
+    ]
+    expect(StatementExtraction.safeParse(doc).success).toBe(true)
+  })
+
+  it('acepta dos comprobantes en un documento (como Inbursa: ingreso y retenciones)', () => {
+    const doc = sampleStatement()
+    doc.fiscal_documents = [fiscalDocument('f1', 2), fiscalDocument('f2', 3, { kind: 'withholding' })]
+    expect(StatementExtraction.parse(doc).fiscal_documents.map((f) => f.kind)).toEqual(['income', 'withholding'])
+  })
+
+  it('el contrato no tiene dónde poner un sello ni la cadena original completa', () => {
+    const doc = sampleStatement()
+    doc.fiscal_documents = [{ ...fiscalDocument(), issuer_seal: 'kZx9...base64' } as never]
+    expect(issues(doc)[0]?.message).toContain('issuer_seal')
+  })
+
+  it('acepta fechas fiscales en hora local sin zona', () => {
+    const doc = sampleStatement()
+    const f = fiscalDocument()
+    doc.fiscal_documents = [{ ...f, issued_at: { ...f.issued_at, value: '2026-04-01 10:15:00' } }]
+    expect(issues(doc)[0]?.path).toBe('fiscal_documents.0.issued_at.value')
+  })
+
   it('rechaza llaves que no están en el contrato', () => {
     const doc = { ...sampleStatement(), confidence_overall: 0.9 }
     expect(issues(doc)[0]?.message).toContain('confidence_overall')
   })
 })
+
+function extracted612() {
+  return { value: '612', source: { page: 3, snippet: 'Régimen Fiscal: 612' }, verification: 'verified' as const, confidence: 1, provenance: 'extracted' as const }
+}
