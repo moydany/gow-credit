@@ -1,0 +1,13 @@
+# datos sensibles: PDFs de desarrollo y evaluación, nunca se versionan
+data/
+# secretos
+.env
+.env.*
+!.env.example
+# dependencias y builds
+node_modules/
+dist/
+.turbo/
+coverage/
+# sistema
+.DS_Store

@@ -1,0 +1,248 @@
+# Seguridad del sistema
+
+Fecha: 2026-11-04. Marco de referencia: OWASP ASVS 5.0 (mayo 2025) como estándar de
+verificación, nivel 2 como objetivo; OWASP Top 10 para aplicaciones con LLM (edición
+2025) para los riesgos propios del modelo; LFPDPPP (nueva ley publicada en el DOF el 20
+de marzo de 2025) para datos personales y financieros en México. GOW opera para
+prestamistas y su sitio promete "software de nivel bancario" y aislamiento multi-tenant,
+así que el diseño asume que un cliente va a pedir evidencia de esto.
+
+## 1. Modelo de amenazas
+
+**Activos**: estados de cuenta (datos financieros y personales: RFC, CLABE, nombre,
+movimientos), decisiones de crédito y su explicación, políticas de cada prestamista
+(secreto comercial), credenciales (Anthropic, TypeSafe, Resend, sesión de WhatsApp,
+Supabase), y la integridad del motor (que nadie altere una decisión).
+
+**Actores**: proveedor malicioso (sube un PDF alterado o con instrucciones ocultas),
+tenant curioso (intenta ver datos de otro prestamista), atacante externo (API, webhooks,
+cadena de suministro de npm), insider (acceso a base o a logs), y el propio proveedor
+de LLM (retención de datos).
+
+**Fronteras de confianza**: navegador y WhatsApp del proveedor → API; API → cola y
+worker; worker → Anthropic y TypeSafe; Edge Functions → base; backoffice del tenant → API.
+Todo lo que cruza una frontera se valida con Zod y se autentica.
+
+## 2. Identidad, acceso y aislamiento multi-tenant
+
+- **Backoffice**: Supabase Auth con JWT; el `tenant_id` va en el JWT como claim firmado,
+  nunca como parámetro. Un solo rol en esta versión: la pertenencia al tenant es la
+  autorización completa, con bitácora por usuario desde el primer día para poder
+  introducir roles después. MFA disponible y recomendado; obligatorio cuando existan
+  roles con permiso de activar políticas.
+- **API programática**: llaves por tenant, con alcance (`ingest`, `read`, `policies`),
+  guardadas como hash, rotables y revocables; se muestran una sola vez.
+- **RLS en todas las tablas de negocio**, sin excepción, con prueba automatizada: un
+  test crea dos tenants y verifica, tabla por tabla, que A no lee ni escribe filas de B.
+  Las políticas usan `(select auth.uid())` por rendimiento. Un `pg_tables` check en CI
+  falla si una tabla nueva no tiene RLS.
+- **`service_role` solo en servidor** (worker, migraciones), nunca en Edge Functions
+  expuestas ni en el frontend. Las Edge Functions validan el JWT o la firma del webhook
+  antes de tocar la base. Las funciones `security definer` se revisan una por una.
+- **Roles de base mínimos**: `api_role` (lectura y escritura acotadas), `worker_role`
+  (colas y extracciones), `readonly_role` (analítica). pg-boss opera en su propio
+  esquema con su rol.
+- **Mastra** escribe sus tablas en un esquema separado con un rol que no alcanza el
+  esquema de negocio.
+
+## 2b. Aislamiento por canal: un número de WhatsApp no ve datos de otro
+
+Principio: **el número de teléfono no es una identidad; la identidad es un vínculo
+verificado entre tenant, proveedor y número.** Nada que llegue por WhatsApp entra al
+sistema hasta que se resuelve a ese vínculo, y el proceso de WhatsApp no tiene acceso a
+ningún dato de negocio.
+
+### Vínculo verificado
+
+- Tabla `supplier_contacts(tenant_id, supplier_id, channel, address, verified_at,
+  verification_method)`. El número lo registra el tenant desde su onboarding (KYC) o lo
+  verifica el proveedor con un código de un solo uso enviado por otro canal (correo con
+  Resend o un enlace del backoffice). Un número sin `verified_at` no recibe ni envía nada.
+- WhatsApp ya autentica que el mensaje viene de ese número (verificación de SIM). Lo que
+  no garantiza es quién está detrás del número; por eso existe el vínculo y por eso las
+  respuestas de alto impacto (confirmar identidad, RFC, CLABE) exigen además un enlace de
+  un solo uso por correo, no solo WhatsApp. Esto cubre SIM swap.
+
+### Un número de WhatsApp por tenant
+
+Cada prestamista tiene su propio número (una sesión de Baileys por tenant hoy; un
+`phone_number_id` por tenant con Cloud API mañana). El par (nuestro número, su número)
+identifica al tenant de forma estructural, antes de cualquier lógica. Un proveedor que
+trabaja con dos prestamistas habla con dos números distintos y nunca hay que
+"desambiguar entre tenants" con información que podría filtrarse.
+
+### Resolución de cada mensaje entrante
+
+1. Llega un mensaje de N al número del tenant T.
+2. Se buscan los vínculos verificados (T, N). Si no hay ninguno: respuesta genérica fija
+   ("No tenemos una solicitud pendiente para este número") y registro. Sin enumerar nada.
+3. Con vínculos, se cargan **solo las aclaraciones abiertas** de esos proveedores. Ese es
+   el conjunto candidato que ve Jev para correlacionar la respuesta. Jev nunca ve
+   aclaraciones de otros proveedores; el filtro ocurre antes del modelo.
+4. Si el mensaje menciona un folio o un dato que no está en el conjunto candidato, se
+   ignora: **el texto del mensaje nunca es autorización**. "Respondo a la solicitud
+   4821" no vale si la 4821 no está abierta para ese número.
+5. Un número vinculado a varios proveedores (un contador que lleva varias empresas) recibe
+   una lista numerada para elegir, mostrando solo nombre comercial del proveedor, nunca
+   datos financieros.
+6. La respuesta validada se guarda con `tenant_id` y `supplier_id` ya resueltos y se
+   encola `application.resume`. El worker, al reanudar, vuelve a verificar que la
+   aclaración pertenece a esa solicitud y a ese tenant (RLS con `app.tenant_id`).
+
+### El bot no contesta preguntas
+
+El canal es de una sola dirección en cuanto a datos: el sistema pregunta, el proveedor
+responde. No hay "¿cuál es mi saldo?" ni "¿cómo va mi solicitud?" por WhatsApp en esta
+versión. Cualquier texto que no sea respuesta a una pregunta abierta recibe un mensaje
+fijo y se registra. Si en el futuro se agrega consulta de estado, cada sesión exige un
+código de un solo uso.
+
+### Salida: el adaptador no acepta destinatarios
+
+`channel.send(clarificationId)` carga el destino desde la fila de la aclaración, que se
+copió del vínculo verificado al crearla. Ningún código, prompt ni modelo puede pasar un
+número arbitrario. Los mensajes salientes no contienen RFC, CLABE ni saldos; un depósito
+se referencia por fecha y monto redondeado.
+
+### Radio de daño si el proceso de WhatsApp se compromete
+
+`apps/whatsapp` corre con un rol de base propio que solo puede leer la vista
+`clarification_outbox` (id, destino, texto) e insertar en `clarification_inbound`. No
+puede leer documentos, extracciones, decisiones ni políticas. Si un fork malicioso de
+Baileys o una sesión robada toma ese proceso, lo máximo que obtiene son los textos de
+las preguntas pendientes y la capacidad de encolar respuestas falsas, que de todos modos
+pasan por la resolución anterior y, en los casos de alto impacto, por el segundo factor.
+
+### RLS también para procesos internos
+
+El worker y la API no usan `service_role` para operar. Cada job establece
+`set_config('app.tenant_id', ...)` al inicio y las políticas RLS lo exigen, así que una
+consulta sin tenant devuelve cero filas aunque haya un bug en el código. `service_role`
+queda solo para migraciones.
+
+### Límites y detección
+
+Rate limit por número (mensajes por minuto y por día), bloqueo temporal tras N mensajes
+sin correspondencia, y alerta cuando un número intenta referenciar folios que no le
+pertenecen. Todo mensaje entrante, resuelto o no, queda en bitácora con el número en
+columna cifrada.
+
+### Pruebas automatizadas
+
+- El número A responde citando el folio de B: se rechaza y se registra.
+- Un número sin vínculo escribe: respuesta genérica, nada encolado.
+- Un número con dos proveedores: recibe lista y la elección se respeta.
+- El rol `whatsapp_role` intenta `SELECT` sobre `documents`: error de permisos.
+- Una consulta del worker sin `app.tenant_id`: cero filas.
+
+## 3. Datos: protección, privacidad y cumplimiento
+
+- **Minimización**: al modelo solo va lo necesario. Para clasificar movimientos se
+  manda descripción y monto, no el titular ni la CLABE. En trazas (Langfuse) el modo
+  por defecto es solo metadatos; el contenido completo solo en entornos de evaluación
+  con datos de prueba.
+- **Cifrado**: TLS en tránsito; Supabase cifra en reposo; RFC y CLABE además con
+  cifrado a nivel de columna (Vault / pgsodium) para que un volcado de tabla no los
+  exponga en claro. Los PDFs en Storage con acceso solo por URL firmada de vida corta
+  (minutos) y bucket privado.
+- **Retención**: el PDF original se borra a los N días (configurable por tenant, por
+  defecto 90) y se conserva la extracción; las decisiones se conservan el tiempo que
+  exija el prestamista. Job de pg_cron que ejecuta la política de retención y deja
+  registro.
+- **LFPDPPP**: los datos financieros y patrimoniales requieren **consentimiento
+  expreso** del titular (artículo 9). El consentimiento lo recaba el tenant en su flujo
+  y el sistema guarda la evidencia (fecha, versión del aviso) junto a la solicitud.
+  Se implementan derechos ARCO: endpoint de exportación y de borrado por proveedor, con
+  propagación a trazas y cola. Aviso de privacidad del tenant referenciado en cada
+  mensaje de WhatsApp o correo inicial.
+- **Proveedor de LLM**: la API de Anthropic no entrena con datos de clientes bajo los
+  términos comerciales; la retención estándar es limitada y existe retención cero por
+  acuerdo. Algunos modelos recientes exigen retención de 30 días y quedan fuera de ZDR,
+  así que la elección de modelo se documenta como decisión de privacidad y se deja
+  configurable por tenant. `inference_geo` se fija para controlar dónde corre la
+  inferencia cuando el tenant lo exija.
+- **Logs sin PII**: pino con redacción de campos (`rfc`, `clabe`, `holder`, números de
+  teléfono); los identificadores en logs son UUIDs de solicitud, no datos del proveedor.
+
+## 4. Riesgos propios del LLM (OWASP LLM Top 10, 2025)
+
+| Riesgo | Control |
+|---|---|
+| LLM01 Inyección de prompt | El contenido del PDF y los mensajes del proveedor son datos no confiables: van en el turno de usuario, nunca en el system prompt; el modelo solo devuelve objetos validados; el agente extractor **no tiene herramientas**; un Noul de Jev detecta texto dirigido a un sistema y marca el documento; eval de inyección en CI con PDFs que contienen instrucciones ocultas y deben producir exactamente la misma extracción. |
+| LLM02 Fuga de información sensible | Minimización por llamada, trazas en modo metadatos, sin PII en logs, retención cero o acotada con el proveedor. |
+| LLM03 Cadena de suministro | Modelos y versiones fijados (`claude-opus-5-5`, `jev-1.13.0`), SBOM de dependencias, sin forks de librerías. |
+| LLM05 Manejo inseguro de salida | Toda salida pasa por Zod antes de usarse; el texto generado nunca se interpreta como HTML ni como comando; el filtro de cifras (doc 04) rechaza texto con números que no vienen del motor. |
+| LLM06 Agencia excesiva | El único componente con efecto externo es el envío de aclaraciones, y solo puede escribir al número o correo registrado de ese proveedor (lista blanca por solicitud), con límite de mensajes por solicitud y por día. Ningún modelo decide si se envía: lo decide el motor. |
+| LLM07 Fuga del system prompt | Sin secretos ni lógica de negocio sensible en prompts; las políticas de los tenants no se incluyen en prompts. |
+| LLM09 Desinformación | Cubierto en `04-control-de-alucinaciones.md`. |
+| LLM10 Consumo sin límite | Límites por documento (tamaño, páginas), presupuesto de tokens por job, cuota diaria por tenant, alerta de gasto por versión de prompt, circuit breaker ante 429. |
+
+## 5. Archivos y canales de entrada
+
+- **PDF**: se valida tipo por bytes mágicos, no por extensión; tamaño y número de
+  páginas máximos; se rechaza PDF con JavaScript o adjuntos embebidos; el parseo local,
+  si lo hay, corre en el worker sin acceso de red y con límite de memoria, nunca en la
+  API. El sistema nunca descarga PDFs desde URLs que mande el usuario (SSRF): solo lee
+  de su propio bucket.
+- **Webhooks de Resend**: verificación de firma (Svix) y ventana de tiempo contra
+  replay; idempotencia por `message_id`.
+- **WhatsApp con Baileys**: número dedicado, nunca uno personal; el estado de sesión se
+  guarda cifrado en Storage, no en disco; el proceso `apps/whatsapp` solo puede escribir
+  a números registrados y encolar, no tiene acceso al resto de la base; se instala
+  únicamente `@whiskeysockets/baileys` fijado por versión, porque existen forks
+  maliciosos en npm que secuestran la sesión; se asume que la cuenta puede ser
+  suspendida y el adaptador de Cloud API es el camino a producción.
+- **Endpoints internos** (pg_cron → API): autenticación por token de servicio en Vault
+  y, en Cloud Run, invocación restringida por IAM con tokens OIDC; nada interno queda
+  público.
+
+## 6. Secretos, cadena de suministro y CI/CD
+
+- Secretos en Supabase Vault y en el gestor del cloud; nunca en el repositorio ni en
+  variables `NEXT_PUBLIC_` o equivalentes. Rotación trimestral y al salir cualquier
+  persona del equipo.
+- `gitleaks` en pre-commit y en CI; falla el pipeline si detecta una llave.
+- Dependencias con lockfile y `npm ci`; `osv-scanner` y `npm audit` con umbral; Dependabot
+  con revisión; SBOM CycloneDX generado en cada build; acciones de GitHub fijadas por
+  SHA, no por tag; permisos mínimos del `GITHUB_TOKEN`.
+- Autenticación de CI hacia el cloud por OIDC (sin llaves de larga vida).
+- Imágenes de contenedor escaneadas con Trivy; base mínima (distroless); usuario no root;
+  solo lectura en el filesystem salvo `/tmp`.
+- Ramas protegidas, revisión obligatoria, despliegue a producción solo desde tag firmado.
+
+## 7. Infraestructura y operación
+
+- Cloud Run con salida de red restringida a Supabase, Anthropic, TypeSafe y Resend;
+  Supabase con restricciones de red por IP para la base.
+- Rate limiting por tenant y por IP en la API; límites de tamaño de cuerpo.
+- Respaldos con PITR y **prueba de restauración** programada; es un control que los
+  auditores piden y pocos tienen.
+- Registro de auditoría inmutable: quién vio qué solicitud, quién cambió qué política,
+  quién activó qué versión. Append-only, con retención larga.
+- Alertas: fallos de autenticación, uso de `service_role` fuera del worker, picos de
+  gasto, tasa de corrección en revisión, cola creciendo.
+- Runbook de incidente: contención (revocar llaves, pausar colas), evaluación de datos
+  afectados, notificación al tenant y, si aplica, a los titulares y a la autoridad
+  según la LFPDPPP.
+
+## 8. Pruebas de seguridad en el pipeline
+
+| Tipo | Herramienta | Cuándo |
+|---|---|---|
+| Secretos | gitleaks | pre-commit y CI |
+| SAST | Semgrep con reglas OWASP y reglas propias (sin `service_role` fuera de `apps/worker`, Zod en cada handler) | CI |
+| Dependencias | osv-scanner, npm audit, SBOM | CI |
+| Contenedores | Trivy | CI |
+| Aislamiento de tenants | tests de RLS tabla por tabla con dos tenants | CI |
+| Inyección de prompt | eval con PDFs adversarios; la extracción no debe cambiar | CI (Evalite) |
+| DAST | OWASP ZAP baseline contra staging | en cada despliegue a staging |
+| Pentest externo | checklist ASVS 5.0 nivel 2 | antes de producción y anual |
+
+## 9. Alcance para el worksample
+
+Se implementa lo barato y de alto valor: RLS con sus tests, Zod en cada frontera,
+secretos fuera del repo, URLs firmadas, verificación de firma de webhooks, dependencias
+fijadas, gitleaks y osv-scanner en CI, logs sin PII, límites de tamaño y páginas, agente
+extractor sin herramientas, y el eval de inyección. Lo demás (cifrado de columna, ARCO,
+política de retención, DAST, pentest, runbook) queda en este documento como plan con
+prioridad, para discutirlo en la llamada.

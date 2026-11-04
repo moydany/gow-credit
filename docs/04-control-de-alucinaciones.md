@@ -1,0 +1,138 @@
+# Control de alucinaciones
+
+Fecha: 2026-11-04. Principio: la alucinación no se elimina, se acota. Se reduce la
+superficie donde el modelo puede inventar, se verifica contra el propio documento, se
+mide con evals, y nunca se decide sobre un dato no verificado.
+
+## 1. Dónde puede inventar el sistema
+
+| Etapa | Qué puede salir mal | Impacto |
+|---|---|---|
+| Extracción (Claude lee el PDF) | Movimientos inventados o duplicados, filas omitidas, cargo leído como abono, monto o fecha mal leídos, RFC o CLABE "completados", totales inventados cuando faltan páginas, mezcla de dos cuentas del mismo estado (Santander: cuenta + inversión) | Alto: cambia ingresos, capacidad de pago y la decisión |
+| Clasificación (Jev) | Etiqueta válida pero equivocada (un préstamo marcado como pago de cliente); lectura literal de la pregunta; texto del documento que sesga la respuesta | Medio: infla o desinfla ingresos operativos |
+| Redacción de preguntas al proveedor (Claude) | Preguntar por un problema que no existe, inventar contexto, exponer datos | Medio: confunde al proveedor y ensucia el perfil |
+| Interpretación de respuestas de WhatsApp (Jev) | Atribuir la respuesta a la pregunta equivocada | Medio |
+| Diagnóstico y `next_steps` (Claude redacta) | Cifras o razones que no salieron del motor; promesas | Alto en confianza del usuario, bajo en decisión (la decisión ya se tomó) |
+| Inyección vía documento | Un PDF con texto dirigido al modelo | Alto si se obedece |
+
+## 2. Capa 1: reducir la superficie
+
+- **El LLM nunca decide.** Califica un motor determinístico. Lo que sale del modelo es un
+  dato que pasa por validación antes de usarse.
+- **Esquemas estrictos con permiso de no saber.** Cada campo tiene tipo, rango y enum.
+  Los campos que pueden no estar son `nullable` y el prompt dice "si no está en el
+  documento, devuelve null; no infieras". Forzar un valor es la primera causa de
+  invención.
+- **Cada valor viene con su origen.** El esquema pide `source_page` y
+  `source_snippet` (el texto literal donde se leyó) para encabezado, totales y cada
+  movimiento. Esto habilita la verificación de la capa 2.
+- **Extracción por bloques de páginas.** Las tablas largas se extraen en bloques, con
+  solapamiento de una fila y deduplicación por (fecha, descripción, monto, saldo). Los
+  modelos omiten filas al final de tablas largas; los bloques lo evitan.
+- **Generación restringida.** Las preguntas al proveedor y los `next_steps` se redactan
+  a partir de una lista estructurada de hechos que produce el motor. El modelo parafrasea,
+  no inventa. Ver capa 4.
+
+## 3. Capa 2: verificar contra el propio documento
+
+Los estados de cuenta tienen una propiedad valiosa: **se auto-verifican**. Cada cifra
+está ligada a otras por aritmética. Es el control más fuerte y es gratis.
+
+1. **Cuadre global**: saldo inicial + abonos − cargos = saldo final (tolerancia 1 MXN).
+2. **Cuadre de totales**: suma de movimientos extraídos = totales del resumen del banco
+   (abonos, cargos, número de movimientos cuando el banco lo imprime).
+3. **Saldo corrido fila por fila**: saldo(n) = saldo(n−1) ± monto(n). Una fila
+   inventada, una omitida o un signo invertido rompe la cadena exactamente donde ocurrió.
+   Eso localiza el error a una página, y permite **reintento dirigido**: se re-extrae solo
+   esa página con un prompt enfocado, no todo el documento.
+4. **Validadores de formato que detectan invención**: la CLABE tiene dígito verificador
+   (módulo 10 ponderado); el RFC tiene estructura y homoclave; fechas dentro del periodo
+   y en orden; montos no negativos; moneda consistente. Una CLABE "completada" por el
+   modelo falla el dígito verificador.
+5. **Verificación del snippet**: cuando hay capa de texto, el `source_snippet` de cada
+   valor debe existir en el texto de la página citada. Si no existe, el valor se marca
+   `unverified`. Para páginas sin texto útil (HSBC) aplica el punto 6.
+6. **Doble lectura solo donde importa**: encabezado, totales y los movimientos con monto
+   mayor al 10 % de los abonos del periodo se extraen dos veces (texto y visión, o dos
+   prompts distintos) y se comparan campo por campo. Desacuerdo → `unverified`. Se hace
+   adaptativo: si el cuadre global pasa a la primera, no se repite nada; si falla, se
+   repiten los bloques que rompen el saldo corrido. Así el costo extra solo se paga en
+   los documentos problemáticos.
+7. **Citas nativas de Claude** para campos de encabezado: la API devuelve la página y el
+   texto citado. No es compatible con structured outputs en la misma llamada, así que se
+   usa en una llamada corta separada solo para titular, RFC, CLABE y periodo, y se
+   contrasta con la extracción principal.
+
+Resultado de la capa: cada campo del perfil lleva `verification: verified | unverified |
+conflict` y una `confidence` derivada de los chequeos (no auto-reportada por el modelo,
+que está mal calibrada).
+
+## 4. Capa 3: clasificación y generación
+
+**Jev.** Sus probabilidades sí están calibradas, así que se usan umbrales por acción:
+una etiqueta con `confidence < 0.7` se trata como `unknown`. Toda pregunta lleva opción
+`other`. Una distribución plana significa que la pregunta no se puede responder con ese
+estado, no que la respuesta sea la de mayor probabilidad. Versión fijada y registrada.
+
+**Preguntas al proveedor.** El motor produce `issues` estructurados (campo, valor leído,
+página, por qué es dudoso). Claude redacta la pregunta a partir de eso con la instrucción
+de no agregar hechos. Un chequeo posterior verifica que todo número y fecha en el texto
+generado exista en los `issues`; si no, se descarta y se regenera. Nunca se envía sin
+pasar ese filtro.
+
+**Respuestas de WhatsApp.** Jev correlaciona con las preguntas abiertas; `confidence <
+0.6` → se repregunta con opciones numeradas en lugar de adivinar. Una respuesta que
+contradice el dato extraído con alta probabilidad va a revisión humana, no se mergea.
+
+**`next_steps` y razones.** El motor calcula los contrafactuales con números. Claude
+convierte la lista en prosa. Mismo filtro: cada cifra del texto debe estar en la lista
+estructurada. En evals, un juez LLM compara el texto contra los hechos y mide
+fidelidad; cualquier afirmación sin respaldo cuenta como fallo.
+
+**Inyección.** El contenido del PDF y los mensajes del proveedor son datos no confiables.
+El system prompt lo declara; un Noul de Jev detecta texto dirigido a un sistema
+automatizado y marca el documento; el modelo nunca ejecuta acciones, solo devuelve
+objetos validados.
+
+## 5. Capa 4: nunca decidir sobre lo no verificado
+
+La política del tenant define el impacto de cada feature. Regla fija del motor, no
+configurable: una feature `unverified` o `conflict` que cambie la banda de decisión no
+se usa. En su lugar:
+
+- Si el proveedor puede aclararlo (un depósito, un dato de identidad) → `needs_clarification`.
+- Si no puede (descuadre persistente, posible alteración) → `human_review`.
+
+La cola de revisión muestra la página del PDF junto al valor extraído y el valor
+alternativo cuando hubo doble lectura. Cada corrección del revisor se guarda como par
+(valor leído, valor correcto) y entra al dataset de evals. Es la fuente de verdad que crece
+sola.
+
+## 6. Medir: evals y métricas en producción
+
+**Offline, con ground truth (los 9 documentos y los que se corrijan en revisión):**
+
+| Métrica | Qué captura |
+|---|---|
+| Precisión de movimientos | filas inventadas (filas extraídas que no existen) |
+| Recall de movimientos | filas omitidas |
+| Exactitud de monto, fecha y signo por fila | lecturas erróneas |
+| Exactitud de encabezado por campo | titular, RFC, CLABE, periodo, saldos |
+| Tasa de cuadre a la primera | salud general de la extracción |
+| Fidelidad de texto generado | afirmaciones sin respaldo en preguntas y `next_steps` |
+
+Cualquier cambio de prompt, modelo o `effort` pasa por estas métricas en CI con umbral.
+Invención y omisión se reportan por separado porque se corrigen con medidas distintas.
+
+**En producción, sin ground truth:** tasa de fallo de cuadre, tasa de desacuerdo entre
+lecturas, fallos de validadores de formato, tasa de aclaraciones, y la más importante:
+**tasa de corrección en revisión humana** por campo y por versión de prompt. Es el proxy
+de alucinación en vivo y dispara alerta si sube tras un despliegue.
+
+## 7. Qué se le dice a quien pregunta
+
+"No confío en el modelo; confío en el cuadre. Un estado de cuenta se auto-verifica: si
+una fila se inventa o se omite, el saldo corrido se rompe en esa página, y la vuelvo a
+leer solo ahí. Lo que no cuadra o no se puede verificar no entra a la decisión: se le
+pregunta al proveedor o va a revisión. Y mido invención y omisión por separado, en CI
+contra ground truth y en producción con la tasa de corrección de los revisores."
