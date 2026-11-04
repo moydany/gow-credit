@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+  - spikes
+
+# Cadena de suministro: no instalar versiones publicadas hace menos de 3 días.
+minimumReleaseAge: 4320
+
+# Solo estos paquetes pueden correr scripts de instalación (binarios nativos).
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

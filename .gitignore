@@ -11,3 +11,10 @@ dist/
 coverage/
 # sistema
 .DS_Store
+
+# herramientas locales
+.evalite/
+.mastra/
+*.db
+*.db-*
+spikes/out/

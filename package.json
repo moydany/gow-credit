@@ -1,0 +1,27 @@
+{
+  "name": "gow-credit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Extracción y diagnóstico crediticio sobre estados de cuenta bancarios (worksample GOW Credit)",
+  "type": "module",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "4.1.12"
+  }
+}
