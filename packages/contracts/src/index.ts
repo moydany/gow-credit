@@ -1,5 +1,6 @@
 export * from './enums.ts'
 export * from './primitives.ts'
+export * from './validators.ts'
 export * from './features.ts'
 export * from './statement.ts'
 export * from './request.ts'

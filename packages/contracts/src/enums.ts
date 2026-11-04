@@ -54,11 +54,15 @@ export type Provenance = z.infer<typeof Provenance>
 export const DocumentType = z.enum(['bank_statement', 'credit_card_statement', 'invoice', 'other'])
 export type DocumentType = z.infer<typeof DocumentType>
 
-/** Clasificación de movimiento. */
+/**
+ * Clasificación de movimiento. `loan_payment` (pago a un crédito: cuota, tarjeta, préstamo)
+ * se agregó en la fase 4 (ADR 0013): sin ella `debt_service_monthly` no se podía calcular.
+ */
 export const TransactionCategory = z.enum([
   'customer_payment',
   'own_transfer',
   'loan_disbursement',
+  'loan_payment',
   'payroll',
   'supplier_payment',
   'tax',

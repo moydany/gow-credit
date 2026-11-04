@@ -8,7 +8,10 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "1.1.0"
+          "enum": [
+            "1.1.0",
+            "1.2.0"
+          ]
         },
         "document": {
           "type": "object",
@@ -1633,6 +1636,7 @@
             "customer_payment",
             "own_transfer",
             "loan_disbursement",
+            "loan_payment",
             "payroll",
             "supplier_payment",
             "tax",

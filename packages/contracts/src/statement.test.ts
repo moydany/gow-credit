@@ -109,6 +109,19 @@ describe('StatementExtraction', () => {
     const doc = { ...sampleStatement(), confidence_overall: 0.9 }
     expect(issues(doc)[0]?.message).toContain('confidence_overall')
   })
+
+  it('lee extracciones 1.1.0: 1.2.0 solo agrega loan_payment (ADR 0013)', () => {
+    expect(StatementExtraction.safeParse({ ...sampleStatement(), schema_version: '1.1.0' }).success).toBe(true)
+    expect(issues({ ...sampleStatement(), schema_version: '1.0.0' })[0]?.path).toBe('schema_version')
+  })
+
+  it('acepta pagos a créditos como clasificación de movimiento', () => {
+    const doc = sampleStatement()
+    const t = doc.accounts[0]?.periods[0]?.transactions[1]
+    if (!t) throw new Error('fixture sin movimiento')
+    t.classification = { category: 'loan_payment', confidence: 0.85, counterparty: null, counterparty_rfc: null, classifier: 'rules-v1' }
+    expect(StatementExtraction.safeParse(doc).success).toBe(true)
+  })
 })
 
 function extracted612() {

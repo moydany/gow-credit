@@ -14,7 +14,12 @@ import { z } from 'zod'
 import { DocumentType, Provenance, TransactionCategory, TransactionType, Verification } from './enums.ts'
 import { Confidence, Count, Currency, field, IsoDate, IsoDateTime, IsoLocalDateTime, LocalId, Money, Sha256, SignedMoney, SourceRef, TokenUsage } from './primitives.ts'
 
-export const STATEMENT_SCHEMA_VERSION = '1.1.0'
+export const STATEMENT_SCHEMA_VERSION = '1.2.0'
+/**
+ * Versiones que se pueden leer. 1.2.0 solo agrega `loan_payment` a la clasificación de
+ * movimientos (ADR 0013): una extracción 1.1.0 es una 1.2.0 válida, así que se acepta tal cual.
+ */
+export const READABLE_STATEMENT_SCHEMA_VERSIONS = ['1.1.0', STATEMENT_SCHEMA_VERSION] as const
 
 /** Tipo de producto de la cuenta. */
 export const AccountType = z.enum(['checking', 'savings', 'investment', 'credit_card', 'other'])
@@ -321,7 +326,7 @@ export type ExtractionRun = z.infer<typeof ExtractionRun>
 
 export const StatementExtraction = z
   .strictObject({
-    schema_version: z.literal(STATEMENT_SCHEMA_VERSION),
+    schema_version: z.enum(READABLE_STATEMENT_SCHEMA_VERSIONS),
     document: z.strictObject({
       file_name: z.string().min(1),
       sha256: Sha256,
