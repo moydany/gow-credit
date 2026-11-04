@@ -58,8 +58,10 @@ export type SourceRef = z.infer<typeof SourceRef>
 
 /**
  * Un valor extraído con su origen y su verificación. `value: null` significa que el dato
- * no está en el documento (nunca se inventa). Un valor extraído no nulo debe citar su
- * fuente; uno aportado por el proveedor o un analista puede no tenerla.
+ * no está en el documento (nunca se inventa). Un valor extraído y `verified` debe citar su
+ * fuente; si el modelo no dio la cita y no se pudo ubicar en la página, el valor se conserva
+ * como `unverified` y no decide nada (docs/04 §5). Un valor aportado por el proveedor o un
+ * analista puede no tener fuente en el documento.
  */
 export function field<T extends z.ZodType>(value: T) {
   return z
@@ -72,9 +74,9 @@ export function field<T extends z.ZodType>(value: T) {
     })
     .superRefine((parsed, ctx) => {
       // Con T genérico, TypeScript no puede resolver `value` en el tipo inferido.
-      const f = parsed as unknown as { value: unknown; source: SourceRef | null; provenance: Provenance }
-      if (f.value !== null && f.provenance === 'extracted' && f.source === null) {
-        ctx.addIssue({ code: 'custom', path: ['source'], message: 'un valor extraído debe citar su fuente (página y texto)' })
+      const f = parsed as unknown as { value: unknown; source: SourceRef | null; provenance: Provenance; verification: Verification }
+      if (f.value !== null && f.provenance === 'extracted' && f.verification === 'verified' && f.source === null) {
+        ctx.addIssue({ code: 'custom', path: ['source'], message: 'un valor extraído verificado debe citar su fuente (página y texto)' })
       }
     })
 }

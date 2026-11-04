@@ -45,10 +45,16 @@ describe('StatementExtraction', () => {
     expect(issues(doc)[0]?.path).toBe('accounts.0.periods.0.transactions.2.date')
   })
 
-  it('exige fuente para todo valor extraído no nulo', () => {
+  it('exige fuente para todo valor extraído verificado', () => {
     const doc = sampleStatement()
     doc.bank_name = { value: 'BANCO FICTICIO', source: null, verification: 'verified', confidence: 1, provenance: 'extracted' }
-    expect(issues(doc)).toEqual([{ path: 'bank_name.source', message: 'un valor extraído debe citar su fuente (página y texto)' }])
+    expect(issues(doc)).toEqual([{ path: 'bank_name.source', message: 'un valor extraído verificado debe citar su fuente (página y texto)' }])
+  })
+
+  it('un valor extraído sin cita solo puede quedar como no verificado', () => {
+    const doc = sampleStatement()
+    doc.bank_name = { value: 'BANCO FICTICIO', source: null, verification: 'unverified', confidence: 0.3, provenance: 'extracted' }
+    expect(StatementExtraction.safeParse(doc).success).toBe(true)
   })
 
   it('no exige fuente a un valor aportado por el proveedor', () => {
