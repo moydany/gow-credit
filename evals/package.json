@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "gt:build": "tsx src/ground-truth/build.ts"
+    "gt:build": "tsx src/ground-truth/build.ts",
+    "eval": "evalite run --hideTable && tsx src/gate.ts",
+    "eval:ui": "evalite serve",
+    "score": "tsx src/score-dir.ts"
   },
   "dependencies": {
     "@gow/contracts": "workspace:*",
