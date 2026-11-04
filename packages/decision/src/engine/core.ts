@@ -470,14 +470,18 @@ function limitReason(profile: Profile, lim: LimitResult): ReasonOut {
         features: [t.feature],
       }
     case 'difference': {
-      const exposure = t.subtrahend === 'existing_exposure_balance'
-      return {
-        code: exposure ? 'existing_exposure' : codeOf('limit', t.minuend, 'minus', t.subtrahend),
-        message: exposure
-          ? `La línea (${value}) se reduce por la exposición vigente con este prestamista: ${t.minuend} ${fmt(profile.features[t.minuend].value)} menos saldo vigente ${fmt(profile.features[t.subtrahend].value)}.`
-          : `La línea (${value}) la fija ${t.minuend} − ${t.subtrahend}.`,
-        features: [t.minuend, t.subtrahend],
+      const sub = profile.features[t.subtrahend].value
+      const exposure = t.subtrahend === 'existing_exposure_balance' && typeof sub === 'number' && sub > 0
+      if (exposure) {
+        return {
+          code: 'existing_exposure',
+          message: `La línea (${value}) se reduce por la exposición vigente con este prestamista: ${t.minuend} ${fmt(profile.features[t.minuend].value)} menos saldo vigente ${fmt(sub)}.`,
+          features: [t.minuend, t.subtrahend],
+        }
       }
+      // Sin nada que restar, la fija el minuendo.
+      if (sub === null || sub === 0) return { code: codeOf('limit', t.minuend), message: `La línea (${value}) la fija ${t.minuend} = ${fmt(profile.features[t.minuend].value)}.`, features: [t.minuend] }
+      return { code: codeOf('limit', t.minuend, 'minus', t.subtrahend), message: `La línea (${value}) la fija ${t.minuend} − ${t.subtrahend}.`, features: [t.minuend, t.subtrahend] }
     }
   }
 }
