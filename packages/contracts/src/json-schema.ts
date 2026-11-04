@@ -8,9 +8,12 @@
  */
 import { z } from 'zod'
 import { Decision } from './decision.ts'
+import { ExternalSnapshot } from './external.ts'
 import { Policy } from './policy.ts'
 import { Profile } from './profile.ts'
 import { ApplicationRequest } from './request.ts'
+import { Scenario } from './scenario.ts'
+import { SimulationReport } from './simulation.ts'
 import { StatementExtraction } from './statement.ts'
 
 export const PUBLISHED_SCHEMAS = {
@@ -19,6 +22,9 @@ export const PUBLISHED_SCHEMAS = {
   policy: Policy,
   decision: Decision,
   'application-request': ApplicationRequest,
+  'external-snapshot': ExternalSnapshot,
+  'simulation-report': SimulationReport,
+  scenario: Scenario,
 } as const
 
 export function toPublishedJsonSchema(name: keyof typeof PUBLISHED_SCHEMAS): Record<string, unknown> {

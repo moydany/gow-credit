@@ -9,7 +9,7 @@ import { DecisionStatus, FinalDecisionStatus } from './enums.ts'
 import { FeatureName } from './features.ts'
 import { AskTopic, ConditionOp } from './policy.ts'
 import { Profile } from './profile.ts'
-import { IsoDateTime, LocalId, Money, SignedMoney } from './primitives.ts'
+import { IsoDateTime, LocalId, Money, Sha256, SignedMoney } from './primitives.ts'
 
 /** Por qué una feature no se usó en una dimensión o compuerta (docs/04 §5). */
 export const ExclusionReason = z.enum(['unknown', 'low_confidence', 'unverified', 'conflict'])
@@ -58,16 +58,24 @@ export const Reason = z.strictObject({
 
 export const StatusAndScore = z.strictObject({ status: DecisionStatus, score: z.number().min(0).max(100).nullable() })
 
+/** Otra feature que se mueve junto con la principal en un contrafactual (atraso → monto vencido). */
+export const RelatedChange = z.strictObject({ feature: FeatureName, current_value: z.json(), target_value: z.json() })
+
 /** Contrafactual: qué cambio en una feature movería el resultado, calculado sobre la misma política. */
 export const NextStep = z.strictObject({
   code: z.string().regex(/^[a-z][a-z0-9_]*$/),
   feature: FeatureName,
   current_value: z.json(),
   target_value: z.json(),
+  related: z.array(RelatedChange).describe('Features que cambian junto con la principal; sus cifras también pueden aparecer en el texto'),
   from: StatusAndScore,
   to: StatusAndScore,
   message: z.string().nullable().describe('Redacción para el proveedor; null hasta que se redacta'),
 })
+
+/** Movimiento de un documento: el id solo es único dentro de su documento. */
+export const TransactionRef = z.strictObject({ document_sha256: Sha256, transaction_id: LocalId })
+export type TransactionRef = z.infer<typeof TransactionRef>
 
 export const Decision = z
   .strictObject({
@@ -85,7 +93,13 @@ export const Decision = z
     }),
     reasons: z.array(Reason),
     next_steps: z.array(NextStep),
-    clarification: z.strictObject({ topics: z.array(AskTopic).min(1), issue_ids: z.array(LocalId) }).nullable(),
+    clarification: z
+      .strictObject({
+        topics: z.array(AskTopic).min(1),
+        issue_ids: z.array(LocalId).describe('Issues de la extracción que motivan la pregunta'),
+        transactions: z.array(TransactionRef).describe('Movimientos sobre los que se pregunta (abonos grandes sin clasificar)'),
+      })
+      .nullable(),
     engine_version: z.string(),
     decided_at: IsoDateTime,
   })

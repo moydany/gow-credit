@@ -1,0 +1,315 @@
+{
+  "$id": "https://gow-credit.local/schema/simulation-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/SimulationReport",
+  "$defs": {
+    "SimulationReport": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "version"
+          ],
+          "additionalProperties": false
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "version"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "by_status": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "qualified",
+              "qualified_with_limit",
+              "not_qualified",
+              "needs_clarification",
+              "human_review"
+            ]
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "required": [
+            "qualified",
+            "qualified_with_limit",
+            "not_qualified",
+            "needs_clarification",
+            "human_review"
+          ]
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "paid",
+                      "late",
+                      "default",
+                      "fraud"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "draft": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "qualified",
+                      "qualified_with_limit",
+                      "not_qualified",
+                      "needs_clarification",
+                      "human_review"
+                    ]
+                  },
+                  "score": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "limit": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "description": "Monto no negativo, a lo más dos decimales"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "score",
+                  "limit"
+                ],
+                "additionalProperties": false
+              },
+              "baseline": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "qualified",
+                          "qualified_with_limit",
+                          "not_qualified",
+                          "needs_clarification",
+                          "human_review"
+                        ]
+                      },
+                      "score": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "limit": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "description": "Monto no negativo, a lo más dos decimales"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "score",
+                      "limit"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "outcome",
+              "draft",
+              "baseline"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "transitions": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "upgraded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Casos con un estado mejor que con la política vigente"
+                },
+                "downgraded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unchanged": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "limit_increased": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "limit_decreased": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "upgraded",
+                "downgraded",
+                "unchanged",
+                "limit_increased",
+                "limit_decreased"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null si no hay política vigente contra la cual comparar"
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "qualified",
+                  "qualified_with_limit",
+                  "not_qualified",
+                  "needs_clarification",
+                  "human_review"
+                ]
+              },
+              "with_outcome": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "bad": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "late, default o fraud"
+              },
+              "bad_rate": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "description": "Fracción: 0.25 = 25 %"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "with_outcome",
+              "bad",
+              "bad_rate"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Mora observada por estado con la política simulada"
+        }
+      },
+      "required": [
+        "policy",
+        "baseline",
+        "total",
+        "by_status",
+        "cases",
+        "transitions",
+        "outcomes"
+      ],
+      "additionalProperties": false,
+      "title": "Simulación de política"
+    }
+  }
+}

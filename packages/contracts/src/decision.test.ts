@@ -23,6 +23,7 @@ function decision(overrides: Partial<Decision> = {}): Decision {
         feature: 'months_of_history',
         current_value: 1,
         target_value: 3,
+        related: [],
         from: { status: 'qualified_with_limit', score: 62.5 },
         to: { status: 'qualified', score: 62.5 },
         message: null,

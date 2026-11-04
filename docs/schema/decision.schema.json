@@ -657,6 +657,70 @@
               "target_value": {
                 "$ref": "#/$defs/__schema3"
               },
+              "related": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "feature": {
+                      "type": "string",
+                      "enum": [
+                        "months_of_history",
+                        "document_age_days",
+                        "identity_match",
+                        "integrity_ok",
+                        "red_flags",
+                        "activity_count",
+                        "operating_income_monthly",
+                        "operating_expenses_monthly",
+                        "debt_service_monthly",
+                        "new_debt_in_period",
+                        "free_cash_flow_monthly",
+                        "payment_capacity_pct",
+                        "debt_capacity",
+                        "avg_daily_balance",
+                        "low_balance_days",
+                        "income_trend",
+                        "buyer_payments_count",
+                        "buyer_payments_amount",
+                        "recurring_income_share",
+                        "top_payer_concentration",
+                        "existing_exposure_balance",
+                        "existing_exposure_days_past_due",
+                        "existing_exposure_payment_ratio",
+                        "existing_exposure_past_due_amount",
+                        "external_debt_signal",
+                        "program_available_limit",
+                        "prior_applications",
+                        "requested_amount",
+                        "buro_score",
+                        "sat_status",
+                        "fiscal_regime",
+                        "cfdi_sat_status",
+                        "fiscal_anchor_ok",
+                        "statement_reuse_count",
+                        "statement_seen_elsewhere_days",
+                        "sat_list_status",
+                        "income_from_listed_rfc_share",
+                        "regime_income_plausible"
+                      ]
+                    },
+                    "current_value": {
+                      "$ref": "#/$defs/__schema4"
+                    },
+                    "target_value": {
+                      "$ref": "#/$defs/__schema5"
+                    }
+                  },
+                  "required": [
+                    "feature",
+                    "current_value",
+                    "target_value"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Features que cambian junto con la principal; sus cifras también pueden aparecer en el texto"
+              },
               "from": {
                 "type": "object",
                 "properties": {
@@ -734,6 +798,7 @@
               "feature",
               "current_value",
               "target_value",
+              "related",
               "from",
               "to",
               "message"
@@ -766,12 +831,36 @@
                   "items": {
                     "type": "string",
                     "pattern": "^[a-z0-9][a-z0-9_.-]*$"
-                  }
+                  },
+                  "description": "Issues de la extracción que motivan la pregunta"
+                },
+                "transactions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "document_sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "transaction_id": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+                      }
+                    },
+                    "required": [
+                      "document_sha256",
+                      "transaction_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "Movimientos sobre los que se pregunta (abonos grandes sin clasificar)"
                 }
               },
               "required": [
                 "topics",
-                "issue_ids"
+                "issue_ids",
+                "transactions"
               ],
               "additionalProperties": false
             },
@@ -3594,6 +3683,68 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema3"
+          }
+        }
+      ]
+    },
+    "__schema4": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema4"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema4"
+          }
+        }
+      ]
+    },
+    "__schema5": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema5"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema5"
           }
         }
       ]

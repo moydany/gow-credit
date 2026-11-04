@@ -1,0 +1,973 @@
+{
+  "$id": "https://gow-credit.local/schema/scenario.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/Scenario",
+  "$defs": {
+    "Scenario": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "catalog": {
+          "description": "Número del caso en docs/06 §4",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "modes": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "unit",
+              "full"
+            ]
+          }
+        },
+        "as_of": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+          "description": "Fecha del reloj simulado"
+        },
+        "tenant": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "policy": {
+              "default": "base",
+              "description": "base o ruta a un JSON de política desde la raíz del repo",
+              "type": "string",
+              "minLength": 1
+            },
+            "whatsapp_number": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "suppliers": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rfc": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "clabes": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "contacts": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string",
+                      "enum": [
+                        "whatsapp",
+                        "email"
+                      ]
+                    },
+                    "address": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "verified": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "address",
+                    "verified"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "documents": {
+                "default": [],
+                "description": "PDFs de data/dev para el modo full",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "statements": {
+                "default": [],
+                "description": "Estados de cuenta sintéticos para el modo unit",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bank": {
+                      "default": "BANCO FICTICIO",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                      "description": "Primer día del primer periodo"
+                    },
+                    "months": {
+                      "default": 1,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 24
+                    },
+                    "periods": {
+                      "default": "monthly",
+                      "description": "single: un periodo impreso para todos los meses, como Mercado Pago (ADR 0006)",
+                      "type": "string",
+                      "enum": [
+                        "monthly",
+                        "single"
+                      ]
+                    },
+                    "opening_balance": {
+                      "type": "number",
+                      "description": "Monto en la moneda de la cuenta, a lo más dos decimales"
+                    },
+                    "monthly": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "customer_payment",
+                              "sales_settlement",
+                              "cash_deposit",
+                              "unclassified_credit",
+                              "loan_disbursement",
+                              "own_transfer_in",
+                              "refund",
+                              "interest",
+                              "supplier_payment",
+                              "payroll",
+                              "tax",
+                              "fee",
+                              "loan_payment",
+                              "own_transfer_out",
+                              "cash_withdrawal",
+                              "card_purchase"
+                            ]
+                          },
+                          "amount": {
+                            "type": "number",
+                            "description": "Total del mes; se reparte en `count` movimientos"
+                          },
+                          "count": {
+                            "default": 1,
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 200
+                          },
+                          "counterparty": {
+                            "description": "Nombre que aparece en la descripción",
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "counterparty_rfc": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "Reemplaza la descripción generada",
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "verification": {
+                            "default": "verified",
+                            "type": "string",
+                            "enum": [
+                              "verified",
+                              "unverified",
+                              "conflict"
+                            ]
+                          },
+                          "months": {
+                            "description": "Meses (desde 1) en que ocurre; todos si se omite",
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "amount"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "growth": {
+                      "default": 0,
+                      "description": "Crecimiento mensual de los abonos de clientes",
+                      "type": "number",
+                      "minimum": -0.5,
+                      "maximum": 1
+                    },
+                    "holder_redacted": {
+                      "default": false,
+                      "description": "true: nombre, RFC y CLABE en null, como los PDFs de desarrollo",
+                      "type": "boolean"
+                    },
+                    "fiscal": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "uuid": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "regime": {
+                              "type": "string",
+                              "minLength": 3,
+                              "description": "Régimen fiscal del receptor, por ejemplo \"626\""
+                            },
+                            "receiver_rfc": {
+                              "default": null,
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "fees_match": {
+                              "default": true,
+                              "description": "false: el subtotal del CFDI no cuadra con las comisiones",
+                              "type": "boolean"
+                            },
+                            "certified_days_after_end": {
+                              "default": 2,
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "uuid",
+                            "regime"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reconciled": {
+                      "default": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "opening_balance",
+                    "monthly"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "request": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "amount": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "description": "Monto no negativo, a lo más dos decimales"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "maturity": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "buyer": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "rfc": {
+                                    "default": null,
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "aliases": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "external": {
+          "default": {
+            "existing_credits": {},
+            "bureau": {},
+            "sat": {},
+            "cfdi": {},
+            "sat_lists": {},
+            "program": {},
+            "history": {}
+          },
+          "type": "object",
+          "properties": {
+            "existing_credits": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ExistingCredit"
+                }
+              }
+            },
+            "bureau": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/BureauReport"
+              }
+            },
+            "sat": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "rfc_valid": {
+                    "default": null,
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "compliance_opinion": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "positive",
+                          "negative"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "list_status": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "clear",
+                          "efos_presumed",
+                          "efos_definitive",
+                          "not_located"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "cfdi": {
+              "default": {},
+              "description": "UUID → estado ante el SAT",
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": [
+                  "valid",
+                  "cancelled",
+                  "not_found"
+                ]
+              }
+            },
+            "sat_lists": {
+              "default": {},
+              "description": "RFC de contraparte → lista del SAT",
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": [
+                  "clear",
+                  "efos_presumed",
+                  "efos_definitive",
+                  "not_located"
+                ]
+              }
+            },
+            "program": {
+              "default": {},
+              "description": "Nombre del comprador → cupo disponible del programa",
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "number",
+                "description": "Monto no negativo, a lo más dos decimales"
+              }
+            },
+            "history": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "prior_applications": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/PriorApplication"
+                    }
+                  },
+                  "statement_reuse": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "uuid": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "application_id": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+                        }
+                      },
+                      "required": [
+                        "uuid",
+                        "application_id"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "seen_elsewhere": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "uuid": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "days_ago": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "uuid",
+                        "days_ago"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "conversation": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "on_question": {
+                "type": "string",
+                "enum": [
+                  "recent_statement",
+                  "identity_fields",
+                  "deposit_classification",
+                  "reconciliation_gap",
+                  "additional_months",
+                  "missing_pages"
+                ]
+              },
+              "reply": {
+                "type": "string",
+                "minLength": 1
+              },
+              "after_minutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "on_question",
+              "reply"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "expect": {
+          "type": "object",
+          "properties": {
+            "supplier": {
+              "description": "Proveedor al que aplica; el primero si se omite",
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "qualified",
+                "qualified_with_limit",
+                "not_qualified",
+                "needs_clarification",
+                "human_review"
+              ]
+            },
+            "limit": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Monto no negativo, a lo más dos decimales"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "limit_min": {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            "limit_max": {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            "reasons_include": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "next_steps_include": {
+              "default": [],
+              "description": "Features que deben aparecer en next_steps",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "months_of_history",
+                  "document_age_days",
+                  "identity_match",
+                  "integrity_ok",
+                  "red_flags",
+                  "activity_count",
+                  "operating_income_monthly",
+                  "operating_expenses_monthly",
+                  "debt_service_monthly",
+                  "new_debt_in_period",
+                  "free_cash_flow_monthly",
+                  "payment_capacity_pct",
+                  "debt_capacity",
+                  "avg_daily_balance",
+                  "low_balance_days",
+                  "income_trend",
+                  "buyer_payments_count",
+                  "buyer_payments_amount",
+                  "recurring_income_share",
+                  "top_payer_concentration",
+                  "existing_exposure_balance",
+                  "existing_exposure_days_past_due",
+                  "existing_exposure_payment_ratio",
+                  "existing_exposure_past_due_amount",
+                  "external_debt_signal",
+                  "program_available_limit",
+                  "prior_applications",
+                  "requested_amount",
+                  "buro_score",
+                  "sat_status",
+                  "fiscal_regime",
+                  "cfdi_sat_status",
+                  "fiscal_anchor_ok",
+                  "statement_reuse_count",
+                  "statement_seen_elsewhere_days",
+                  "sat_list_status",
+                  "income_from_listed_rfc_share",
+                  "regime_income_plausible"
+                ]
+              }
+            },
+            "clarification_topics": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "recent_statement",
+                  "identity_fields",
+                  "deposit_classification",
+                  "reconciliation_gap",
+                  "additional_months",
+                  "missing_pages"
+                ]
+              }
+            },
+            "features": {
+              "default": {},
+              "description": "Valores exactos de features del perfil",
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "enum": [
+                  "months_of_history",
+                  "document_age_days",
+                  "identity_match",
+                  "integrity_ok",
+                  "red_flags",
+                  "activity_count",
+                  "operating_income_monthly",
+                  "operating_expenses_monthly",
+                  "debt_service_monthly",
+                  "new_debt_in_period",
+                  "free_cash_flow_monthly",
+                  "payment_capacity_pct",
+                  "debt_capacity",
+                  "avg_daily_balance",
+                  "low_balance_days",
+                  "income_trend",
+                  "buyer_payments_count",
+                  "buyer_payments_amount",
+                  "recurring_income_share",
+                  "top_payer_concentration",
+                  "existing_exposure_balance",
+                  "existing_exposure_days_past_due",
+                  "existing_exposure_payment_ratio",
+                  "existing_exposure_past_due_amount",
+                  "external_debt_signal",
+                  "program_available_limit",
+                  "prior_applications",
+                  "requested_amount",
+                  "buro_score",
+                  "sat_status",
+                  "fiscal_regime",
+                  "cfdi_sat_status",
+                  "fiscal_anchor_ok",
+                  "statement_reuse_count",
+                  "statement_seen_elsewhere_days",
+                  "sat_list_status",
+                  "income_from_listed_rfc_share",
+                  "regime_income_plausible"
+                ]
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "modes",
+        "as_of",
+        "tenant",
+        "suppliers",
+        "expect"
+      ],
+      "additionalProperties": false,
+      "title": "Escenario de docs/06"
+    },
+    "ExistingCredit": {
+      "type": "object",
+      "properties": {
+        "product": {
+          "type": "string",
+          "minLength": 1
+        },
+        "balance": {
+          "type": "number",
+          "description": "Saldo insoluto"
+        },
+        "monthly_payment": {
+          "type": "number",
+          "description": "Monto no negativo, a lo más dos decimales"
+        },
+        "days_past_due": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "past_due_amount": {
+          "default": null,
+          "description": "Monto vencido; null si el core del prestamista no lo informa",
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "product",
+        "balance",
+        "monthly_payment",
+        "days_past_due"
+      ],
+      "additionalProperties": false
+    },
+    "BureauReport": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open_accounts": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "monthly_payments": {
+          "default": null,
+          "description": "Pagos mensuales a otras instituciones según buró",
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "score",
+        "open_accounts"
+      ],
+      "additionalProperties": false
+    },
+    "PriorApplication": {
+      "type": "object",
+      "properties": {
+        "application_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+        },
+        "submitted_on": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "qualified",
+            "qualified_with_limit",
+            "not_qualified",
+            "needs_clarification",
+            "human_review",
+            "failed"
+          ]
+        },
+        "same_document": {
+          "type": "boolean",
+          "description": "Mismo hash de documento que la solicitud actual"
+        }
+      },
+      "required": [
+        "application_id",
+        "submitted_on",
+        "status",
+        "same_document"
+      ],
+      "additionalProperties": false
+    },
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}

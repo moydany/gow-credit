@@ -1,0 +1,439 @@
+{
+  "$id": "https://gow-credit.local/schema/external-snapshot.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ExternalSnapshot",
+  "$defs": {
+    "ExternalSnapshot": {
+      "type": "object",
+      "properties": {
+        "existing_credits": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "false si no hay adaptador, falló o faltan datos para consultar"
+            },
+            "simulated": {
+              "type": "boolean"
+            },
+            "credits": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ExistingCredit"
+              }
+            }
+          },
+          "required": [
+            "available",
+            "simulated",
+            "credits"
+          ],
+          "additionalProperties": false
+        },
+        "credit_bureau": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "false si no hay adaptador, falló o faltan datos para consultar"
+            },
+            "simulated": {
+              "type": "boolean"
+            },
+            "report": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BureauReport"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "available",
+            "simulated",
+            "report"
+          ],
+          "additionalProperties": false
+        },
+        "tax_authority": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "false si no hay adaptador, falló o faltan datos para consultar"
+            },
+            "simulated": {
+              "type": "boolean"
+            },
+            "taxpayer": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TaxpayerStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Del RFC del titular; null si no hay RFC completo"
+            },
+            "cfdi": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CfdiCheck"
+              },
+              "description": "Un resultado por UUID consultado; un UUID sin datos suficientes no se consulta"
+            },
+            "listed_counterparties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ListedRfc"
+              },
+              "description": "RFC de contrapartes que aparecen en alguna lista"
+            }
+          },
+          "required": [
+            "available",
+            "simulated",
+            "taxpayer",
+            "cfdi",
+            "listed_counterparties"
+          ],
+          "additionalProperties": false
+        },
+        "program": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "false si no hay adaptador, falló o faltan datos para consultar"
+            },
+            "simulated": {
+              "type": "boolean"
+            },
+            "available_limit": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "description": "Monto no negativo, a lo más dos decimales"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cupo disponible del programa del comprador"
+            }
+          },
+          "required": [
+            "available",
+            "simulated",
+            "available_limit"
+          ],
+          "additionalProperties": false
+        },
+        "internal": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "false si no hay adaptador, falló o faltan datos para consultar"
+            },
+            "simulated": {
+              "type": "boolean"
+            },
+            "prior_applications": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PriorApplication"
+              }
+            },
+            "statement_reuse": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "uuid": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "application_id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+                  }
+                },
+                "required": [
+                  "uuid",
+                  "application_id"
+                ],
+                "additionalProperties": false
+              },
+              "description": "Otras solicitudes de este tenant con el mismo UUID"
+            },
+            "seen_elsewhere": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "uuid": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "seen_on": {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  }
+                },
+                "required": [
+                  "uuid",
+                  "seen_on"
+                ],
+                "additionalProperties": false
+              },
+              "description": "Índice de plataforma por HMAC(UUID): solo la fecha en que otro prestamista lo vio (docs/09 §9.2)"
+            }
+          },
+          "required": [
+            "available",
+            "simulated",
+            "prior_applications",
+            "statement_reuse",
+            "seen_elsewhere"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "existing_credits",
+        "credit_bureau",
+        "tax_authority",
+        "program",
+        "internal"
+      ],
+      "additionalProperties": false,
+      "title": "Fuentes externas del perfil"
+    },
+    "ExistingCredit": {
+      "type": "object",
+      "properties": {
+        "product": {
+          "type": "string",
+          "minLength": 1
+        },
+        "balance": {
+          "type": "number",
+          "description": "Saldo insoluto"
+        },
+        "monthly_payment": {
+          "type": "number",
+          "description": "Monto no negativo, a lo más dos decimales"
+        },
+        "days_past_due": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "past_due_amount": {
+          "default": null,
+          "description": "Monto vencido; null si el core del prestamista no lo informa",
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "product",
+        "balance",
+        "monthly_payment",
+        "days_past_due"
+      ],
+      "additionalProperties": false
+    },
+    "BureauReport": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open_accounts": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "monthly_payments": {
+          "default": null,
+          "description": "Pagos mensuales a otras instituciones según buró",
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Monto no negativo, a lo más dos decimales"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "score",
+        "open_accounts"
+      ],
+      "additionalProperties": false
+    },
+    "TaxpayerStatus": {
+      "type": "object",
+      "properties": {
+        "rfc_valid": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "compliance_opinion": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "positive",
+                "negative"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opinión de cumplimiento (32-D)"
+        },
+        "list_status": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "clear",
+                "efos_presumed",
+                "efos_definitive",
+                "not_located"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "69-B y no localizados; null si no se consultó"
+        }
+      },
+      "required": [
+        "rfc_valid",
+        "compliance_opinion",
+        "list_status"
+      ],
+      "additionalProperties": false
+    },
+    "CfdiCheck": {
+      "type": "object",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "valid",
+            "cancelled",
+            "not_found"
+          ]
+        }
+      },
+      "required": [
+        "uuid",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "ListedRfc": {
+      "type": "object",
+      "properties": {
+        "rfc": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 13
+        },
+        "list_status": {
+          "type": "string",
+          "enum": [
+            "clear",
+            "efos_presumed",
+            "efos_definitive",
+            "not_located"
+          ]
+        }
+      },
+      "required": [
+        "rfc",
+        "list_status"
+      ],
+      "additionalProperties": false
+    },
+    "PriorApplication": {
+      "type": "object",
+      "properties": {
+        "application_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+        },
+        "submitted_on": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "qualified",
+            "qualified_with_limit",
+            "not_qualified",
+            "needs_clarification",
+            "human_review",
+            "failed"
+          ]
+        },
+        "same_document": {
+          "type": "boolean",
+          "description": "Mismo hash de documento que la solicitud actual"
+        }
+      },
+      "required": [
+        "application_id",
+        "submitted_on",
+        "status",
+        "same_document"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
