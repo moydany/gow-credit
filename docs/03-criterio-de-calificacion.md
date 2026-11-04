@@ -210,3 +210,33 @@ reentrena; lo que se aprende son umbrales y pesos de una política explicable.
   referenciarlos cuando existan.
 - La clasificación de movimientos tiene error; las reglas exigen confianza mínima y los
   casos de alto impacto se preguntan.
+
+---
+
+## Cambios durante la implementación
+
+### Fase 1 (2026-11-04): contratos en `packages/contracts`
+
+Nada de lo que sigue cambia el criterio; son precisiones que el esquema necesitaba para
+poder validarse.
+
+- **Desconocido es `null`.** Toda feature desconocida tiene `value: null` en el perfil.
+  Por eso `identity_match` es `match | partial | mismatch`, sin `unknown`. Si `unknown`
+  fuera un valor, la compuerta `identity` (`in ["match"]`) lo trataría como fallo y nunca
+  llegaría a `onUnknown: "ask"`.
+- **Operadores por tipo**: `int | money | ratio` → `< <= > >= == !=`; `bool` → `== !=`;
+  `enum` → `in not_in`; listas (`red_flags`, `prior_applications`) → `empty not_empty`.
+  Cualquier otra combinación se rechaza al parsear, con la ruta exacta del error.
+- **`onUnknown`** acepta `ask | pass | fail | human_review`; si se omite, el default es
+  `fail` (conservador). `ask` exige `onFail.ask`.
+- **`requested_amount` es una feature** del catálogo (fuente `request`), porque la
+  dimensión `capacity` la usa en `relativeTo`.
+- **Validaciones adicionales**: los pesos de las dimensiones suman 100; `inverse: true`
+  exige `zeroAt > fullAt` y viceversa; las bandas van de mayor a menor puntaje sin mejorar
+  el estado y la última empieza en 0; `limit` en las bandas que califican, sobre una
+  feature `money`; `band` aparece exactamente una vez en `limitFormula`, y sus términos son
+  features `money`.
+- **Plantilla base** en `policies/gow-base.v1.json`: la de §4 más un tope
+  `buyer_payments_count == 0 → qualified_with_limit`, que pide el escenario 11 de `06`
+  ("perfil sano sin pagos del comprador → máximo `qualified_with_limit`"); con solo la
+  dimensión `buyer` ese escenario podía salir `qualified`.
