@@ -198,7 +198,88 @@ prompt v2 y un caso nuevo en la eval de clasificación.
   `output_config.format` y no rompe la caché.
 - `classify_document` v2 con la regla de la sección 4.
 
-## 9. Qué hacer ahora, en orden
+## 9. Para qué sirve de verdad: el bloque fiscal como ancla
+
+Verificar que el CFDI existe es lo de menos. Lo interesante es que el bloque es la única
+parte del documento firmada por un tercero (el SAT) y la única con identificadores que
+sobreviven a cualquier re-exportación del PDF. De ahí salen siete usos, ordenados por
+valor contra costo.
+
+1. **Ancla externa sobre los movimientos.** Hoy el cuadre compara los movimientos
+   contra los totales que imprime el banco, que viven en el mismo PDF editable. El
+   subtotal y el IVA del CFDI deben ser iguales a la suma de las filas `fee` y del IVA
+   sobre comisiones del periodo (Inbursa incluso imprime el resumen del CFDI por
+   concepto). Si no cuadra, o la extracción omitió filas de comisión (reintento dirigido
+   a esas filas) o el estado de cuenta fue editado. Es una porción pequeña del libro,
+   pero firmada fuera del documento. Feature `fiscal_anchor_ok` (bool). Costo: nulo,
+   las comisiones ya se clasifican.
+2. **Huella del estado de cuenta.** El UUID identifica el estado de cuenta, no el
+   archivo: una copia re-exportada, reimpresa o escaneada conserva el UUID y cambia el
+   sha256. Dentro del tenant, `statement_reuse_count`: el mismo UUID en otras
+   solicitudes (reenvíos, mismo documento para dos montos distintos). A nivel
+   plataforma, un índice de `HMAC(UUID)` con llave de plataforma, fuera del RLS de los
+   tenants, de solo escritura para ellos y cuya lectura devuelve únicamente "visto en
+   otro prestamista hace N días": `statement_seen_elsewhere_days` (int; `null` si
+   nunca). Es la señal clásica de solicitudes simultáneas a varios prestamistas, sin
+   revelar RFC, montos ni quién. Se documenta en `05` como excepción explícita al
+   aislamiento.
+3. **El comprador por RFC, no por nombre.** Santander imprime el RFC del pagador en los
+   SPEI (82 contrapartes distintas en el documento de desarrollo); Banamex, Inbursa y Nu
+   en algunos movimientos. `Transaction.classification` gana `counterparty_rfc` (regex
+   sobre la descripción, validado). `buyer_payments_*` y `top_payer_concentration`
+   agrupan por RFC cuando existe y por nombre difuso cuando no: más exacto y más difícil
+   de falsear con una descripción parecida.
+4. **Listas públicas del SAT.** El SAT publica como datos abiertos la lista del
+   artículo 69-B (empresas que facturan operaciones simuladas: presuntos, desvirtuados,
+   definitivos) y la de contribuyentes no localizados. Con el RFC completo del titular
+   (receptor del CFDI) y los RFC de las contrapartes: `sat_list_status` del titular
+   (`clear | efos_presumed | efos_definitive | not_located`) e
+   `income_from_listed_rfc_share` (parte de los ingresos operativos que viene de
+   pagadores en 69-B definitivo). Un proveedor cuyo pagador principal es un EFOS no se
+   arregla con flujo. Costo: descargar y normalizar un CSV público; en `standalone` es
+   opcional (`--sat-lists <csv>`), en `full` un adaptador con refresco semanal por
+   pg_cron. Spike corto para fijar URL y formato del CSV.
+5. **Régimen fiscal como filtro y como prueba de plausibilidad.** 616 no puede facturar
+   y no cabe en pronto pago. 626 (RESICO persona física) tiene tope de ingresos de 3.5
+   millones de pesos al año: ingresos operativos anualizados por encima →
+   `regime_income_plausible = false`, se pregunta al dueño o va a revisión. 601 y 612
+   además dicen qué documento pedir después (constancia de situación fiscal, opinión de
+   cumplimiento).
+6. **La fecha de timbrado como reloj confiable.** `certified_at` es una marca del SAT:
+   `document_age_days` la usa cuando existe, y una distancia mayor a 30 días entre el
+   fin del periodo y el timbrado es `warning` (documento generado mucho después, o
+   periodo editado).
+7. **Pedir el XML por el canal de aclaración.** Cuando el bloque impreso viene cortado
+   (Hey) o el receptor vacío, la pregunta al dueño es "mándanos el XML del CFDI de tu
+   estado de cuenta; se descarga en la app del banco". Con el XML se verifica el sello
+   del SAT sin red (contra el certificado público del SAT), se completa el receptor y
+   se obtienen los conceptos desglosados, que convierten el uso 1 en cuadre fila por
+   fila. "Preguntar al dueño" deja de ser solo rellenar huecos: es subir de nivel de
+   verificación con una pregunta que se contesta reenviando un archivo.
+
+Hacia dónde lleva esto: el mismo `FiscalDocument` sirve para la factura que el
+proveedor emite a su comprador, que es el documento natural de un pronto pago.
+Receptor = RFC del comprador en el programa del tenant, método `PPD`, sin complemento
+de pago, vigente en el SAT, y los pagos de ese comprador en el estado de cuenta
+(uso 3) prueban la relación. No está en alcance, pero las piezas son las mismas.
+
+Catálogo (`FEATURE_CATALOG_VERSION` 1.1.0), además de `fiscal_regime` y
+`cfdi_sat_status`: `fiscal_anchor_ok` (bool, `statement`), `statement_reuse_count`
+(int, `internal`), `statement_seen_elsewhere_days` (int, `internal`),
+`sat_list_status` (enum, `tax_authority`), `income_from_listed_rfc_share` (ratio,
+`tax_authority`), `regime_income_plausible` (bool, `statement`).
+
+Escenarios nuevos (`06`): 23 "mismo UUID presentado a otro tenant hace 3 días →
+human_review"; 24 "pagador principal en 69-B definitivo → not_qualified"; 25 "RESICO
+con ingresos anualizados sobre el tope → pregunta al dueño".
+
+Líneas de corte: usos 1, 3, 5 y 6 entran en las fases 2 y 4 sin costo visible; el uso
+2 dentro del tenant es **debería** y el índice de plataforma **si alcanza** (diseñado
+en `05`); el uso 4 con doble simulado es **debería** y la lista real **si alcanza**; el
+uso 7 como tipo de pregunta es **debería** y la verificación criptográfica del XML
+**si alcanza**.
+
+## 10. Qué hacer ahora, en orden
 
 1. ADR 0006 "Bloque fiscal en el contrato", con este documento como fuente.
 2. Contrato: `FiscalDocument`, `IssueCode`, `DocumentFlag`, `schema_version` 1.1.0, JSON
@@ -208,4 +289,9 @@ prompt v2 y un caso nuevo en la eval de clasificación.
 4. Verificación: los cruces de la sección 4.
 5. `fiscal_regime` y `cfdi_sat_status` al llegar a la fase 4; `TaxAuthority` y el spike 5
    al llegar a la 5.
-6. Secciones "Cambios durante la implementación" en `02`, `03` y `04` apuntando aquí.
+6. `counterparty_rfc` en la clasificación de movimientos y los usos 1, 5 y 6 de la
+   sección 9 dentro de la verificación y el perfil.
+7. `statement_reuse_count`, `sat_list_status` y la pregunta "mándanos el XML" cuando
+   lleguen las fases 4 y 5; el índice de plataforma y la lista 69-B real al final.
+8. Secciones "Cambios durante la implementación" en `02`, `03`, `04`, `05` y `06`
+   apuntando aquí.
