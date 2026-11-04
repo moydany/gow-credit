@@ -17,6 +17,7 @@ import {
   StatementExtraction,
   type DocumentFlag,
   type DocumentType,
+  type FiscalDocument,
   type ModelCall,
   type Period,
   type TokenUsage,
@@ -24,6 +25,7 @@ import {
 } from '@gow/contracts'
 import { addUsage, EXTRACTION_MODEL, LlmCallError, loadPrompt, ZERO_USAGE, type Classifier, type Effort, type Limiter, type StructuredLlm } from '@gow/llm'
 import { assembleSummary, materialize, placeRows, type AssembledSummary, type FieldOf, type PlacedRow } from './assemble.ts'
+import { assembleFiscal, crossCheckFiscal } from './fiscal.ts'
 import { IssueSink } from './issues.ts'
 import { ExtractionChunk, EXTRACTION_SCHEMA_NAME, type SummaryOut } from './llm-schema.ts'
 import { daysBetween } from './normalize.ts'
@@ -56,7 +58,7 @@ export const DEFAULT_OPTIONS = {
   maxRetryPages: 4,
 } as const satisfies Partial<ExtractOptions>
 
-const PROMPTS = { system: 1, summary: 1, transactions: 1, retry: 1 } as const
+const PROMPTS = { system: 1, summary: 2, transactions: 1, retry: 1 } as const
 
 function chunkPages(pages: readonly number[], size: number): number[][] {
   const blocks: number[][] = []
@@ -159,7 +161,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   }
   if (summaryOut === null) {
     failureReason = 'no se obtuvo el resumen del documento (pasada 1)'
-    return build({ pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, periodsTx: new Map(), issues, flags, calls, failureReason, status: 'failed' })
+    return build({ pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason, status: 'failed' })
   }
   if (summaryOut.document_kind !== 'bank_statement' || (documentType !== 'bank_statement' && classConfidence >= 0.7)) {
     flags.add('not_a_bank_statement')
@@ -172,6 +174,8 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     }
   }
   const summary = assembleSummary(summaryOut, text)
+  const fiscal = assembleFiscal(summaryOut.fiscal_documents, text)
+  if (fiscal.length > 0) flags.add('fiscal_document_present')
   if (summary.accounts.length > 1) flags.add('multi_account')
   if (summary.accounts.some((a) => a.periods.length > 1)) flags.add('multi_period')
 
@@ -300,9 +304,10 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     checkAccountFormats(acc, issues)
   }
   checkRfcField(summary.holder.rfc, issues)
+  crossCheckFiscal(fiscal, summary.holder, summary.accounts.flatMap((a) => a.periods), issues)
   if (outcome.partial) flags.add('partial_extraction')
 
-  return build({ pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary, periodsTx, issues, flags, calls, failureReason, status: outcome.partial ? 'partial' : 'complete' })
+  return build({ pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary, fiscal, periodsTx, issues, flags, calls, failureReason, status: outcome.partial ? 'partial' : 'complete' })
 }
 
 // ---------------------------------------------------------------- helpers
@@ -399,6 +404,7 @@ interface BuildInput {
   classifierBank: string | null
   classifier: { implementation: 'jev' | 'claude'; model: string; fallback: boolean }
   summary: AssembledSummary | null
+  fiscal: FiscalDocument[]
   periodsTx: Map<string, Transaction[]>
   issues: IssueSink
   flags: Set<DocumentFlag>
@@ -421,6 +427,7 @@ function build(b: BuildInput): StatementExtraction {
     bank_name: b.summary?.bankName ?? missingField,
     holder: b.summary?.holder ?? { name: missingField, rfc: missingField, holder_type: missingField },
     accounts,
+    fiscal_documents: b.fiscal,
     issues: b.issues.issues,
     flags: [...b.flags],
     extraction: {
@@ -454,6 +461,6 @@ async function finalizeFailed(path: string, bytes: Buffer, started: Date, reason
   const issues = new IssueSink()
   issues.add({ code: 'page_unreadable', severity: 'error', message: reason })
   return Promise.resolve(
-    build({ pdf, route: 'vision_only', started, documentType: 'other', classConfidence: 0, classifierBank: null, classifier: { implementation: 'claude', model: 'none', fallback: true }, summary: null, periodsTx: new Map(), issues, flags: new Set(['partial_extraction']), calls: [], failureReason: reason, status: 'failed' }),
+    build({ pdf, route: 'vision_only', started, documentType: 'other', classConfidence: 0, classifierBank: null, classifier: { implementation: 'claude', model: 'none', fallback: true }, summary: null, fiscal: [], periodsTx: new Map(), issues, flags: new Set(['partial_extraction']), calls: [], failureReason: reason, status: 'failed' }),
   )
 }

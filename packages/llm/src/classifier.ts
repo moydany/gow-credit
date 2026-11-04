@@ -72,7 +72,7 @@ export class ClaudeClassifier implements Classifier {
   async classify(input: ClassifierInput): Promise<Classification> {
     // Con texto legible basta una muestra en texto (más barato); si no, va el PDF.
     const useText = input.textSample !== null
-    const prompt = loadPrompt('classify_document', 1, {
+    const prompt = loadPrompt('classify_document', 2, {
       banks: KNOWN_BANKS.join(', '),
       text_sample: useText ? `<texto_primeras_paginas>\n${input.textSample ?? ''}\n</texto_primeras_paginas>` : '',
     })

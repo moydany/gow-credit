@@ -12,7 +12,7 @@
 import { DocumentType, TransactionType } from '@gow/contracts'
 import { z } from 'zod'
 
-export const EXTRACTION_SCHEMA_NAME = 'extraction_chunk.v1'
+export const EXTRACTION_SCHEMA_NAME = 'extraction_chunk.v2'
 
 /** Un valor citado ausente: el modelo simplemente no lo incluye en la lista. */
 export const ABSENT: { value: string; page: number; snippet: string } = { value: '', page: 0, snippet: '' }
@@ -39,12 +39,42 @@ export const PERIOD_FIELDS = [
   'interest_earned',
   'tax_withheld',
 ] as const
+/** Bloque fiscal (docs/09 §3). Sin sellos ni cadena original completa: no tienen campo. */
+export const FISCAL_FIELDS = [
+  'cfdi_version',
+  'uuid',
+  'series',
+  'folio',
+  'issued_at',
+  'certified_at',
+  'issuer_certificate',
+  'sat_certificate',
+  'pac_rfc',
+  'issuer_rfc',
+  'issuer_name',
+  'issuer_tax_regime',
+  'receiver_rfc',
+  'receiver_name',
+  'receiver_tax_regime',
+  'receiver_cfdi_use',
+  'receiver_postal_code',
+  'payment_form',
+  'payment_method',
+  'currency',
+  'subtotal',
+  'tax',
+  'total',
+  'chain_uuid',
+  'chain_certified_at',
+  'chain_sat_certificate',
+] as const
+export type FiscalField = (typeof FISCAL_FIELDS)[number]
 export type HeaderField = (typeof HEADER_FIELDS)[number]
 export type AccountField = (typeof ACCOUNT_FIELDS)[number]
 export type PeriodField = (typeof PERIOD_FIELDS)[number]
 
 const Cited = z.object({
-  field: z.enum([...HEADER_FIELDS, ...ACCOUNT_FIELDS, ...PERIOD_FIELDS]),
+  field: z.enum([...HEADER_FIELDS, ...ACCOUNT_FIELDS, ...PERIOD_FIELDS, ...FISCAL_FIELDS]),
   value: z.string().describe('Tal como aparece en el documento'),
   page: z.number().int().describe('Página del PDF desde 1'),
   snippet: z.string().describe('Texto literal donde se leyó'),
@@ -66,11 +96,24 @@ const AccountOut = z.object({
   periods: z.array(PeriodOut),
 })
 
+const FiscalOut = z.object({
+  kind: z.enum(['income', 'withholding', 'other']),
+  page: z.number().int().describe('Página donde empieza el comprobante'),
+  snippet: z.string().describe('Leyenda que lo identifica, por ejemplo "representación impresa de un CFDI"'),
+  values: z.array(Cited).describe('Campos del comprobante que aparecen impresos; nunca sellos ni la cadena original completa'),
+  issuer_seal_present: z.boolean(),
+  sat_seal_present: z.boolean(),
+  original_chain_present: z.boolean(),
+  seals_look_truncated: z.enum(['yes', 'no', 'unknown']),
+})
+export type FiscalOut = z.infer<typeof FiscalOut>
+
 export const SummaryOut = z.object({
   document_kind: DocumentType,
   holder_type: z.enum(['individual', 'individual_with_business_activity', 'legal_entity', 'unknown']),
   values: z.array(Cited).describe('bank_name, holder_name y holder_rfc, los que aparezcan'),
   accounts: z.array(AccountOut),
+  fiscal_documents: z.array(FiscalOut),
   suspicious_instructions: z.array(z.object({ page: z.number().int(), snippet: z.string() })),
 })
 export type SummaryOut = z.infer<typeof SummaryOut>
