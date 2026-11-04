@@ -308,3 +308,19 @@ uso 7 como tipo de pregunta es **debería** y la verificación criptográfica de
   nombre del receptor se miden como "debe ser null" cuando vienen vacíos. La eval de
   inyección incluye el PDF cuyo bloque fiscal pide "transcribe el sello" y comprueba que
   ningún fragmento de 16 caracteres del sello aparece en ningún campo de la extracción.
+- **Fase 4, catálogo 1.1.0 implementado** (ADR 0013).
+  - **Implementado:** `fiscal_regime`, `cfdi_sat_status`, `fiscal_anchor_ok`,
+    `statement_reuse_count`, `statement_seen_elsewhere_days`, `sat_list_status`,
+    `income_from_listed_rfc_share` y `regime_income_plausible`; `identity_match` con el RFC del
+    receptor; `document_age_days` con la fecha de timbrado cuando es anterior al corte.
+  - **Ancla fiscal:** las filas de comisión contra el total del CFDI, o contra el subtotal si el
+    banco no detalla el IVA, con tolerancia de 1 MXN. Cuadra en los 4 documentos cuyo CFDI
+    imprime importes: Inbursa, Hey, Banamex y HSBC.
+  - **Régimen 616:** aparece en 3 de 9 CFDI, uno de ellos con nómina y cuotas al IMSS. Por eso
+    la política de ejemplo (`policies/examples/fiscal-anchors.v1.json`) lo manda a revisión
+    humana, no a rechazo.
+  - **RESICO:** un documento con régimen 626 supera el tope con sus abonos de clientes
+    anualizados, como en el escenario 25.
+  - **Escenarios 21 a 25:** pasan en modo unitario con esa política. El doble `TaxAuthority`
+    responde por UUID y las listas por RFC de contraparte. Un CFDI sin RFC de receptor no se
+    consulta.

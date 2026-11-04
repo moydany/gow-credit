@@ -164,3 +164,24 @@ penalización", 23 "mismo UUID presentado a otro tenant hace 3 días → human_r
 "pagador principal en 69-B definitivo → not_qualified", 25 "RESICO con ingresos
 anualizados sobre el tope → pregunta al dueño". El doble `TaxAuthority` gana
 `cfdi: { "<uuid>": valid | cancelled | not_found }`.
+
+### Fase 4 (2026-11-04): modo unitario (ADR 0014)
+
+- **Los escenarios corren en modo `unit`** sin LLM ni base: `scenarios/catalog/*.yaml` con el
+  formato de §3 más `statements`, estados de cuenta sintéticos generados en código con
+  descripciones de banco. Pasan por la clasificación por reglas, el perfil, los dobles
+  simulados y el motor reales. El modo `full` (PDFs, workflow, caché de modelos) es de la
+  fase 6; `modes` dice cuál aplica.
+- **Formato**: `as_of` fija el reloj, el comprador acepta texto u objeto (`name`, `rfc`,
+  `aliases`) y `expect` admite `status`, `limit`, `limit_min`, `limit_max`, `reasons_include`
+  (códigos estables, por ejemplo `existing_exposure`), `next_steps_include` (features),
+  `clarification_topics` y `features` exactas. El bloque `external` gana `cfdi`, `sat_lists`,
+  `program` e `history`.
+- **Contrato**: el esquema está en `@gow/contracts` (`Scenario`) y publicado en
+  `docs/schema/scenario.schema.json`.
+- **Catálogo hoy**: 3, 4, 5, 6, 7, 10, 11 y 17 con la política base; 21 a 25 con
+  `policies/examples/fiscal-anchors.v1.json`.
+- **Ejemplo de §3**: en el escenario 5, la línea queda en unos 46 mil (máximo esperado 90 mil)
+  porque la fija la capacidad menos la exposición vigente.
+- `pnpm scenario run <id>|--all [--policy <json>]`. Con `--policy`, imprime qué pasaría con
+  otra política, sin comparar con `expect`.

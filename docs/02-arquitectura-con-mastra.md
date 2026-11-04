@@ -468,3 +468,17 @@ no cambia el resto del diseño.
   citas nativas. La sección 2 describe ahora el camino de emergencia.
 - **`standalone` necesita dos llaves**: `GOOGLE_GENERATIVE_AI_API_KEY` y
   `ANTHROPIC_API_KEY` (clasificación de respaldo, aclaraciones, doble lectura, emergencia).
+
+### Fase 4 (2026-11-04, ADR 0013 y 0014)
+
+- **`packages/decision` está construido** como dice la sección 5: puro, sin Mastra. El paso
+  `decide` del workflow (fase 5) llamará a `decide()`, que arma el perfil, aplica la política y
+  agrega la pregunta por abonos grandes inciertos de `docs/03` §7.
+- **`classifyTransactions` (sección 4c)** sigue siendo de la fase 5. Mientras tanto, el perfil
+  clasifica con reglas (`rules-v1`) lo que llegue sin clasificar; Jev entra encima. La lista de
+  4c gana `loan_payment` (pago a un crédito).
+- **Puertos de fuentes externas** (`ExistingCredits`, `CreditBureau`, `TaxAuthority`,
+  `Program`, `ApplicationHistory`) y sus dobles simulados viven en
+  `packages/decision/src/external/` hasta que exista `packages/channels` (fase 6). El perfil
+  recibe un `ExternalSnapshot` ya armado, así que sigue siendo puro.
+- **`scenarios/`** es un paquete del workspace (`@gow/scenarios`) con el runner del modo `unit`.

@@ -253,3 +253,32 @@ poder validarse.
   `buyer_payments_*` y `top_payer_concentration` agrupen por `counterparty_rfc` cuando
   existe. En la fase 2 ya quedan `TransactionClassification.counterparty_rfc` en el contrato
   y `findCounterpartyRfc` (regex validada) listos para la clasificación de movimientos.
+
+### Fase 4 (2026-11-04): perfil y motor en `packages/decision`
+
+Las definiciones de §3 y la semántica de §4 a §7 quedaron precisadas en las ADR 0013 y 0014.
+Lo que cambia o se precisa respecto a este documento:
+
+- **Clasificación**: se agrega `loan_payment` (pago a un crédito) a la clasificación canónica;
+  `debt_service_monthly` son esos pagos más intereses cobrados.
+- **Gastos operativos**: todo cargo que no sea traspaso propio ni pago de crédito, no solo
+  proveedores, nómina, impuestos y comisiones. Un cargo sin clasificar es dinero que sale.
+- **Meses e ingresos mensuales**: desde los días cubiertos (ADR 0006).
+- **`debt_capacity`**: flujo libre mensual positivo × 3 meses (`debt_capacity_months`, guardado
+  en el perfil).
+- **Catálogo 1.1.0**: además de lo de `docs/09`, `existing_exposure_past_due_amount`, para que
+  `next_steps` diga cuánto regularizar.
+- **§4, línea**: sale de la banda del estado final. Si el tope de historia baja de `qualified` a
+  `qualified_with_limit`, la línea es la de 25 %. Sin dato de exposición vigente se toma 0 y se
+  dice. Una línea de cero o menos es `not_qualified`.
+- **§4, topes**: un tope sobre una feature desconocida aplica.
+- **§6, contrafactuales**: primero pasar todas las compuertas que bloquean, juntas; después cada
+  tope y cada dimensión medidos sobre ese resultado, y pedir menos monto. Cada uno se re-evalúa.
+  No se combinan varias dimensiones.
+- **§7**: un abono mayor a `askWhenAmountAbovePctOfIncome` % de los ingresos de su periodo, sin
+  clasificar con confianza o clasificado como préstamo con confianza menor a 0.9, se pregunta
+  solo si cambia la banda. La pregunta lleva la lista de movimientos.
+- **§5, plantilla**: `basePolicyTemplate()` lee `policies/gow-base.v1.json`. `policies/examples/`
+  gana la política de ejemplo con las compuertas fiscales de `docs/09` §5.
+- **§5, simulación**: `simulatePolicy` reevalúa perfiles guardados y reporta transiciones y mora
+  observada por estado. `pnpm simulate` la corre.

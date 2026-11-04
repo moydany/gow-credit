@@ -183,3 +183,16 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   fecha y saldo ≥ 99 %, descripción ≥ 90 %, encabezado ≥ 90 %, CFDI ≥ 85 %, documento
   cuadrado. El cuadre a la primera se reporta sin bloquear. La fidelidad del texto generado
   (preguntas y `next_steps`) llega con la fase 5, que es donde se genera ese texto.
+
+### Fase 4 (2026-11-04): capa 4 en el motor (ADR 0014)
+
+- **§5 implementado como regla fija de `evaluate`.** Una dimensión cuya feature es `unverified`,
+  `conflict` o de confianza baja no suma, y un tope sobre ella aplica. El motor evalúa también
+  el mejor caso; si la banda cambia, no decide. La confianza baja en la clasificación de abonos
+  se pregunta al proveedor; identidad, antigüedad e historia también. Un valor no verificado
+  contra el documento va a revisión humana. Una compuerta sobre un dato dudoso ni pasa ni
+  reprueba.
+- **En el perfil, un movimiento no verificado nunca suma.** Si lo que quedó fuera es material,
+  la feature queda `unverified` para que el motor aplique la regla anterior.
+- Un test de propiedades lo comprueba: con un dato no verificado fuera de la fórmula de línea,
+  cambiar su valor no cambia el estado.
