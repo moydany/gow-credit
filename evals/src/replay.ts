@@ -7,7 +7,7 @@
 import { join, resolve } from 'node:path'
 import type { StatementExtraction } from '@gow/contracts'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
-import { CachingStructuredLlm, createLimiter, ZERO_USAGE, type Classification, type Classifier, type StructuredLlm, type StructuredRequest, type StructuredResult } from '@gow/llm'
+import { CachingStructuredLlm, createLimiter, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, ZERO_USAGE, type Classification, type Classifier, type StructuredLlm, type StructuredRequest, type StructuredResult } from '@gow/llm'
 
 export const REPO = resolve(import.meta.dirname, '../..')
 export const DEV_DIR = join(REPO, 'data/dev')
@@ -44,8 +44,17 @@ const replayClassifier: Classifier = {
 
 export type ReplayResult = { status: 'ok'; doc: StatementExtraction } | { status: 'cache_miss'; misses: string[] }
 
-export async function replayExtraction(pdfPath: string, model: string, opts: { cacheDir?: string; classifier?: Classifier } = {}): Promise<ReplayResult> {
-  const recorder = new MissRecorder(new CachingStructuredLlm(null, opts.cacheDir ?? CACHE_DIR, 'read'))
+/**
+ * `live: true` llama al modelo en lo que falte y guarda las respuestas (corrida pagada; solo a
+ * mano, nunca en CI). Sin `live`, solo caché.
+ */
+export async function replayExtraction(pdfPath: string, model: string, opts: { cacheDir?: string; classifier?: Classifier; live?: boolean } = {}): Promise<ReplayResult> {
+  let inner: StructuredLlm | null = null
+  if (opts.live) {
+    loadRootEnv()
+    inner = new MastraStructuredLlm(readAnthropicEnv())
+  }
+  const recorder = new MissRecorder(new CachingStructuredLlm(inner, opts.cacheDir ?? CACHE_DIR, opts.live ? 'readwrite' : 'read'))
   const doc = await extractStatement(pdfPath, { llm: recorder, classifier: opts.classifier ?? replayClassifier }, { ...DEFAULT_OPTIONS, extractionModel: model, googleAvailable: true, limit: createLimiter(4) })
   if (recorder.misses.length > 0) return { status: 'cache_miss', misses: [...new Set(recorder.misses)] }
   return { status: 'ok', doc }

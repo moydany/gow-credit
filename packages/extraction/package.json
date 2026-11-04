@@ -5,7 +5,8 @@
   "description": "Extracción de estados de cuenta en dos pasadas con verificación aritmética, reintento dirigido y salida parcial con banderas.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing-synthetic-pdf.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
