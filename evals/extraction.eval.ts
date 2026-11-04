@@ -3,13 +3,14 @@
  * la caché de respuestas: CI no llama a ningún modelo. Llenar la caché de un modelo nuevo es
  * una corrida pagada aparte: `pnpm extract data/dev --model <modelo>`.
  *
- * EVAL_MODELS (coma) elige los modelos; por defecto los cuatro que compara la ADR 0011.
+ * EVAL_MODELS (coma) elige los modelos; por defecto Gemini y Opus, los que tienen caché de los
+ * 9 documentos. Sonnet y Haiku se agregan con EVAL_MODELS tras llenar su caché.
  * Los puntajes por documento quedan en data/eval-results/; `src/gate.ts` aplica los umbrales
  * por banco y escribe el reporte.
  */
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { EXPERIMENT_SONNET, GEMINI_FLASH, LIGHT_MODEL, OPUS_MODEL } from '@gow/llm'
+import { GEMINI_FLASH, OPUS_MODEL } from '@gow/llm'
 import { evalite } from 'evalite'
 import { GroundTruth } from './src/ground-truth/schema.ts'
 import { scoreDocument, type DocumentScore } from './src/metrics.ts'
@@ -27,7 +28,7 @@ const DOCS = [
   'EDC_08_Nu_2025-07.pdf',
   'EDC_09_HSBC_2026-03.pdf',
 ]
-const MODELS = (process.env.EVAL_MODELS ?? [GEMINI_FLASH, OPUS_MODEL, EXPERIMENT_SONNET, LIGHT_MODEL].join(',')).split(',').map((m) => m.trim()).filter(Boolean)
+const MODELS = (process.env.EVAL_MODELS ?? [GEMINI_FLASH, OPUS_MODEL].join(',')).split(',').map((m) => m.trim()).filter(Boolean)
 
 const computed = new Map<string, DocumentScore>()
 const keyOf = (i: { model: string; file: string }) => `${i.model}|${i.file}`
