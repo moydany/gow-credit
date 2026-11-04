@@ -168,3 +168,9 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   queda a más de 30 días del fin del periodo, aviso (documento generado mucho después o
   periodo editado). El ancla de comisiones (`09` §9.1) entra en la fase 4, cuando los
   movimientos estén clasificados como `fee`.
+- **Doble lectura con otra familia de modelos** (ADR 0011). Con Gemini como extractor, la
+  segunda lectura de encabezado, totales y movimientos grandes (§3.6) se hace con Claude
+  (`claude-haiku-5-5`; `claude-opus-5-5` si el router sube el `effort`). Dos familias
+  comparten menos sesgos que dos prompts del mismo modelo: un acuerdo vale más y un
+  desacuerdo marca `unverified` igual que antes. Las citas nativas de Claude (§3.7) quedan
+  solo en el camino de emergencia.

@@ -177,7 +177,9 @@
               "partial_extraction",
               "reconciliation_failed",
               "possible_prompt_injection",
-              "fiscal_document_present"
+              "fiscal_document_present",
+              "provider_fallback",
+              "quality_fallback"
             ]
           }
         },

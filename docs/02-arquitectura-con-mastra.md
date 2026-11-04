@@ -450,3 +450,21 @@ no cambia el resto del diseño.
   1.1.0 gana `fiscal_documents`; el esquema del modelo pasa a `extraction_chunk.v2` con los
   campos fiscales en la misma lista citada, así que no rompe la caché (ADR 0005). Los sellos
   y la cadena original completa no se piden ni se guardan.
+
+### Modelo de extracción (2026-11-04, ADR 0011)
+
+- **`statementExtractor` corre en `gemini-3.8-flash`**, no en `claude-opus-5-5`. Mismo
+  puerto `StructuredLlm`, mismo prompt y esquema (`extraction_chunk.v2`), misma
+  verificación; cambia `EXTRACTION_MODEL` y Gemini deja de ser experimental: desaparece
+  `--allow-third-party` y mandar el documento a Google es el comportamiento por defecto,
+  dicho en el README. Evidencia en `docs/experiments/2026-11-04-gemini-extraction.md`.
+- **Emergencia en dos niveles**: `gemini-4-carbon` repite el bloque cuando Flash falla por
+  calidad (salida que no valida dos veces seguidas, descuadre que el reintento dirigido no
+  resuelve); `claude-opus-5-5` toma el documento cuando falla el proveedor (cuota, error o
+  caída tras los reintentos). Lo decide el router (ADR 0003), no un flag, y cada bloque
+  registra qué modelo lo produjo.
+- **Lo que era de Anthropic y ya no aplica a la extracción por defecto**: `cacheControl`,
+  `fallbacks: "default"`, thinking adaptativo por `effort` (Gemini usa `thinkingLevel`),
+  citas nativas. La sección 2 describe ahora el camino de emergencia.
+- **`standalone` necesita dos llaves**: `GOOGLE_GENERATIVE_AI_API_KEY` y
+  `ANTHROPIC_API_KEY` (clasificación de respaldo, aclaraciones, doble lectura, emergencia).

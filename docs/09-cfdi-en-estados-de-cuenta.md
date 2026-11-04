@@ -165,7 +165,7 @@ prompt v2 y un caso nuevo en la eval de clasificación.
   completo) y con Hey (sin `fe` ni `rr`) y anotar en `docs/spikes/05-sat-verify.md` si el
   servicio responde sin `fe`. Si no responde, `cfdi_sat_status` solo existe cuando el
   sello está completo.
-- En `standalone` la consulta está **apagada** (solo `ANTHROPIC_API_KEY`, ninguna
+- En `standalone` la consulta está **apagada** (solo las llaves de los modelos, ninguna
   llamada externa inesperada); se enciende con `--verify-cfdi`. En `full` es un método
   del adaptador `TaxAuthority`, con caché por UUID y rate limit, una llamada por
   documento y nunca desde el bot.
@@ -197,6 +197,8 @@ prompt v2 y un caso nuevo en la eval de clasificación.
 - Con el esquema único por documento (ADR 0005) el bloque entra en el mismo
   `output_config.format` y no rompe la caché.
 - `classify_document` v2 con la regla de la sección 4.
+- Con `gemini-3.8-flash` como extractor (ADR 0011) el esquema viaja como
+  `responseJsonSchema`; la regla del esquema único sigue valiendo para su caché implícita.
 
 ## 9. Para qué sirve de verdad: el bloque fiscal como ancla
 
