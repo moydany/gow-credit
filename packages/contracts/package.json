@@ -1,0 +1,18 @@
+{
+  "name": "@gow/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contratos Zod compartidos: extracción, perfil, política, veredicto y solicitud. Única fuente de verdad de los tipos.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/fixtures.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "schema:export": "tsx scripts/export-json-schema.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}
