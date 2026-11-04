@@ -1,0 +1,142 @@
+/**
+ * Normalización de montos, fechas y texto para comparar lo que dice el modelo contra la
+ * capa de texto del PDF.
+ */
+
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/** "1250.5" → ["1,250.50", "1250.50"]: las formas en que el monto puede aparecer impreso. */
+export function amountForms(n: number): string[] {
+  const abs = Math.abs(n)
+  const fixed = abs.toFixed(2)
+  const [int = '0', dec = '00'] = fixed.split('.')
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return [...new Set([`${grouped}.${dec}`, `${int}.${dec}`])]
+}
+
+/** Texto comparable: minúsculas, sin acentos, sin puntuación salvo dígitos, espacios simples. */
+export function normalizeText(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.,$-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Texto sin separadores para encontrar montos y números aunque el PDF parta las columnas. */
+export function compact(s: string): string {
+  return s.replace(/[\s$]/g, '')
+}
+
+const ISO = /^(\d{4})-(\d{2})-(\d{2})$/
+
+export function isValidIsoDate(s: string): boolean {
+  const m = ISO.exec(s)
+  if (!m) return false
+  const [, y, mo, d] = m.map(Number) as [number, number, number, number]
+  const date = new Date(Date.UTC(y, mo - 1, d))
+  return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d
+}
+
+const MONTHS: Record<string, number> = {
+  ene: 1, jan: 1, enero: 1, january: 1,
+  feb: 2, febrero: 2, february: 2,
+  mar: 3, marzo: 3, march: 3,
+  abr: 4, apr: 4, abril: 4, april: 4,
+  may: 5, mayo: 5,
+  jun: 6, junio: 6, june: 6,
+  jul: 7, julio: 7, july: 7,
+  ago: 8, aug: 8, agosto: 8, august: 8,
+  sep: 9, sept: 9, set: 9, septiembre: 9, september: 9,
+  oct: 10, octubre: 10, october: 10,
+  nov: 11, noviembre: 11, november: 11,
+  dic: 12, dec: 12, diciembre: 12, december: 12,
+}
+
+function iso(y: number, m: number, d: number): string | null {
+  const s = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  return isValidIsoDate(s) ? s : null
+}
+
+/**
+ * Intenta convertir una fecha mexicana o mixta a ISO cuando el modelo no devolvió ISO:
+ * "16/01/2025", "ENE. 16", "01/SEP", "31 JUL 2025", "13 de June de 2026". Sin año, usa el
+ * año del periodo; si la fecha cae después del fin del periodo, usa el año anterior.
+ */
+export function parseLooseDate(raw: string, periodEnd: string | null): string | null {
+  const s = raw.trim()
+  if (isValidIsoDate(s)) return s
+  const endYear = periodEnd && isValidIsoDate(periodEnd) ? Number(periodEnd.slice(0, 4)) : null
+  const withYear = (m: number, d: number, y: number | null): string | null => {
+    if (y !== null) return iso(y < 100 ? 2000 + y : y, m, d)
+    if (endYear === null || periodEnd === null) return null
+    const guess = iso(endYear, m, d)
+    if (guess && guess > periodEnd) return iso(endYear - 1, m, d)
+    return guess
+  }
+  let m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/.exec(s)
+  if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
+  m = /^(\d{1,2})[/.-](\d{1,2})$/.exec(s)
+  if (m) return withYear(Number(m[2]), Number(m[1]), null)
+  const words = normalizeText(s).replace(/[.,]/g, ' ').split(' ').filter((w) => w && w !== 'de' && w !== 'del')
+  let day: number | null = null
+  let month: number | null = null
+  let year: number | null = null
+  for (const w of words) {
+    if (/^\d{4}$/.test(w)) year = Number(w)
+    else if (/^\d{1,2}$/.test(w)) day = Number(w)
+    else if (MONTHS[w] !== undefined) month = MONTHS[w] ?? null
+    else if (/^\d{1,2}\/?[a-z]+$/.test(w)) {
+      const mm = /^(\d{1,2})\/?([a-z]+)$/.exec(w)
+      if (mm && MONTHS[mm[2] ?? ''] !== undefined) {
+        day = Number(mm[1])
+        month = MONTHS[mm[2] ?? ''] ?? null
+      }
+    }
+  }
+  if (day !== null && month !== null) return withYear(month, day, year)
+  return null
+}
+
+/** Días entre dos fechas ISO (b − a). */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000)
+}
+
+/**
+ * Monto impreso → número: "1,250.50", "$ 1,620.67", "-$865.12", "+$100.00", "(1,234.00)",
+ * "1,234.00-", "1.250,50" (coma decimal). Cadena vacía o ilegible → null.
+ */
+export function parseAmount(raw: string): number | null {
+  let s = raw.trim()
+  if (s.length === 0) return null
+  let negative = false
+  if (/^\(.*\)$/.test(s)) {
+    negative = true
+    s = s.slice(1, -1)
+  }
+  if (/-\s*$/.test(s)) {
+    negative = true
+    s = s.replace(/-\s*$/, '')
+  }
+  s = s.replace(/\b(MXN|MN|M\.N\.|USD|CR|DR|CA)\b/gi, '').replace(/[$\s]/g, '')
+  if (s.startsWith('-')) {
+    negative = !negative
+    s = s.slice(1)
+  } else if (s.startsWith('+')) s = s.slice(1)
+  if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.')
+  else s = s.replace(/,/g, '')
+  if (!/^\d+(\.\d+)?$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? round2(negative ? -n : n) : null
+}
+
+/** Conteo impreso → entero no negativo, o null. */
+export function parseCount(raw: string): number | null {
+  const s = raw.trim().replace(/[,\s]/g, '')
+  return /^\d+$/.test(s) ? Number(s) : null
+}
