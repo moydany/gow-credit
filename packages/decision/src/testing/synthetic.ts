@@ -207,7 +207,8 @@ export function syntheticStatement(input: z.input<typeof SyntheticStatement>, ho
   if (spec.fiscal) {
     const f = spec.fiscal
     const last = periods.at(-1)
-    const fees = round2((last?.transactions ?? []).filter((t) => t.type === 'debit' && t.description.startsWith('COMISION')).reduce((s, t) => s + t.amount, 0))
+    // El CFDI del banco ampara las comisiones de todo el documento.
+    const fees = round2(periods.flatMap((x) => x.transactions).filter((t) => t.type === 'debit' && t.description.startsWith('COMISION')).reduce((s, t) => s + t.amount, 0))
     const total = round2(fees + (f.fees_match ? 0 : 150))
     const subtotal = round2(total / 1.16)
     const certified = `${addDays(last?.period_end.value ?? spec.start, f.certified_days_after_end)}T10:15:07`
