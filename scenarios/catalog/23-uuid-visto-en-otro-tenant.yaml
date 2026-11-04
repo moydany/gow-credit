@@ -1,0 +1,31 @@
+# docs/09 §9.2, caso 23. El mismo UUID de CFDI se presentó a otro prestamista hace 3 días
+# (solicitudes simultáneas): revisión humana. El índice de plataforma solo dice cuándo.
+id: uuid-visto-en-otro-tenant
+catalog: 23
+title: Mismo estado de cuenta presentado a otro prestamista hace 3 días
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: policies/examples/fiscal-anchors.v1.json }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: fee, amount: 580 }
+        fiscal: { uuid: 0F1E2D3C-2222-4B5A-8C7D-6E5F4A3B2C1D, regime: "601" }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+external:
+  cfdi: { 0F1E2D3C-2222-4B5A-8C7D-6E5F4A3B2C1D: valid }
+  history:
+    sup-1: { seen_elsewhere: [{ uuid: 0F1E2D3C-2222-4B5A-8C7D-6E5F4A3B2C1D, days_ago: 3 }] }
+expect:
+  status: human_review
+  reasons_include: [gate_not_seen_elsewhere]
+  features: { statement_seen_elsewhere_days: 3, cfdi_sat_status: valid }

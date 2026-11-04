@@ -1,0 +1,30 @@
+# docs/06 §4, caso 10. La cadena tiene un cupo total para pronto pago casi comprometido: el
+# proveedor califica, pero la línea se topa por program_available_limit.
+id: cupo-de-programa-agotado
+catalog: 10
+title: Cupo del programa del comprador casi agotado
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+external:
+  program: { Cadena Norte SA de CV: 20000 }
+expect:
+  status: qualified
+  limit: 20000
+  reasons_include: [program_limit]
+  features: { program_available_limit: 20000 }

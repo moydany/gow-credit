@@ -1,0 +1,31 @@
+# docs/06 §4, caso 6. Crédito vigente con atraso: la compuerta no_arrears rechaza y next_steps dice
+# cuánto regularizar (días de atraso y monto vencido a cero).
+id: proveedor-con-credito-en-mora
+catalog: 6
+title: Proveedor con crédito en mora
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-09-01
+        opening_balance: 60000
+        monthly:
+          - { kind: customer_payment, amount: 160000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 140000, count: 5 }
+          - { kind: supplier_payment, amount: 150000, count: 5 }
+          - { kind: payroll, amount: 50000, count: 2 }
+          - { kind: tax, amount: 15000 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 180000, buyer: Cadena Norte SA de CV }
+external:
+  existing_credits:
+    sup-1: [{ product: linea_pronto_pago, balance: 120000, monthly_payment: 30000, days_past_due: 45, past_due_amount: 30000 }]
+expect:
+  status: not_qualified
+  reasons_include: [gate_no_arrears]
+  next_steps_include: [existing_exposure_days_past_due, existing_exposure_past_due_amount]
+  features: { existing_exposure_days_past_due: 45, existing_exposure_past_due_amount: 30000 }

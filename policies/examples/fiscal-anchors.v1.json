@@ -1,0 +1,272 @@
+{
+  "version": 1,
+  "name": "Ejemplo: anclas fiscales (docs/09)",
+  "description": "Plantilla base más las compuertas que docs/09 §5 y §9 proponen como ejemplo. No es la base: un tenant las agrega si quiere. Todas pasan cuando el dato no existe (sin CFDI, sin consulta al SAT), así que un estado de cuenta sin CFDI como el de Mercado Pago no se penaliza (escenario 22). El régimen 616 va a revisión humana y no a rechazo: tres de los nueve documentos de desarrollo lo traen en el CFDI del banco, uno de ellos con nómina y cuotas al IMSS.",
+  "gates": [
+    {
+      "id": "doc_recent",
+      "description": "El estado de cuenta más reciente tiene 90 días o menos",
+      "when": {
+        "feature": "document_age_days",
+        "op": "<=",
+        "value": 90
+      },
+      "onFail": {
+        "status": "needs_clarification",
+        "ask": "recent_statement"
+      }
+    },
+    {
+      "id": "identity",
+      "description": "Titular, RFC y CLABE coinciden con el proveedor registrado",
+      "when": {
+        "feature": "identity_match",
+        "op": "in",
+        "value": [
+          "match"
+        ]
+      },
+      "onFail": {
+        "status": "needs_clarification",
+        "ask": "identity_fields"
+      },
+      "onUnknown": "ask"
+    },
+    {
+      "id": "integrity",
+      "description": "El estado de cuenta cuadra",
+      "when": {
+        "feature": "integrity_ok",
+        "op": "==",
+        "value": true
+      },
+      "onFail": {
+        "status": "human_review"
+      }
+    },
+    {
+      "id": "no_red_flags",
+      "when": {
+        "feature": "red_flags",
+        "op": "empty"
+      },
+      "onFail": {
+        "status": "human_review"
+      }
+    },
+    {
+      "id": "no_arrears",
+      "description": "Sin atraso en créditos vigentes con este prestamista",
+      "when": {
+        "feature": "existing_exposure_days_past_due",
+        "op": "<=",
+        "value": 0
+      },
+      "onFail": {
+        "status": "not_qualified"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "cfdi_valid",
+      "description": "El CFDI del estado de cuenta está vigente ante el SAT (escenario 21)",
+      "when": {
+        "feature": "cfdi_sat_status",
+        "op": "in",
+        "value": [
+          "valid"
+        ]
+      },
+      "onFail": {
+        "status": "human_review"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "fiscal_anchor",
+      "description": "Las comisiones del estado de cuenta suman lo que firmó el SAT",
+      "when": {
+        "feature": "fiscal_anchor_ok",
+        "op": "==",
+        "value": true
+      },
+      "onFail": {
+        "status": "human_review"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "not_seen_elsewhere",
+      "description": "El mismo estado de cuenta no se presentó a otro prestamista en los últimos 30 días (escenario 23)",
+      "when": {
+        "feature": "statement_seen_elsewhere_days",
+        "op": ">",
+        "value": 30
+      },
+      "onFail": {
+        "status": "human_review"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "not_reused",
+      "description": "El mismo estado de cuenta no está en otra solicitud de este tenant",
+      "when": {
+        "feature": "statement_reuse_count",
+        "op": "<=",
+        "value": 0
+      },
+      "onFail": {
+        "status": "human_review"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "holder_not_listed",
+      "description": "El titular no está en 69-B ni como no localizado",
+      "when": {
+        "feature": "sat_list_status",
+        "op": "in",
+        "value": [
+          "clear"
+        ]
+      },
+      "onFail": {
+        "status": "not_qualified"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "payers_not_efos",
+      "description": "A lo más 10 % de los ingresos viene de pagadores en 69-B definitivo (escenario 24)",
+      "when": {
+        "feature": "income_from_listed_rfc_share",
+        "op": "<=",
+        "value": 0.1
+      },
+      "onFail": {
+        "status": "not_qualified"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "regime_can_invoice",
+      "description": "616 (sin obligaciones fiscales) no puede facturar a una cadena",
+      "when": {
+        "feature": "fiscal_regime",
+        "op": "not_in",
+        "value": [
+          "616"
+        ]
+      },
+      "onFail": {
+        "status": "human_review"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "regime_income",
+      "description": "Ingresos anualizados dentro del tope del régimen (RESICO, escenario 25)",
+      "when": {
+        "feature": "regime_income_plausible",
+        "op": "==",
+        "value": true
+      },
+      "onFail": {
+        "status": "needs_clarification",
+        "ask": "deposit_classification"
+      },
+      "onUnknown": "pass"
+    }
+  ],
+  "score": {
+    "dimensions": [
+      {
+        "id": "capacity",
+        "weight": 35,
+        "feature": "operating_income_monthly",
+        "relativeTo": "requested_amount",
+        "zeroAt": 0.5,
+        "fullAt": 3
+      },
+      {
+        "id": "buyer",
+        "weight": 25,
+        "feature": "buyer_payments_count",
+        "zeroAt": 0,
+        "fullAt": 2
+      },
+      {
+        "id": "stability",
+        "weight": 15,
+        "feature": "payment_capacity_pct",
+        "zeroAt": 0.1,
+        "fullAt": 0.5
+      },
+      {
+        "id": "debt",
+        "weight": 15,
+        "feature": "debt_service_monthly",
+        "relativeTo": "operating_income_monthly",
+        "zeroAt": 0.4,
+        "fullAt": 0.1,
+        "inverse": true
+      },
+      {
+        "id": "recurrence",
+        "weight": 10,
+        "feature": "recurring_income_share",
+        "zeroAt": 0.2,
+        "fullAt": 0.6
+      }
+    ],
+    "minConfidence": 0.7
+  },
+  "decision": {
+    "bands": [
+      {
+        "min": 70,
+        "status": "qualified",
+        "limit": {
+          "pctOf": "operating_income_monthly",
+          "pct": 50
+        }
+      },
+      {
+        "min": 50,
+        "status": "qualified_with_limit",
+        "limit": {
+          "pctOf": "operating_income_monthly",
+          "pct": 25
+        }
+      },
+      {
+        "min": 0,
+        "status": "not_qualified"
+      }
+    ],
+    "caps": [
+      {
+        "when": {
+          "feature": "months_of_history",
+          "op": "<",
+          "value": 3
+        },
+        "maxStatus": "qualified_with_limit"
+      },
+      {
+        "when": {
+          "feature": "buyer_payments_count",
+          "op": "==",
+          "value": 0
+        },
+        "maxStatus": "qualified_with_limit"
+      }
+    ],
+    "limitFormula": "min(band, debt_capacity - existing_exposure_balance, program_available_limit)"
+  },
+  "clarification": {
+    "maxRounds": 1,
+    "askWhenAmountAbovePctOfIncome": 30
+  }
+}

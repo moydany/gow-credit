@@ -1,0 +1,35 @@
+# docs/06 §3 y §4, caso 5. Ya tiene una línea con este prestamista, al corriente: la línea nueva se
+# calcula sobre la capacidad menos la exposición vigente.
+id: proveedor-con-credito-vigente
+catalog: 5
+title: Proveedor con crédito vigente al corriente
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base, whatsapp_number: "+5215500000001" }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    contacts: [{ channel: whatsapp, address: "+5215511111111", verified: true }]
+    statements:
+      - start: 2026-09-01
+        opening_balance: 60000
+        monthly:
+          - { kind: customer_payment, amount: 160000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 140000, count: 5 }
+          - { kind: supplier_payment, amount: 150000, count: 5 }
+          - { kind: payroll, amount: 50000, count: 2 }
+          - { kind: tax, amount: 15000 }
+          - { kind: fee, amount: 580 }
+          - { kind: loan_payment, amount: 30000, counterparty: FINTECH DEMO }
+    request: { amount: 180000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
+external:
+  existing_credits:
+    sup-1: [{ product: linea_pronto_pago, balance: 120000, monthly_payment: 30000, days_past_due: 0 }]
+  bureau: { sup-1: { score: 640, open_accounts: 3 } }
+  sat: { sup-1: { rfc_valid: true, compliance_opinion: positive } }
+expect:
+  status: qualified_with_limit
+  limit_max: 90000
+  reasons_include: [existing_exposure]
+  features: { existing_exposure_balance: 120000, existing_exposure_days_past_due: 0, buro_score: 640, sat_status: compliant }

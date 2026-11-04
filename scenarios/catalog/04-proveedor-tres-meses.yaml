@@ -1,0 +1,31 @@
+# docs/06 §4, caso 4. Tres estados consecutivos: el tope por historia desaparece y aparece la
+# tendencia de ingresos.
+id: proveedor-tres-meses
+catalog: 4
+title: Proveedor con tres meses de historia
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        growth: 0.05
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: tax, amount: 15000 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+expect:
+  status: qualified
+  limit_min: 140000
+  limit_max: 170000
+  reasons_include: [limit_band]
+  features: { months_of_history: 3, buyer_payments_count: 6 }

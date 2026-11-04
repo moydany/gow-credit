@@ -1,0 +1,29 @@
+# docs/09 §6, caso 21. El CFDI impreso en el estado de cuenta aparece cancelado ante el SAT:
+# sugiere documento alterado → revisión humana (compuerta de la política de ejemplo, no de la base).
+id: cfdi-cancelado
+catalog: 21
+title: CFDI del estado de cuenta cancelado ante el SAT
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: policies/examples/fiscal-anchors.v1.json }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: fee, amount: 580 }
+        fiscal: { uuid: 7D3C2B1A-1111-4A2B-9C3D-4E5F6A7B8C9D, regime: "601" }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+external:
+  cfdi: { 7D3C2B1A-1111-4A2B-9C3D-4E5F6A7B8C9D: cancelled }
+expect:
+  status: human_review
+  reasons_include: [gate_cfdi_valid]
+  features: { cfdi_sat_status: cancelled, fiscal_anchor_ok: true, fiscal_regime: "601" }

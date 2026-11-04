@@ -1,0 +1,17 @@
+{
+  "name": "@gow/scenarios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Escenarios de docs/06 en YAML y su runner. Modo unit (fase 4): estados sintéticos, sin LLM ni base. Modo full: fase 6.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "scenario": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@gow/contracts": "workspace:*",
+    "@gow/decision": "workspace:*",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  }
+}

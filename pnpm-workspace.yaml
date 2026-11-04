@@ -3,6 +3,7 @@ packages:
   - packages/*
   - spikes
   - evals
+  - scenarios
 
 # Cadena de suministro: no instalar versiones publicadas hace menos de 3 días.
 minimumReleaseAge: 4320

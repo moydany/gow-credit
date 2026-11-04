@@ -1,0 +1,28 @@
+# docs/06 §4, caso 11. Perfil sano con tres meses, pero el comprador no aparece en el estado de
+# cuenta: máximo qualified_with_limit (tope de la política base, docs/03 cambios de la fase 1).
+id: sin-pagos-del-comprador
+catalog: 11
+title: Perfil sano sin pagos del comprador
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 180000, count: 3, counterparty: Comercializadora Uno, counterparty_rfc: CUN850101AB1 }
+          - { kind: customer_payment, amount: 120000, count: 2, counterparty: Tiendas Dos, counterparty_rfc: TDO850101AB2 }
+          - { kind: supplier_payment, amount: 110000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+expect:
+  status: qualified_with_limit
+  reasons_include: [cap_buyer_payments_count]
+  next_steps_include: [buyer_payments_count]
+  features: { buyer_payments_count: 0, months_of_history: 3 }

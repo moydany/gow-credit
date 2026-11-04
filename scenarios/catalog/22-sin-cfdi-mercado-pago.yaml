@@ -1,0 +1,26 @@
+# docs/09 §6, caso 22. Estado de cuenta sin CFDI y con un solo periodo de tres meses (como Mercado
+# Pago): las compuertas fiscales pasan por falta de dato y no hay penalización.
+id: sin-cfdi-mercado-pago
+catalog: 22
+title: Estado de cuenta sin CFDI, un periodo de tres meses
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: policies/examples/fiscal-anchors.v1.json }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        periods: single
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: sales_settlement, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+expect:
+  status: qualified
+  features: { months_of_history: 3, fiscal_regime: null, cfdi_sat_status: null, statement_reuse_count: null }

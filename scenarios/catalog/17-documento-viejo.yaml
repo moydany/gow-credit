@@ -1,0 +1,25 @@
+# docs/06 §4, caso 17. El corte más reciente es de hace más de 90 días: se pide un estado reciente.
+id: documento-viejo
+catalog: 17
+title: Estado de cuenta con corte de hace 120 días
+modes: [unit]
+as_of: 2026-10-28
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-06-01
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+expect:
+  status: needs_clarification
+  clarification_topics: [recent_statement]
+  reasons_include: [gate_doc_recent]
+  next_steps_include: [document_age_days]
+  features: { document_age_days: 120 }

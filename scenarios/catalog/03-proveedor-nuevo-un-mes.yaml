@@ -1,0 +1,30 @@
+# docs/06 §4, caso 3. Un solo estado de cuenta: el perfil es sano, pero con un mes de historia
+# la política base topa en qualified_with_limit; next_steps dice que con 3 meses el tope desaparece.
+id: proveedor-nuevo-un-mes
+catalog: 3
+title: Proveedor nuevo con un mes de historia
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-09-01
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: tax, amount: 15000 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
+expect:
+  status: qualified_with_limit
+  limit_min: 70000
+  limit_max: 80000
+  reasons_include: [cap_months_of_history]
+  next_steps_include: [months_of_history]
+  features: { months_of_history: 1, buyer_payments_count: 2 }

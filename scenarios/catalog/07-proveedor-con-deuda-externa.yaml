@@ -1,0 +1,31 @@
+# docs/06 §4, caso 7. Sin crédito con nosotros, pero el estado muestra un préstamo recibido y pagos
+# a otra institución: sube el servicio de deuda, baja la capacidad; buró confirma cuentas abiertas.
+id: proveedor-con-deuda-externa
+catalog: 7
+title: Proveedor con deuda con otra institución
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-09-01
+        opening_balance: 60000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: loan_disbursement, amount: 100000, counterparty: FINANCIERA DEL CENTRO }
+          - { kind: supplier_payment, amount: 150000, count: 5 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: loan_payment, amount: 90000, counterparty: FINANCIERA DEL CENTRO }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+external:
+  bureau: { sup-1: { score: 610, open_accounts: 2 } }
+expect:
+  status: qualified_with_limit
+  limit_max: 60000
+  reasons_include: [limit_debt_capacity]
+  features: { new_debt_in_period: 100000, external_debt_signal: 190000 }

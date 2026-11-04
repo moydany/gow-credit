@@ -1,0 +1,27 @@
+# docs/09 §9.4, caso 24. El pagador principal está en la lista 69-B definitiva del SAT (factura
+# operaciones simuladas): no se arregla con flujo → no califica.
+id: pagador-en-69b
+catalog: 24
+title: Pagador principal en 69-B definitivo
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: policies/examples/fiscal-anchors.v1.json }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 210000, count: 3, counterparty: Servicios Integrales Fantasma, counterparty_rfc: SIF850101AB1 }
+          - { kind: customer_payment, amount: 90000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+external:
+  sat_lists: { SIF850101AB1: efos_definitive }
+expect:
+  status: not_qualified
+  reasons_include: [gate_payers_not_efos]
+  features: { income_from_listed_rfc_share: 0.7 }

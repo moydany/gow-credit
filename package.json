@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "schema:export": "pnpm -F @gow/contracts schema:export",
     "extract": "pnpm -F @gow/extraction extract",
-    "eval": "pnpm -F @gow/evals eval"
+    "eval": "pnpm -F @gow/evals eval",
+    "scenario": "pnpm -F @gow/scenarios scenario"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
