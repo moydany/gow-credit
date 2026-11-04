@@ -1,0 +1,302 @@
+import { emptyExternalSnapshot, Profile, type ApplicationRequest, type ExternalSnapshot, type StatementExtraction, type SupplierIdentity, type SyntheticStatement } from '@gow/contracts'
+import { describe, expect, it } from 'vitest'
+import type { z } from 'zod'
+import { buildProfile, buildProfileWithLedger } from './profile.ts'
+import { syntheticStatement } from './testing/synthetic.ts'
+
+type Spec = Omit<z.input<typeof SyntheticStatement>, 'start' | 'opening_balance'> & { start?: string; opening_balance?: number }
+
+const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
+const AT = '2026-10-05T12:00:00.000Z'
+
+function stmt(spec: Spec, seed = 's1'): StatementExtraction {
+  return syntheticStatement({ start: '2026-09-01', opening_balance: 50000, ...spec }, holder, seed)
+}
+
+const BASIC: Spec['monthly'] = [
+  { kind: 'customer_payment', amount: 120000, count: 4, counterparty: 'Cadena Norte SA de CV' },
+  { kind: 'customer_payment', amount: 80000, count: 4 },
+  { kind: 'supplier_payment', amount: 90000, count: 3 },
+  { kind: 'payroll', amount: 40000, count: 2 },
+  { kind: 'fee', amount: 580 },
+  { kind: 'loan_payment', amount: 10000 },
+]
+
+interface Opts {
+  request?: ApplicationRequest | null
+  supplier?: SupplierIdentity | null
+  external?: ExternalSnapshot
+  at?: string
+}
+
+function profileOf(statements: StatementExtraction[], o: Opts = {}): Profile {
+  return buildProfile({ statements, request: o.request ?? null, supplier: o.supplier ?? null, ...(o.external ? { external: o.external } : {}), computedAt: o.at ?? AT })
+}
+
+const f = (p: Profile, name: keyof Profile['features']) => p.features[name]
+
+describe('perfil desde un estado de cuenta', () => {
+  it('flujo mensual de un mes: ingresos, gastos, deuda, flujo libre y capacidad', () => {
+    const p = profileOf([stmt({ monthly: BASIC })])
+    expect(Profile.safeParse(p).success).toBe(true)
+    expect(f(p, 'months_of_history').value).toBe(1)
+    // 30 días de septiembre = 0.9856 meses: los promedios son por mes de 30.44 días.
+    const months = 30 / 30.4375
+    expect(f(p, 'operating_income_monthly').value).toBeCloseTo(200000 / months, 1)
+    expect(f(p, 'operating_expenses_monthly').value).toBeCloseTo((90000 + 40000 + 580) / months, 1)
+    expect(f(p, 'debt_service_monthly').value).toBeCloseTo(10000 / months, 1)
+    expect(f(p, 'free_cash_flow_monthly').value).toBeCloseTo((200000 - 130580 - 10000) / months, 1)
+    expect(f(p, 'payment_capacity_pct').value).toBeCloseTo(59420 / 200000, 3)
+    expect(f(p, 'debt_capacity').value).toBeCloseTo((3 * 59420) / months, 0)
+    expect(f(p, 'integrity_ok').value).toBe(true)
+    expect(f(p, 'red_flags').value).toEqual([])
+    expect(f(p, 'activity_count').value).toBe(15)
+    expect(f(p, 'income_trend').value).toBeNull()
+    expect(f(p, 'document_age_days').value).toBe(5)
+  })
+
+  it('clasificación por reglas: la confianza de los ingresos es la media de los abonos que cuentan', () => {
+    const p = profileOf([stmt({ monthly: BASIC })])
+    expect(f(p, 'operating_income_monthly').confidence).toBe(0.75)
+    expect(f(p, 'operating_income_monthly').note).toContain('clasificados por reglas')
+    expect(f(p, 'operating_expenses_monthly').confidence).toBe(1)
+  })
+
+  it('ADR 0006: un periodo de tres meses cuenta como tres meses, igual que tres periodos mensuales', () => {
+    const spec: Spec = { months: 3, monthly: BASIC }
+    const single = profileOf([stmt({ ...spec, periods: 'single' })])
+    const monthly = profileOf([stmt({ ...spec, periods: 'monthly' })])
+    expect(f(single, 'months_of_history').value).toBe(3)
+    for (const name of ['months_of_history', 'operating_income_monthly', 'operating_expenses_monthly', 'debt_service_monthly', 'free_cash_flow_monthly', 'avg_daily_balance', 'income_trend'] as const) {
+      expect(f(single, name).value, name).toEqual(f(monthly, name).value)
+    }
+  })
+
+  it('tendencia de ingresos con tres meses o más', () => {
+    const growing = profileOf([stmt({ months: 3, growth: 0.1, monthly: [{ kind: 'customer_payment', amount: 100000, count: 2 }] })], { at: '2026-12-05T12:00:00.000Z' })
+    expect(f(growing, 'income_trend').value).toBeGreaterThan(0.08)
+    const flat = profileOf([stmt({ months: 3, monthly: [{ kind: 'customer_payment', amount: 100000, count: 2 }] })], { at: '2026-12-05T12:00:00.000Z' })
+    expect(Math.abs(f(flat, 'income_trend').value as number)).toBeLessThan(0.03)
+  })
+
+  it('ADR 0009: los traspasos internos no son ingreso ni gasto', () => {
+    const base = stmt({ monthly: BASIC })
+    const withInternal = structuredClone(base)
+    const period = withInternal.accounts[0]?.periods[0]
+    if (!period) throw new Error('sin periodo')
+    const t0 = period.transactions[0]
+    if (!t0) throw new Error('sin movimientos')
+    period.transactions.push(
+      { ...t0, id: 'a1.p1.t9001', description: 'RETIRO DE CAJITA', amount: 30000, type: 'credit', internal_transfer: true },
+      { ...t0, id: 'a1.p1.t9002', description: 'DEPÓSITO EN CAJITA', amount: 30000, type: 'debit', internal_transfer: true },
+    )
+    const a = profileOf([base])
+    const b = profileOf([withInternal])
+    for (const name of ['operating_income_monthly', 'operating_expenses_monthly', 'free_cash_flow_monthly', 'activity_count'] as const) expect(f(b, name).value, name).toEqual(f(a, name).value)
+  })
+
+  it('docs/04 §5: un abono no verificado no suma y, si es material, la feature queda no verificada', () => {
+    const p = profileOf([stmt({ monthly: [...BASIC, { kind: 'customer_payment', amount: 50000, verification: 'unverified' }] })])
+    const clean = profileOf([stmt({ monthly: BASIC })])
+    expect(f(p, 'operating_income_monthly').value).toBe(f(clean, 'operating_income_monthly').value)
+    expect(f(p, 'operating_income_monthly').verification).toBe('unverified')
+  })
+
+  it('abonos inciertos (efectivo, sin descripción) no cuentan como ingreso operativo', () => {
+    const p = profileOf([stmt({ monthly: [{ kind: 'customer_payment', amount: 100000 }, { kind: 'cash_deposit', amount: 40000 }, { kind: 'unclassified_credit', amount: 30000 }] })])
+    expect(f(p, 'operating_income_monthly').value).toBeCloseTo(100000 / (30 / 30.4375), 1)
+  })
+
+  it('préstamos recibidos van a deuda nueva, no a ingresos', () => {
+    const p = profileOf([stmt({ monthly: [...BASIC, { kind: 'loan_disbursement', amount: 70000 }] })])
+    expect(f(p, 'new_debt_in_period').value).toBe(70000)
+    expect(f(p, 'external_debt_signal').value).toBe(80000)
+    expect(f(p, 'operating_income_monthly').value).toBe(f(profileOf([stmt({ monthly: BASIC })]), 'operating_income_monthly').value)
+  })
+
+  it('saldo diario promedio y días bajo el umbral', () => {
+    const p = profileOf([stmt({ opening_balance: 500, monthly: [{ kind: 'customer_payment', amount: 10000 }] })])
+    // 500 hasta el día 15 (14 días bajo 1,000), 10,500 del 16 al 30.
+    expect(f(p, 'low_balance_days').value).toBe(15)
+    expect(f(p, 'avg_daily_balance').value).toBeCloseTo((500 * 15 + 10500 * 15) / 30, 2)
+  })
+
+  it('banderas rojas: embargo en la descripción y saldo negativo', () => {
+    const p = profileOf([stmt({ opening_balance: 100, monthly: [{ kind: 'supplier_payment', amount: 5000, description: 'CARGO EMBARGO ORDEN JUDICIAL 123' }, { kind: 'customer_payment', amount: 9000 }] })])
+    expect(f(p, 'red_flags').value).toEqual(['garnishment', 'judicial_order', 'overdraft'])
+  })
+
+  it('un documento repetido entra una vez; lo que no es estado de cuenta no entra (ADR 0002)', () => {
+    const s = stmt({ monthly: BASIC })
+    const invoice: StatementExtraction = { ...stmt({ monthly: BASIC }, 's2'), classification: { document_type: 'invoice', confidence: 0.9, bank: null } }
+    const { profile, ledger } = buildProfileWithLedger({ statements: [s, s, invoice], request: null, supplier: null, computedAt: AT })
+    expect(profile.inputs.document_sha256).toEqual([s.document.sha256])
+    expect(ledger.skipped).toHaveLength(2)
+  })
+
+  it('sin estados de cuenta utilizables todo lo del estado es desconocido', () => {
+    const p = profileOf([])
+    expect(f(p, 'months_of_history').value).toBeNull()
+    expect(f(p, 'operating_income_monthly').value).toBeNull()
+  })
+})
+
+describe('comprador y pagadores', () => {
+  const buyer = { name: 'Cadena Norte SA de CV', rfc: null, aliases: [] }
+
+  it('cuenta los pagos del comprador por nombre', () => {
+    const p = profileOf([stmt({ monthly: BASIC })], { request: { amount: 50000, maturity: null, buyer } })
+    expect(f(p, 'buyer_payments_count').value).toBe(4)
+    expect(f(p, 'buyer_payments_amount').value).toBe(120000)
+    expect(f(p, 'buyer_payments_count').confidence).toBe(0.9)
+  })
+
+  it('sin comprador en la solicitud es desconocido; con comprador que no aparece es cero', () => {
+    expect(f(profileOf([stmt({ monthly: BASIC })]), 'buyer_payments_count').value).toBeNull()
+    const other = profileOf([stmt({ monthly: BASIC })], { request: { amount: 50000, maturity: null, buyer: { name: 'Tiendas del Sur', rfc: null, aliases: [] } } })
+    expect(f(other, 'buyer_payments_count').value).toBe(0)
+  })
+
+  it('concentración y recurrencia necesitan pagadores identificados', () => {
+    const anonymous = profileOf([stmt({ monthly: [{ kind: 'customer_payment', amount: 100000, count: 4 }] })])
+    expect(f(anonymous, 'top_payer_concentration').value).toBeNull()
+    const named = profileOf([
+      stmt({
+        monthly: [
+          { kind: 'customer_payment', amount: 60000, count: 3, counterparty: 'Cliente Uno', counterparty_rfc: 'CUN850101AB1' },
+          { kind: 'customer_payment', amount: 40000, count: 1, counterparty: 'Cliente Dos', counterparty_rfc: 'CDO850101AB2' },
+        ],
+      }),
+    ])
+    expect(f(named, 'top_payer_concentration').value).toBe(0.6)
+    expect(f(named, 'recurring_income_share').value).toBe(0.6)
+  })
+})
+
+describe('bloque fiscal (docs/09 §9)', () => {
+  const fiscal = { uuid: 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B', regime: '601 General de Ley Personas Morales' }
+
+  it('ancla: las comisiones del estado cuadran con el CFDI firmado por el SAT', () => {
+    expect(f(profileOf([stmt({ monthly: BASIC, fiscal })]), 'fiscal_anchor_ok').value).toBe(true)
+    expect(f(profileOf([stmt({ monthly: BASIC, fiscal: { ...fiscal, fees_match: false } })]), 'fiscal_anchor_ok').value).toBe(false)
+    expect(f(profileOf([stmt({ monthly: BASIC })]), 'fiscal_anchor_ok').value).toBeNull()
+  })
+
+  it('régimen fiscal: la clave al inicio del texto; fuera del catálogo es other', () => {
+    expect(f(profileOf([stmt({ monthly: BASIC, fiscal })]), 'fiscal_regime').value).toBe('601')
+    expect(f(profileOf([stmt({ monthly: BASIC, fiscal: { ...fiscal, regime: '999 Inventado' } })]), 'fiscal_regime').value).toBe('other')
+  })
+
+  it('RESICO: ingresos anualizados sobre 3.5 millones no son plausibles', () => {
+    const big = profileOf([stmt({ monthly: [{ kind: 'customer_payment', amount: 400000, count: 4 }], fiscal: { ...fiscal, regime: '626' } })])
+    expect(f(big, 'regime_income_plausible').value).toBe(false)
+    const small = profileOf([stmt({ monthly: [{ kind: 'customer_payment', amount: 200000, count: 4 }], fiscal: { ...fiscal, regime: '626' } })])
+    expect(f(small, 'regime_income_plausible').value).toBe(true)
+  })
+
+  it('la fecha de timbrado manda si es anterior al corte impreso (corte editado)', () => {
+    const s = stmt({ monthly: BASIC, fiscal: { ...fiscal, certified_days_after_end: 2 } })
+    const period = s.accounts[0]?.periods[0]
+    if (!period) throw new Error('sin periodo')
+    period.statement_date = { ...period.statement_date, value: '2026-10-04' }
+    // Corte "editado" al 4 de octubre; el SAT timbró el 2 de octubre.
+    expect(f(profileOf([s]), 'document_age_days').value).toBe(3)
+  })
+})
+
+describe('identidad (docs/03 §3, docs/09 §4.6)', () => {
+  const supplier: SupplierIdentity = { legal_name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabes: [] }
+
+  it('coincide por RFC y nombre', () => {
+    expect(f(profileOf([stmt({ monthly: BASIC })], { supplier }), 'identity_match').value).toBe('match')
+  })
+
+  it('con encabezado redactado usa el RFC del receptor del CFDI', () => {
+    const s = stmt({ monthly: BASIC, holder_redacted: true, fiscal: { uuid: 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B', regime: '601', receiver_rfc: 'DFI150304AB1' } })
+    expect(f(profileOf([s], { supplier }), 'identity_match').value).toBe('match')
+  })
+
+  it('redactado y sin CFDI es desconocido; otro RFC es mismatch', () => {
+    expect(f(profileOf([stmt({ monthly: BASIC, holder_redacted: true })], { supplier }), 'identity_match').value).toBeNull()
+    expect(f(profileOf([stmt({ monthly: BASIC })], { supplier: { ...supplier, rfc: 'OTR150304AB1' } }), 'identity_match').value).toBe('mismatch')
+  })
+
+  it('sin proveedor registrado es desconocido', () => {
+    expect(f(profileOf([stmt({ monthly: BASIC })]), 'identity_match').note).toContain('sin proveedor registrado')
+  })
+})
+
+describe('fuentes externas', () => {
+  const uuid = 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B'
+
+  function snapshot(patch: Partial<ExternalSnapshot>): ExternalSnapshot {
+    return { ...emptyExternalSnapshot(), ...patch }
+  }
+
+  it('sin fuentes disponibles sus features son desconocidas, nunca cero', () => {
+    const p = profileOf([stmt({ monthly: BASIC })])
+    for (const name of ['existing_exposure_balance', 'buro_score', 'sat_status', 'cfdi_sat_status', 'program_available_limit', 'statement_reuse_count'] as const) expect(f(p, name).value, name).toBeNull()
+    expect(p.inputs.external.every((e) => !e.available)).toBe(true)
+  })
+
+  it('créditos vigentes: saldo, atraso, monto vencido y cuota sobre flujo libre', () => {
+    const p = profileOf([stmt({ monthly: BASIC })], {
+      external: snapshot({
+        existing_credits: {
+          available: true,
+          simulated: true,
+          credits: [
+            { product: 'linea', balance: 120000, monthly_payment: 20000, days_past_due: 45, past_due_amount: 30000 },
+            { product: 'otra', balance: 10000, monthly_payment: 1000, days_past_due: 0, past_due_amount: null },
+          ],
+        },
+      }),
+    })
+    expect(f(p, 'existing_exposure_balance').value).toBe(130000)
+    expect(f(p, 'existing_exposure_days_past_due').value).toBe(45)
+    expect(f(p, 'existing_exposure_past_due_amount').value).toBe(30000)
+    expect(f(p, 'existing_exposure_payment_ratio').value).toBeCloseTo(21000 / (f(p, 'free_cash_flow_monthly').value as number), 3)
+    expect(f(p, 'existing_exposure_balance').provenance).toBe('external')
+  })
+
+  it('SAT: el peor estado de los CFDI y la parte del ingreso de pagadores en 69-B', () => {
+    const s = stmt({
+      monthly: [
+        { kind: 'customer_payment', amount: 70000, counterparty: 'Pagador Principal', counterparty_rfc: 'PPR850101AB1' },
+        { kind: 'customer_payment', amount: 30000, counterparty: 'Otro Cliente', counterparty_rfc: 'OCL850101AB2' },
+      ],
+      fiscal: { uuid, regime: '601' },
+    })
+    const p = profileOf([s], {
+      external: snapshot({
+        tax_authority: {
+          available: true,
+          simulated: true,
+          taxpayer: { rfc_valid: true, compliance_opinion: 'positive', list_status: 'clear' },
+          cfdi: [{ uuid, status: 'cancelled' }],
+          listed_counterparties: [{ rfc: 'PPR850101AB1', list_status: 'efos_definitive' }],
+        },
+      }),
+    })
+    expect(f(p, 'cfdi_sat_status').value).toBe('cancelled')
+    expect(f(p, 'sat_status').value).toBe('compliant')
+    expect(f(p, 'sat_list_status').value).toBe('clear')
+    expect(f(p, 'income_from_listed_rfc_share').value).toBe(0.7)
+  })
+
+  it('historial: reuso del UUID en el tenant y visto en otro prestamista', () => {
+    const p = profileOf([stmt({ monthly: BASIC, fiscal: { uuid, regime: '601' } })], {
+      external: snapshot({
+        internal: { available: true, simulated: true, prior_applications: [], statement_reuse: [{ uuid, application_id: 'app-7' }], seen_elsewhere: [{ uuid: uuid.toLowerCase(), seen_on: '2026-10-02' }] },
+      }),
+    })
+    expect(f(p, 'statement_reuse_count').value).toBe(1)
+    expect(f(p, 'statement_seen_elsewhere_days').value).toBe(3)
+    expect(f(p, 'prior_applications').value).toEqual([])
+  })
+
+  it('sin CFDI no hay huella: reuso desconocido', () => {
+    const p = profileOf([stmt({ monthly: BASIC })], { external: snapshot({ internal: { available: true, simulated: true, prior_applications: [], statement_reuse: [], seen_elsewhere: [] } }) })
+    expect(f(p, 'statement_reuse_count').value).toBeNull()
+  })
+})
