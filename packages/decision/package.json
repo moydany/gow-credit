@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "profile": "tsx src/cli/profile.ts",
+    "decide": "tsx src/cli/decide.ts",
     "simulate": "tsx src/cli/simulate.ts"
   },
   "dependencies": {

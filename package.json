@@ -16,7 +16,9 @@
     "schema:export": "pnpm -F @gow/contracts schema:export",
     "extract": "pnpm -F @gow/extraction extract",
     "eval": "pnpm -F @gow/evals eval",
-    "scenario": "pnpm -F @gow/scenarios scenario"
+    "scenario": "pnpm -F @gow/scenarios scenario",
+    "decide": "pnpm -F @gow/decision decide",
+    "simulate": "pnpm -F @gow/decision simulate"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
