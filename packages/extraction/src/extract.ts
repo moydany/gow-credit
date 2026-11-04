@@ -23,7 +23,7 @@ import {
   type TokenUsage,
   type Transaction,
 } from '@gow/contracts'
-import { addUsage, EXPERIMENT_SONNET, EXTRACTION_MODEL, LlmCallError, loadPrompt, ZERO_USAGE, type Classifier, type Effort, type Limiter, type StructuredLlm } from '@gow/llm'
+import { addUsage, EXTRACTION_MODEL, LlmCallError, loadPrompt, readGoogleEnv, ZERO_USAGE, type Classifier, type Effort, type Limiter, type StructuredLlm } from '@gow/llm'
 import { assembleSummary, materialize, placeRows, type AssembledSummary, type FieldOf, type PlacedRow } from './assemble.ts'
 import { assembleFiscal, crossCheckFiscal } from './fiscal.ts'
 import { IssueSink } from './issues.ts'
@@ -32,11 +32,16 @@ import { daysBetween } from './normalize.ts'
 import { PageText, textUsable } from './page-text.ts'
 import { loadPdf, type LoadedPdf } from './pdf.ts'
 import { pagesWithBreaks, reconcilePeriod, reconciliationScore, type PeriodReconciliation } from './reconcile.ts'
+import { isProviderFailure, planModels, supportsServerFallback, type ModelPlan } from './router.ts'
 import { checkClabe, checkRfc } from './validators.ts'
 
 export interface ExtractOptions {
-  /** Modelo de extracción. Por defecto claude-opus-5-5; otro valor es un experimento (ADR 0003). */
+  /** Fuerza el modelo principal (experimentos). Sin él decide el router (ADR 0011). */
   extractionModel?: string
+  /** Si hay llave de Google; por defecto se lee del entorno. */
+  googleAvailable?: boolean
+  /** Interno: llamadas y motivo de una corrida anterior que cayó por falla del proveedor. */
+  providerFallback?: { calls: ModelCall[]; from: string; reason: string; classification: Classified | null }
   blockPages: number
   summaryEffort: Effort
   transactionsEffort: Effort
@@ -45,6 +50,14 @@ export interface ExtractOptions {
   maxRetryPages: number
   limit: Limiter
   onProgress?: (message: string) => void
+}
+
+interface Classified {
+  documentType: DocumentType
+  classConfidence: number
+  classifierBank: string | null
+  classifier: { implementation: 'jev' | 'claude'; model: string; fallback: boolean }
+  flags: DocumentFlag[]
 }
 
 export interface ExtractDeps {
@@ -85,7 +98,22 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   const progress = (m: string) => opts.onProgress?.(m)
   let failureReason: string | null = null
   // Objeto mutable: se marca desde los bloques en paralelo (closures).
-  const outcome = { partial: false }
+  const outcome = { partial: false, providerDown: null as string | null }
+  const plan: ModelPlan = planModels({ requested: opts.extractionModel, googleAvailable: opts.googleAvailable ?? readGoogleEnv().apiKey !== null, retryEffort: opts.retryEffort })
+  if (opts.providerFallback) {
+    calls.push(...opts.providerFallback.calls)
+    flags.add('provider_fallback')
+    issues.add({ code: 'block_failed', severity: 'warning', message: `Falló el proveedor de ${opts.providerFallback.from} (${opts.providerFallback.reason}); el documento se extrajo completo con ${plan.primary}.` })
+  } else if (plan.note) {
+    issues.add({ code: 'block_failed', severity: 'info', message: `Router: ${plan.note}.` })
+  }
+  /** Repite el documento entero con el modelo de emergencia del otro proveedor. */
+  const fallBackToOtherProvider = (reason: string) =>
+    extractStatement(path, deps, {
+      ...opts,
+      extractionModel: plan.providerFallback,
+      providerFallback: { calls, from: plan.primary, reason, classification: classified },
+    })
 
   // ---------- PDF y texto local
   let pdf: LoadedPdf
@@ -112,7 +140,14 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   let classConfidence = 0
   let classifierBank: string | null = null
   let classifier = { implementation: 'claude' as 'jev' | 'claude', model: 'none', fallback: true }
-  try {
+  let classified: Classified | null = null
+  const inherited = opts.providerFallback?.classification ?? null
+  if (inherited) {
+    // Repetición por falla del proveedor: la clasificación ya se hizo y se pagó.
+    ;({ documentType, classConfidence, classifierBank, classifier } = inherited)
+    for (const f of inherited.flags) flags.add(f)
+    classified = inherited
+  } else try {
     const sample = textUsable(pdf) ? pdf.pageTexts.slice(0, 2).join('\n').slice(0, 6000) : null
     const c = await opts.limit(() => deps.classifier.classify({ textSample: sample, pdf: { ...pdfInput, cache: false } }))
     documentType = c.documentType
@@ -122,19 +157,20 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     if (c.fallback) flags.add('classifier_fallback')
     if (c.containsInstructionsToAi) flags.add('possible_prompt_injection')
     record('classify', c.promptId, c.implementation === 'claude' ? 'low' : null, [], c)
+    classified = { documentType, classConfidence, classifierBank, classifier, flags: [...flags].filter((f) => f === 'classifier_fallback' || f === 'possible_prompt_injection') }
   } catch (err) {
     issues.add({ code: 'block_failed', severity: 'warning', message: `Falló la clasificación (${errorText(err)}); se continúa con la extracción.` })
   }
 
   // ---------- Pasada 1
   const system = loadPrompt('extract_system', PROMPTS.system).text
-  const extractionModel = opts.extractionModel ?? EXTRACTION_MODEL
+  const extractionModel = plan.primary
   const visionNote = route === 'vision_only' ? '\n\nLa capa de texto de este PDF está corrupta: lee las imágenes de las páginas.' : ''
-  const callChunk = async (purpose: string, promptId: string, instruction: string, effort: Effort, pages: number[], maxOutputTokens: number) => {
+  const callChunk = async (purpose: string, promptId: string, instruction: string, effort: Effort, pages: number[], maxOutputTokens: number, model: string = extractionModel) => {
     const res = await opts.limit(() =>
       deps.llm.call({
         purpose,
-        model: extractionModel,
+        model,
         system,
         document: pdfInput,
         instruction: instruction + visionNote,
@@ -143,10 +179,12 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
         promptVersion: promptId,
         effort,
         maxOutputTokens,
-        // Solo Opus y Sonnet tienen fallback del lado del servidor ("default"); Haiku y Gemini no.
-        serverFallback: extractionModel === EXTRACTION_MODEL || extractionModel === EXPERIMENT_SONNET,
+        serverFallback: supportsServerFallback(model),
       }),
-    )
+    ).catch((err: unknown) => {
+      if (isProviderFailure(err, model, plan)) outcome.providerDown = errorText(err)
+      throw err
+    })
     record(purpose, promptId, effort, pages, res)
     return res.object
   }
@@ -163,6 +201,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       if (err instanceof LlmCallError && err.code === 'missing_api_key') break
     }
   }
+  if (summaryOut === null && outcome.providerDown !== null) return fallBackToOtherProvider(outcome.providerDown)
   if (summaryOut === null) {
     failureReason = 'no se obtuvo el resumen del documento (pasada 1)'
     return build({ extractionModel, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason, status: 'failed' })
@@ -197,14 +236,27 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       progress(`bloque páginas ${String(first)}-${String(last)}`)
       const chunk = await callChunk('transactions', prompt.id, prompt.text, opts.transactionsEffort, blockPages, 32_000)
       return placeRows(chunk.transactions, blockPages, summary, orderBase, issues)
-    } catch (err) {
+    } catch (caught) {
+      let err = caught
       // Si se cortó por longitud, se parte el bloque; si no, un reintento y luego salida parcial.
       if (err instanceof LlmCallError && err.code === 'max_tokens' && blockPages.length > 1) {
         const mid = Math.ceil(blockPages.length / 2)
         const [a, b] = await Promise.all([runBlock(blockPages.slice(0, mid), orderBase, depth + 1), runBlock(blockPages.slice(mid), orderBase + 50_000, depth + 1)])
         return [...a, ...b]
       }
+      if (outcome.providerDown !== null) return []
       if (depth === 0 && !(err instanceof LlmCallError && err.code === 'missing_api_key')) return runBlock(blockPages, orderBase, depth + 1)
+      // Dos salidas inválidas seguidas: falla de calidad, el bloque se repite con el modelo de emergencia.
+      if (depth === 1 && err instanceof LlmCallError && err.code === 'invalid_output' && plan.qualityFallback !== extractionModel) {
+        try {
+          progress(`bloque páginas ${String(first)}-${String(last)} con ${plan.qualityFallback}`)
+          const chunk = await callChunk('transactions', prompt.id, prompt.text, opts.transactionsEffort, blockPages, 32_000, plan.qualityFallback)
+          flags.add('quality_fallback')
+          return placeRows(chunk.transactions, blockPages, summary, orderBase, issues)
+        } catch (err2) {
+          err = err2
+        }
+      }
       outcome.partial = true
       issues.add({ code: 'block_failed', severity: 'error', message: `No se pudieron extraer los movimientos de las páginas ${String(first)}-${String(last)}: ${errorText(err)}`, page: first, details: { pages: blockPages } })
       return []
@@ -212,6 +264,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   }
   const blocks = chunkPages(pages, Math.max(1, opts.blockPages))
   const blockResults = await Promise.all(blocks.map((b, i) => runBlock(b, i * 100_000)))
+  if (outcome.providerDown !== null) return fallBackToOtherProvider(outcome.providerDown)
   let placed = blockResults.flat()
 
   // ---------- Verificación aritmética y reintento dirigido
@@ -246,7 +299,8 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     const prompt = loadPrompt('extract_retry_page', PROMPTS.retry, { page, accounts: listing, problem })
     try {
       progress(`relectura página ${String(page)}`)
-      const chunk = await callChunk('retry_page', prompt.id, prompt.text, opts.retryEffort, [page], 32_000)
+      // Doble lectura con otra familia de modelos (ADR 0011): menos sesgos compartidos.
+      const chunk = await callChunk('retry_page', prompt.id, prompt.text, opts.retryEffort, [page], 32_000, plan.doubleRead)
       const firstOrder = placed.find((r) => r.tx.source.page === page)?.order ?? page * 1000
       const fresh = placeRows(chunk.transactions, [page], summary, firstOrder, issues)
       const candidate = [...placed.filter((r) => r.tx.source.page !== page), ...fresh]

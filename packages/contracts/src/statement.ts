@@ -275,6 +275,8 @@ export const DocumentFlag = z.enum([
   'reconciliation_failed',
   'possible_prompt_injection',
   'fiscal_document_present',
+  'provider_fallback',
+  'quality_fallback',
 ])
 export type DocumentFlag = z.infer<typeof DocumentFlag>
 

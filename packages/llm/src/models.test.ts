@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { geminiThinkingLevel } from './mastra-structured.ts'
-import { costUsd, EXPERIMENT_GEMINI_FLASH, EXTRACTION_MODEL, providerOf } from './models.ts'
+import { costUsd, EXPERIMENT_GEMINI_FLASH, OPUS_MODEL, providerOf } from './models.ts'
 
 describe('proveedores y precios', () => {
   it('enruta por prefijo', () => {
@@ -12,7 +12,7 @@ describe('proveedores y precios', () => {
   it('Gemini cobra lectura de caché y no escritura', () => {
     const u = { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_creation_input_tokens: 0, cache_read_input_tokens: 1_000_000 }
     expect(costUsd(EXPERIMENT_GEMINI_FLASH, u)).toBe(4.575)
-    expect(costUsd(EXTRACTION_MODEL, { ...u, cache_creation_input_tokens: 1_000_000 })).toBe(29.2)
+    expect(costUsd(OPUS_MODEL, { ...u, cache_creation_input_tokens: 1_000_000 })).toBe(29.2)
   })
 
   it('effort → thinkingLevel de Gemini', () => {

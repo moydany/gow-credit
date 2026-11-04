@@ -11,7 +11,7 @@ import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { StatementExtraction } from '@gow/contracts'
-import { CachingStructuredLlm, createClassifier, createLimiter, loadRootEnv, MastraStructuredLlm, providerOf, readAnthropicEnv, readGoogleEnv, type CacheMode, type Effort } from '@gow/llm'
+import { CachingStructuredLlm, createClassifier, createLimiter, EXTRACTION_MODEL, loadRootEnv, MastraStructuredLlm, PROVIDER_FALLBACK_MODEL, providerOf, readAnthropicEnv, readGoogleEnv, type CacheMode, type Effort } from '@gow/llm'
 import { DEFAULT_OPTIONS, extractStatement } from './extract.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
@@ -69,13 +69,13 @@ async function main(): Promise<void> {
       'retry-effort': { type: 'string' },
       concurrency: { type: 'string', default: '3' },
       model: { type: 'string' },
-      'allow-third-party': { type: 'boolean', default: false },
     },
   })
   if (positionals.length === 0) {
     console.error('uso: pnpm extract <pdf|carpeta>... [--out dir] [--cache readwrite|read|off]')
     process.exit(64)
   }
+  const googleAvailable = readGoogleEnv().apiKey !== null
   if (values.model) {
     let provider: string
     try {
@@ -84,21 +84,20 @@ async function main(): Promise<void> {
       console.error(`Modelo desconocido: ${values.model}. Usa claude-* o gemini-*.`)
       process.exit(64)
     }
-    // Los estados de cuenta tienen datos personales: salir de Anthropic exige pedirlo a propósito (ADR 0010).
-    if (provider !== 'anthropic' && !values['allow-third-party']) {
-      console.error(`${values.model} manda los PDFs a un proveedor distinto de Anthropic. Si es lo que quieres, agrega --allow-third-party.`)
-      process.exit(2)
-    }
-    if (provider === 'google' && !readGoogleEnv().apiKey) {
+    if (provider === 'google' && !googleAvailable) {
       console.error('Falta GEMINI_API_KEY o GOOGLE_GENERATIVE_AI_API_KEY (entorno o .env) para usar modelos gemini-*.')
       process.exit(2)
     }
   }
+  const primary = values.model ?? (googleAvailable ? EXTRACTION_MODEL : PROVIDER_FALLBACK_MODEL)
+  // Aviso a quien ejecuta: con la llave de Google, los PDFs se mandan a Google (ADR 0011).
+  if (providerOf(primary) === 'google') console.error(`Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia (ADR 0011).`)
+  else if (!values.model) console.error(`Sin llave de Google: extracción con ${primary} (ADR 0011).`)
   const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
   const env = readAnthropicEnv()
   const base = env.apiKey ? new MastraStructuredLlm(env) : null
   if (!base && mode !== 'read') {
-    console.error('Falta ANTHROPIC_API_KEY (entorno o .env). Con --cache read se usan solo respuestas guardadas.')
+    console.error('Falta ANTHROPIC_API_KEY (entorno o .env): la necesitan la clasificación, la doble lectura y la emergencia. Con GEMINI_API_KEY además, la extracción va con Gemini (ADR 0011). Con --cache read se usan solo respuestas guardadas.')
     process.exit(2)
   }
   const llm = new CachingStructuredLlm(base, resolve(USER_CWD, values['cache-dir']), mode)
@@ -107,6 +106,7 @@ async function main(): Promise<void> {
   const opts = {
     ...DEFAULT_OPTIONS,
     ...(values.model ? { extractionModel: values.model } : {}),
+    googleAvailable,
     blockPages: Math.max(1, Number(values['block-pages']) || DEFAULT_OPTIONS.blockPages),
     transactionsEffort: effort(values['tx-effort'], DEFAULT_OPTIONS.transactionsEffort),
     summaryEffort: effort(values['summary-effort'], DEFAULT_OPTIONS.summaryEffort),
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
       seconds: Math.round((Date.now() - t0) / 1000),
       errors: doc.issues.filter((i) => i.severity === 'error').map((i) => i.code),
     })
-    writeFileSync(join(outDir, 'run-summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), options: { extractionModel: values.model ?? 'claude-opus-5-5', blockPages: opts.blockPages, summaryEffort: opts.summaryEffort, transactionsEffort: opts.transactionsEffort, retryEffort: opts.retryEffort }, total_cost_usd: Math.round(total * 1e6) / 1e6, documents: summary }, null, 2)}\n`)
+    writeFileSync(join(outDir, 'run-summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), options: { extractionModel: primary, blockPages: opts.blockPages, summaryEffort: opts.summaryEffort, transactionsEffort: opts.transactionsEffort, retryEffort: opts.retryEffort }, total_cost_usd: Math.round(total * 1e6) / 1e6, documents: summary }, null, 2)}\n`)
     console.log(line(doc, (Date.now() - t0) / 1000))
     const errors = doc.issues.filter((i) => i.severity === 'error')
     for (const i of errors.slice(0, 4)) console.log(`      ! ${i.code}: ${i.message}`)
