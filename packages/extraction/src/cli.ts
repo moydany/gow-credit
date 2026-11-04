@@ -90,7 +90,7 @@ async function main(): Promise<void> {
       process.exit(2)
     }
     if (provider === 'google' && !readGoogleEnv().apiKey) {
-      console.error('Falta GOOGLE_GENERATIVE_AI_API_KEY (entorno o .env) para usar modelos gemini-*.')
+      console.error('Falta GEMINI_API_KEY o GOOGLE_GENERATIVE_AI_API_KEY (entorno o .env) para usar modelos gemini-*.')
       process.exit(2)
     }
   }

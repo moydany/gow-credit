@@ -23,7 +23,8 @@ export interface GoogleEnv {
 /** Proveedor experimental (ADR 0010). Sin esta llave, los modelos gemini-* no están disponibles. */
 export function readGoogleEnv(env: NodeJS.ProcessEnv = process.env): GoogleEnv {
   const blank = (v: string | undefined) => (v && v.trim().length > 0 ? v.trim() : null)
-  return { apiKey: blank(env.GOOGLE_GENERATIVE_AI_API_KEY), baseURL: blank(env.GOW_GOOGLE_BASE_URL) }
+  // GEMINI_API_KEY es el nombre de la documentación de Google; se aceptan ambos.
+  return { apiKey: blank(env.GOOGLE_GENERATIVE_AI_API_KEY) ?? blank(env.GEMINI_API_KEY), baseURL: blank(env.GOW_GOOGLE_BASE_URL) }
 }
 
 export function readAnthropicEnv(env: NodeJS.ProcessEnv = process.env): AnthropicEnv {
