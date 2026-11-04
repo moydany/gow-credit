@@ -437,3 +437,12 @@ no cambia el resto del diseño.
   de tipos de Mastra con sub-workflows. ADR 0004. (Spikes 2 y 4)
 - **Jev y las imágenes.** `@typesafe-ai/sdk` 0.7 ya acepta imágenes (experimental). Se
   mantiene "Jev solo texto" de la sección 4c mientras sea experimental. (Spike 3)
+
+### Fase 2 (2026-11-04)
+
+- **Un solo esquema de salida por documento.** `output_config.format` forma parte del
+  prefijo cacheado: con un esquema distinto por pasada, cada pasada vuelve a escribir el
+  documento en caché. Todas las llamadas de extracción usan el mismo esquema y solo cambia
+  la instrucción final. Medido en vivo en el spike 1; ADR 0005.
+- **`ANTHROPIC_WORKSPACE_ID` opcional.** Las llaves de usuario sin workspace exigen el
+  header `anthropic-workspace-id`; si la variable existe, el cliente lo manda.
