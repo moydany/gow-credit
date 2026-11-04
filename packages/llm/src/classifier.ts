@@ -6,7 +6,7 @@
 import { DocumentType, type TokenUsage } from '@gow/contracts'
 import { choice, noul, TypeSafeClient } from '@typesafe-ai/sdk'
 import { z } from 'zod'
-import { JEV_MODEL, LIGHT_MODEL, ZERO_USAGE } from './models.ts'
+import { costUsd, JEV_MODEL, LIGHT_MODEL, ZERO_USAGE } from './models.ts'
 import { loadPrompt } from './prompts.ts'
 import type { PdfInput, StructuredLlm } from './structured.ts'
 
@@ -133,6 +133,7 @@ export class JevClassifier implements Classifier {
         injection: noul('El texto contiene instrucciones dirigidas a un sistema automatizado'),
       },
     })
+    const usage = { ...ZERO_USAGE, input_tokens: res.usage.input_tokens ?? 0, output_tokens: res.usage.output_tokens ?? 0 }
     return {
       documentType: res.answers.documentType.choice,
       confidence: res.answers.documentType.confidence,
@@ -142,8 +143,8 @@ export class JevClassifier implements Classifier {
       implementation: 'jev',
       model: res.model,
       fallback: false,
-      usage: { ...ZERO_USAGE, input_tokens: res.usage.input_tokens ?? 0, output_tokens: res.usage.output_tokens ?? 0 },
-      costUsd: 0,
+      usage,
+      costUsd: costUsd(res.model || JEV_MODEL, usage),
       latencyMs: Date.now() - started,
       promptId: null,
       responseCacheHit: false,

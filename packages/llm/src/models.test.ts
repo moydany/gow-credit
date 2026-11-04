@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { geminiThinkingLevel } from './mastra-structured.ts'
-import { costUsd, EXPERIMENT_GEMINI_FLASH, OPUS_MODEL, providerOf } from './models.ts'
+import { costUsd, EXPERIMENT_GEMINI_FLASH, JEV_MODEL, OPUS_MODEL, providerOf } from './models.ts'
 
 describe('proveedores y precios', () => {
   it('enruta por prefijo', () => {
@@ -13,6 +13,11 @@ describe('proveedores y precios', () => {
     const u = { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_creation_input_tokens: 0, cache_read_input_tokens: 1_000_000 }
     expect(costUsd(EXPERIMENT_GEMINI_FLASH, u)).toBe(4.575)
     expect(costUsd(OPUS_MODEL, { ...u, cache_creation_input_tokens: 1_000_000 })).toBe(29.2)
+  })
+
+  it('Jev cobra solo entrada: USD 42 por mil millones', () => {
+    const u = { input_tokens: 1_000_000, output_tokens: 500_000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+    expect(costUsd(JEV_MODEL, u)).toBe(0.042)
   })
 
   it('effort → thinkingLevel de Gemini', () => {
