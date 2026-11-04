@@ -25,6 +25,7 @@ export function tx(id: string, date: string, amount: number, type: 'credit' | 'd
     amount,
     type,
     balance,
+    internal_transfer: false,
     source: { page, snippet: `${date} ${String(amount)}` },
     verification: 'verified',
     confidence: 1,

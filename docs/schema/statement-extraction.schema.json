@@ -1564,6 +1564,10 @@
           ],
           "description": "Saldo después del movimiento; null si el banco no lo imprime en esa fila"
         },
+        "internal_transfer": {
+          "type": "boolean",
+          "description": "Traspaso entre la cuenta y sus propios apartados dentro del mismo estado (cajitas, apartados, reservas); no es dinero que entra o sale del titular"
+        },
         "source": {
           "$ref": "#/$defs/SourceRef"
         },
@@ -1609,6 +1613,7 @@
         "amount",
         "type",
         "balance",
+        "internal_transfer",
         "source",
         "verification",
         "confidence",
@@ -1706,6 +1711,36 @@
                 },
                 "ok": {
                   "type": "boolean"
+                },
+                "excludes_internal_transfers": {
+                  "type": "boolean",
+                  "description": "true si el resumen es consolidado y cuadra sin los traspasos internos"
+                },
+                "adjustments": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "enum": [
+                          "interest_earned",
+                          "fees_charged",
+                          "tax_withheld"
+                        ]
+                      },
+                      "amount": {
+                        "type": "number",
+                        "description": "Monto en la moneda de la cuenta, a lo más dos decimales"
+                      }
+                    },
+                    "required": [
+                      "item",
+                      "amount"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "Conceptos del resumen que el banco no detalla como movimiento y entran al cuadre"
                 }
               },
               "required": [
@@ -1715,7 +1750,9 @@
                 "expected_closing",
                 "printed_closing",
                 "difference",
-                "ok"
+                "ok",
+                "excludes_internal_transfers",
+                "adjustments"
               ],
               "additionalProperties": false
             },
@@ -1723,7 +1760,7 @@
               "type": "null"
             }
           ],
-          "description": "Saldo inicial + abonos − cargos contra saldo final; null si falta alguno"
+          "description": "Saldo inicial + abonos − cargos (± conceptos no detallados) contra saldo final; null si falta alguno"
         },
         "totals": {
           "type": "object",

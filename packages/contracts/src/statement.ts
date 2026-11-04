@@ -49,6 +49,9 @@ export const Transaction = z
     amount: Money.describe('Monto positivo del movimiento'),
     type: TransactionType,
     balance: SignedMoney.nullable().describe('Saldo después del movimiento; null si el banco no lo imprime en esa fila'),
+    internal_transfer: z
+      .boolean()
+      .describe('Traspaso entre la cuenta y sus propios apartados dentro del mismo estado (cajitas, apartados, reservas); no es dinero que entra o sale del titular'),
     source: SourceRef,
     verification: Verification,
     confidence: Confidence,
@@ -110,9 +113,13 @@ export const Reconciliation = z
         printed_closing: SignedMoney,
         difference: SignedMoney,
         ok: z.boolean(),
+        excludes_internal_transfers: z.boolean().describe('true si el resumen es consolidado y cuadra sin los traspasos internos'),
+        adjustments: z
+          .array(z.strictObject({ item: z.enum(['interest_earned', 'fees_charged', 'tax_withheld']), amount: SignedMoney }))
+          .describe('Conceptos del resumen que el banco no detalla como movimiento y entran al cuadre'),
       })
       .nullable()
-      .describe('Saldo inicial + abonos − cargos contra saldo final; null si falta alguno'),
+      .describe('Saldo inicial + abonos − cargos (± conceptos no detallados) contra saldo final; null si falta alguno'),
     totals: z.strictObject({
       credits: AmountCheck,
       debits: AmountCheck,
