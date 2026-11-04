@@ -409,3 +409,31 @@ que `structuredOutput` usa el modo nativo del proveedor (`jsonPromptInjection: '
 Si alguna de las tres falla, el paso de extracción llama al SDK de Anthropic directamente
 dentro del `execute` del step y Mastra sigue orquestando. Esa es la salida de emergencia y
 no cambia el resto del diseño.
+
+---
+
+## Cambios durante la implementación
+
+### Fase 0 (2026-11-04), a partir de los spikes de `docs/spikes/`
+
+- **Modelo como instancia del proveedor, no como string del router.** Los agentes reciben
+  `createAnthropic()(...)` de `@ai-sdk/anthropic` en lugar de `'anthropic/claude-opus-5-5'`.
+  Así se fija la versión del proveedor, se puede apuntar a un servidor de pruebas y no se
+  hereda un `ANTHROPIC_BASE_URL` ajeno. (Spike 1)
+- **Salida estructurada nativa.** La sección 9 menciona `jsonPromptInjection: 'auto'`; en
+  Mastra 1.81 lo nativo es el default (sin `jsonPromptInjection`) y además se fuerza con
+  `providerOptions.anthropic.structuredOutputMode: 'outputFormat'`. Verificado en el cable:
+  llega `output_config.format`. (Spike 1)
+- **`maxOutputTokens` siempre explícito y `agent.stream()` en las pasadas largas.** Sin
+  `maxOutputTokens`, AI SDK manda `max_tokens: 128000` en una llamada no streaming. (Spike 1)
+- **Guarda en `askOwner`.** `.dountil()` corre el cuerpo al menos una vez, así que
+  `clarificationLoop` se ejecuta aunque la decisión ya sea final. `askOwner` regresa sin
+  suspender si `status !== 'needs_clarification'`. Sin la guarda se le preguntaría al
+  proveedor sin motivo. (Spike 4)
+- **Errores de esquema en la entrada del workflow.** `run.start()` lanza `MastraError`
+  (`WORKFLOW_SCHEMA_VALIDATION_FAILED`) en lugar de devolver `failed`; quien lo llama lo
+  convierte en `application.status = failed` con razón. (Spike 2)
+- **`exactOptionalPropertyTypes`** se apaga solo en `packages/mastra` por incompatibilidad
+  de tipos de Mastra con sub-workflows. ADR 0004. (Spikes 2 y 4)
+- **Jev y las imágenes.** `@typesafe-ai/sdk` 0.7 ya acepta imágenes (experimental). Se
+  mantiene "Jev solo texto" de la sección 4c mientras sea experimental. (Spike 3)
