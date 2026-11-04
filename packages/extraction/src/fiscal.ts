@@ -215,6 +215,17 @@ export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, per
       holder.holder_type = unverify(holder.holder_type)
       issues.add({ code: 'fiscal_receiver_mismatch', severity: 'warning', message: `${tag}: el régimen fiscal ${regime ?? ''} corresponde a ${expectedHolder}, pero el encabezado sugiere ${holder.holder_type.value}.`, page })
     }
+    // docs/09 §9.6: la fecha de timbrado es una marca del SAT. Lejos del fin del periodo,
+    // el documento se generó mucho después o el periodo se editó.
+    const stamped = f.certified_at.value?.slice(0, 10) ?? null
+    const ends = periods.map((p) => p.period_end.value ?? p.statement_date.value).filter((d): d is string => d !== null)
+    const lastEnd = ends.sort().at(-1) ?? null
+    if (stamped !== null && lastEnd !== null) {
+      const gap = Math.round((Date.parse(`${stamped}T00:00:00Z`) - Date.parse(`${lastEnd}T00:00:00Z`)) / 86_400_000)
+      if (gap > 30 || gap < -5) {
+        issues.add({ code: 'date_out_of_period', severity: 'warning', message: `${tag}: el timbrado (${stamped}) está a ${String(gap)} días del fin del periodo (${lastEnd}); el estado de cuenta pudo generarse mucho después o el periodo pudo editarse.`, page })
+      }
+    }
     // 8. Formato de certificados y RFC.
     for (const [label, cert] of [['emisor', f.issuer_certificate], ['SAT', f.sat_certificate]] as const) {
       if (cert.value !== null && !CERT.test(cert.value)) issues.add({ code: 'fiscal_chain_mismatch', severity: 'warning', message: `${tag}: el número de certificado del ${label} no tiene 20 dígitos.`, page })

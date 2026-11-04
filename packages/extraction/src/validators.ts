@@ -46,6 +46,25 @@ export interface RfcCheck {
   checkDigitOk: boolean | null
 }
 
+const RFC_IN_TEXT = /(?<![A-ZÑ&\d])([A-ZÑ&]{3,4}\d{6}[A-Z\d]{2}[A\d])(?![A-ZÑ&\d])/g
+
+/**
+ * RFC de la contraparte impreso en la descripción de un movimiento (docs/09 §9.3): el primer
+ * RFC con estructura y fecha válidas que no sea genérico ni el del propio titular.
+ */
+export function findCounterpartyRfc(description: string, holderRfc: string | null = null): string | null {
+  const text = description.toUpperCase()
+  const holder = holderRfc?.replace(/\s/g, '').toUpperCase() ?? null
+  for (const m of text.matchAll(RFC_IN_TEXT)) {
+    const rfc = m[1] ?? ''
+    const check = checkRfc(rfc)
+    if (check.result !== 'valid' || check.kind === 'generic') continue
+    if (holder !== null && holder === rfc) continue
+    return rfc
+  }
+  return null
+}
+
 /** RFC: 12 posiciones persona moral, 13 persona física; fecha válida; homoclave y verificador. */
 export function checkRfc(raw: string | null): RfcCheck {
   if (raw === null) return { result: 'absent', kind: null, checkDigitOk: null }

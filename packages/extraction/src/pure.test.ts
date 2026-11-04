@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { amountForms, parseAmount, parseLooseDate } from './normalize.ts'
 import { assessTextLayer } from './pdf.ts'
 import { pagesWithBreaks, reconcilePeriod } from './reconcile.ts'
-import { checkClabe, checkRfc } from './validators.ts'
+import { checkClabe, checkRfc, findCounterpartyRfc } from './validators.ts'
 
 const printed = (opening: number | null, closing: number | null, totalCredits: number | null = null, totalDebits: number | null = null) => ({
   opening,
@@ -109,6 +109,19 @@ describe('validadores', () => {
     expect(checkRfc('GODE561331GR8').result).toBe('invalid')
     expect(checkRfc('GOD***1231GR8').result).toBe('masked')
     expect(checkRfc('AXE850101AB1').kind).toBe('legal_entity')
+  })
+})
+
+describe('findCounterpartyRfc', () => {
+  it.each([
+    ['ABONO TRANSFERENCIA SPEI DE COMERCIAL NORTE SA RFC CNO850101AB1 REF 123', null, 'CNO850101AB1'],
+    ['SPEI RECIBIDO GODE561231GR8 PAGO FACT 45', null, 'GODE561231GR8'],
+    ['PAGO A PROVEEDOR XAXX010101000', null, null],
+    ['TRASPASO PROPIO CNO850101AB1', 'CNO850101AB1', null],
+    ['REFERENCIA ABC123456789XYZ', null, null],
+    ['DEPOSITO EFECTIVO', null, null],
+  ])('%s', (description, holder, expected) => {
+    expect(findCounterpartyRfc(description, holder)).toBe(expected)
   })
 })
 

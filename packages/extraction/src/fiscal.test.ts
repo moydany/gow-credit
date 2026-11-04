@@ -66,6 +66,14 @@ describe('crossCheckFiscal (docs/09 §4)', () => {
     expect(h.holder_type.verification).toBe('unverified')
   })
 
+  it('avisa si el timbrado queda lejos del fin del periodo (docs/09 §9.6)', () => {
+    const f = fiscalDocument()
+    const period = { period_end: { value: '2026-01-31' }, statement_date: { value: null }, summary: { fees_charged: { value: null } } } as unknown as Parameters<typeof crossCheckFiscal>[2][number]
+    const issues = new IssueSink()
+    crossCheckFiscal([f], holder(null), [period], issues)
+    expect(issues.issues.find((i) => i.code === 'date_out_of_period')?.message).toContain('a 60 días del fin del periodo')
+  })
+
   it('un receptor vacío (como Hey) no se cruza ni se rellena', () => {
     const f = fiscalDocument()
     f.receiver.rfc = missing()

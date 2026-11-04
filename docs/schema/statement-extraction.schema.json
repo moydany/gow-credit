@@ -1651,6 +1651,13 @@
             "null"
           ]
         },
+        "counterparty_rfc": {
+          "description": "RFC de la contraparte cuando el banco lo imprime (SPEI de Santander, Banamex); validado (docs/09 §9.3)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "classifier": {
           "type": "string",
           "description": "Modelo que clasificó, por ejemplo jev-1.13.0 o claude-haiku-5-5"
@@ -1660,6 +1667,7 @@
         "category",
         "confidence",
         "counterparty",
+        "counterparty_rfc",
         "classifier"
       ],
       "additionalProperties": false

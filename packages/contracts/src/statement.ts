@@ -34,6 +34,7 @@ export const TransactionClassification = z
     category: TransactionCategory,
     confidence: Confidence,
     counterparty: z.string().nullable().describe('Contraparte identificada en la descripción, si la hay'),
+    counterparty_rfc: z.string().nullable().describe('RFC de la contraparte cuando el banco lo imprime (SPEI de Santander, Banamex); validado (docs/09 §9.3)'),
     classifier: z.string().describe('Modelo que clasificó, por ejemplo jev-1.13.0 o claude-haiku-5-5'),
   })
   .meta({ id: 'TransactionClassification' })
