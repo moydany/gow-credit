@@ -102,7 +102,13 @@ describe('normalización', () => {
     ['31 JUL 2025', '2025-07-31', '2025-07-31'],
     ['13 de June', '2026-09-11', '2026-06-13'],
     ['28 DIC', '2026-01-15', '2025-12-28'],
-  ])('%s con fin de periodo %s → %s', (raw, end, expected) => {
+    ['01-ABR-2025', null, '2025-04-01'],
+    ['DEL 01-ABR-2025 AL 30-ABR-2025', null, '2025-04-01'],
+    ['Del 01 Ene. 2025', null, '2025-01-01'],
+    ['30-ABR-2025', '2025-04-30', '2025-04-30'],
+    ['DEL 01/09/2025 AL 30/09/2025', null, '2025-09-01'],
+    ['Periodo 2025-10-01 a 2025-10-31', null, '2025-10-01'],
+  ])('%s con fin de periodo %s → %s', (raw, end: string | null, expected) => {
     expect(parseLooseDate(raw, end)).toBe(expected)
   })
 

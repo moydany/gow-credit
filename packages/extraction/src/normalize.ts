@@ -82,23 +82,29 @@ export function parseLooseDate(raw: string, periodEnd: string | null): string | 
   if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
   m = /^(\d{1,2})[/.-](\d{1,2})$/.exec(s)
   if (m) return withYear(Number(m[2]), Number(m[1]), null)
-  const words = normalizeText(s).replace(/[.,]/g, ' ').split(' ').filter((w) => w && w !== 'de' && w !== 'del')
+  // Una fecha completa dentro de un texto más largo ("DEL 01/09/2025 AL 30/09/2025"): la primera.
+  m = /(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (m) return iso(Number(m[1]), Number(m[2]), Number(m[3]))
+  m = /(?<!\d)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)/.exec(s)
+  if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
+  // Fechas con mes en letras: "ENE. 16", "01-ABR-2025", "31 JUL 2025", "13 de June de 2026".
+  // Si el texto trae un rango ("del 01-ABR-2025 al 30-ABR-2025"), vale la primera fecha completa.
+  const words = normalizeText(s)
+    .replace(/[-/.,]/g, ' ')
+    .split(' ')
+    .filter((w) => w && !['de', 'del', 'al', 'a'].includes(w))
   let day: number | null = null
   let month: number | null = null
-  let year: number | null = null
-  for (const w of words) {
-    if (/^\d{4}$/.test(w)) year = Number(w)
-    else if (/^\d{1,2}$/.test(w)) day = Number(w)
-    else if (MONTHS[w] !== undefined) month = MONTHS[w] ?? null
-    else if (/^\d{1,2}\/?[a-z]+$/.test(w)) {
-      const mm = /^(\d{1,2})\/?([a-z]+)$/.exec(w)
-      if (mm && MONTHS[mm[2] ?? ''] !== undefined) {
-        day = Number(mm[1])
-        month = MONTHS[mm[2] ?? ''] ?? null
-      }
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i] ?? ''
+    if (/^\d{1,2}$/.test(w) && day === null) day = Number(w)
+    else if (MONTHS[w] !== undefined && month === null) month = MONTHS[w] ?? null
+    if (day !== null && month !== null) {
+      const next = words[i + 1] ?? ''
+      const year = /^\d{4}$/.test(next) ? Number(next) : null
+      return withYear(month, day, year)
     }
   }
-  if (day !== null && month !== null) return withYear(month, day, year)
   return null
 }
 
