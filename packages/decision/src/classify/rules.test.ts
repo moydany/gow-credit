@@ -38,7 +38,7 @@ describe('clasificación por reglas (rules-v1)', () => {
     ['NOMINA EMPRESA', 'credit', 'salary_received', 'other'],
     ['TRA 123-ABONO VENTAS TDC', 'credit', 'sales_settlement', 'customer_payment'],
     ['LIBERACIÓN DE DINERO', 'credit', 'sales_settlement', 'customer_payment'],
-    ['PAGO FACTURA A649', 'credit', 'sales_settlement', 'customer_payment'],
+    ['PAGO FACTURA B101', 'credit', 'sales_settlement', 'customer_payment'],
     ['DEPOSITO SALVO BUEN COBRO', 'credit', 'check_deposit', 'customer_payment'],
     ['EFE -DEPOSITO EN SUCURSAL', 'credit', 'cash_deposit', 'customer_payment'],
     ['T20 SPEI RECIBIDOBANCO', 'credit', 'transfer_received', 'customer_payment'],
@@ -49,7 +49,7 @@ describe('clasificación por reglas (rules-v1)', () => {
     ['PAGO A PROVEEDOR GENERAL', 'debit', 'supplier_named', 'supplier_payment'],
     ['N06 PAGO CUENTA DE TERCERO', 'debit', 'transfer_sent', 'supplier_payment'],
     ['TRANSFERENCIA SPEI A PROVEE', 'debit', 'transfer_sent', 'supplier_payment'],
-    ['A588 77', 'credit', 'unrecognized', 'customer_payment'],
+    ['B123 45', 'credit', 'unrecognized', 'customer_payment'],
     ['AEROLINEA BOLETOS', 'debit', 'unrecognized', 'other'],
   ] as const)('%s (%s) → %s', (description, type, expectedRule, category) => {
     const [r, cat] = rule(description, type)
