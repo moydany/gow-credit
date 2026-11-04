@@ -58,7 +58,7 @@ export function coverageOf(ledger: Ledger): Coverage {
 
 /** Movimientos que pesan en una feature: los 25 de mayor monto, como evidencia. */
 function topRefs(rows: readonly LedgerRow[]): string[] {
-  return [...rows].sort((a, b) => b.amount - a.amount || a.day - b.day).map(evidenceRef)
+  return [...rows].sort((a, b) => b.amount - a.amount || a.day - b.day || evidenceRef(a).localeCompare(evidenceRef(b))).map(evidenceRef)
 }
 
 function isMaterial(unverifiedAmount: number, poolAmount: number): boolean {
@@ -243,7 +243,8 @@ function redFlags(ledger: Ledger, minDailyBalance: number | null): Entry {
   if (minDailyBalance !== null && minDailyBalance < 0) add('overdraft', true, 'saldo diario calculado')
   const flags = [...found.keys()].sort()
   const verification: Verification = [...found.values()].every((f) => f.verified) ? 'verified' : 'unverified'
-  return known(flags, { verification, evidence: [...found.values()].flatMap((f) => f.refs), note: flags.length > 0 ? null : 'sin señales graves en las descripciones ni saldos negativos' })
+  const evidence = [...new Set([...found.values()].flatMap((f) => f.refs))].sort()
+  return known(flags, { verification, evidence, note: flags.length > 0 ? null : 'sin señales graves en las descripciones ni saldos negativos' })
 }
 
 // ---------------------------------------------------------------------------------------------
