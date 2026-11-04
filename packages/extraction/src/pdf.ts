@@ -86,7 +86,7 @@ const CP037_TO_ASCII: Record<number, string> = (() => {
   return map
 })()
 
-function decodeEbcdic(text: string): string {
+export function decodeEbcdic(text: string): string {
   let out = ''
   for (const ch of text) {
     const code = ch.codePointAt(0) ?? 0

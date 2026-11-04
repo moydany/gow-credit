@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
   - spikes
+  - evals
 
 # Cadena de suministro: no instalar versiones publicadas hace menos de 3 días.
 minimumReleaseAge: 4320
