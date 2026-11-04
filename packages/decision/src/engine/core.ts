@@ -167,7 +167,7 @@ function evaluateGates(policy: Policy, profile: Profile): { evals: GateEval[]; e
         ask = g.onFail.ask ?? null
       }
     }
-    evals.push({ id: g.id, feature: g.when.feature, op: g.when.op, threshold: (g.when.value ?? null) as GateEval['threshold'], value: f.value as GateEval['value'], outcome, effect, ask })
+    evals.push({ id: g.id, feature: g.when.feature, op: g.when.op, threshold: (g.when.value ?? null), value: f.value as GateEval['value'], outcome, effect, ask })
     if (effect !== 'none') effects.push({ id: g.id, feature: g.when.feature, status: effect, ask })
   }
   return { evals, effects }

@@ -160,9 +160,9 @@ export function counterfactuals(policy: Policy, profile: Profile, base: Core, op
     steps.push({
       code: c.code,
       feature: main.feature,
-      current_value: profile.features[main.feature].value as NextStepOut['current_value'],
+      current_value: profile.features[main.feature].value,
       target_value: main.value as NextStepOut['target_value'],
-      related: related.map((r) => ({ feature: r.feature, current_value: profile.features[r.feature].value as NextStepOut['current_value'], target_value: r.value as NextStepOut['target_value'] })),
+      related: related.map((r) => ({ feature: r.feature, current_value: profile.features[r.feature].value, target_value: r.value as NextStepOut['target_value'] })),
       from: { status: base.status, score: base.score },
       to: { status: to.status, score: to.score },
       message: null,

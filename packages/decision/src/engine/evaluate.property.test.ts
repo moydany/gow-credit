@@ -41,7 +41,7 @@ const valuesArb: fc.Arbitrary<Values> = fc.record({
   program_available_limit: maybe(money(1_000_000)),
 })
 
-const DECISION_FEATURES = Object.keys(valuesArb === undefined ? {} : sampleProfile().features).filter((f) => f !== 'prior_applications') as FeatureName[]
+const DECISION_FEATURES = Object.keys(sampleProfile().features).filter((f) => f !== 'prior_applications') as FeatureName[]
 const metaArb = fc.dictionary(
   fc.constantFrom(...DECISION_FEATURES),
   fc.record({ verification: fc.constantFrom<Verification>('verified', 'verified', 'verified', 'unverified', 'conflict'), confidence: ratio(0.4, 1) }),
@@ -159,7 +159,7 @@ describe('propiedades de evaluate(policy, profile)', () => {
         const b = v2[feature] ?? null
         fc.pre(a !== null && b !== null)
         const p1 = build(v1, { [feature]: { verification, confidence: 1 } })
-        const p2 = build({ ...v1, [feature]: b } as Values, { [feature]: { verification, confidence: 1 } })
+        const p2 = build({ ...v1, [feature]: b }, { [feature]: { verification, confidence: 1 } })
         expect(evaluate(BASE, p2, { counterfactuals: false }).status).toBe(evaluate(BASE, p1, { counterfactuals: false }).status)
       }),
       RUNS,

@@ -95,7 +95,7 @@ function taxAuthority(ctx: ExternalContext): Entries {
   out.cfdi_sat_status =
     checks.length === 0
       ? unknown(uuids.size === 0 ? 'el documento no trae CFDI' : 'CFDI sin datos suficientes para consultarlo (RFC de emisor o receptor, total)', 'external')
-      : known(checks.reduce((w, c) => (order[c.status] > order[w] ? c.status : w), 'valid' as keyof typeof order), { ...ext, evidence: checks.map((c) => `cfdi:${c.uuid}=${c.status}`) })
+      : known(checks.reduce<keyof typeof order>((w, c) => (order[c.status] > order[w] ? c.status : w), 'valid'), { ...ext, evidence: checks.map((c) => `cfdi:${c.uuid}=${c.status}`) })
 
   // Ingresos de pagadores en 69-B definitivo (docs/09 §9.4): solo se ve lo que trae RFC.
   const listed = new Set(src.listed_counterparties.filter((l) => l.list_status === 'efos_definitive').map((l) => l.rfc.toUpperCase()))

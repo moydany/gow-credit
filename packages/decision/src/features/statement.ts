@@ -573,7 +573,7 @@ function fiscalAnchor(ctx: StatementContext): Entry {
 
 function regimeIncomePlausible(regime: Entry, incomeMonthly: number | null, incomeEntry: Entry | undefined): Entry {
   if (regime.value === null) return unknown('sin régimen fiscal')
-  if (regime.value !== '626') return known(true, { verification: regime.verification, note: `el régimen ${String(regime.value)} no tiene tope de ingresos` })
+  if (regime.value !== '626') return known(true, { verification: regime.verification, note: `el régimen ${typeof regime.value === 'string' ? regime.value : ''} no tiene tope de ingresos` })
   if (incomeMonthly === null || incomeEntry === undefined) return unknown('sin ingresos operativos mensuales')
   const annual = round2(incomeMonthly * 12)
   return known(annual <= RESICO_ANNUAL_CAP, {

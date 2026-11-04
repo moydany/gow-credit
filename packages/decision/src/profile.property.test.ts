@@ -47,8 +47,7 @@ describe('propiedades del perfil', () => {
         const t = structuredClone(s)
         const p = t.accounts[0]?.periods[0]
         const t0 = p?.transactions[0]
-        fc.pre(p !== undefined && t0 !== undefined)
-        if (!p || !t0) return
+        if (p === undefined || t0 === undefined) throw new Error('el estado sintético siempre trae un movimiento')
         p.transactions.push({ ...t0, id: 'a1.p1.t9001', description: 'DEPÓSITO EN CAJITA', amount, type: 'debit', internal_transfer: true })
         p.transactions.push({ ...t0, id: 'a1.p1.t9002', description: 'RETIRO DE CAJITA', amount, type: 'credit', internal_transfer: true })
         const a = profileOf(s)
