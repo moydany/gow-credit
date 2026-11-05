@@ -482,3 +482,28 @@ no cambia el resto del diseño.
   `packages/decision/src/external/` hasta que exista `packages/channels` (fase 6). El perfil
   recibe un `ExternalSnapshot` ya armado, así que sigue siendo puro.
 - **`scenarios/`** es un paquete del workspace (`@gow/scenarios`) con el runner del modo `unit`.
+
+### Fase 5 (2026-11-05, ADR 0015)
+
+- **`packages/mastra` existe en modo standalone.** Tiene el workflow, los canales, la redacción,
+  el reporte y el CLI `evaluate`. La instancia de §2 (PostgresStore, agentes registrados,
+  scorers, Langfuse) es de la fase 6. Aquí Mastra corre con libSQL en
+  `<salida>/.state/mastra.db` y las llamadas a modelos pasan por el puerto `StructuredLlm` de
+  `packages/llm`, no por agentes registrados.
+- **§3, forma real del workflow**: `extract → classify-transactions → decide →
+  dountil(ask-owner → apply-answers → re-decide) → explain`. No hay `reconcile` aparte: la
+  verificación está dentro de la extracción. `notifySupplier` es de la fase 6.
+- **§3, el estado viaja en el snapshot.** Lleva extracciones clasificadas, veredicto, preguntas
+  y respuestas. Al reanudar, `ask-owner` parte del payload de suspensión.
+- **§3, canales**: `OutboxChannel` (archivo con el mensaje) y la consola interactiva del CLI. La
+  entrada siempre llega como respuestas cerradas validadas con Zod.
+- **§4c, `classifyTransactions`**:
+  - Solo van al modelo los movimientos que las reglas dejan bajo 0.85. Lotes de 25, opciones
+    por sentido.
+  - La confianza de Jev se usa. La de Haiku no (spike 3): queda en 0.8 si coincide con una regla
+    con palabra clave y en 0.6 si no.
+  - Las respuestas de Jev quedan en caché en `data/llm-cache/transactions`.
+  - La caché de clasificación de documentos pasó a `packages/llm`.
+- **§4c, filas de la tabla sin construir.** No existen Jev para `reconcile` (`ask_owner`,
+  `auto_resolve`, `human_review`), el Noul de recurrencia ni la correlación de respuestas de
+  WhatsApp. Las dos últimas llegan con la fase 6.

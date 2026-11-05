@@ -282,3 +282,19 @@ Lo que cambia o se precisa respecto a este documento:
   gana la política de ejemplo con las compuertas fiscales de `docs/09` §5.
 - **§5, simulación**: `simulatePolicy` reevalúa perfiles guardados y reporta transiciones y mora
   observada por estado. `pnpm simulate` la corre.
+
+### Fase 5 (2026-11-05): workflow y respuestas (ADR 0015)
+
+- **§6, línea máxima.** Sin monto solicitado, la salida incluye el mayor monto que la política
+  aprobaría pedido tal cual (`max_line`), con las compuertas de aclaración pendientes como
+  condición (`docs/07` A).
+- **§6, `next_steps`.** Haiku los redacta solo cuando el veredicto es final; mientras la solicitud
+  está pausada llevan la plantilla del código. Ambos pasan el filtro de cifras.
+- **§7, respuestas.** Son cerradas:
+  - **Abono**: una de 5 categorías.
+  - **Identidad declarada**: solo cuenta sin identidad registrada.
+  - **Documentos nuevos** o **"no sé"**.
+
+  Una respuesta que contradice una clasificación con 0.8 o más en otra categoría no se mergea y
+  manda a revisión humana (`owner_answer_contradicts_document`). Si el motor pide aclarar y no
+  hay pregunta concreta, también va a revisión humana (`no_concrete_question`).

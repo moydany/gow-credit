@@ -196,3 +196,19 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   la feature queda `unverified` para que el motor aplique la regla anterior.
 - Un test de propiedades lo comprueba: con un dato no verificado fuera de la fórmula de línea,
   cambiar su valor no cambia el estado.
+
+### Fase 5 (2026-11-05): capa 3 en el workflow (ADR 0015)
+
+- **Filtro de cifras implementado** (`packages/mastra/src/figures.ts`):
+  - Revisa números, fechas en palabras e ISO, y números escritos con palabras de "dos" en
+    adelante. "mil" y "millón" se rechazan.
+  - Lo permitido sale de los hechos de cada pregunta o paso, con sus redondeos y, para
+    proporciones, su porcentaje.
+  - Un texto que falla se regenera una vez, indicándole al modelo qué cifras se rechazaron. Si
+    vuelve a fallar queda la plantilla del código, que siempre pasa.
+- **Haiku como clasificador de movimientos**: su confianza autoreportada no entra a ningún
+  umbral (spike 3). Ver ADR 0015 §8.
+- **Respuesta que contradice el documento**: el umbral de "alta probabilidad" quedó en 0.8 de la
+  clasificación existente (regla o modelo).
+- **Fidelidad del texto generado (§6)**: el filtro es la guarda en línea. La métrica con juez
+  LLM sigue pendiente.
