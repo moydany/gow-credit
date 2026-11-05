@@ -140,3 +140,20 @@ muestra personalización y el loop de aprendizaje.
 | `tenant_admin` | responsable del prestamista | usuarios, llaves de API, canal de WhatsApp, activar políticas, cupos, retención |
 | `tenant_analyst` | analista de crédito | solicitudes, revisión humana, aclaraciones, proveedores, outcomes, editar y simular políticas sin activar |
 | `tenant_auditor` | auditoría o riesgo | solo lectura, incluida la bitácora |
+
+---
+
+## Cambios durante la implementación
+
+- **Fase 7, backoffice (ADR 0019).** `apps/web` y `/bo/v1` en `apps/api`:
+  - **Hecho.** Solicitudes (bandeja con filtros y búsqueda), Detalle en tres paneles (PDF con
+    resaltado del fragmento citado, extracción con valores sin verificar rayados, decisión con
+    compuertas, dimensiones, contrafactuales y perfil), Aclaraciones con respuesta manual, Revisión
+    humana (cola con motivo), Políticas con editor JSON, **Simular**, sombra y promover, Outcomes y
+    Bitácora con el usuario.
+  - **Distinto al plan.** La sesión es una cookie `HttpOnly` que sale de un JWT (Supabase Auth en
+    producción, enlace de `pnpm tenant user add` en desarrollo); el PDF se sirve por la API; las listas
+    se refrescan por sondeo y no por Realtime.
+  - **Pendiente.** Corregir un valor en revisión humana, formulario de política generado del esquema,
+    Proveedores, Configuración y modo oscuro.
+
