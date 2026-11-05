@@ -80,6 +80,7 @@ async function classifyStatements(deps: WorkflowDeps, state: AppState, statement
       out.push(withModelLabels(s, request, labels, { model: c.model, calibrated: c.calibrated }))
     } catch (err) {
       summary.implementation = 'rules'
+      summary.model = null
       summary.error = `el clasificador de movimientos falló; quedan las reglas: ${errorText(err)}`
       out.push(s)
     }

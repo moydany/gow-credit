@@ -18,7 +18,8 @@
     "eval": "pnpm -F @gow/evals eval",
     "scenario": "pnpm -F @gow/scenarios scenario",
     "decide": "pnpm -F @gow/decision decide",
-    "simulate": "pnpm -F @gow/decision simulate"
+    "simulate": "pnpm -F @gow/decision simulate",
+    "evaluate": "pnpm -F @gow/mastra evaluate"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

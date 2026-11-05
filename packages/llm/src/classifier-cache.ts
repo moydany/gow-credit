@@ -27,7 +27,8 @@ export class CachedClassifier implements Classifier {
   async classify(input: ClassifierInput): Promise<Classification> {
     const key = this.#key(input)
     const path = join(this.#dir, `${this.#label}-${key.slice(0, 32)}.json`)
-    if (existsSync(path)) return { ...(JSON.parse(readFileSync(path, 'utf8')) as Classification), responseCacheHit: true }
+    // De caché no cuesta: costUsd 0 y latencia 0 (el uso de tokens queda, para estimar a precio de lista).
+    if (existsSync(path)) return { ...(JSON.parse(readFileSync(path, 'utf8')) as Classification), costUsd: 0, latencyMs: 0, responseCacheHit: true }
     if (!this.#inner) {
       this.misses++
       throw new Error(`clasificación de ${this.#label} no está en caché`)
