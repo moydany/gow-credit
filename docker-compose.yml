@@ -1,0 +1,22 @@
+# Modo full en local (fase 6): Postgres 17 con los roles de docs/05 §2. Las migraciones se
+# corren con `pnpm db:migrate`; los escenarios full con `pnpm scenario run --all --mode full`.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gow
+    ports:
+      - "127.0.0.1:54330:5432"
+    volumes:
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      - gow-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gow"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  gow-pg:

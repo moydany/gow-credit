@@ -19,7 +19,9 @@
     "scenario": "pnpm -F @gow/scenarios scenario",
     "decide": "pnpm -F @gow/decision decide",
     "simulate": "pnpm -F @gow/decision simulate",
-    "evaluate": "pnpm -F @gow/mastra evaluate"
+    "evaluate": "pnpm -F @gow/mastra evaluate",
+    "db:migrate": "pnpm -F @gow/db db:migrate",
+    "db:generate": "pnpm -F @gow/db db:generate"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
