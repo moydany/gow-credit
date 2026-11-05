@@ -3,7 +3,7 @@
 id: proveedor-con-credito-en-mora
 catalog: 6
 title: Proveedor con crédito en mora
-modes: [unit]
+modes: [unit, full]
 as_of: 2026-10-05
 tenant: { name: Fintech Demo, policy: base }
 suppliers:

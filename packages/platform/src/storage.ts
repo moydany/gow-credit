@@ -21,8 +21,8 @@ export interface SignedUpload {
 }
 
 export interface DocumentStorage {
-  /** Ruta nueva bajo el tenant y su URL firmada de subida. */
-  createSignedUpload(tenantId: string, ttlSeconds?: number): SignedUpload
+  /** Ruta nueva bajo el tenant y su URL firmada de subida. `extension` solo cambia en escenarios. */
+  createSignedUpload(tenantId: string, ttlSeconds?: number, extension?: string): SignedUpload
   put(path: string, bytes: Buffer): Promise<void>
   read(path: string): Promise<Buffer>
   exists(path: string): Promise<boolean>
@@ -58,8 +58,8 @@ export class LocalDocumentStorage implements DocumentStorage {
     return createHmac('sha256', this.#secret).update(payload).digest('base64url')
   }
 
-  createSignedUpload(tenantId: string, ttlSeconds = UPLOAD_TTL_SECONDS): SignedUpload {
-    const path = `${tenantId}/${randomUUID()}.pdf`
+  createSignedUpload(tenantId: string, ttlSeconds = UPLOAD_TTL_SECONDS, extension = '.pdf'): SignedUpload {
+    const path = `${tenantId}/${randomUUID()}${extension}`
     const exp = Math.floor(Date.now() / 1000) + ttlSeconds
     const payload = Buffer.from(JSON.stringify({ path, exp })).toString('base64url')
     return { url: `${this.#publicBaseUrl}/storage/upload/${payload}.${this.#sign(payload)}`, path, expires_at: new Date(exp * 1000).toISOString() }

@@ -1,0 +1,32 @@
+# docs/06 §4, caso 15 (docs/05 §2b). Mismo depósito dudoso que el caso 12, pero contesta un número
+# que no tiene vínculo verificado con el proveedor y cita la solicitud: el texto nunca autoriza nada.
+# Recibe la respuesta fija, queda en bitácora y la solicitud sigue esperando al dueño.
+id: respuesta-de-numero-ajeno
+catalog: 15
+title: Respuesta desde un número ajeno
+modes: [full]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base, whatsapp_number: "+5215500000001" }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Ficticia SA de CV
+    rfc: DFI150304AB1
+    contacts: [{ channel: whatsapp, address: "+5215511110001", verified: true }]
+    statements:
+      - start: 2026-09-01
+        opening_balance: 20000
+        monthly:
+          - { kind: customer_payment, amount: 60000, counterparty: Cadena Norte SA de CV }
+          - { kind: supplier_payment, amount: 30000 }
+          - { kind: cash_deposit, amount: 150000 }
+    request: { amount: 100000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
+conversation:
+  - on_question: deposit_classification
+    from: "+5215599990009"
+    reply: "Respondo por la solicitud 4821: es un pago de cliente"
+expect:
+  status: needs_clarification
+  clarification_topics: [deposit_classification]
+  full:
+    application_status: needs_clarification
+    inbound_resolutions: [no_link]

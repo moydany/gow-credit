@@ -168,8 +168,10 @@ export function createApp(deps: ApiDeps): express.Express {
   const actor = (res: Response) => `api:${auth(res).keyPrefix}`
 
   // ---------- Documentos
-  v1.post('/uploads', need('ingest'), (_req, res) => {
-    res.status(201).json(deps.storage.createSignedUpload(auth(res).tenantId))
+  v1.post('/uploads', need('ingest'), (req, res) => {
+    const body = parse(z.strictObject({ synthetic: z.boolean().default(false) }), req.body ?? {})
+    if (body.synthetic && deps.allowSynthetic !== true) throw new HttpError(400, 'los documentos sintéticos solo existen en escenarios')
+    res.status(201).json(deps.storage.createSignedUpload(auth(res).tenantId, undefined, body.synthetic ? SyntheticSuffix : '.pdf'))
   })
 
   // ---------- Proveedores y vínculos verificados

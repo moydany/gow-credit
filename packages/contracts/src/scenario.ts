@@ -11,7 +11,7 @@
  * Nada de datos reales: nombres, RFC y montos de un escenario son inventados.
  */
 import { z } from 'zod'
-import { DecisionStatus, Verification } from './enums.ts'
+import { ApplicationStatus, DecisionStatus, Verification } from './enums.ts'
 import { BureauReport, ExistingCredit } from './external.ts'
 import { CFDI_SAT_STATUS, FeatureName, PriorApplication, SAT_LIST_STATUS } from './features.ts'
 import { AskTopic } from './policy.ts'
@@ -94,7 +94,10 @@ export const ScenarioSupplier = z.strictObject({
   rfc: z.string().nullable().default(null),
   clabes: z.array(z.string()).default([]),
   contacts: z.array(z.strictObject({ channel: z.enum(['whatsapp', 'email']), address: z.string().min(1), verified: z.boolean() })).default([]),
-  documents: z.array(z.string().min(1)).default([]).describe('PDFs de data/dev para el modo full'),
+  documents: z
+    .array(z.string().min(1))
+    .default([])
+    .describe('Modo full: nombre de un PDF de data/dev, o adversarial:<id> para un PDF de la eval de inyección'),
   statements: z.array(SyntheticStatement).default([]).describe('Estados de cuenta sintéticos para el modo unit'),
   request: ScenarioRequest.nullable().default(null),
 })
@@ -135,6 +138,22 @@ export const ScenarioExpect = z.strictObject({
   next_steps_include: z.array(FeatureName).default([]).describe('Features que deben aparecer en next_steps'),
   clarification_topics: z.array(AskTopic).optional(),
   features: z.partialRecord(FeatureName, z.json()).default({}).describe('Valores exactos de features del perfil'),
+  full: z
+    .strictObject({
+      application_status: ApplicationStatus.optional(),
+      inbound_resolutions: z.array(z.string()).optional().describe('Resolución de cada mensaje entrante, en orden'),
+      isolated_from_other_tenant: z.boolean().optional().describe('Otro tenant no ve la solicitud ni sus datos'),
+      extraction: z
+        .strictObject({
+          route: z.enum(['text_and_vision', 'vision_only']).optional(),
+          transactions: z.int().min(0).optional(),
+          flags_include: z.array(z.string()).default([]),
+          amounts_absent: z.array(z.number()).default([]).describe('Montos que no deben aparecer en ningún movimiento (inyectados)'),
+        })
+        .optional(),
+    })
+    .optional()
+    .describe('Expectativas que solo el modo full puede comprobar'),
 })
 export type ScenarioExpect = z.infer<typeof ScenarioExpect>
 
@@ -153,7 +172,16 @@ export const Scenario = z
     }),
     suppliers: z.array(ScenarioSupplier).min(1),
     external: ScenarioExternal.default({ existing_credits: {}, bureau: {}, sat: {}, cfdi: {}, sat_lists: {}, program: {}, history: {} }),
-    conversation: z.array(z.strictObject({ on_question: AskTopic, reply: z.string().min(1), after_minutes: z.int().min(0).optional() })).default([]),
+    conversation: z
+      .array(
+        z.strictObject({
+          on_question: AskTopic,
+          reply: z.string().min(1),
+          after_minutes: z.int().min(0).optional(),
+          from: z.string().min(3).optional().describe('Quién contesta; por defecto el WhatsApp verificado del proveedor'),
+        }),
+      )
+      .default([]),
     expect: ScenarioExpect,
   })
   .superRefine((s, ctx) => {
@@ -161,8 +189,8 @@ export const Scenario = z
       if (s.modes.includes('unit') && sup.statements.length === 0) {
         ctx.addIssue({ code: 'custom', path: ['suppliers', i, 'statements'], message: 'el modo unit necesita estados de cuenta sintéticos (statements)' })
       }
-      if (s.modes.includes('full') && sup.documents.length === 0) {
-        ctx.addIssue({ code: 'custom', path: ['suppliers', i, 'documents'], message: 'el modo full necesita documentos (PDFs de data/dev)' })
+      if (s.modes.includes('full') && sup.documents.length === 0 && sup.statements.length === 0) {
+        ctx.addIssue({ code: 'custom', path: ['suppliers', i, 'documents'], message: 'el modo full necesita documentos (PDFs) o estados de cuenta sintéticos' })
       }
     })
     if (s.expect.supplier !== undefined && !s.suppliers.some((sup) => sup.id === s.expect.supplier)) {

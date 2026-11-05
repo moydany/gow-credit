@@ -1,0 +1,32 @@
+# docs/06 §4, caso 1. Alta completa de un prestamista: crear el tenant, clonar la política base
+# como activa, registrar su número de WhatsApp, emitir la llave de API y dar de alta a un proveedor
+# con su contacto verificado; después, una solicitud de punta a punta. Un segundo tenant no ve nada
+# de él. Solo modo full: lo que se prueba es la plataforma, no el motor.
+id: alta-de-tenant
+catalog: 1
+title: Alta de tenant y aislamiento
+modes: [full]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base, whatsapp_number: "+5215500000001" }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    contacts: [{ channel: whatsapp, address: "+5215511111111", verified: true }]
+    statements:
+      - start: 2026-09-01
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: tax, amount: 15000 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
+expect:
+  status: qualified_with_limit
+  reasons_include: [cap_months_of_history]
+  full:
+    application_status: qualified_with_limit
+    isolated_from_other_tenant: true

@@ -15,7 +15,7 @@ import { emptyExternalSnapshot, type ExternalSnapshot, type StatementExtraction,
 import type { Db } from '@gow/db'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import type { Classifier, Limiter, StructuredLlm, TransactionClassifier } from '@gow/llm'
-import { createRuntime, resumeApplication, startApplication, type AppInput, type WorkflowDeps, type Writer } from '@gow/mastra'
+import { createRuntime, resumeApplication, startApplication, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
 import { enqueueResume, ProcessJob, QUEUES, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
 import type { MastraCompositeStore } from '@mastra/core/storage'
 import { OwnerAnswer } from '@gow/contracts'
@@ -46,8 +46,8 @@ export interface WorkerServices {
   limit: Limiter
   googleAvailable: boolean
   transports: { email?: Transport }
-  /** Fuentes externas del perfil por proveedor; sin ellas, snapshot vacío. */
-  external?: (ctx: AppContext) => Promise<ExternalSnapshot>
+  /** Fuentes externas del perfil por proveedor (con las extracciones, para los UUID y RFC de contraparte); sin ellas, snapshot vacío. */
+  external?: (ctx: AppContext, state: AppState) => Promise<ExternalSnapshot>
   /** Construye un estado de cuenta sintético; solo los escenarios lo pasan. */
   synthetic?: (doc: SyntheticDocument) => StatementExtraction
   /** "Hoy" para la antigüedad del documento cuando la solicitud no fija `as_of`. */
@@ -73,7 +73,7 @@ function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
     writer: s.writer,
     channel: new DbClarificationChannel(s.db, ctx, { email: s.transports.email ?? null }),
     limit: s.limit,
-    external: () => (s.external ? s.external(ctx) : Promise.resolve(emptyExternalSnapshot())),
+    external: (state) => (s.external ? s.external(ctx, state) : Promise.resolve(emptyExternalSnapshot())),
   }
 }
 

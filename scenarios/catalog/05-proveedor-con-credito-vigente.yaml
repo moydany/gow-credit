@@ -3,7 +3,7 @@
 id: proveedor-con-credito-vigente
 catalog: 5
 title: Proveedor con crédito vigente al corriente
-modes: [unit]
+modes: [unit, full]
 as_of: 2026-10-05
 tenant: { name: Fintech Demo, policy: base, whatsapp_number: "+5215500000001" }
 suppliers:

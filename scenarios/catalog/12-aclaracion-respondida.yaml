@@ -1,0 +1,30 @@
+# docs/06 §4, caso 12. Un depósito en efectivo grande que las reglas no pueden clasificar con
+# confianza y que cambia la banda: se pregunta por WhatsApp, el proveedor contesta con texto libre,
+# el worker lo lee contra la pregunta abierta de ese número, reanuda el run suspendido y califica.
+id: aclaracion-respondida
+catalog: 12
+title: Aclaración por WhatsApp respondida
+modes: [full]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base, whatsapp_number: "+5215500000001" }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Ficticia SA de CV
+    rfc: DFI150304AB1
+    contacts: [{ channel: whatsapp, address: "+5215511110001", verified: true }]
+    statements:
+      - start: 2026-09-01
+        opening_balance: 20000
+        monthly:
+          - { kind: customer_payment, amount: 60000, counterparty: Cadena Norte SA de CV }
+          - { kind: supplier_payment, amount: 30000 }
+          - { kind: cash_deposit, amount: 150000 }
+    request: { amount: 100000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
+conversation:
+  - on_question: deposit_classification
+    reply: "Es un pago de cliente, de Cadena Norte"
+expect:
+  status: qualified_with_limit
+  full:
+    application_status: qualified_with_limit
+    inbound_resolutions: [completed]

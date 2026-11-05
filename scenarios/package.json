@@ -2,7 +2,7 @@
   "name": "@gow/scenarios",
   "version": "0.1.0",
   "private": true,
-  "description": "Escenarios de docs/06 en YAML y su runner. Modo unit (fase 4): estados sintéticos, sin LLM ni base. Modo full: fase 6.",
+  "description": "Escenarios de docs/06 en YAML y su runner. Modo unit (fase 4): estados sintéticos, sin LLM ni base. Modo full (fase 6): API, cola, worker y Mastra reales sobre Postgres, con lo externo simulado y la caché de modelos fija.",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -12,6 +12,20 @@
     "@gow/contracts": "workspace:*",
     "@gow/decision": "workspace:*",
     "yaml": "2.9.1",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@gow/api": "workspace:*",
+    "@gow/channels": "workspace:*",
+    "@gow/db": "workspace:*",
+    "@gow/evals": "workspace:*",
+    "@gow/llm": "workspace:*",
+    "@gow/mastra": "workspace:*",
+    "@gow/platform": "workspace:*",
+    "@gow/whatsapp": "workspace:*",
+    "@gow/worker": "workspace:*",
+    "@mastra/pg": "1.34.0",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }

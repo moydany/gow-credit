@@ -121,7 +121,7 @@
               },
               "documents": {
                 "default": [],
-                "description": "PDFs de data/dev para el modo full",
+                "description": "Modo full: nombre de un PDF de data/dev, o adversarial:<id> para un PDF de la eval de inyección",
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -628,6 +628,11 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "from": {
+                "description": "Quién contesta; por defecto el WhatsApp verificado del proveedor",
+                "type": "string",
+                "minLength": 3
               }
             },
             "required": [
@@ -793,6 +798,72 @@
               "additionalProperties": {
                 "$ref": "#/$defs/__schema0"
               }
+            },
+            "full": {
+              "description": "Expectativas que solo el modo full puede comprobar",
+              "type": "object",
+              "properties": {
+                "application_status": {
+                  "type": "string",
+                  "enum": [
+                    "received",
+                    "extracting",
+                    "extracted",
+                    "deciding",
+                    "needs_clarification",
+                    "human_review",
+                    "qualified",
+                    "qualified_with_limit",
+                    "not_qualified",
+                    "failed"
+                  ]
+                },
+                "inbound_resolutions": {
+                  "description": "Resolución de cada mensaje entrante, en orden",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "isolated_from_other_tenant": {
+                  "description": "Otro tenant no ve la solicitud ni sus datos",
+                  "type": "boolean"
+                },
+                "extraction": {
+                  "type": "object",
+                  "properties": {
+                    "route": {
+                      "type": "string",
+                      "enum": [
+                        "text_and_vision",
+                        "vision_only"
+                      ]
+                    },
+                    "transactions": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "flags_include": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "amounts_absent": {
+                      "default": [],
+                      "description": "Montos que no deben aparecer en ningún movimiento (inyectados)",
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             }
           },
           "required": [
