@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "name": "Ejemplo: evaluación standalone con documentos redactados",
+  "description": "Plantilla base con un solo cambio: la compuerta de identidad pasa cuando no se puede comparar (titular, RFC y CLABE redactados o sin proveedor registrado). Una identidad que sí se compara y no coincide sigue pidiendo aclaración. Es para correr pnpm run evaluate sobre documentos redactados, sin registro de proveedores; no es una política para producción, donde el tenant registra al proveedor (ADR 0015).",
+  "gates": [
+    {
+      "id": "doc_recent",
+      "description": "El estado de cuenta más reciente tiene 90 días o menos",
+      "when": {
+        "feature": "document_age_days",
+        "op": "<=",
+        "value": 90
+      },
+      "onFail": {
+        "status": "needs_clarification",
+        "ask": "recent_statement"
+      }
+    },
+    {
+      "id": "identity",
+      "description": "Titular, RFC y CLABE coinciden con el proveedor registrado; si no se pueden comparar, no bloquea",
+      "when": {
+        "feature": "identity_match",
+        "op": "in",
+        "value": [
+          "match"
+        ]
+      },
+      "onFail": {
+        "status": "needs_clarification",
+        "ask": "identity_fields"
+      },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "integrity",
+      "description": "El estado de cuenta cuadra",
+      "when": {
+        "feature": "integrity_ok",
+        "op": "==",
+        "value": true
+      },
+      "onFail": {
+        "status": "human_review"
+      }
+    },
+    {
+      "id": "no_red_flags",
+      "when": {
+        "feature": "red_flags",
+        "op": "empty"
+      },
+      "onFail": {
+        "status": "human_review"
+      }
+    },
+    {
+      "id": "no_arrears",
+      "description": "Sin atraso en créditos vigentes con este prestamista",
+      "when": {
+        "feature": "existing_exposure_days_past_due",
+        "op": "<=",
+        "value": 0
+      },
+      "onFail": {
+        "status": "not_qualified"
+      },
+      "onUnknown": "pass"
+    }
+  ],
+  "score": {
+    "dimensions": [
+      {
+        "id": "capacity",
+        "weight": 35,
+        "feature": "operating_income_monthly",
+        "relativeTo": "requested_amount",
+        "zeroAt": 0.5,
+        "fullAt": 3
+      },
+      {
+        "id": "buyer",
+        "weight": 25,
+        "feature": "buyer_payments_count",
+        "zeroAt": 0,
+        "fullAt": 2
+      },
+      {
+        "id": "stability",
+        "weight": 15,
+        "feature": "payment_capacity_pct",
+        "zeroAt": 0.1,
+        "fullAt": 0.5
+      },
+      {
+        "id": "debt",
+        "weight": 15,
+        "feature": "debt_service_monthly",
+        "relativeTo": "operating_income_monthly",
+        "zeroAt": 0.4,
+        "fullAt": 0.1,
+        "inverse": true
+      },
+      {
+        "id": "recurrence",
+        "weight": 10,
+        "feature": "recurring_income_share",
+        "zeroAt": 0.2,
+        "fullAt": 0.6
+      }
+    ],
+    "minConfidence": 0.7
+  },
+  "decision": {
+    "bands": [
+      {
+        "min": 70,
+        "status": "qualified",
+        "limit": {
+          "pctOf": "operating_income_monthly",
+          "pct": 50
+        }
+      },
+      {
+        "min": 50,
+        "status": "qualified_with_limit",
+        "limit": {
+          "pctOf": "operating_income_monthly",
+          "pct": 25
+        }
+      },
+      {
+        "min": 0,
+        "status": "not_qualified"
+      }
+    ],
+    "caps": [
+      {
+        "when": {
+          "feature": "months_of_history",
+          "op": "<",
+          "value": 3
+        },
+        "maxStatus": "qualified_with_limit"
+      },
+      {
+        "when": {
+          "feature": "buyer_payments_count",
+          "op": "==",
+          "value": 0
+        },
+        "maxStatus": "qualified_with_limit"
+      }
+    ],
+    "limitFormula": "min(band, debt_capacity - existing_exposure_balance, program_available_limit)"
+  },
+  "clarification": {
+    "maxRounds": 1,
+    "askWhenAmountAbovePctOfIncome": 30
+  }
+}
