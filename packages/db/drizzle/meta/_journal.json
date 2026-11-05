@@ -15,6 +15,20 @@
       "when": 1793909623808,
       "tag": "0001_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793909850694,
+      "tag": "0002_conversation",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793909851102,
+      "tag": "0003_inbound_functions",
+      "breakpoints": true
     }
   ]
 }

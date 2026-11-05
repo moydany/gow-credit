@@ -1,0 +1,17 @@
+{
+  "name": "@gow/channels",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canales de aclaración del modo full: conversación de una pregunta a la vez, lectura de respuestas, correo con Resend, firma de webhooks (Svix) y la interfaz de transporte de WhatsApp.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@gow/contracts": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

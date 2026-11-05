@@ -213,7 +213,11 @@ export const clarifications = app.table(
     createdAt: createdAt(),
     answeredAt: timestamp('answered_at', { withTimezone: true }),
   },
-  (t) => [index('clarifications_open').on(t.tenantId, t.status), index('clarifications_application').on(t.tenantId, t.applicationId)],
+  (t) => [
+    index('clarifications_open').on(t.tenantId, t.status),
+    // Una por ronda: si el job se reintenta tras enviar, no se duplica la pregunta.
+    uniqueIndex('clarifications_round').on(t.applicationId, t.round),
+  ],
 )
 
 /** Buzón de salida: lo único que lee el proceso de WhatsApp (docs/05 §2b, radio de daño). */
@@ -222,7 +226,10 @@ export const outboundMessages = app.table(
   {
     id: id(),
     tenantId: tenantId().references(() => tenants.id),
-    clarificationId: uuid('clarification_id').notNull().references(() => clarifications.id),
+    /** Null en las respuestas fijas a un número sin vínculo o sin aclaración abierta (docs/05 §2b). */
+    clarificationId: uuid('clarification_id').references(() => clarifications.id),
+    /** question | reask | generic */
+    kind: text('kind').notNull().default('question'),
     channel: channel('channel').notNull(),
     destination: text('destination').notNull(),
     body: text('body').notNull(),
