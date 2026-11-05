@@ -35,6 +35,23 @@ export const tenants = app.table('tenants', {
   createdAt: createdAt(),
 })
 
+/**
+ * Usuarios del backoffice (docs/08 §1): un rol, varios usuarios por tenant. `user_id` es el `sub`
+ * del JWT (Supabase Auth en producción); la pertenencia al tenant es la autorización completa.
+ * El correo es único: un usuario pertenece a un solo tenant.
+ */
+export const tenantUsers = app.table(
+  'tenant_users',
+  {
+    tenantId: tenantId().references(() => tenants.id),
+    userId: uuid('user_id').notNull(),
+    email: text('email').notNull(),
+    invitedBy: uuid('invited_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.userId] }), uniqueIndex('tenant_users_email').on(t.email)],
+)
+
 export const apiKeys = app.table(
   'api_keys',
   {
@@ -291,6 +308,7 @@ export const auditLog = app.table(
 export const TENANT_TABLES = [
   'tenants',
   'api_keys',
+  'tenant_users',
   'suppliers',
   'supplier_contacts',
   'documents',

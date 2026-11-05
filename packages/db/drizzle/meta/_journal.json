@@ -29,6 +29,13 @@
       "when": 1793909851102,
       "tag": "0003_inbound_functions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793918397048,
+      "tag": "0004_backoffice_users",
+      "breakpoints": true
     }
   ]
 }

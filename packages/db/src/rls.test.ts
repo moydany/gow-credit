@@ -36,6 +36,7 @@ async function seed(admin: pg.Client, tenant: string, label: string): Promise<vo
   const clar = randomUUID()
   await q('INSERT INTO app.tenants (id, name, whatsapp_number) VALUES ($1, $2, $3)', [tenant, `Tenant ${label}`, `+52155000000${label === 'A' ? '1' : '2'}`])
   await q('INSERT INTO app.api_keys (tenant_id, prefix, key_hash, scopes) VALUES ($1, $2, $3, $4)', [tenant, `gowk_${label}${tenant.slice(0, 6)}`, 'hash', ['ingest']])
+  await q('INSERT INTO app.tenant_users (tenant_id, user_id, email) VALUES ($1, $2, $3)', [tenant, randomUUID(), `analista-${label.toLowerCase()}@prestamista.test`])
   await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3)', [sup, tenant, `Proveedor ${label}`])
   await q("INSERT INTO app.supplier_contacts (id, tenant_id, supplier_id, channel, address, verified_at) VALUES ($1, $2, $3, 'whatsapp', $4, now())", [contact, tenant, sup, `+52155111111${label === 'A' ? '1' : '2'}`])
   await q("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, 'x', $4, 10, 'application/pdf')", [doc, tenant, sup, label.repeat(64).slice(0, 64)])
