@@ -1,4 +1,7 @@
 export * from './classifier.ts'
+export * from './classifier-cache.ts'
+export * from './json-cache.ts'
+export * from './transactions.ts'
 export * from './env.ts'
 export * from './limit.ts'
 export * from './mastra-structured.ts'

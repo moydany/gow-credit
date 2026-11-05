@@ -7,10 +7,9 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { loadPdf, textUsable } from '@gow/extraction'
-import { CachingStructuredLlm, ClaudeClassifier, costUsd, JevClassifier, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, type Classification, type Classifier, type KnownBank } from '@gow/llm'
+import { CachedClassifier, CachingStructuredLlm, ClaudeClassifier, costUsd, JevClassifier, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, type Classification, type Classifier, type KnownBank } from '@gow/llm'
 import { evalite } from 'evalite'
 import { ADVERSARIAL_CASES, adversarialPdf } from './src/adversarial.ts'
-import { CachedClassifier } from './src/classifier-cache.ts'
 import { CACHE_DIR, DEV_DIR, RESULTS_DIR } from './src/replay.ts'
 
 const LIVE = process.env.EVAL_LIVE === '1'

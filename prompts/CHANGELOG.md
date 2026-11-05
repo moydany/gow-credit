@@ -5,6 +5,15 @@ usarse en una corrida de evals: un cambio crea `v<N+1>` y una entrada aquí con 
 por qué y qué métricas de `docs/04` 6 se midieron antes y después. El código referencia la
 versión exacta, y cada extracción guarda nombre y versión del prompt.
 
+## Fase 5 (2026-11-05): clasificación de movimientos y redacción para el proveedor
+
+Prompts nuevos, sin versión anterior contra la cual medir. ADR 0015.
+
+| Prompt | Uso | Notas |
+|---|---|---|
+| `classify_transactions.v1` | Haiku cuando no hay Jev: lotes de hasta 25 movimientos | Categorías separadas por sentido (un abono no puede ser nómina) y descripciones declaradas como dato no confiable. La confianza que reporte Haiku no se usa (spike 3). |
+| `jev_classify_transactions.v1` | Jev: una pregunta `choice` por movimiento | Vive en código (`packages/llm/src/transactions.ts`) porque son criterios estructurados; se versiona igual. Opciones por sentido con una descripción corta y sin negaciones. |
+
 ## v2 de `extract_summary` y `classify_document` (2026-11-04): bloque fiscal
 
 Origen: `docs/09` (ocho de nueve estados de cuenta traen un CFDI timbrado). Se mide en la
