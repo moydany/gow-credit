@@ -1,0 +1,31 @@
+{
+  "name": "@gow/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API del modo full (Express 5): llaves por tenant, subida por URL firmada, solicitudes, aclaraciones, políticas con simular/sombra/activar, outcomes y el webhook de correo entrante. Toda frontera con Zod y todo dato bajo RLS.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "tsx src/main.ts",
+    "tenant": "tsx src/cli/tenant.ts"
+  },
+  "dependencies": {
+    "@gow/channels": "workspace:*",
+    "@gow/contracts": "workspace:*",
+    "@gow/db": "workspace:*",
+    "@gow/decision": "workspace:*",
+    "@gow/llm": "workspace:*",
+    "@gow/platform": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "express": "5.3.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "pg": "8.23.1",
+    "@types/pg": "8.23.1"
+  }
+}
