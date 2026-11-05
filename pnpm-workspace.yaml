@@ -10,5 +10,9 @@ minimumReleaseAge: 4320
 
 # Solo estos paquetes pueden correr scripts de instalación (binarios nativos).
 allowBuilds:
+  # Negados a propósito (fase 6): el preinstall de Baileys solo revisa la versión de Node y el
+  # postinstall de protobufjs también; ninguno hace falta para correr.
+  '@whiskeysockets/baileys': false
   better-sqlite3: true
   esbuild: true
+  protobufjs: false

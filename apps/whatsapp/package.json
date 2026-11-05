@@ -1,0 +1,23 @@
+{
+  "name": "@gow/whatsapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Proceso de WhatsApp (Baileys): una sesión por tenant, entrega el buzón de salida de su tenant e inserta los mensajes entrantes. Rol de base gow_whatsapp: no ve documentos, extracciones, decisiones ni políticas (docs/05 §2b).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@gow/db": "workspace:*",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "drizzle-orm": "0.45.4"
+  },
+  "devDependencies": {
+    "pg": "8.23.1",
+    "@types/pg": "8.23.1"
+  }
+}

@@ -24,7 +24,8 @@
     "db:generate": "pnpm -F @gow/db db:generate",
     "worker": "pnpm -F @gow/worker start",
     "api": "pnpm -F @gow/api start",
-    "tenant": "pnpm -F @gow/api tenant"
+    "tenant": "pnpm -F @gow/api tenant",
+    "whatsapp": "pnpm -F @gow/whatsapp start"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
