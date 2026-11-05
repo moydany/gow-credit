@@ -24,6 +24,7 @@ export const GateEvaluation = z.strictObject({
   effect: z.enum(['none', 'needs_clarification', 'human_review', 'not_qualified']),
   ask: AskTopic.nullable(),
 })
+export type GateEvaluation = z.infer<typeof GateEvaluation>
 
 export const DimensionEvaluation = z.strictObject({
   id: LocalId,
@@ -72,6 +73,7 @@ export const NextStep = z.strictObject({
   to: StatusAndScore,
   message: z.string().nullable().describe('Redacción para el proveedor; null hasta que se redacta'),
 })
+export type NextStep = z.infer<typeof NextStep>
 
 /** Movimiento de un documento: el id solo es único dentro de su documento. */
 export const TransactionRef = z.strictObject({ document_sha256: Sha256, transaction_id: LocalId })

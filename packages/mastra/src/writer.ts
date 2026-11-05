@@ -1,0 +1,189 @@
+/**
+ * Redacción para el proveedor (docs/04 §4, docs/03 §6): Haiku pone en palabras las preguntas y los
+ * `next_steps` a partir de hechos estructurados, y el filtro de cifras decide si el texto se usa.
+ * Un texto que cite una cifra fuera de sus hechos se regenera una vez; si vuelve a fallar, o si
+ * el modelo no está disponible, queda la plantilla del código, que siempre pasa el filtro.
+ */
+import { FEATURE_CATALOG, type DecisionStatus, type FeatureName, type NextStep, type Question, type QuestionFact } from '@gow/contracts'
+import { LIGHT_MODEL, loadPrompt, type StructuredLlm, type StructuredResult } from '@gow/llm'
+import { z } from 'zod'
+import { checkFigures, pesos } from './figures.ts'
+
+export interface CallRecord {
+  purpose: string
+  model: string
+  cost_usd: number
+  cache_hit: boolean
+}
+
+export const SUPPLIER_STATUS_TEXT: Record<DecisionStatus, string> = {
+  qualified: 'calificas',
+  qualified_with_limit: 'calificas con límite',
+  not_qualified: 'no calificas',
+  needs_clarification: 'falta aclarar datos',
+  human_review: 'pasa a revisión de un analista',
+}
+
+const Texts = z.object({ texts: z.array(z.object({ id: z.string(), text: z.string().min(1).max(1200) })) })
+
+function round(v: number, d: number): number {
+  const f = 10 ** d
+  return Math.round(v * f) / f
+}
+
+/** Valor de una feature como lo lee el proveedor, según su unidad. */
+export function valueText(feature: FeatureName, v: unknown): string {
+  if (v === null || v === undefined) return 'sin dato'
+  if (typeof v === 'boolean') return v ? 'sí' : 'no'
+  if (Array.isArray(v)) return v.length === 0 ? 'ninguna' : v.map(String).join(', ')
+  if (typeof v !== 'number') return typeof v === 'string' ? v : JSON.stringify(v)
+  switch (FEATURE_CATALOG[feature].unit) {
+    case 'MXN':
+      return pesos(v)
+    case 'ratio':
+      return `${String(round(v * 100, 1))}%`
+    case 'days':
+      return `${String(v)} días`
+    case 'months':
+      return `${String(v)} ${v === 1 ? 'mes' : 'meses'}`
+    default:
+      return String(v)
+  }
+}
+
+/** Nombre de la feature para el proveedor: la descripción del catálogo sin aclaraciones con cifras. */
+export function featureLabel(feature: FeatureName): string {
+  return FEATURE_CATALOG[feature].description.replace(/;.*$/, '').replace(/\s*\([^)]*\d[^)]*\)/g, '').trim()
+}
+
+function factValue(v: unknown): QuestionFact['value'] {
+  if (v === null || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') return v
+  return JSON.stringify(v)
+}
+
+/** Un valor y, si la feature es una proporción, también como porcentaje (así se escribe en el texto). */
+function featureFacts(feature: FeatureName, name: string, v: unknown): QuestionFact[] {
+  const out: QuestionFact[] = [{ name, value: factValue(v) }]
+  if (FEATURE_CATALOG[feature].unit === 'ratio' && typeof v === 'number') out.push({ name: `${name}_porcentaje`, value: round(v * 100, 1) })
+  return out
+}
+
+export function nextStepFacts(step: NextStep): QuestionFact[] {
+  return [
+    ...featureFacts(step.feature, 'valor_actual', step.current_value),
+    ...featureFacts(step.feature, 'valor_objetivo', step.target_value),
+    ...step.related.flatMap((r) => [...featureFacts(r.feature, `${r.feature}_actual`, r.current_value), ...featureFacts(r.feature, `${r.feature}_objetivo`, r.target_value)]),
+    // El nombre de la feature es texto fijo del catálogo ("listas 69-B"): sus cifras se pueden citar.
+    { name: 'que_cambia', value: [step.feature, ...step.related.map((r) => r.feature)].map(featureLabel).join('; ') },
+    { name: 'puntaje_actual', value: step.from.score },
+    { name: 'puntaje_nuevo', value: step.to.score },
+  ]
+}
+
+export function nextStepTemplate(step: NextStep): string {
+  const from = SUPPLIER_STATUS_TEXT[step.from.status]
+  const to = SUPPLIER_STATUS_TEXT[step.to.status]
+  const cur = valueText(step.feature, step.current_value)
+  const tgt = valueText(step.feature, step.target_value)
+  if (step.code === 'classify_deposits') return `Si los abonos por los que te preguntamos son pagos de clientes, tus ingresos operativos mensuales pasarían de ${cur} a ${tgt} y el resultado pasaría de "${from}" a "${to}".`
+  if (step.code === 'reduce_requested_amount') return `Si pides ${tgt} en lugar de ${cur}, el resultado pasaría de "${from}" a "${to}".`
+  const related = step.related.map((r) => `${featureLabel(r.feature).toLowerCase()} en ${valueText(r.feature, r.target_value)}`)
+  return `${featureLabel(step.feature)}: hoy ${cur}; con ${tgt}${related.length ? ` (y ${related.join(', ')})` : ''}, el resultado pasaría de "${from}" a "${to}".`
+}
+
+interface Draft {
+  id: string
+  facts: QuestionFact[]
+  template: string
+  /** Lo que el modelo ve de la pieza, además de hechos y borrador. */
+  context: Record<string, unknown>
+}
+
+export class Writer {
+  readonly #llm: StructuredLlm | null
+  readonly #limit: <T>(task: () => Promise<T>) => Promise<T>
+
+  constructor(llm: StructuredLlm | null, limit: <T>(task: () => Promise<T>) => Promise<T> = (t) => t()) {
+    this.#llm = llm
+    this.#limit = limit
+  }
+
+  /** Redacta un lote; devuelve por id el texto aceptado (o null → plantilla) y las llamadas hechas. */
+  async #draft(purpose: string, promptName: string, varName: string, drafts: readonly Draft[]): Promise<{ texts: Map<string, string>; calls: CallRecord[]; errors: string[] }> {
+    const texts = new Map<string, string>()
+    const calls: CallRecord[] = []
+    const errors: string[] = []
+    if (this.#llm === null || drafts.length === 0) return { texts, calls, errors }
+    let pending = [...drafts]
+    let rejected = new Map<string, string[]>()
+    for (let attempt = 0; attempt < 2 && pending.length > 0; attempt++) {
+      const payload = pending.map((d) => ({ id: d.id, ...d.context, hechos: d.facts, borrador: d.template, ...(rejected.has(d.id) ? { cifras_rechazadas: rejected.get(d.id) } : {}) }))
+      const prompt = loadPrompt(promptName, 1, { [varName]: JSON.stringify(payload, null, 1) })
+      let res: StructuredResult<z.infer<typeof Texts>>
+      try {
+        const llm = this.#llm
+        res = await this.#limit(() =>
+          llm.call({
+            purpose,
+            model: LIGHT_MODEL,
+            system: 'Redactas mensajes cortos en español de México para dueños de PyMEs. Respondes solo con el JSON pedido.',
+            document: null,
+            instruction: prompt.text,
+            schema: Texts,
+            schemaName: 'writer_texts.v1',
+            promptVersion: prompt.id,
+            effort: 'low',
+            maxOutputTokens: 6000,
+            serverFallback: false,
+          }),
+        )
+      } catch (err) {
+        errors.push(err instanceof Error ? (err.message.split('\n')[0] ?? 'error') : String(err))
+        break
+      }
+      calls.push({ purpose, model: res.model, cost_usd: res.costUsd, cache_hit: res.responseCacheHit })
+      const byId = new Map(res.object.texts.map((t) => [t.id, t.text.trim()]))
+      rejected = new Map()
+      const still: Draft[] = []
+      for (const d of pending) {
+        const text = byId.get(d.id)
+        if (text === undefined) {
+          still.push(d)
+          continue
+        }
+        const check = checkFigures(text, d.facts)
+        if (check.ok) texts.set(d.id, text)
+        else {
+          rejected.set(d.id, check.unsupported)
+          still.push(d)
+        }
+      }
+      pending = still
+    }
+    return { texts, calls, errors }
+  }
+
+  async questions(questions: readonly Question[]): Promise<{ questions: Question[]; calls: CallRecord[]; errors: string[] }> {
+    const drafts = questions.map((q) => ({ id: q.id, facts: q.facts, template: q.text, context: { tema: q.topic, opciones: q.options.map((o) => o.label) } }))
+    const { texts, calls, errors } = await this.#draft('clarification_questions', 'clarification_questions', 'questions', drafts)
+    return {
+      questions: questions.map((q) => {
+        const text = texts.get(q.id)
+        return text === undefined ? q : { ...q, text, text_source: 'writer' as const }
+      }),
+      calls,
+      errors,
+    }
+  }
+
+  async nextSteps(steps: readonly NextStep[]): Promise<{ next_steps: NextStep[]; calls: CallRecord[]; errors: string[] }> {
+    const drafts = steps.map((s, i) => ({
+      id: `s${String(i)}`,
+      facts: nextStepFacts(s),
+      template: nextStepTemplate(s),
+      context: { que_cambia: featureLabel(s.feature), resultado_hoy: SUPPLIER_STATUS_TEXT[s.from.status], resultado_con_el_cambio: SUPPLIER_STATUS_TEXT[s.to.status] },
+    }))
+    const { texts, calls, errors } = await this.#draft('next_steps', 'next_steps', 'steps', drafts)
+    return { next_steps: steps.map((s, i) => ({ ...s, message: texts.get(`s${String(i)}`) ?? nextStepTemplate(s) })), calls, errors }
+  }
+}

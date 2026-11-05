@@ -123,17 +123,18 @@ export class MastraStructuredLlm implements StructuredLlm {
         : []),
       { type: 'text' as const, text: req.instruction },
     ]
-    const providerOptions =
-      provider === 'anthropic'
-        ? {
-            anthropic: {
-              thinking: { type: 'adaptive' as const },
-              effort: req.effort,
-              structuredOutputMode: 'outputFormat' as const,
-              ...(req.serverFallback ? { fallbacks: 'default' as const } : {}),
-            },
-          }
-        : { google: { thinkingConfig: { thinkingLevel: geminiThinkingLevel(req.effort) }, structuredOutputs: true } }
+    // Dos constantes y no un ternario de literales: sin exactOptionalPropertyTypes (packages/mastra,
+    // ADR 0004) TypeScript normaliza la unión con `google?: undefined` y ya no es ProviderOptions.
+    const anthropicOptions = {
+      anthropic: {
+        thinking: { type: 'adaptive' as const },
+        effort: req.effort,
+        structuredOutputMode: 'outputFormat' as const,
+        ...(req.serverFallback ? { fallbacks: 'default' as const } : {}),
+      },
+    }
+    const googleOptions = { google: { thinkingConfig: { thinkingLevel: geminiThinkingLevel(req.effort) }, structuredOutputs: true } }
+    const providerOptions = provider === 'anthropic' ? anthropicOptions : googleOptions
     const started = Date.now()
     try {
       const out = await agent.stream([{ role: 'user' as const, content }], {

@@ -1,0 +1,23 @@
+{
+  "name": "@gow/mastra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workflow processApplication en Mastra (suspend/resume), canales de aclaración, redacción filtrada de preguntas y next_steps, reporte por documento y el comando pnpm run evaluate (modo standalone).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "evaluate": "tsx src/cli/evaluate.ts"
+  },
+  "dependencies": {
+    "@gow/contracts": "workspace:*",
+    "@gow/decision": "workspace:*",
+    "@gow/extraction": "workspace:*",
+    "@gow/llm": "workspace:*",
+    "@mastra/core": "1.81.0",
+    "@mastra/libsql": "1.28.0",
+    "zod": "4.6.7"
+  }
+}

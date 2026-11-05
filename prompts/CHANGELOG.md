@@ -13,6 +13,8 @@ Prompts nuevos, sin versión anterior contra la cual medir. ADR 0015.
 |---|---|---|
 | `classify_transactions.v1` | Haiku cuando no hay Jev: lotes de hasta 25 movimientos | Categorías separadas por sentido (un abono no puede ser nómina) y descripciones declaradas como dato no confiable. La confianza que reporte Haiku no se usa (spike 3). |
 | `jev_classify_transactions.v1` | Jev: una pregunta `choice` por movimiento | Vive en código (`packages/llm/src/transactions.ts`) porque son criterios estructurados; se versiona igual. Opciones por sentido con una descripción corta y sin negaciones. |
+| `clarification_questions.v1` | Haiku redacta las preguntas al dueño (paso `askOwner`) | Recibe por pregunta los hechos, las opciones y un borrador correcto (la plantilla). Pide cifras con dígitos y tal como vienen en los hechos. Todo texto pasa el filtro de cifras (`docs/04` §4); el que falla se regenera una vez con las cifras rechazadas y, si vuelve a fallar, queda la plantilla. |
+| `next_steps.v1` | Haiku redacta los `next_steps` (paso `explain`) | Mismo esquema: hechos del contrafactual (valores actual y objetivo, también como porcentaje si la feature es proporción), borrador y filtro. No promete aprobación. |
 
 ## v2 de `extract_summary` y `classify_document` (2026-11-04): bloque fiscal
 

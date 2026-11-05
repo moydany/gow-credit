@@ -109,6 +109,30 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
 
+  packages/mastra:
+    dependencies:
+      '@gow/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@gow/decision':
+        specifier: workspace:*
+        version: link:../decision
+      '@gow/extraction':
+        specifier: workspace:*
+        version: link:../extraction
+      '@gow/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@mastra/core':
+        specifier: 1.81.0
+        version: 1.81.0(@opentelemetry/api@1.10.0)(zod@4.6.7)
+      '@mastra/libsql':
+        specifier: 1.28.0
+        version: 1.28.0(@mastra/core@1.81.0(@opentelemetry/api@1.10.0)(zod@4.6.7))
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
   scenarios:
     dependencies:
       '@gow/contracts':
