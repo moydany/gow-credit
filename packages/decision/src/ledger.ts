@@ -76,7 +76,8 @@ function provenanceOf(t: Transaction, c: TransactionClassification): Provenance 
   return t.provenance
 }
 
-function ruleContext(s: StatementExtraction, request: ApplicationRequest | null): RuleContext {
+/** Contexto de las reglas para un documento: titular, palabras del banco y comprador de la solicitud. */
+export function ruleContext(s: StatementExtraction, request: ApplicationRequest | null): RuleContext {
   return {
     holderName: s.holder.name.value,
     holderRfc: s.holder.rfc.value,
