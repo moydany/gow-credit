@@ -49,6 +49,7 @@ async function seed(admin: pg.Client, tenant: string, label: string): Promise<vo
   await q("INSERT INTO app.clarifications (id, tenant_id, application_id, supplier_id, round, channel, destination, questions) VALUES ($1, $2, $3, $4, 1, 'whatsapp', 'x', '[]')", [clar, tenant, appId, sup])
   await q("INSERT INTO app.outbound_messages (tenant_id, clarification_id, channel, destination, body) VALUES ($1, $2, 'whatsapp', 'x', 'hola')", [tenant, clar])
   await q("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body) VALUES ($1, 'whatsapp', 'x', 'hola')", [tenant])
+  await q("INSERT INTO app.corrections (tenant_id, application_id, document_id, target, value) VALUES ($1, $2, $3, '{\"kind\":\"holder\",\"field\":\"name\"}', '\"Prueba\"')", [tenant, appId, doc])
   await q("INSERT INTO app.outcomes (tenant_id, application_id, outcome, observed_at) VALUES ($1, $2, 'paid', now())", [tenant, appId])
   await q("INSERT INTO app.audit_log (tenant_id, actor, action) VALUES ($1, 'test', 'seed')", [tenant])
 }

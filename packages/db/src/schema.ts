@@ -287,6 +287,29 @@ export const outcomes = app.table('outcomes', {
   createdAt: createdAt(),
 })
 
+/**
+ * Correcciones del analista en revisión humana (docs/08 §2, ADR 0020): el par (valor leído, valor
+ * correcto) sobre un valor de la extracción. Inmutables: la extracción guardada no cambia, las
+ * correcciones se aplican encima al leer y al reevaluar, y alimentan el dataset de evals.
+ */
+export const corrections = app.table(
+  'corrections',
+  {
+    id: id(),
+    tenantId: tenantId().references(() => tenants.id),
+    applicationId: uuid('application_id').notNull().references(() => applications.id),
+    documentId: uuid('document_id').notNull().references(() => documents.id),
+    /** CorrectionTarget: qué valor de la extracción se corrige. */
+    target: jsonb('target').notNull(),
+    readValue: jsonb('read_value'),
+    value: jsonb('value').notNull(),
+    page: integer('page'),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('corrections_application').on(t.tenantId, t.applicationId, t.createdAt)],
+)
+
 /** Bitácora inmutable: los roles de aplicación solo pueden insertar (docs/05 §7). */
 export const auditLog = app.table(
   'audit_log',
@@ -322,5 +345,6 @@ export const TENANT_TABLES = [
   'outbound_messages',
   'inbound_messages',
   'outcomes',
+  'corrections',
   'audit_log',
 ] as const
