@@ -1,0 +1,141 @@
+/* Sistema visual del backoffice. Referencia: lienzo gris suave, tarjetas bento muy redondeadas,
+   nav en píldoras con la activa en negro, lima + periwinkle como acentos y rayado diagonal para lo
+   que está pendiente. El rayado además tiene significado en el producto: "aún no verificado". */
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', monospace;
+
+  --color-canvas: #e6e6e9;
+  --color-frame: #f4f4f5;
+  --color-card: #fcfcfc;
+  --color-sunken: #efeff1;
+  --color-line: #e3e3e7;
+  --color-ink: #14171f;
+  --color-ink-2: #3b404b;
+  --color-muted: #5f6570;
+
+  --color-lime: #a6f23b;
+  --color-lime-soft: #e9fbc9;
+  --color-lime-ink: #2f5a00;
+  --color-indigo: #6574ff;
+  --color-indigo-soft: #e6e9ff;
+  --color-indigo-ink: #3a47d1;
+  --color-amber: #f5b83d;
+  --color-amber-soft: #fff0cc;
+  --color-amber-ink: #744600;
+  --color-coral: #f0594a;
+  --color-coral-soft: #ffe4df;
+  --color-coral-ink: #a3271b;
+
+  --radius-card: 28px;
+  --radius-inner: 18px;
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 1px 2px rgb(20 23 31 / 0.04);
+  --shadow-pop: 0 18px 50px -12px rgb(20 23 31 / 0.25), 0 2px 6px rgb(20 23 31 / 0.08);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-rise: rise 360ms var(--ease-out) both;
+  --animate-fade: fade 200ms ease-out both;
+  --animate-pulse-soft: pulse-soft 1.6s ease-in-out infinite;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pulse-soft {
+    50% { opacity: 0.45; }
+  }
+}
+
+:root { color-scheme: light; }
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: var(--color-lime); color: var(--color-ink); }
+.tnum { font-variant-numeric: tabular-nums; }
+.display { letter-spacing: -0.035em; font-weight: 500; line-height: 1; }
+
+/* Lo pendiente o desconocido se ve rayado, en toda la app. */
+.hatch {
+  background-image: repeating-linear-gradient(135deg, rgb(20 23 31 / 0.22) 0 1px, transparent 1px 5px);
+  background-color: rgb(20 23 31 / 0.04);
+}
+.hatch-amber {
+  background-image: repeating-linear-gradient(135deg, rgb(116 70 0 / 0.38) 0 1px, transparent 1px 5px);
+  background-color: var(--color-amber-soft);
+}
+.hatch-coral {
+  background-image: repeating-linear-gradient(135deg, rgb(163 39 27 / 0.35) 0 1px, transparent 1px 5px);
+  background-color: var(--color-coral-soft);
+}
+
+.card {
+  background: var(--color-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid rgb(20 23 31 / 0.04);
+}
+.inner { background: var(--color-sunken); border-radius: var(--radius-inner); }
+
+/* Foco visible y consistente en todo lo interactivo. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-indigo);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* Entrada escalonada de tarjetas: `style="--i: n"`. Solo transform y opacity. */
+.rise { animation: var(--animate-rise); animation-delay: calc(var(--i, 0) * 55ms); }
+
+.skeleton {
+  background: linear-gradient(90deg, rgb(20 23 31 / 0.05), rgb(20 23 31 / 0.1), rgb(20 23 31 / 0.05));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 12px;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Valores extraídos: el estado de verificación se ve sin leer nada. */
+.val { display: inline; padding: 1px 6px; margin: -1px -2px; border-radius: 8px; transition: background-color 120ms ease; text-align: left; font: inherit; }
+button.val { cursor: pointer; }
+button.val:hover { background-color: var(--color-indigo-soft); }
+.val-unverified { background-image: repeating-linear-gradient(135deg, rgb(116 70 0 / 0.38) 0 1px, transparent 1px 5px); background-color: var(--color-amber-soft); color: var(--color-amber-ink); }
+.val-conflict { background-image: repeating-linear-gradient(135deg, rgb(163 39 27 / 0.35) 0 1px, transparent 1px 5px); background-color: var(--color-coral-soft); color: var(--color-coral-ink); }
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: rgb(20 23 31 / 0.2) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .skeleton { animation: none; }
+  * { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}
+@media (hover: none) { button.val:hover { background-color: inherit; } }
+
+/* Campos de formulario: misma altura y radio que los botones. En la capa de componentes para que las utilidades (h-80, w-auto) puedan ajustarlos. */
+@layer components {
+  .input {
+    width: 100%;
+    height: 44px;
+    border-radius: 14px;
+    border: 1px solid var(--color-line);
+    background: var(--color-card);
+    padding: 0 14px;
+    font-size: 14px;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .input:hover { border-color: rgb(20 23 31 / 0.25); }
+  .input[aria-invalid='true'] { border-color: var(--color-coral); }
+  textarea.input { height: auto; padding: 12px 14px; }
+}

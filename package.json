@@ -25,7 +25,9 @@
     "worker": "pnpm -F @gow/worker start",
     "api": "pnpm -F @gow/api start",
     "tenant": "pnpm -F @gow/api tenant",
-    "whatsapp": "pnpm -F @gow/whatsapp start"
+    "whatsapp": "pnpm -F @gow/whatsapp start",
+    "demo:load": "pnpm -F @gow/api demo",
+    "web": "pnpm -F @gow/web dev"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
