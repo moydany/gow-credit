@@ -1,0 +1,21 @@
+{
+  "name": "@gow/platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Piezas compartidas del modo full: cola pg-boss (colas, prioridades, dead letter, singletonKey), almacenamiento de documentos con URL firmada y nombres de trabajos con su esquema Zod.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@gow/contracts": "workspace:*",
+    "pg-boss": "12.38.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@gow/db": "workspace:*"
+  }
+}
