@@ -57,11 +57,13 @@ async function main(argv: string[]): Promise<number> {
   if (mode === 'full') return runFullMode(selected)
   const override = policyRef ? loadPolicy(policyRef) : undefined
   let failed = 0
+  let ran = 0
   for (const s of selected) {
     if (!s.modes.includes('unit')) {
       console.log(`- ${s.id}: solo modo full (--mode full)`)
       continue
     }
+    ran++
     const r = await runUnit(s, loadPolicy, override)
     const d = r.decision
     const summary = `${d.status}${d.limit !== null ? ` línea ${d.limit.toLocaleString('es-MX')}` : ''} · puntaje ${String(d.score)}`
@@ -73,7 +75,7 @@ async function main(argv: string[]): Promise<number> {
     for (const c of r.checks.filter((x) => !x.ok)) console.log(`    ${c.name}: esperado ${JSON.stringify(c.expected)}, obtenido ${JSON.stringify(c.actual)}`)
     if (!r.ok) failed++
   }
-  if (!override) console.log(`\n${String(selected.length - failed)} de ${String(selected.length)} escenarios pasan`)
+  if (!override) console.log(`\n${String(ran - failed)} de ${String(ran)} escenarios unit pasan`)
   return failed > 0 ? 1 : 0
 }
 

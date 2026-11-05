@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js .",
     "test": "vitest run",
     "test:watch": "vitest",
     "schema:export": "pnpm -F @gow/contracts schema:export",
