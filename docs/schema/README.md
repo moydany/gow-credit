@@ -14,6 +14,8 @@ no coinciden con Zod.
 | `external-snapshot.schema.json` | Lo que responden las fuentes externas del perfil: créditos vigentes, buró, SAT, programa, historial (fase 4, ADR 0013) |
 | `simulation-report.schema.json` | Resultado de simular una política sobre perfiles guardados (`docs/03` §5) |
 | `scenario.schema.json` | Escenario YAML de `docs/06`, con estados de cuenta sintéticos para el modo `unit` |
+| `answers-file.schema.json` | Respuestas del dueño para reanudar solicitudes pausadas con `pnpm run evaluate --answers` (fase 5, ADR 0015) |
+| `application-result.schema.json` | Resultado por documento de `pnpm run evaluate`: estado, veredicto, línea máxima, aclaración, clasificación de movimientos y costo (fase 5) |
 
 JSON Schema describe la forma. Las reglas que no puede expresar viven solo en Zod y se
 aplican al parsear: operador compatible con el tipo de feature, gramática de

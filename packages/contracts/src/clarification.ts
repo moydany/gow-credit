@@ -1,0 +1,82 @@
+/**
+ * Aclaración con el dueño del documento (docs/03 §7, docs/04 §4). El motor dice qué temas
+ * preguntar (`Decision.clarification`); aquí viven la pregunta ya redactada, con los hechos
+ * que puede citar, y la respuesta estructurada que la reanuda.
+ *
+ * Los hechos son la única fuente de cifras de la pregunta: un texto generado que cite un número
+ * o una fecha que no esté en `facts` se descarta (filtro de cifras de docs/04 §4).
+ */
+import { z } from 'zod'
+import { TransactionCategory } from './enums.ts'
+import { AskTopic } from './policy.ts'
+import { TransactionRef } from './decision.ts'
+import { LocalId } from './primitives.ts'
+
+/** Qué forma tiene la respuesta: un abono a clasificar, datos de identidad o documentos nuevos. */
+export const QuestionKind = z.enum(['deposit', 'identity', 'documents'])
+export type QuestionKind = z.infer<typeof QuestionKind>
+
+/** Dato que la pregunta puede citar. */
+export const QuestionFact = z.strictObject({
+  name: z.string().min(1),
+  value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+})
+export type QuestionFact = z.infer<typeof QuestionFact>
+
+/** Lo que el dueño puede decir que es un abono. */
+export const DepositAnswerCategory = TransactionCategory.extract(['customer_payment', 'loan_disbursement', 'own_transfer', 'interest', 'other'])
+export type DepositAnswerCategory = z.infer<typeof DepositAnswerCategory>
+
+export const Question = z
+  .strictObject({
+    id: LocalId.describe('q1, q2...: único dentro de la solicitud'),
+    topic: AskTopic,
+    kind: QuestionKind,
+    transaction: TransactionRef.nullable().describe('El abono sobre el que se pregunta (kind deposit)'),
+    facts: z.array(QuestionFact),
+    options: z.array(z.strictObject({ value: z.string(), label: z.string() })).describe('Respuestas posibles cuando son cerradas'),
+    text: z.string().min(1).describe('Texto para el proveedor, en español'),
+    text_source: z.enum(['writer', 'template']).describe('writer: redactado por el modelo y filtrado; template: plantilla del código'),
+  })
+  .meta({ id: 'Question', title: 'Pregunta al proveedor' })
+export type Question = z.infer<typeof Question>
+
+const nullableText = z.string().trim().min(1).nullable().default(null)
+
+export const OwnerAnswer = z
+  .discriminatedUnion('kind', [
+    z.strictObject({
+      question_id: LocalId,
+      kind: z.literal('deposit'),
+      category: DepositAnswerCategory,
+      counterparty: nullableText.describe('Quién hizo el depósito, si el dueño lo dice'),
+    }),
+    z.strictObject({
+      question_id: LocalId,
+      kind: z.literal('identity'),
+      legal_name: nullableText,
+      rfc: nullableText,
+      clabe: nullableText,
+    }),
+    z.strictObject({
+      question_id: LocalId,
+      kind: z.literal('documents'),
+      paths: z.array(z.string().min(1)).min(1).describe('PDFs nuevos: rutas relativas al archivo de respuestas'),
+    }),
+    z.strictObject({
+      question_id: LocalId,
+      kind: z.literal('decline'),
+      note: nullableText,
+    }),
+  ])
+  .meta({ id: 'OwnerAnswer', title: 'Respuesta del dueño del documento' })
+export type OwnerAnswer = z.infer<typeof OwnerAnswer>
+
+/** `pnpm run evaluate --answers <archivo>`: respuestas por solicitud (el nombre del PDF sin extensión). */
+export const AnswersFile = z
+  .strictObject({
+    version: z.literal(1),
+    applications: z.record(z.string().min(1), z.strictObject({ answers: z.array(OwnerAnswer) })),
+  })
+  .meta({ id: 'AnswersFile', title: 'Archivo de respuestas', description: 'Respuestas del dueño para reanudar solicitudes pausadas en modo standalone' })
+export type AnswersFile = z.infer<typeof AnswersFile>

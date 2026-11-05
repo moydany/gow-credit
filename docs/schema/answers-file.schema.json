@@ -1,0 +1,204 @@
+{
+  "$id": "https://gow-credit.local/schema/answers-file.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/AnswersFile",
+  "$defs": {
+    "AnswersFile": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "applications": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "answers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/OwnerAnswer"
+                }
+              }
+            },
+            "required": [
+              "answers"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "applications"
+      ],
+      "additionalProperties": false,
+      "title": "Archivo de respuestas",
+      "description": "Respuestas del dueño para reanudar solicitudes pausadas en modo standalone"
+    },
+    "OwnerAnswer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "deposit"
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "customer_payment",
+                "loan_disbursement",
+                "own_transfer",
+                "interest",
+                "other"
+              ]
+            },
+            "counterparty": {
+              "default": null,
+              "description": "Quién hizo el depósito, si el dueño lo dice",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "category"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "identity"
+            },
+            "legal_name": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "rfc": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clabe": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "documents"
+            },
+            "paths": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "PDFs nuevos: rutas relativas al archivo de respuestas"
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "paths"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "decline"
+            },
+            "note": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "title": "Respuesta del dueño del documento"
+    }
+  }
+}

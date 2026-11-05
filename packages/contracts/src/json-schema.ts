@@ -7,6 +7,8 @@
  * publicado sirve para editores y validación de forma.
  */
 import { z } from 'zod'
+import { ApplicationResult } from './application.ts'
+import { AnswersFile } from './clarification.ts'
 import { Decision } from './decision.ts'
 import { ExternalSnapshot } from './external.ts'
 import { Policy } from './policy.ts'
@@ -25,6 +27,8 @@ export const PUBLISHED_SCHEMAS = {
   'external-snapshot': ExternalSnapshot,
   'simulation-report': SimulationReport,
   scenario: Scenario,
+  'answers-file': AnswersFile,
+  'application-result': ApplicationResult,
 } as const
 
 export function toPublishedJsonSchema(name: keyof typeof PUBLISHED_SCHEMAS): Record<string, unknown> {
