@@ -185,3 +185,25 @@ anualizados sobre el tope → pregunta al dueño". El doble `TaxAuthority` gana
   porque la fija la capacidad menos la exposición vigente.
 - `pnpm scenario run <id>|--all [--policy <json>]`. Con `--policy`, imprime qué pasaría con
   otra política, sin comparar con `expect`.
+
+### Fase 6 (2026-11-05): modo full (ADR 0018)
+
+- **Qué es real**: `pnpm scenario run --all --mode full` corre la API, pg-boss, el worker (Mastra en
+  Postgres) y el relay de WhatsApp sobre una base nueva por escenario.
+- **Qué se simula**:
+  - las fuentes externas, con los datos del YAML;
+  - el teléfono del proveedor, que recibe del buzón y contesta el guion;
+  - los modelos, con caché fija y sin llamadas. Movimientos por reglas y redacción con
+    plantillas.
+- **§2, `DocumentSource`**: los estados sintéticos se suben como `.synthetic.json`, que solo
+  aceptan la API y el worker de los escenarios; los PDF salen de `data/dev` o de la eval de
+  inyección (`adversarial:<id>`).
+- **Formato**: la conversación acepta `from` (otro número), y `expect.full` comprueba:
+  - estado de la solicitud;
+  - resoluciones de los entrantes;
+  - aislamiento de otro tenant;
+  - ruta, movimientos, banderas y montos ausentes de la extracción.
+
+  Una solicitud lleva un documento.
+- **Catálogo full**: 1, 5, 6, 12, 15, 16 y 19. El 16 necesita `data/dev` y se salta sin él; el 19
+  corre en CI. Los demás de §4 (2, 8, 9, 13, 14, 18, 20) siguen sin escenario.

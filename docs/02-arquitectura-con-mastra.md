@@ -507,3 +507,21 @@ no cambia el resto del diseño.
 - **§4c, filas de la tabla sin construir.** No existen Jev para `reconcile` (`ask_owner`,
   `auto_resolve`, `human_review`), el Noul de recurrencia ni la correlación de respuestas de
   WhatsApp. Las dos últimas llegan con la fase 6.
+
+### Fase 6 (2026-11-05, ADR 0016 a 0018)
+
+- **§1**: existen `packages/db` (Drizzle), `packages/channels` (conversación, Resend, Svix),
+  `packages/platform` (pg-boss y almacenamiento), `apps/api`, `apps/worker` y `apps/whatsapp`.
+  `packages/channels` no tiene los dobles externos: siguen en `packages/decision` (fase 4).
+- **§2, instancia de Mastra**: el worker usa `PostgresStore` en el esquema `mastra` con su propio
+  rol, compartido entre trabajos. Los agentes siguen siendo el puerto `StructuredLlm`.
+- **§3, canales**: una pregunta a la vez y solo abonos por WhatsApp o correo (ADR 0017). La
+  correlación de respuestas es determinística (número, opción o palabras clave, y si no, se
+  repregunta); Jev para eso queda para cuando haya varias preguntas abiertas por número.
+- **§3, correo entrante**: en `POST /v1/webhooks/resend` de la API, con firma Svix, no en una Edge
+  Function.
+- **§4, colas**: `application.process` con `singletonKey` en política `exclusive`; en `standard`
+  la llave no deduplica. Reintentos con backoff y `application.dead`. No hay limpieza de runs
+  suspendidos ni equidad por tenant todavía.
+- **§4b**: subida por URL firmada con almacenamiento local detrás de la interfaz. Sin Files API ni
+  Batches API.

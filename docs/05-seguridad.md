@@ -261,3 +261,23 @@ prioridad, para discutirlo en la llamada.
 - **Sellos del CFDI fuera del contrato** (ADR 0008): ni se piden al modelo ni se guardan.
 - **Sin PII en logs**: el logger de Mastra se silencia porque imprime el error crudo con
   headers y partes del request; los errores salen saneados con código estable.
+
+### Fase 6 (2026-11-05, ADR 0016 y 0017)
+
+- **§2, RLS**: forzada en las 16 tablas de `app` con `tenant_id = app.current_tenant()`, que lee
+  `app.tenant_id` de la transacción. No usa `auth.uid()` porque en local no hay Supabase Auth; en
+  Supabase la API copia el claim del JWT. Hay siete roles; el de migraciones solo migra y da de
+  alta tenants. Tres funciones `security definer` revisadas, que devuelven solo ids.
+- **§2b**:
+  - **Implementado**: el vínculo verificado, un número por tenant, la resolución de cada entrante,
+    la respuesta fija a números sin vínculo y el buzón como única superficie del rol de WhatsApp.
+  - **Pruebas**: un número ajeno citando un folio (escenario 15); WhatsApp no lee documentos; sin
+    tenant, cero filas.
+  - **Pendiente**: lista numerada para un número con varios proveedores, límites por número,
+    columna cifrada y el segundo factor por correo.
+- **§3**: cifrado de columna, ARCO y retención siguen como plan. Los logs del worker y de la API son
+  una línea JSON con ids y códigos; nunca el error crudo.
+- **§5**: PDF validado por bytes mágicos y tamaño, solo desde almacenamiento propio, con ruta bajo
+  el tenant. Webhook de Resend con firma, ventana contra replay e idempotencia por id. Baileys
+  fijado en 7.0.0-rc14 con sus scripts de instalación negados; su sesión vive en disco y no cifrada
+  en Storage (pendiente).
