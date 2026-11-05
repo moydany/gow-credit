@@ -44,7 +44,7 @@ export function Shell() {
             </span>
           </Link>
 
-          <nav aria-label="Principal" className="order-3 -mx-1 flex w-full gap-1.5 overflow-x-auto px-1 py-1 lg:order-none lg:mx-0 lg:w-auto lg:flex-1 lg:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <nav aria-label="Principal" className="order-3 -mx-1 flex w-full gap-1.5 overflow-x-auto px-1 py-1 xl:order-none xl:mx-0 xl:w-auto xl:flex-1 xl:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {NAV.map((n) => (
               <Link
                 key={n.to}
@@ -60,7 +60,7 @@ export function Shell() {
             ))}
           </nav>
 
-          <div className="ml-auto flex items-center gap-2.5 lg:ml-0">
+          <div className="ml-auto flex items-center gap-2.5 xl:ml-0">
             {me.data ? (
               <details className="group relative">
                 <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-full bg-card py-1 pl-1 pr-3 shadow-[0_1px_2px_rgb(20_23_31/0.06)] [&::-webkit-details-marker]:hidden">
