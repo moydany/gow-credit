@@ -10,6 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { parsePolicy } from '@gow/contracts'
 import { connect, databaseUrl, tenants, tenantUsers, withTenant } from '@gow/db'
@@ -29,7 +30,7 @@ const usage = () => {
 if (positionals[0] === 'create' && values.name) {
   let policy
   if (values.policy) {
-    const parsed = parsePolicy(JSON.parse(readFileSync(values.policy, 'utf8')))
+    const parsed = parsePolicy(JSON.parse(readFileSync(resolve(process.env.INIT_CWD ?? process.cwd(), values.policy), 'utf8')))
     if (!parsed.ok) {
       console.error(`política inválida: ${parsed.message}`)
       process.exit(65)

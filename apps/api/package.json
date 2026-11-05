@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "tsx src/main.ts",
-    "tenant": "tsx src/cli/tenant.ts"
+    "tenant": "tsx src/cli/tenant.ts",
+    "demo": "tsx src/cli/demo.ts"
   },
   "dependencies": {
     "@gow/channels": "workspace:*",

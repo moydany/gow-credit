@@ -4,7 +4,7 @@
  * y todo corre en `withTenant` con el rol `gow_api`. Cada mutación entra a la bitácora con el
  * usuario; la vista de una solicitud también (docs/08 §2, "quién vio qué").
  */
-import { applicationDocuments, applications, auditLog, clarifications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
+import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
 import { ClarificationStatus, type ApplicationDetail, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
@@ -103,19 +103,19 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       const out = await tx.execute<{
         id: string; status: ApplicationRow['status']; failure_reason: string | null; request: ApplicationRow['request']; created_at: Date; updated_at: Date
         supplier_id: string; legal_name: string
-        decision_status: NonNullable<ApplicationRow['decision']>['status'] | null; limit_amount: string | null; score: string | null; policy_version: number | null
+        decision_status: NonNullable<ApplicationRow['decision']>['status'] | null; limit_amount: string | null; score: string | null; policy_version: number | null; reasons: { code: string; message: string }[] | null
         file_name: string | null; bank: string | null; page_count: number | null; issues: number | null; flags: string[] | null; has_extraction: boolean
         open_clarifications: number; outcome: ApplicationRow['outcome']
       }>(sql`
         select a.id, a.status, a.failure_reason, a.request, a.created_at, a.updated_at,
                s.id as supplier_id, s.legal_name,
-               d.status as decision_status, d.limit_amount, d.score, pv.version as policy_version,
+               d.status as decision_status, d.limit_amount, d.score, pv.version as policy_version, d.reasons,
                e.file_name, e.bank, e.page_count, e.issues, e.flags, (e.file_name is not null) as has_extraction,
                (select count(*)::int from app.clarifications c where c.application_id = a.id and c.status = 'open') as open_clarifications,
                (select o.outcome from app.outcomes o where o.application_id = a.id order by o.observed_at desc limit 1) as outcome
           from app.applications a
           join app.suppliers s on s.id = a.supplier_id
-          left join lateral (select dd.status, dd.limit_amount, dd.score, dd.policy_version_id from app.decisions dd where dd.application_id = a.id and dd.kind = 'active' order by dd.created_at desc limit 1) d on true
+          left join lateral (select dd.status, dd.limit_amount, dd.score, dd.policy_version_id, dd.payload->'reasons' as reasons from app.decisions dd where dd.application_id = a.id and dd.kind = 'active' order by dd.created_at desc limit 1) d on true
           left join app.policy_versions pv on pv.id = d.policy_version_id
           left join lateral (
             select ex.payload->'document'->>'file_name' as file_name, ex.payload->'bank_name'->>'value' as bank,
@@ -134,7 +134,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       failure_reason: x.failure_reason,
       supplier: { id: x.supplier_id, legal_name: x.legal_name },
       request: x.request,
-      decision: x.decision_status ? { status: x.decision_status, limit: x.limit_amount === null ? null : Number(x.limit_amount), score: x.score === null ? null : Number(x.score), policy_version: x.policy_version } : null,
+      decision: x.decision_status ? { status: x.decision_status, limit: x.limit_amount === null ? null : Number(x.limit_amount), score: x.score === null ? null : Number(x.score), policy_version: x.policy_version, reasons: (x.reasons ?? []).map((r) => ({ code: r.code, message: r.message })) } : null,
       document: x.has_extraction ? { file_name: x.file_name, bank: x.bank, page_count: x.page_count, issues: x.issues ?? 0, flags: x.flags ?? [] } : null,
       open_clarifications: x.open_clarifications,
       outcome: x.outcome,
@@ -259,8 +259,13 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   })
 
   r.get('/audit', async (_req, res) => {
-    const rows = await withTenant(deps.db, who(res).tenantId, (tx) => tx.select().from(auditLog).orderBy(desc(auditLog.at)).limit(200))
-    const list: AuditEntry[] = rows.map((l) => ({ id: l.id, actor: l.actor, action: l.action, subject: l.subject, details: l.details as Record<string, unknown>, at: l.at.toISOString() }))
+    const rows = await withTenant(deps.db, who(res).tenantId, (tx) =>
+      tx.execute<{ id: string; actor: string; actor_label: string | null; action: string; subject: string | null; details: Record<string, unknown>; at: Date }>(sql`
+        select l.id, l.actor, u.email as actor_label, l.action, l.subject, l.details, l.at
+          from app.audit_log l left join app.tenant_users u on 'user:' || u.user_id::text = l.actor
+         order by l.at desc limit 200`),
+    )
+    const list: AuditEntry[] = rows.rows.map((l) => ({ id: l.id, actor: l.actor, actor_label: l.actor_label, action: l.action, subject: l.subject, details: l.details, at: new Date(l.at).toISOString() }))
     res.json(list)
   })
 

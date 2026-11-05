@@ -27,7 +27,7 @@ export const ApplicationRow = z.strictObject({
   failure_reason: z.string().nullable(),
   supplier: z.strictObject({ id: z.uuid(), legal_name: z.string() }),
   request: ApplicationRequest.nullable(),
-  decision: z.strictObject({ status: DecisionStatus, limit: Money.nullable(), score: z.number().nullable(), policy_version: z.int().nullable() }).nullable(),
+  decision: z.strictObject({ status: DecisionStatus, limit: Money.nullable(), score: z.number().nullable(), policy_version: z.int().nullable(), reasons: z.array(z.strictObject({ code: z.string(), message: z.string() })) }).nullable(),
   document: z.strictObject({ file_name: z.string().nullable(), bank: z.string().nullable(), page_count: z.int().nullable(), issues: z.int(), flags: z.array(z.string()) }).nullable(),
   open_clarifications: z.int(),
   outcome: OutcomeName.nullable(),
@@ -80,5 +80,5 @@ export const PolicyVersionItem = z.strictObject({
 })
 export type PolicyVersionItem = z.infer<typeof PolicyVersionItem>
 
-export const AuditEntry = z.strictObject({ id: z.uuid(), actor: z.string(), action: z.string(), subject: z.string().nullable(), details: z.record(z.string(), z.unknown()), at: z.string() })
+export const AuditEntry = z.strictObject({ id: z.uuid(), actor: z.string(), actor_label: z.string().nullable().describe('Correo del usuario cuando el actor es una persona del backoffice'), action: z.string(), subject: z.string().nullable(), details: z.record(z.string(), z.unknown()), at: z.string() })
 export type AuditEntry = z.infer<typeof AuditEntry>
