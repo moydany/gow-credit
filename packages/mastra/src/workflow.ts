@@ -137,6 +137,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
         decision: null,
         max_line: null,
         questions: [],
+        asked: [],
         answers: [],
         rejected_answers: [],
         contradictions: [],
@@ -171,8 +172,9 @@ export function createProcessApplication(deps: WorkflowDeps) {
       // `.dountil()` corre el cuerpo al menos una vez (spike 4): sin nada que aclarar no se pregunta.
       if (state.decision?.status !== 'needs_clarification') return state
       if (resumeData) {
-        const asked = suspendData?.questions ?? state.questions
-        return { ...state, questions: asked, answers: resumeData.answers }
+        // El estado de la suspensión trae lo que pasó en la primera ejecución (la redacción y su costo).
+        const base = suspendData?.state ?? state
+        return { ...base, questions: base.asked.length > 0 ? base.asked : base.questions, answers: resumeData.answers }
       }
       const written = await deps.writer.questions(state.questions)
       const round = state.rounds + 1
@@ -180,6 +182,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
       const next: AppState = {
         ...state,
         questions: written.questions,
+        asked: written.questions,
         calls: [...state.calls, ...written.calls],
         notes: written.errors.length ? [...state.notes, `el redactor de preguntas falló; se usaron plantillas: ${written.errors.join('; ')}`] : state.notes,
       }

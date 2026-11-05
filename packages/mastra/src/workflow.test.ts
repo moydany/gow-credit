@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { ApplicationRequest, StatementExtraction, SupplierIdentity } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
-import type { TransactionClassifier } from '@gow/llm'
+import { ZERO_USAGE, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
 import { describe, expect, it } from 'vitest'
 import { MemoryChannel } from './channels.ts'
 import { createRuntime, resumeApplication, startApplication } from './runtime.ts'
@@ -80,6 +80,25 @@ describe('processApplication', () => {
     expect(second.state?.rounds).toBe(1)
     expect(d?.profile.features.operating_income_monthly.provenance).toBe('owner_answer')
     expect(second.state?.answers).toHaveLength(1)
+    // Lo enviado sobrevive a la reanudación en otro proceso.
+    expect(second.state?.asked).toEqual(first.state?.questions)
+    expect(second.state?.calls).toEqual(first.state?.calls)
+  })
+
+  it('la redacción y su costo sobreviven a la reanudación', async () => {
+    const file = db()
+    const llm: StructuredLlm = {
+      call: (req) => {
+        const ids = [...req.instruction.matchAll(/"id": "([a-z0-9]+)"/g)].map((m) => m[1] ?? '')
+        return Promise.resolve({ object: req.schema.parse({ texts: ids.map((id) => ({ id, text: '¿Qué fue ese abono?' })) }), usage: ZERO_USAGE, costUsd: 0.0002, latencyMs: 1, model: 'claude-haiku-5-5', finishReason: 'stop', responseCacheHit: false })
+      },
+    }
+    const first = await startApplication(createRuntime({ ...deps(), writer: new Writer(llm) }, file), input('dudoso.pdf'))
+    expect(first.state?.asked[0]?.text_source).toBe('writer')
+    const second = await resumeApplication(createRuntime({ ...deps(), writer: new Writer(llm) }, file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'customer_payment', counterparty: null }], base_dir: null })
+    const purposes = second.state?.calls.map((c) => c.purpose)
+    expect(purposes).toEqual(['clarification_questions', 'next_steps'])
+    expect(second.state?.asked[0]?.text).toBe('¿Qué fue ese abono?')
   })
 
   it('si el dueño no sabe, la ronda se gasta y va a revisión humana', async () => {

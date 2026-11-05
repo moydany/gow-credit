@@ -65,7 +65,7 @@ export function toApplicationResult(applicationId: string, state: AppState | nul
     max_line: state?.max_line ?? null,
     clarification:
       state && (asked || state.rounds > 0)
-        ? { status: asked ? 'open' : 'answered', rounds_used: state.rounds, questions: state.questions, answers: state.answers, rejected_answers: [...state.rejected_answers, ...state.contradictions] }
+        ? { status: asked ? 'open' : 'answered', rounds_used: state.rounds, questions: asked ? state.questions : state.asked, answers: state.answers, rejected_answers: [...state.rejected_answers, ...state.contradictions] }
         : null,
     classification: state?.classification ?? null,
     run,
