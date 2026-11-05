@@ -5,11 +5,13 @@
  * efecto y el mismo rastro sin importar por dónde llegó.
  */
 import { isComplete } from '@gow/channels'
-import { OwnerAnswer, parsePolicy, Profile, Question, type SimulationCase } from '@gow/contracts'
-import { applications, auditLog, clarifications, decisions, outcomes, policies, policyVersions, withTenant, type Db, type Tx } from '@gow/db'
+import { CorrectionsBody, OwnerAnswer, parsePolicy, Profile, Question, StatementExtraction, type SimulationCase } from '@gow/contracts'
+import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, extractions, outcomes, policies, policyVersions, withTenant, type Db, type Tx } from '@gow/db'
 import { simulatePolicy } from '@gow/decision'
-import { enqueueResume, type PgBoss } from '@gow/platform'
+import { applyCorrections, CorrectionError, readValue } from '@gow/extraction/corrections'
+import { enqueueRedecide, enqueueResume, type PgBoss } from '@gow/platform'
 import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 export class HttpError extends Error {
@@ -115,4 +117,39 @@ export async function recordOutcome(db: Db, tenantId: string, who: string, input
     await tx.insert(outcomes).values({ tenantId, applicationId: a.id, outcome: body.outcome, observedAt: new Date(body.observed_at) })
     await audit(tx, tenantId, who, 'outcome.recorded', a.id, { outcome: body.outcome })
   })
+}
+
+/**
+ * El analista corrige valores de la extracción de una solicitud en revisión humana (docs/08 §2). Se
+ * valida cada corrección aplicándola a la extracción (sin guardar nada si alguna falla), se guardan los
+ * pares (valor leído, valor correcto) y se reencola la solicitud para decidir de nuevo.
+ */
+export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId: string, userId: string, applicationId: string, input: unknown): Promise<{ batch: string; corrections: number }> {
+  const body = parse(CorrectionsBody, input)
+  const batch = randomUUID()
+  await withTenant(deps.db, tenantId, async (tx) => {
+    const [a] = await tx.select().from(applications).where(eq(applications.id, applicationId))
+    if (!a) throw new HttpError(404, 'solicitud no encontrada')
+    if (a.status !== 'human_review') throw new HttpError(409, `la solicitud está ${a.status}; solo se corrige en revisión humana`)
+    const [link] = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, applicationId))
+    const [ex] = link ? await tx.select().from(extractions).where(eq(extractions.documentId, link.documentId)).orderBy(extractions.createdAt).limit(1) : []
+    if (!link || !ex) throw new HttpError(409, 'la solicitud no tiene una extracción que corregir')
+    // Se parte de lo ya corregido: una segunda corrección sobre el mismo valor lee el valor corregido.
+    const prior = await tx.select().from(corrections).where(eq(corrections.applicationId, applicationId)).orderBy(corrections.createdAt)
+    let current = applyCorrections(StatementExtraction.parse(ex.payload), prior.map((c) => ({ target: c.target as never, value: c.value as string | number })))
+    for (const c of body.corrections) {
+      try {
+        const read = readValue(current, c.target)
+        current = applyCorrections(current, [c])
+        await tx.insert(corrections).values({ tenantId, applicationId, documentId: link.documentId, target: c.target, readValue: read, value: c.value, page: c.page, createdBy: userId })
+      } catch (e) {
+        if (e instanceof CorrectionError) throw new HttpError(400, 'corrección inválida', [{ path: 'corrections', message: e.message }])
+        throw e
+      }
+    }
+    await tx.update(applications).set({ status: 'deciding', updatedAt: new Date() }).where(eq(applications.id, applicationId))
+    await audit(tx, tenantId, `user:${userId}`, 'correction.recorded', applicationId, { corrections: body.corrections.length, targets: body.corrections.map((c) => `${c.target.kind}.${c.target.field}`) })
+  })
+  await enqueueRedecide(deps.boss, { tenant_id: tenantId, application_id: applicationId, correction_batch: batch })
+  return { batch, corrections: body.corrections.length }
 }

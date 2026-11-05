@@ -4,13 +4,14 @@
  * y todo corre en `withTenant` con el rol `gow_api`. Cada mutación entra a la bitácora con el
  * usuario; la vista de una solicitud también (docs/08 §2, "quién vio qué").
  */
-import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
-import { ClarificationStatus, type ApplicationDetail, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
+import { applicationDocuments, applications, corrections, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
+import { applyCorrections } from '@gow/extraction/corrections'
+import { ClarificationStatus, CorrectionTarget, type ApplicationDetail, type Correction, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
-import { answerClarification, audit, createPolicyDraft, HttpError, parse, PolicyBody, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
+import { answerClarification, audit, createPolicyDraft, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 import { CSRF_HEADER, clearedCookie, readCookie, SESSION_COOKIE, sessionCookie, verifyToken } from './session.ts'
 
 export interface BackofficeDeps {
@@ -176,9 +177,14 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       const versions = versionIds.length ? await tx.select({ id: policyVersions.id, version: policyVersions.version }).from(policyVersions).where(inArray(policyVersions.id, versionIds)) : []
       const clar = await clarificationItems(tx, sql`c.application_id = ${id}::uuid`)
       const outs = await tx.select().from(outcomes).where(eq(outcomes.applicationId, id)).orderBy(desc(outcomes.observedAt))
+      const fixes = await tx.execute<{ id: string; target: unknown; read_value: string | number | null; value: string | number; page: number | null; created_by: string | null; created_at: Date }>(sql`
+        select c.id, c.target, c.read_value, c.value, c.page, u.email as created_by, c.created_at
+          from app.corrections c left join app.tenant_users u on u.user_id = c.created_by
+         where c.application_id = ${id}::uuid order by c.created_at`)
       await audit(tx, w.tenantId, actorOf(w), 'application.viewed', id)
-      return { a, s, docs, ex, dec, shadow, versions, clar, outs }
+      return { a, s, docs, ex, dec, shadow, versions, clar, outs, fixes: fixes.rows }
     })
+    const fixes: Correction[] = out.fixes.map((c) => ({ id: c.id, target: CorrectionTarget.parse(c.target), read_value: c.read_value, value: c.value, page: c.page, created_by: c.created_by, created_at: new Date(c.created_at).toISOString() }))
     const version = (vid: string | null | undefined) => out.versions.find((v) => v.id === vid)?.version ?? null
     const detail: ApplicationDetail = {
       id: out.a.id,
@@ -190,11 +196,13 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       updated_at: out.a.updatedAt.toISOString(),
       supplier: { id: out.s.id, legal_name: out.s.legalName, rfc: out.s.rfc, external_ref: out.s.externalRef, clabes: out.s.clabes },
       documents: out.docs.map((d) => ({ id: d.id, sha256: d.sha256, size_bytes: d.sizeBytes, media_type: d.mediaType })),
-      extraction: (out.ex?.payload ?? null) as ApplicationDetail['extraction'],
+      // La extracción guardada es inmutable: se muestra con las correcciones del analista encima.
+      extraction: (out.ex ? applyCorrections(out.ex.payload as NonNullable<ApplicationDetail['extraction']>, fixes) : null) as ApplicationDetail['extraction'],
       decision: out.dec ? { id: out.dec.id, policy_version: version(out.dec.policyVersionId), created_at: out.dec.createdAt.toISOString(), payload: out.dec.payload as NonNullable<ApplicationDetail['decision']>['payload'] } : null,
       shadow: out.shadow ? { policy_version: version(out.shadow.policyVersionId), status: out.shadow.status, limit: out.shadow.limitAmount === null ? null : Number(out.shadow.limitAmount), score: out.shadow.score === null ? null : Number(out.shadow.score) } : null,
       clarifications: out.clar,
       outcomes: out.outs.map((o) => ({ outcome: o.outcome, observed_at: o.observedAt.toISOString() })),
+      corrections: fixes,
     }
     res.json(detail)
   })
@@ -210,6 +218,12 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.setHeader('Content-Disposition', 'inline; filename="documento.pdf"')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.send(bytes)
+  })
+
+  /** Corrección de valores en revisión humana: guarda los pares leído/correcto y reencola a decidir. */
+  r.post('/applications/:id/corrections', async (req, res) => {
+    const w = who(res)
+    res.status(202).json(await recordCorrections(deps, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
   })
 
   // ---------- Aclaraciones con respuesta manual

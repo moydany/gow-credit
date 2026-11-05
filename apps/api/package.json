@@ -18,6 +18,7 @@
     "@gow/contracts": "workspace:*",
     "@gow/db": "workspace:*",
     "@gow/decision": "workspace:*",
+    "@gow/extraction": "workspace:*",
     "@gow/llm": "workspace:*",
     "@gow/platform": "workspace:*",
     "drizzle-orm": "0.45.4",

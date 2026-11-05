@@ -47,6 +47,9 @@ importers:
       '@gow/decision':
         specifier: workspace:*
         version: link:../../packages/decision
+      '@gow/extraction':
+        specifier: workspace:*
+        version: link:../../packages/extraction
       '@gow/llm':
         specifier: workspace:*
         version: link:../../packages/llm

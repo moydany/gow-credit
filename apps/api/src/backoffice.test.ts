@@ -8,6 +8,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { sampleStatement } from '@gow/contracts/testing'
 import { connect, tenantUsers, type Database } from '@gow/db'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import { LocalDocumentStorage, QUEUES, startQueue, type PgBoss } from '@gow/platform'
@@ -134,6 +135,46 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     // Se encola la reanudación (aunque aquí no haya worker que la tome).
     const jobs = await q('SELECT count(*)::int AS n FROM pgboss.job WHERE name = $1', [QUEUES.resume])
     expect((jobs.rows[0] as { n: number }).n).toBe(1)
+  })
+
+  it('corregir en revisión humana guarda el par leído/correcto, reencola y muestra el documento corregido', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const sup = randomUUID()
+    const app = randomUUID()
+    const doc = randomUUID()
+    const statement = sampleStatement()
+    await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3)', [sup, tenantA, 'Proveedor a corregir'])
+    await q("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, 'x', $4, 10, 'application/pdf')", [doc, tenantA, sup, statement.document.sha256])
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'human_review')", [app, tenantA, sup])
+    await q('INSERT INTO app.application_documents (tenant_id, application_id, document_id) VALUES ($1, $2, $3)', [tenantA, app, doc])
+    await q("INSERT INTO app.extractions (tenant_id, document_id, schema_version, status, payload) VALUES ($1, $2, '1.2.0', 'complete', $3)", [tenantA, doc, JSON.stringify(statement)])
+
+    const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
+    const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
+    const fix = { target: { kind: 'transaction', transaction_id: 'a1.p1.t2', field: 'amount' }, value: 1300, page: 1 }
+
+    // Inválida: nada se guarda y la solicitud sigue en revisión.
+    expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [{ ...fix, value: -4 }] } })).status).toBe(400)
+    expect((await q('SELECT count(*)::int AS n FROM app.corrections WHERE application_id = $1', [app])).rows[0]).toEqual({ n: 0 })
+    // Otro tenant no la ve.
+    expect((await call('POST', `/applications/${app}/corrections`, { cookie: b, body: { corrections: [fix] } })).status).toBe(404)
+
+    const ok = await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })
+    expect(ok.status).toBe(202)
+    const saved = await q('SELECT read_value, value, page, created_by FROM app.corrections WHERE application_id = $1', [app])
+    expect(saved.rows).toEqual([{ read_value: 1250.5, value: 1300, page: 1, created_by: userA }])
+    expect((await q('SELECT status FROM app.applications WHERE id = $1', [app])).rows[0]).toEqual({ status: 'deciding' })
+    expect((await q('SELECT count(*)::int AS n FROM pgboss.job WHERE name = $1', [QUEUES.redecide])).rows[0]).toEqual({ n: 1 })
+
+    // El detalle devuelve la extracción con la corrección encima; la guardada no cambia.
+    const detail = (await call('GET', `/applications/${app}`, { cookie: a })).json as unknown as { extraction: { accounts: { periods: { transactions: { id: string; amount: number; provenance: string }[] }[] }[] }; corrections: { read_value: number; value: number; created_by: string }[] }
+    expect(detail.extraction.accounts[0]?.periods[0]?.transactions[1]).toMatchObject({ amount: 1300, provenance: 'analyst_answer' })
+    expect(detail.corrections).toMatchObject([{ read_value: 1250.5, value: 1300, created_by: 'a@prestamista.test' }])
+    const stored = (await q('SELECT payload FROM app.extractions WHERE document_id = $1', [doc])).rows[0] as { payload: { accounts: { periods: { transactions: { amount: number }[] }[] }[] } }
+    expect(stored.payload.accounts[0]?.periods[0]?.transactions[1]?.amount).toBe(1250.5)
+
+    // Ya no está en revisión: no se vuelve a corregir hasta que el worker termine.
+    expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })).status).toBe(409)
   })
 
   it('el esquema de tenant_users está en el catálogo de tablas con RLS', () => {
