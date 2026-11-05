@@ -29,6 +29,14 @@ const STATUS_TEXT: Record<ApplicationStatus, string> = {
   failed: 'falló',
 }
 
+/** Política de ejemplo para evaluar documentos redactados sin registro de proveedores (ADR 0015). */
+export const STANDALONE_POLICY_PATH = 'policies/examples/standalone-evaluation.v1.json'
+
+/** La compuerta de identidad bloqueó porque no había con qué comparar (no porque no coincidiera). */
+export function identityUnverifiable(result: ApplicationResult): boolean {
+  return result.decision?.reasons.some((r) => r.code === 'gate_identity_unknown') ?? false
+}
+
 export function costLines(state: AppState | null): CostLine[] {
   const lines = new Map<string, CostLine>()
   for (const c of state?.calls ?? []) {
@@ -209,6 +217,9 @@ export function renderReport(result: ApplicationResult, state: AppState | null):
   out.push('', `Total acumulado: USD ${result.costs.total_usd.toFixed(6)} (una respuesta de caché cuesta 0).`)
   out.push('', '## Supuestos', '')
   out.push('- Modo standalone: no se consultan crédito vigente, buró, SAT ni listas; esas features quedan sin dato y la política las trata según `onUnknown`.')
+  if (identityUnverifiable(result)) {
+    out.push(`- La identidad no se pudo comparar (titular, RFC o CLABE redactados, o sin proveedor registrado) y la compuerta \`identity\` de esta política lo pregunta. Para ver la decisión sin ese bloqueo: \`--policy ${STANDALONE_POLICY_PATH}\`, o registra al proveedor con \`--request supplier_name=...,supplier_rfc=...\`.`)
+  }
   out.push('- Los movimientos los clasifican reglas y, donde no alcanzan, Jev o Haiku; un abono bajo el umbral de confianza no suma ingresos.')
   out.push('- Ningún valor no verificado contra el documento decide: si cambia la banda, se pregunta o va a revisión (docs/04 §5).')
   out.push('', `Generado ${result.generated_at} · run \`${result.run.run_id}\` (${result.run.status}).`)

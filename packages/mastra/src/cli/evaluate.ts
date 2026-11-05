@@ -37,7 +37,8 @@ import {
 } from '@gow/llm'
 import { z } from 'zod'
 import { OutboxChannel } from '../channels.ts'
-import { renderReport, toApplicationResult, type RunInfo } from '../report.ts'
+import { pesos } from '../figures.ts'
+import { identityUnverifiable, renderReport, STANDALONE_POLICY_PATH, toApplicationResult, type RunInfo } from '../report.ts'
 import { createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type RunOutcome } from '../runtime.ts'
 import type { AppInput } from '../state.ts'
 import { Writer } from '../writer.ts'
@@ -165,6 +166,9 @@ async function askInteractively(questions: readonly Question[]): Promise<OwnerAn
 
 interface Row {
   id: string
+  identity_unverifiable: boolean
+  /** Sin monto solicitado: el estado con el que calificaría pidiendo la línea máxima, y la línea. */
+  max_line: { status: string; amount: number } | null
   status: string
   questions: number
   usd_this_run: number
@@ -172,6 +176,11 @@ interface Row {
   calls: number
   classifier: string
   note: string
+}
+
+/** Una línea por solicitud: estados, conteos y costo; nunca cifras ni textos del documento. */
+function printRow(r: Row): void {
+  console.log(`${r.id.padEnd(34)} ${r.status.padEnd(20)} preguntas ${String(r.questions).padStart(2)}  movimientos: ${r.classifier.padEnd(6)}  llamadas ${String(r.calls).padStart(3)} (${String(r.cache_hits)} de caché)  USD ${r.usd_this_run.toFixed(4)}${r.max_line ? `  · línea máxima: ${r.max_line.status}` : ''}${r.note ? `  · ${r.note}` : ''}`)
 }
 
 async function main(): Promise<void> {
@@ -249,8 +258,9 @@ async function main(): Promise<void> {
         outcome = await resumeApplication(wf, prevResult.run.run_id, prevResult.run.suspended_step, { answers: given.answers, base_dir: answers.baseDir })
         note = 'reanudada con respuestas'
       } else {
-        rows.push({ id, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status === 'suspended' ? 'pausada; sin respuestas para ella' : 'ya evaluada (--force para repetir)' })
+        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status === 'suspended' ? 'pausada; sin respuestas para ella' : 'ya evaluada (--force para repetir)' })
         if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { answers: prevResult.clarification.questions.map(templateAnswer) }
+        printRow(rows.at(-1) as Row)
         continue
       }
     } else {
@@ -279,6 +289,8 @@ async function main(): Promise<void> {
     const newCalls = (outcome.state?.calls ?? []).slice(callsBefore)
     rows.push({
       id,
+      identity_unverifiable: identityUnverifiable(result),
+      max_line: result.max_line && { status: result.max_line.status, amount: result.max_line.amount },
       status: result.status,
       questions: result.clarification?.status === 'open' ? result.clarification.questions.length : 0,
       usd_this_run: Math.round(newCalls.reduce((s, c) => s + c.cost_usd, 0) * 1e6) / 1e6,
@@ -287,8 +299,7 @@ async function main(): Promise<void> {
       classifier: result.classification?.implementation ?? '—',
       note: outcome.error ? `error del workflow: ${outcome.error}` : note,
     })
-    const r = rows.at(-1) as Row
-    console.log(`${id.padEnd(34)} ${r.status.padEnd(20)} preguntas ${String(r.questions).padStart(2)}  movimientos: ${r.classifier.padEnd(6)}  llamadas ${String(r.calls).padStart(3)} (${String(r.cache_hits)} de caché)  USD ${r.usd_this_run.toFixed(4)}${r.note ? `  · ${r.note}` : ''}`)
+    printRow(rows.at(-1) as Row)
   }
 
   const total = rows.reduce((s, r) => s + r.usd_this_run, 0)
@@ -297,9 +308,11 @@ async function main(): Promise<void> {
     '',
     `Fecha de cálculo ${asOf} · política \`${policy.id}\` · ${String(rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)}`,
     '',
-    '| Solicitud | Estado | Preguntas abiertas | Movimientos | USD esta corrida | Nota |',
-    '|---|---|---|---|---|---|',
-    ...rows.map((r) => `| [${r.id}](${r.id}.md) | \`${r.status}\` | ${String(r.questions)} | ${r.classifier} | ${r.usd_this_run.toFixed(4)} | ${r.note} |`),
+    'Sin monto solicitado, el estado evalúa una solicitud sin monto ni comprador; la línea máxima es el mayor monto que la política aprobaría pedido tal cual.',
+    '',
+    '| Solicitud | Estado | Línea máxima | Preguntas abiertas | Movimientos | USD esta corrida | Nota |',
+    '|---|---|---|---|---|---|---|',
+    ...rows.map((r) => `| [${r.id}](${r.id}.md) | \`${r.status}\` | ${r.max_line ? `${pesos(r.max_line.amount)} (\`${r.max_line.status}\`)` : '—'} | ${String(r.questions)} | ${r.classifier} | ${r.usd_this_run.toFixed(4)} | ${r.note} |`),
     '',
   ].join('\n')
   writeFileSync(join(outDir, 'summary.md'), summary)
@@ -310,6 +323,11 @@ async function main(): Promise<void> {
     console.log(`\n${String(pendingIds.length)} solicitud(es) pausada(s). Las preguntas están en cada <id>.md y en outbox/.`)
     console.log(`Copia ${join(outDir, 'answers.template.json')}, elige una categoría por abono (o cambia kind a "decline"), deja solo lo que respondas y corre:`)
     console.log(`  pnpm run evaluate ${positionals.join(' ')} --out ${outDir} --answers <archivo>`)
+  }
+  const unverifiable = rows.filter((r) => r.identity_unverifiable).length
+  if (unverifiable > 0 && values.policy === undefined) {
+    console.log(`\n${String(unverifiable)} solicitud(es) sin identidad comparable (documento redactado o sin proveedor registrado): la política base lo pregunta.`)
+    console.log(`Para ver la decisión sin ese bloqueo, en otra carpeta de salida: --policy ${STANDALONE_POLICY_PATH} --out <dir>`)
   }
   console.log(`\n${String(rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)} · salida en ${outDir}`)
   if (failures > 0) process.exit(1)
