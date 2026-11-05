@@ -154,6 +154,9 @@ muestra personalización y el loop de aprendizaje.
   - **Distinto al plan.** La sesión es una cookie `HttpOnly` que sale de un JWT (Supabase Auth en
     producción, enlace de `pnpm tenant user add` en desarrollo); el PDF se sirve por la API; las listas
     se refrescan por sondeo y no por Realtime.
-  - **Pendiente.** Corregir un valor en revisión humana, formulario de política generado del esquema,
-    Proveedores, Configuración y modo oscuro.
+  - **Pendiente.** Formulario de política generado del esquema, Proveedores, Configuración y modo oscuro.
+- **Fase 7, corrección en revisión humana (ADR 0020).** El analista corrige titular, CLABE, cifras del
+  resumen y movimientos con el PDF al lado; cada corrección se guarda como par (leído, correcto, página) y la
+  solicitud se reevalúa sin modelos con las correcciones aplicadas encima de la extracción inmutable.
+  Descartar un documento y exportar los pares al ground truth de las evals quedan pendientes.
 
