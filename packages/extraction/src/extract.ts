@@ -31,7 +31,7 @@ import { ExtractionChunk, EXTRACTION_SCHEMA_NAME, type SummaryOut } from './llm-
 import { daysBetween } from './normalize.ts'
 import { PageText, textUsable } from './page-text.ts'
 import { loadPdf, type LoadedPdf } from './pdf.ts'
-import { pagesWithBreaks, reconcilePeriod, reconciliationScore, type PeriodReconciliation } from './reconcile.ts'
+import { pagesWithBreaks, printedOf, reconcilePeriod, reconciliationScore, type PeriodReconciliation } from './reconcile.ts'
 import { isProviderFailure, planModels, supportsServerFallback, type ModelPlan } from './router.ts'
 import { checkClabe, checkRfc } from './validators.ts'
 
@@ -369,20 +369,6 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
 }
 
 // ---------------------------------------------------------------- helpers
-
-function printedOf(p: Period) {
-  return {
-    opening: p.summary.opening_balance.value,
-    closing: p.summary.closing_balance.value,
-    totalCredits: p.summary.total_credits.value,
-    totalDebits: p.summary.total_debits.value,
-    creditsCount: p.summary.credits_count.value,
-    debitsCount: p.summary.debits_count.value,
-    interestEarned: p.summary.interest_earned.value,
-    feesCharged: p.summary.fees_charged.value,
-    taxWithheld: p.summary.tax_withheld.value,
-  }
-}
 
 function emptyRec() {
   return reconcilePeriod([], { opening: null, closing: null, totalCredits: null, totalDebits: null, creditsCount: null, debitsCount: null }).reconciliation

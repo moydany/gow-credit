@@ -3,7 +3,7 @@
  * modelos ni de PDFs. Un estado de cuenta se auto-verifica: una fila inventada, omitida o
  * con el sentido invertido rompe el saldo corrido exactamente donde ocurrió.
  */
-import type { Reconciliation, Transaction } from '@gow/contracts'
+import type { Period, Reconciliation, Transaction } from '@gow/contracts'
 import { round2 } from './normalize.ts'
 
 export const GLOBAL_TOLERANCE = 1
@@ -238,4 +238,19 @@ export function reconciliationScore(r: Reconciliation): number {
   const globalDiff = Math.abs(r.global?.difference ?? 0)
   const totalsDiff = Math.abs(r.totals.credits.difference ?? 0) + Math.abs(r.totals.debits.difference ?? 0)
   return breaks * 1_000_000 + Math.min(globalDiff + totalsDiff, 999_999)
+}
+
+/** Las cifras impresas de un periodo, tal como las usa el cuadre. */
+export function printedOf(p: Period) {
+  return {
+    opening: p.summary.opening_balance.value,
+    closing: p.summary.closing_balance.value,
+    totalCredits: p.summary.total_credits.value,
+    totalDebits: p.summary.total_debits.value,
+    creditsCount: p.summary.credits_count.value,
+    debitsCount: p.summary.debits_count.value,
+    interestEarned: p.summary.interest_earned.value,
+    feesCharged: p.summary.fees_charged.value,
+    taxWithheld: p.summary.tax_withheld.value,
+  }
 }

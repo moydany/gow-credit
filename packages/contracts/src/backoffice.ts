@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { ApplicationStatus, ClarificationStatus, DecisionStatus, PolicyVersionStatus } from './enums.ts'
 import { OwnerAnswer, Question } from './clarification.ts'
+import { Correction } from './corrections.ts'
 import { Decision } from './decision.ts'
 import { Money, Sha256 } from './primitives.ts'
 import { ApplicationRequest } from './request.ts'
@@ -66,6 +67,7 @@ export const ApplicationDetail = z.strictObject({
   shadow: z.strictObject({ policy_version: z.int().nullable(), status: DecisionStatus, limit: Money.nullable(), score: z.number().nullable() }).nullable(),
   clarifications: z.array(ClarificationItem),
   outcomes: z.array(z.strictObject({ outcome: OutcomeName, observed_at: z.string() })),
+  corrections: z.array(Correction),
 })
 export type ApplicationDetail = z.infer<typeof ApplicationDetail>
 
