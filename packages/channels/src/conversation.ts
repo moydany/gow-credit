@@ -62,3 +62,15 @@ export function parseReply(text: string, q: Question): OwnerAnswer | null {
   if (c === 'decline') return { question_id: q.id, kind: 'decline', note: null }
   return c ? { question_id: q.id, kind: 'deposit', category: c, counterparty: null } : null
 }
+
+/** Índice de la siguiente pregunta conversacional desde `from` (inclusive), o -1. */
+export function nextConversational(questions: readonly Question[], from: number): number {
+  for (let i = Math.max(0, from); i < questions.length; i++) if (questions[i] && isConversational(questions[i] as Question)) return i
+  return -1
+}
+
+/** Toda pregunta tiene respuesta (incluido "no sé"): la aclaración se puede reanudar. */
+export function isComplete(questions: readonly Question[], answers: readonly OwnerAnswer[]): boolean {
+  const answered = new Set(answers.map((a) => a.question_id))
+  return questions.every((q) => answered.has(q.id))
+}

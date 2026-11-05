@@ -1,0 +1,32 @@
+{
+  "name": "@gow/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Worker del modo full: consume pg-boss, corre processApplication con estado en Postgres, guarda extracciones y veredictos con RLS por tenant, abre aclaraciones y resuelve los mensajes entrantes contra el vínculo verificado.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@gow/channels": "workspace:*",
+    "@gow/contracts": "workspace:*",
+    "@gow/db": "workspace:*",
+    "@gow/decision": "workspace:*",
+    "@gow/extraction": "workspace:*",
+    "@gow/llm": "workspace:*",
+    "@gow/mastra": "workspace:*",
+    "@gow/platform": "workspace:*",
+    "@mastra/core": "1.81.0",
+    "@mastra/pg": "1.34.0",
+    "drizzle-orm": "0.45.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "pg": "8.23.1",
+    "@types/pg": "8.23.1"
+  }
+}

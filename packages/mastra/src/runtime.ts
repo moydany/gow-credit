@@ -4,6 +4,7 @@
  * y, si quedó pausada, la ruta del paso para reanudarla en otra invocación del CLI.
  */
 import { Mastra } from '@mastra/core'
+import type { MastraCompositeStore } from '@mastra/core/storage'
 import { LibSQLStore } from '@mastra/libsql'
 import { AppState, AskSuspend, type AppInput, type AskResume } from './state.ts'
 import { createProcessApplication, resolveAnswerPaths, WORKFLOW_ID, type WorkflowDeps } from './workflow.ts'
@@ -16,9 +17,11 @@ export interface RunOutcome {
   error: string | null
 }
 
-export function createRuntime(deps: WorkflowDeps, dbFile: string) {
+/** `storage`: archivo libSQL (standalone) o un store ya creado (PostgresStore en modo full, compartido entre trabajos). */
+export function createRuntime(deps: WorkflowDeps, storage: string | MastraCompositeStore) {
   const processApplication = createProcessApplication(deps)
-  const mastra = new Mastra({ storage: new LibSQLStore({ id: 'gow-standalone', url: `file:${dbFile}` }), workflows: { processApplication }, logger: false })
+  const store = typeof storage === 'string' ? new LibSQLStore({ id: 'gow-standalone', url: `file:${storage}` }) : storage
+  const mastra = new Mastra({ storage: store, workflows: { processApplication }, logger: false })
   return mastra.getWorkflow('processApplication')
 }
 export type Runtime = ReturnType<typeof createRuntime>

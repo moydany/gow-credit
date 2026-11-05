@@ -21,7 +21,8 @@
     "simulate": "pnpm -F @gow/decision simulate",
     "evaluate": "pnpm -F @gow/mastra evaluate",
     "db:migrate": "pnpm -F @gow/db db:migrate",
-    "db:generate": "pnpm -F @gow/db db:generate"
+    "db:generate": "pnpm -F @gow/db db:generate",
+    "worker": "pnpm -F @gow/worker start"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
