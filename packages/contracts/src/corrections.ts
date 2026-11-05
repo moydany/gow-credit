@@ -57,7 +57,7 @@ export function correctionValueKind(t: CorrectionTarget): 'text' | 'money' | 'si
 /** Mensaje de error de un valor para ese blanco, o null si sirve. */
 export function checkCorrectionValue(t: CorrectionTarget, value: string | number): string | null {
   const kind = correctionValueKind(t)
-  const num = typeof value === 'number' ? value : Number(String(value).replace(/[$,\s]/g, ''))
+  const num = typeof value === 'number' ? value : Number(value.replace(/[$,\s]/g, ''))
   switch (kind) {
     case 'money':
       return Money.safeParse(num).success ? null : 'Escribe un monto positivo con a lo más dos decimales'

@@ -4,7 +4,7 @@
  * y todo corre en `withTenant` con el rol `gow_api`. Cada mutación entra a la bitácora con el
  * usuario; la vista de una solicitud también (docs/08 §2, "quién vio qué").
  */
-import { applicationDocuments, applications, corrections, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
+import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
 import { ClarificationStatus, CorrectionTarget, type ApplicationDetail, type Correction, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
@@ -197,7 +197,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       supplier: { id: out.s.id, legal_name: out.s.legalName, rfc: out.s.rfc, external_ref: out.s.externalRef, clabes: out.s.clabes },
       documents: out.docs.map((d) => ({ id: d.id, sha256: d.sha256, size_bytes: d.sizeBytes, media_type: d.mediaType })),
       // La extracción guardada es inmutable: se muestra con las correcciones del analista encima.
-      extraction: (out.ex ? applyCorrections(out.ex.payload as NonNullable<ApplicationDetail['extraction']>, fixes) : null) as ApplicationDetail['extraction'],
+      extraction: (out.ex ? applyCorrections(out.ex.payload as NonNullable<ApplicationDetail['extraction']>, fixes) : null),
       decision: out.dec ? { id: out.dec.id, policy_version: version(out.dec.policyVersionId), created_at: out.dec.createdAt.toISOString(), payload: out.dec.payload as NonNullable<ApplicationDetail['decision']>['payload'] } : null,
       shadow: out.shadow ? { policy_version: version(out.shadow.policyVersionId), status: out.shadow.status, limit: out.shadow.limitAmount === null ? null : Number(out.shadow.limitAmount), score: out.shadow.score === null ? null : Number(out.shadow.score) } : null,
       clarifications: out.clar,

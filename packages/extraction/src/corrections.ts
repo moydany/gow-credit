@@ -20,8 +20,8 @@ type Value = string | number
 
 function coerce(target: CorrectionTarget, value: Value): Value {
   const kind = correctionValueKind(target)
-  if (kind === 'money' || kind === 'signed_money') return round2(typeof value === 'number' ? value : Number(String(value).replace(/[$,\s]/g, '')))
-  if (kind === 'count') return typeof value === 'number' ? value : Number(String(value).replace(/[,\s]/g, ''))
+  if (kind === 'money' || kind === 'signed_money') return round2(typeof value === 'number' ? value : Number(value.replace(/[$,\s]/g, '')))
+  if (kind === 'count') return typeof value === 'number' ? value : Number(value.replace(/[,\s]/g, ''))
   return typeof value === 'string' ? value.trim() : String(value)
 }
 
@@ -41,7 +41,7 @@ function locate(x: StatementExtraction, target: CorrectionTarget) {
       }
     }
   }
-  throw new CorrectionError(target.kind === 'period' ? `no existe el periodo ${target.period_id}` : `no existe el movimiento ${target.kind === 'transaction' ? target.transaction_id : ''}`)
+  throw new CorrectionError(target.kind === 'period' ? `no existe el periodo ${target.period_id}` : `no existe el movimiento ${target.transaction_id}`)
 }
 
 /** El valor que hoy tiene el blanco, para guardarlo como "valor leído". */
@@ -78,7 +78,7 @@ export function applyCorrections(input: StatementExtraction, corrections: readon
     } else if (t.kind === 'period' && at.period) {
       at.period.summary[t.field] = confirmed(at.period.summary[t.field], Number(value))
       touched.add(at.period)
-    } else if (t.kind === 'transaction' && at.tx && at.period) {
+    } else if (t.kind === 'transaction' && at.tx) {
       const tx = at.tx
       if (t.field === 'amount') tx.amount = Number(value)
       else if (t.field === 'date') tx.date = String(value)
