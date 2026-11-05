@@ -92,10 +92,14 @@ function humanReview(decision: Decision, code: string, message: string): Decisio
   return Decision.parse({ ...decision, status: 'human_review', limit: null, clarification: null, reasons: [...decision.reasons, { code, message, features: [] }] })
 }
 
-async function runDecision(deps: WorkflowDeps, state: AppState): Promise<AppState> {
+/**
+ * El veredicto de un estado, puro y sin modelos: perfil + motor, contradicciones de las respuestas,
+ * preguntas concretas y `next_steps` con plantilla. Lo usan el workflow y la reevaluación tras una
+ * corrección del analista (ADR 0020), que no pasa por el workflow.
+ */
+export function decideState(state: AppState, external: ExternalSnapshot): AppState {
   if (state.failure_reason !== null) return state
   const { input } = state
-  const external = deps.external ? await deps.external(state) : emptyExternalSnapshot()
   const base = decide({
     policy: input.policy,
     policyId: input.policy_id,
@@ -116,6 +120,12 @@ async function runDecision(deps: WorkflowDeps, state: AppState): Promise<AppStat
   decision = { ...decision, next_steps: decision.next_steps.map((s) => ({ ...s, message: s.message ?? nextStepTemplate(s) })) }
   const max_line = input.request?.amount == null ? maxLine(input.policy, decision.profile) : null
   return { ...state, decision, questions, max_line }
+}
+
+async function runDecision(deps: WorkflowDeps, state: AppState): Promise<AppState> {
+  if (state.failure_reason !== null) return state
+  const external = deps.external ? await deps.external(state) : emptyExternalSnapshot()
+  return decideState(state, external)
 }
 
 export function createProcessApplication(deps: WorkflowDeps) {

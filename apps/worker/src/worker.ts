@@ -16,7 +16,7 @@ import type { Db } from '@gow/db'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import type { Classifier, Limiter, StructuredLlm, TransactionClassifier } from '@gow/llm'
 import { createRuntime, resumeApplication, startApplication, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
-import { enqueueResume, ProcessJob, QUEUES, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
+import { enqueueResume, ProcessJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
 import type { MastraCompositeStore } from '@mastra/core/storage'
 import { OwnerAnswer } from '@gow/contracts'
 import { clarifications, withTenant } from '@gow/db'
@@ -24,6 +24,7 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { DbClarificationChannel } from './channel.ts'
 import { pendingInbound, resolveInbound } from './inbound.ts'
+import { handleRedecide } from './redecide.ts'
 import { loadContext, persistOutcome, requestOf, setStatus, supplierIdentity, type AppContext } from './store.ts'
 
 /** Estado de cuenta sintético guardado como documento (solo escenarios y desarrollo). */
@@ -158,6 +159,15 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
       throw err
     }
   })
+  await boss.work<RedecideJob>(QUEUES.redecide, polling, async ([job]) => {
+    if (!job) return
+    try {
+      await handleRedecide(s, RedecideJob.parse(job.data))
+    } catch (err) {
+      s.logger.error(`redecide ${job.id}: ${errorText(err)}`)
+      throw err
+    }
+  })
   let sweeping = false
   const timer = setInterval(() => {
     if (sweeping) return
@@ -175,6 +185,7 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
       clearInterval(timer)
       await boss.offWork(QUEUES.process)
       await boss.offWork(QUEUES.resume)
+      await boss.offWork(QUEUES.redecide)
     },
   }
 }
