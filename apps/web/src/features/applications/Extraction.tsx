@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { CATEGORY_LABEL, date, ISSUE_SEVERITY_LABEL, money, number } from '../../lib/format'
 import { Icon } from '../../ui/icons'
 import { Chip, EmptyState } from '../../ui/primitives'
-import { useFocus, Val } from './focus'
+import { useFocus, useReview, Val } from './focus'
 
 export type ExtractionTab = 'resumen' | 'movimientos' | 'fiscal' | 'alertas'
 
@@ -130,13 +130,13 @@ function Summary({ x }: { x: StatementExtraction }) {
         <h3 className="pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted">Titular</h3>
         <dl>
           <Row label="Nombre">
-            <Val field={x.holder.name} />
+            <Val field={x.holder.name} target={{ kind: 'holder', field: 'name' }} label="el nombre del titular" />
           </Row>
           <Row label="RFC">
-            <Val field={x.holder.rfc} className="font-mono text-[13px]" />
+            <Val field={x.holder.rfc} className="font-mono text-[13px]" target={{ kind: 'holder', field: 'rfc' }} label="el RFC del titular" />
           </Row>
           <Row label="Tipo">
-            <Val field={x.holder.holder_type} format={(v) => HOLDER_TYPE[v] ?? v} />
+            <Val field={x.holder.holder_type} format={(v) => HOLDER_TYPE[v] ?? v} target={{ kind: 'holder', field: 'holder_type' }} label="el tipo de titular" />
           </Row>
           <Row label="Banco">
             <Val field={x.bank_name} />
@@ -163,10 +163,10 @@ function AccountBlock({ a }: { a: Account }) {
             <Val field={a.account_type} format={(v) => ACCOUNT_TYPE[v] ?? v} />
           </Row>
           <Row label="CLABE">
-            <Val field={a.clabe} className="font-mono text-[13px]" />
+            <Val field={a.clabe} className="font-mono text-[13px]" target={{ kind: 'account', account_id: a.id, field: 'clabe' }} label="la CLABE" />
           </Row>
           <Row label="Número">
-            <Val field={a.account_number} className="font-mono text-[13px]" />
+            <Val field={a.account_number} className="font-mono text-[13px]" target={{ kind: 'account', account_id: a.id, field: 'account_number' }} label="el número de cuenta" />
           </Row>
           <Row label="Moneda">
             <Val field={a.currency} />
@@ -189,16 +189,22 @@ function PeriodBlock({ p }: { p: Period }) {
       </h3>
       <dl>
         <Row label="Saldo inicial">
-          <Val field={s.opening_balance} format={(v) => money(v, true)} className="tnum" />
+          <Val field={s.opening_balance} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'opening_balance' }} label="el saldo inicial" />
         </Row>
-        <Row label={`Abonos${s.credits_count.value !== null ? ` (${String(s.credits_count.value)})` : ''}`}>
-          <Val field={s.total_credits} format={(v) => money(v, true)} className="tnum" />
+        <Row label="Abonos">
+          <Val field={s.total_credits} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'total_credits' }} label="el total de abonos" />
         </Row>
-        <Row label={`Cargos${s.debits_count.value !== null ? ` (${String(s.debits_count.value)})` : ''}`}>
-          <Val field={s.total_debits} format={(v) => money(v, true)} className="tnum" />
+        <Row label="Número de abonos">
+          <Val field={s.credits_count} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'credits_count' }} label="el número de abonos" />
+        </Row>
+        <Row label="Cargos">
+          <Val field={s.total_debits} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'total_debits' }} label="el total de cargos" />
+        </Row>
+        <Row label="Número de cargos">
+          <Val field={s.debits_count} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'debits_count' }} label="el número de cargos" />
         </Row>
         <Row label="Saldo final">
-          <Val field={s.closing_balance} format={(v) => money(v, true)} className="tnum" />
+          <Val field={s.closing_balance} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'closing_balance' }} label="el saldo final" />
         </Row>
         <Row label="Saldo promedio">
           <Val field={s.average_balance} format={(v) => money(v, true)} className="tnum" />
@@ -258,6 +264,7 @@ function Reconciliation({ p }: { p: Period }) {
 
 function Transactions({ txs, bad }: { txs: FlatTx[]; bad: number }) {
   const focus = useFocus()
+  const review = useReview()
   const [mode, setMode] = useState<'todos' | 'dudosos' | 'abonos' | 'cargos'>(bad > 0 ? 'dudosos' : 'todos')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(80)
@@ -297,11 +304,11 @@ function Transactions({ txs, bad }: { txs: FlatTx[]; bad: number }) {
           {rows.slice(0, limit).map(({ tx }) => {
             const tone = tx.verification === 'verified' ? 'verified' : tx.verification
             return (
-              <li key={tx.id}>
+              <li key={tx.id} className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => { focus(tx.source, tone) }}
-                  className={clsx('grid w-full grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 rounded-2xl px-2.5 py-2.5 text-left transition-colors hover:bg-sunken', tx.verification === 'unverified' && 'hatch-amber', tx.verification === 'conflict' && 'hatch-coral')}
+                  className={clsx('grid min-w-0 flex-1 grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 rounded-2xl px-2.5 py-2.5 text-left transition-colors hover:bg-sunken', tx.verification === 'unverified' && 'hatch-amber', tx.verification === 'conflict' && 'hatch-coral')}
                 >
                   <span className="min-w-0 truncate text-[13.5px] font-medium">{tx.description}</span>
                   <span className={clsx('tnum text-[13.5px] font-medium', tx.type === 'credit' && tx.verification === 'verified' && 'text-lime-ink')}>
@@ -315,6 +322,17 @@ function Transactions({ txs, bad }: { txs: FlatTx[]; bad: number }) {
                   </span>
                   <span className="tnum text-right text-[12px] text-muted">{tx.balance === null ? '' : `saldo ${money(tx.balance, true)}`}</span>
                 </button>
+                {review.enabled ? (
+                  <button
+                    type="button"
+                    className="grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-indigo-soft hover:text-indigo-ink"
+                    aria-label={`Corregir el movimiento ${tx.description}`}
+                    title="Corregir monto, sentido o fecha"
+                    onClick={() => { review.edit({ target: { kind: 'transaction', transaction_id: tx.id, field: 'amount' }, label: `Movimiento «${tx.description.slice(0, 40)}»`, current: tx.amount, page: tx.source.page, snippet: tx.source.snippet, tx: { id: tx.id, amount: tx.amount, type: tx.type, date: tx.date } }) }}
+                  >
+                    <Icon name="edit" size={15} />
+                  </button>
+                ) : null}
               </li>
             )
           })}

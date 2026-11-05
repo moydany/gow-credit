@@ -1,5 +1,5 @@
 /** Formato y etiquetas en español (es-MX). Los estados son los canónicos de docs/README.md. */
-import { FEATURE_CATALOG, type ApplicationStatus, type DecisionStatus, type FeatureName } from '@gow/contracts'
+import { FEATURE_CATALOG, type ApplicationStatus, type CorrectionTarget, type DecisionStatus, type FeatureName } from '@gow/contracts'
 
 const mxn0 = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 })
 const mxn2 = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -107,3 +107,17 @@ export function jsonValue(v: unknown): string {
 }
 
 export const OP_LABEL: Record<string, string> = { '<': '<', '<=': '≤', '>': '>', '>=': '≥', '==': '=', '!=': '≠', in: 'es uno de', not_in: 'no es', empty: 'vacío', not_empty: 'no vacío' }
+
+const FIELD_LABEL: Record<string, string> = {
+  name: 'nombre', rfc: 'RFC', holder_type: 'tipo de titular', clabe: 'CLABE', account_number: 'número de cuenta',
+  opening_balance: 'saldo inicial', closing_balance: 'saldo final', total_credits: 'total de abonos', total_debits: 'total de cargos', credits_count: 'número de abonos', debits_count: 'número de cargos',
+  amount: 'monto', type: 'sentido', date: 'fecha',
+}
+
+/** Qué valor se corrigió, en español, para el historial. */
+export function describeTarget(t: CorrectionTarget): string {
+  const f = FIELD_LABEL[t.field] ?? t.field
+  return t.kind === 'holder' ? `Titular: ${f}` : t.kind === 'account' ? `Cuenta: ${f}` : t.kind === 'period' ? `Periodo: ${f}` : `Movimiento ${t.transaction_id}: ${f}`
+}
+
+export const TYPE_LABEL: Record<string, string> = { credit: 'Abono', debit: 'Cargo', individual: 'Persona física', individual_with_business_activity: 'Persona física con actividad empresarial', legal_entity: 'Persona moral' }

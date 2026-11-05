@@ -1,15 +1,18 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { date, money } from '../../lib/format'
-import { documentUrl } from '../../lib/api'
+import { api, ApiError, documentUrl } from '../../lib/api'
 import { useApplication } from '../../lib/queries'
 import { ClarificationCard } from '../clarifications/ClarificationCard'
 import { Icon } from '../../ui/icons'
-import { Card, ErrorState, Modal, Skeleton, StatusChip } from '../../ui/primitives'
+import { Button, Card, ErrorState, Modal, Skeleton, StatusChip } from '../../ui/primitives'
+import { useToast } from '../../ui/toast'
+import { CorrectionModal } from './CorrectionModal'
 import { DecisionPanel } from './DecisionPanel'
 import { alertPages, ExtractionPanel, type ExtractionTab } from './Extraction'
-import { FocusCtx, type FocusFn } from './focus'
+import { FocusCtx, ReviewCtx, targetKey, type EditSpec, type FocusFn, type PendingFix, type ReviewApi } from './focus'
 import type { PdfFocus } from './PdfViewer'
 
 // pdf.js pesa más que todo el resto de la app: se descarga solo al abrir una solicitud.
@@ -38,6 +41,30 @@ export function ApplicationDetailPage() {
       setPanel('documento')
     },
     [],
+  )
+  const [pending, setPending] = useState<PendingFix[]>([])
+  const [editing, setEditing] = useState<EditSpec | null>(null)
+  const toast = useToast()
+  const qc = useQueryClient()
+  const save = useMutation({
+    mutationFn: () => api.correct(id, pending.map((p) => ({ target: p.target, value: p.value, page: p.page }))),
+    onSuccess: () => {
+      toast.ok('Correcciones guardadas. Se reevalúa la solicitud.')
+      setPending([])
+      void qc.invalidateQueries()
+    },
+    onError: (e: unknown) => { toast.error(e instanceof ApiError ? (e.issues[0]?.message ?? e.message) : 'No se pudieron guardar las correcciones') },
+  })
+  const review: ReviewApi = useMemo(
+    () => ({
+      enabled: data?.status === 'human_review',
+      pending,
+      edit: (spec) => {
+        setEditing(spec)
+        if (spec.page) goTo({ page: spec.page, snippet: spec.snippet }, 'unverified')
+      },
+    }),
+    [data?.status, pending, goTo],
   )
   const pages = useMemo(() => (data?.extraction ? alertPages(data.extraction) : new Set<number>()), [data?.extraction])
   const doc = data?.documents[0]
@@ -111,6 +138,7 @@ export function ApplicationDetailPage() {
       </div>
 
       <FocusCtx.Provider value={goTo}>
+        <ReviewCtx.Provider value={review}>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.95fr)]">
           <Card rise={0} className={clsx(h, 'min-h-[70dvh] overflow-hidden', panel !== 'documento' && 'hidden xl:block')}>
             {doc ? (
@@ -146,10 +174,55 @@ export function ApplicationDetailPage() {
           </Card>
 
           <Card rise={2} className={clsx(h, 'min-h-[70dvh] overflow-hidden', panel !== 'decision' && 'hidden xl:block')}>
-            <DecisionPanel detail={data} onAnswer={() => { setAnswering(true) }} />
+            <DecisionPanel
+              detail={data}
+              onAnswer={() => { setAnswering(true) }}
+              tray={
+                review.enabled ? (
+                  <div className="mt-4 rounded-[24px] bg-amber-soft p-5">
+                    <p className="flex items-center gap-2 text-[14px] font-medium text-amber-ink">
+                      <Icon name="edit" size={16} /> {pending.length === 0 ? 'Revisa el documento' : pending.length === 1 ? '1 corrección por guardar' : `${String(pending.length)} correcciones por guardar`}
+                    </p>
+                    {pending.length === 0 ? (
+                      <p className="mt-1 text-[13px] leading-snug text-amber-ink/85">Si la extracción leyó mal algo, toca el lápiz junto al valor y escribe lo correcto con el PDF al lado. Al guardar, el motor decide de nuevo con tus correcciones.</p>
+                    ) : (
+                      <>
+                        <ul className="mt-3 space-y-2">
+                          {pending.map((p) => (
+                            <li key={targetKey(p.target)} className="flex items-start gap-2 rounded-2xl bg-white/70 px-3.5 py-2.5 text-[13px]">
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-medium">{p.label}</span>
+                                <span className="tnum text-muted">
+                                  <span className="line-through">{p.read === null ? 'sin dato' : String(p.read)}</span> → <span className="font-medium text-ink">{String(p.value)}</span>
+                                </span>
+                              </span>
+                              <button type="button" aria-label={`Quitar la corrección de ${p.label}`} className="grid size-7 shrink-0 place-items-center rounded-full hover:bg-amber-soft" onClick={() => { setPending((x) => x.filter((y) => targetKey(y.target) !== targetKey(p.target))) }}>
+                                <Icon name="x" size={14} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <Button className="mt-3 w-full" variant="primary" size="sm" disabled={save.isPending} onClick={() => { save.mutate() }}>
+                          {save.isPending ? 'Guardando…' : 'Guardar y reevaluar'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ) : null
+              }
+            />
           </Card>
         </div>
+        </ReviewCtx.Provider>
       </FocusCtx.Provider>
+
+      <CorrectionModal
+        spec={editing}
+        onClose={() => { setEditing(null) }}
+        onAdd={(fixes) => {
+          setPending((x) => [...x.filter((p) => !fixes.some((f) => targetKey(f.target) === targetKey(p.target))), ...fixes])
+        }}
+      />
 
       <Modal open={answering && open.length > 0} onClose={() => { setAnswering(false) }} title="Responder a nombre del proveedor" wide>
         {open[0] ? <ClarificationCard item={open[0]} showSupplier={false} /> : null}

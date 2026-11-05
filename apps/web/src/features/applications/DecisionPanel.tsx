@@ -1,13 +1,13 @@
 import { FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName } from '@gow/contracts'
 import clsx from 'clsx'
 import { useState } from 'react'
-import { DECISION_LABEL, featureLabel, featureValue, jsonValue, money, number, OP_LABEL, OUTCOME_LABEL, PROVENANCE_LABEL, VERIFICATION_LABEL, date } from '../../lib/format'
+import { describeTarget, DECISION_LABEL, featureLabel, featureValue, jsonValue, money, number, OP_LABEL, OUTCOME_LABEL, PROVENANCE_LABEL, VERIFICATION_LABEL, date } from '../../lib/format'
 import { Icon } from '../../ui/icons'
 import { Button, Chip, Meter, StatusChip } from '../../ui/primitives'
 
 const EXCLUDED: Record<string, string> = { unknown: 'sin dato', low_confidence: 'confianza baja', unverified: 'sin verificar', conflict: 'en conflicto' }
 
-export function DecisionPanel({ detail, onAnswer }: { detail: ApplicationDetail; onAnswer: () => void }) {
+export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationDetail; onAnswer: () => void; tray?: React.ReactNode }) {
   const d = detail.decision?.payload
   const open = detail.clarifications.filter((c) => c.status === 'open')
   if (!d) {
@@ -24,6 +24,7 @@ export function DecisionPanel({ detail, onAnswer }: { detail: ApplicationDetail;
     <div className="scroll-thin h-full overflow-y-auto px-6 pb-6 pt-5">
       <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
       <Verdict detail={detail} d={d} />
+      {tray}
 
       {open.length > 0 ? (
         <div className="mt-4 rounded-[24px] bg-indigo-soft p-5">
@@ -112,6 +113,27 @@ export function DecisionPanel({ detail, onAnswer }: { detail: ApplicationDetail;
       </Section>
 
       <Profile d={d} />
+
+      {detail.corrections.length > 0 ? (
+        <Section title="Correcciones del analista" hint={String(detail.corrections.length)}>
+          <ul className="space-y-2">
+            {detail.corrections.map((c) => (
+              <li key={c.id} className="inner p-3.5 text-[13px] leading-snug">
+                <p className="font-medium">{describeTarget(c.target)}</p>
+                <p className="tnum mt-1 flex flex-wrap items-center gap-x-2 text-muted">
+                  <span className="line-through decoration-coral/60">{c.read_value === null ? 'sin dato' : String(c.read_value)}</span>
+                  <Icon name="right" size={12} />
+                  <span className="font-medium text-ink">{String(c.value)}</span>
+                </p>
+                <p className="mt-1 text-[11.5px] text-muted">
+                  {c.created_by ?? 'Analista'} · {date(c.created_at)}
+                  {c.page ? ` · p. ${String(c.page)}` : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
 
       {detail.outcomes.length > 0 ? (
         <Section title="Resultado después de financiar">

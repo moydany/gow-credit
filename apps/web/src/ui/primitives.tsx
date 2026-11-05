@@ -176,7 +176,11 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
   useEffect(() => {
     const d = ref.current
     if (!d) return
-    if (open && !d.open) d.showModal()
+    if (open && !d.open) {
+      d.showModal()
+      // El contenido se pinta al abrir: el foco inicial va al primer campo, no al botón de cerrar.
+      d.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea')?.focus()
+    }
     if (!open && d.open) d.close()
   }, [open])
   return (

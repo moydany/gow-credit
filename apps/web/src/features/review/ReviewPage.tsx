@@ -6,9 +6,8 @@ import { Card, CardHeader, Chip, EmptyState, ErrorState, Skeleton } from '../../
 import { PageTitle } from '../applications/ApplicationsPage'
 
 /**
- * Cola de revisión humana (docs/08 §2). Hoy lista el motivo y abre la solicitud con el PDF al lado.
- * La corrección de un valor (par leído / correcto / página) que alimenta las evals y reencola a
- * `decide` queda pendiente: necesita un endpoint de decisión manual que aún no existe.
+ * Cola de revisión humana (docs/08 §2): lista el motivo y abre la solicitud, donde el analista corrige
+ * valores con el PDF al lado y reevalúa (ADR 0020).
  */
 export function ReviewPage() {
   const { data, isPending, isError, error, refetch } = useApplications()
@@ -45,7 +44,7 @@ export function ReviewPage() {
                   {(a.decision?.reasons.length ?? 0) === 0 ? <li className="text-[13.5px] text-muted">El motor no dejó un motivo escrito.</li> : null}
                 </ul>
                 <Link to="/solicitudes/$id" params={{ id: a.id }} className="mt-5 inline-flex h-10 items-center gap-2 rounded-full bg-ink px-5 text-[14px] font-medium text-white hover:bg-ink-2">
-                  Abrir con el PDF <Icon name="arrow" size={14} />
+                  Revisar y corregir <Icon name="arrow" size={14} />
                 </Link>
               </div>
             </Card>
