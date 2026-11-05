@@ -8,16 +8,16 @@
  *   almacenamiento propio (nunca de una URL del usuario).
  */
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { isComplete } from '@gow/channels'
-import { ApplicationRequest, IsoDate, OwnerAnswer, parsePolicy, Profile, Question, type SimulationCase } from '@gow/contracts'
-import { applicationDocuments, applications, auditLog, clarifications, decisions, documents, inboundMessages, outcomes, policies, policyVersions, supplierContacts, suppliers, withTenant, type Db, type Tx } from '@gow/db'
-import { simulatePolicy } from '@gow/decision'
-import { enqueueProcess, enqueueResume, isPdf, LocalDocumentStorage, MAX_DOCUMENT_BYTES, pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { verifySvix } from '@gow/channels'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { ApplicationRequest, IsoDate } from '@gow/contracts'
+import { applicationDocuments, applications, clarifications, decisions, documents, inboundMessages, policyVersions, supplierContacts, suppliers, withTenant, type Db } from '@gow/db'
+import { enqueueProcess, isPdf, LocalDocumentStorage, MAX_DOCUMENT_BYTES, pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { hashSecret, type ApiKeyScope } from './admin.ts'
+import { backofficeRouter } from './backoffice.ts'
+import { answerClarification, audit, createPolicyDraft, HttpError, parse, PolicyBody, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 
 export interface ApiDeps {
   db: Db
@@ -30,29 +30,16 @@ export interface ApiDeps {
   /** Peticiones por minuto por llave. */
   rateLimitPerMinute?: number
   logger?: { error(message: string): void }
+  /** Secreto con el que se verifican los JWT del backoffice; sin él `/bo/v1` responde 404. */
+  backofficeJwtSecret?: string | null
+  /** Cookie de sesión con `Secure` (producción detrás de HTTPS). */
+  secureCookies?: boolean
 }
 
 interface Auth {
   tenantId: string
   scopes: string[]
   keyPrefix: string
-}
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly issues: { path: string; message: string }[] = [],
-  ) {
-    super(message)
-  }
-}
-
-function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const r = schema.safeParse(value)
-  // Solo ruta y mensaje: el valor que falló puede traer datos personales.
-  if (!r.success) throw new HttpError(400, 'cuerpo inválido', r.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
-  return r.data
 }
 
 function auth(res: Response): Auth {
@@ -78,10 +65,6 @@ const ApplicationBody = z.strictObject({
   as_of: IsoDate.nullable().default(null),
 })
 
-const AnswersBody = z.strictObject({ answers: z.array(OwnerAnswer).min(1) })
-const PolicyBody = z.strictObject({ document: z.unknown() })
-const OutcomeBody = z.strictObject({ application_id: z.uuid(), outcome: z.enum(['paid', 'late', 'default', 'fraud']), observed_at: z.iso.datetime({ offset: true }) })
-
 const ResendInbound = z.object({
   type: z.string(),
   data: z.object({ email_id: z.string().optional(), from: z.string(), to: z.union([z.string(), z.array(z.string())]), text: z.string().optional() }),
@@ -90,10 +73,6 @@ const ResendInbound = z.object({
 /** "Nombre <correo@x>" → correo@x */
 function bareAddress(a: string): string {
   return (/<([^>]+)>/.exec(a)?.[1] ?? a).trim().toLowerCase()
-}
-
-async function audit(tx: Tx, tenantId: string, actor: string, action: string, subject: string | null, details: Record<string, unknown> = {}): Promise<void> {
-  await tx.insert(auditLog).values({ tenantId, actor, action, subject, details })
 }
 
 export function createApp(deps: ApiDeps): express.Express {
@@ -262,27 +241,9 @@ export function createApp(deps: ApiDeps): express.Express {
     res.json(rows.map((c) => ({ id: c.id, round: c.round, status: c.status, channel: c.channel, questions: c.questions, answers: c.answers })))
   })
 
-  /** Respuestas por la API (analista o enlace de un solo uso): las que no van por WhatsApp o correo. */
+  /** Respuestas por la API (integración o enlace de un solo uso): las que no van por WhatsApp o correo. */
   v1.post('/clarifications/:id/answers', need('ingest'), async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const body = parse(AnswersBody, req.body)
-    const { tenantId } = auth(res)
-    const r = await withTenant(deps.db, tenantId, async (tx) => {
-      const [c] = await tx.select().from(clarifications).where(eq(clarifications.id, id))
-      if (!c) throw new HttpError(404, 'aclaración no encontrada')
-      if (c.status !== 'open') throw new HttpError(409, `la aclaración está ${c.status}`)
-      const questions = z.array(Question).parse(c.questions)
-      const unknown = body.answers.filter((a) => !questions.some((q) => q.id === a.question_id))
-      if (unknown.length > 0) throw new HttpError(400, 'respuesta a una pregunta que no existe', unknown.map((a) => ({ path: 'answers', message: `pregunta ${a.question_id} desconocida` })))
-      const prior = z.array(OwnerAnswer).parse(c.answers).filter((a) => !body.answers.some((b) => b.question_id === a.question_id))
-      const answers = [...prior, ...body.answers]
-      const done = isComplete(questions, answers)
-      await tx.update(clarifications).set({ answers, ...(done ? { status: 'answered' as const, answeredAt: new Date() } : {}) }).where(eq(clarifications.id, id))
-      await audit(tx, tenantId, actor(res), 'clarification.answered', id, { answers: body.answers.length, complete: done })
-      return { done, applicationId: c.applicationId }
-    })
-    if (r.done) await enqueueResume(deps.boss, { tenant_id: tenantId, application_id: r.applicationId, clarification_id: id })
-    res.json({ id, complete: r.done })
+    res.json(await answerClarification(deps, auth(res).tenantId, actor(res), parse(z.uuid(), req.params.id), req.body))
   })
 
   // ---------- Políticas: borrador → simular → sombra → activa (docs/03 §5)
@@ -293,74 +254,28 @@ export function createApp(deps: ApiDeps): express.Express {
 
   v1.post('/policies/versions', need('policies'), async (req, res) => {
     const body = parse(PolicyBody, req.body)
-    const parsed = parsePolicy(body.document)
-    if (!parsed.ok) throw new HttpError(400, 'política inválida', parsed.errors)
-    const { tenantId } = auth(res)
-    const row = await withTenant(deps.db, tenantId, async (tx) => {
-      let [p] = await tx.select().from(policies).limit(1)
-      p ??= (await tx.insert(policies).values({ tenantId, name: 'principal' }).returning())[0]
-      if (!p) throw new HttpError(500, 'sin política')
-      const [max] = await tx.select({ v: sql<number>`coalesce(max(${policyVersions.version}), 0)::int` }).from(policyVersions).where(eq(policyVersions.policyId, p.id))
-      const [v] = await tx.insert(policyVersions).values({ tenantId, policyId: p.id, version: (max?.v ?? 0) + 1, status: 'draft', document: parsed.policy }).returning()
-      await audit(tx, tenantId, actor(res), 'policy.draft_created', v?.id ?? null, { version: v?.version })
-      return v
-    })
-    res.status(201).json({ id: row?.id, version: row?.version, status: row?.status })
+    res.status(201).json(await createPolicyDraft(deps.db, auth(res).tenantId, actor(res), body.document))
   })
 
   v1.post('/policies/versions/:id/simulate', need('policies'), async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const { tenantId } = auth(res)
-    const report = await withTenant(deps.db, tenantId, async (tx) => {
-      const versions = await tx.select().from(policyVersions)
-      const draft = versions.find((v) => v.id === id)
-      if (!draft) throw new HttpError(404, 'versión no encontrada')
-      const active = versions.find((v) => v.status === 'active')
-      // Cada veredicto guarda su perfil completo: la simulación lo reevalúa con la otra política.
-      const rows = await tx.selectDistinctOn([decisions.applicationId], { applicationId: decisions.applicationId, payload: decisions.payload }).from(decisions).where(eq(decisions.kind, 'active')).orderBy(decisions.applicationId, desc(decisions.createdAt))
-      const outs = rows.length ? await tx.select().from(outcomes).where(inArray(outcomes.applicationId, rows.map((r) => r.applicationId))) : []
-      const cases: SimulationCase[] = rows.map((r) => ({ id: r.applicationId, profile: Profile.parse((r.payload as { profile: unknown }).profile), outcome: outs.find((o) => o.applicationId === r.applicationId)?.outcome ?? null }))
-      const policy = parsePolicy(draft.document)
-      const baseline = active ? parsePolicy(active.document) : null
-      if (!policy.ok) throw new HttpError(500, 'la versión guardada no es válida')
-      const report = simulatePolicy({ id: draft.id, policy: policy.policy }, cases, active && baseline?.ok ? { id: active.id, policy: baseline.policy } : null)
-      await tx.update(policyVersions).set({ simulation: report }).where(eq(policyVersions.id, id))
-      await audit(tx, tenantId, actor(res), 'policy.simulated', id, { cases: cases.length })
-      return report
-    })
-    res.json(report)
+    res.json(await simulateVersion(deps.db, auth(res).tenantId, actor(res), parse(z.uuid(), req.params.id)))
   })
 
-  const transition = (to: 'shadow' | 'active') =>
-    v1.post(`/policies/versions/:id/${to === 'shadow' ? 'shadow' : 'activate'}`, need('policies'), async (req, res) => {
-      const id = parse(z.uuid(), req.params.id)
-      const { tenantId } = auth(res)
-      await withTenant(deps.db, tenantId, async (tx) => {
-        const [v] = await tx.select().from(policyVersions).where(eq(policyVersions.id, id))
-        if (!v) throw new HttpError(404, 'versión no encontrada')
-        if (v.status === 'archived' || v.status === to) throw new HttpError(409, `la versión está ${v.status}`)
-        // La anterior en ese estado se archiva (activa) o vuelve a borrador (sombra).
-        await tx.update(policyVersions).set({ status: to === 'active' ? 'archived' : 'draft' }).where(eq(policyVersions.status, to))
-        await tx.update(policyVersions).set({ status: to, ...(to === 'active' ? { activatedAt: new Date() } : {}) }).where(eq(policyVersions.id, id))
-        await audit(tx, tenantId, actor(res), `policy.${to === 'active' ? 'activated' : 'shadowed'}`, id, { version: v.version })
-      })
-      res.json({ id, status: to })
-    })
-  transition('shadow')
-  transition('active')
+  v1.post('/policies/versions/:id/shadow', need('policies'), async (req, res) => {
+    res.json(await transitionVersion(deps.db, auth(res).tenantId, actor(res), parse(z.uuid(), req.params.id), 'shadow'))
+  })
+  v1.post('/policies/versions/:id/activate', need('policies'), async (req, res) => {
+    res.json(await transitionVersion(deps.db, auth(res).tenantId, actor(res), parse(z.uuid(), req.params.id), 'active'))
+  })
 
   // ---------- Outcomes (docs/03 §8)
   v1.post('/outcomes', need('ingest'), async (req, res) => {
-    const body = parse(OutcomeBody, req.body)
-    const { tenantId } = auth(res)
-    await withTenant(deps.db, tenantId, async (tx) => {
-      const [a] = await tx.select({ id: applications.id }).from(applications).where(eq(applications.id, body.application_id))
-      if (!a) throw new HttpError(404, 'solicitud no encontrada')
-      await tx.insert(outcomes).values({ tenantId, applicationId: a.id, outcome: body.outcome, observedAt: new Date(body.observed_at) })
-      await audit(tx, tenantId, actor(res), 'outcome.recorded', a.id, { outcome: body.outcome })
-    })
+    await recordOutcome(deps.db, auth(res).tenantId, actor(res), req.body)
     res.status(201).json({ ok: true })
   })
+
+  // ---------- Backoffice: sesión de usuario, no llave de API (docs/08)
+  if (deps.backofficeJwtSecret) app.use('/bo/v1', backofficeRouter({ ...deps, backofficeJwtSecret: deps.backofficeJwtSecret }))
 
   app.use('/v1', v1)
 

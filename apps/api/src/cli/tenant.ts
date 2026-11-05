@@ -1,23 +1,71 @@
-/* eslint-disable no-console -- CLI: la llave se muestra una sola vez */
+/* eslint-disable no-console -- CLI: la llave y el enlace se muestran una sola vez */
 /**
- * pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...]
+ * pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...] [--policy archivo.json]
+ * pnpm tenant user add --tenant <id> --email persona@prestamista.mx [--hours 8]
+ *
  * Alta de tenant con el rol administrador: clona la política base como activa y emite la primera
- * llave de API (solo se muestra aquí; se guarda como hash).
+ * llave de API (solo se muestra aquí; se guarda como hash). `user add` da de alta al usuario del
+ * backoffice (un rol, varios usuarios por tenant, docs/08 §1) e imprime su enlace de acceso: en
+ * desarrollo hace el papel del correo de invitación de Supabase Auth, con el mismo tipo de JWT.
  */
+import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { connect, databaseUrl } from '@gow/db'
+import { parsePolicy } from '@gow/contracts'
+import { connect, databaseUrl, tenants, tenantUsers, withTenant } from '@gow/db'
 import { loadRootEnv } from '@gow/llm'
+import { eq } from 'drizzle-orm'
 import { createTenant } from '../admin.ts'
+import { issueToken } from '../session.ts'
 
 loadRootEnv()
-const { values, positionals } = parseArgs({ allowPositionals: true, options: { name: { type: 'string' }, whatsapp: { type: 'string' }, 'email-from': { type: 'string' } } })
-if (positionals[0] !== 'create' || !values.name) {
-  console.error('uso: pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...]')
+const { values, positionals } = parseArgs({ allowPositionals: true, options: { name: { type: 'string' }, whatsapp: { type: 'string' }, 'email-from': { type: 'string' }, policy: { type: 'string' }, tenant: { type: 'string' }, email: { type: 'string' }, hours: { type: 'string' } } })
+const usage = () => {
+  console.error('uso: pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...] [--policy archivo.json]')
+  console.error('     pnpm tenant user add --tenant <id> --email persona@prestamista.mx [--hours 8]')
   process.exit(64)
 }
-const admin = connect(databaseUrl('admin'), { max: 1 })
-const t = await createTenant(admin.db, { name: values.name, whatsappNumber: values.whatsapp ?? null, emailFrom: values['email-from'] ?? null })
-await admin.close()
-console.log(`tenant ${t.tenantId}`)
-console.log(`política base activa ${t.policyVersionId}`)
-console.log(`llave de API (guárdala; no se vuelve a mostrar): ${t.apiKey}`)
+
+if (positionals[0] === 'create' && values.name) {
+  let policy
+  if (values.policy) {
+    const parsed = parsePolicy(JSON.parse(readFileSync(values.policy, 'utf8')))
+    if (!parsed.ok) {
+      console.error(`política inválida: ${parsed.message}`)
+      process.exit(65)
+    }
+    policy = parsed.policy
+  }
+  const admin = connect(databaseUrl('admin'), { max: 1 })
+  const t = await createTenant(admin.db, { name: values.name, whatsappNumber: values.whatsapp ?? null, emailFrom: values['email-from'] ?? null, ...(policy ? { policy } : {}) })
+  await admin.close()
+  console.log(`tenant ${t.tenantId}`)
+  console.log(`política base activa ${t.policyVersionId}`)
+  console.log(`llave de API (guárdala; no se vuelve a mostrar): ${t.apiKey}`)
+} else if (positionals[0] === 'user' && positionals[1] === 'add' && values.tenant && values.email) {
+  const secret = process.env.BACKOFFICE_JWT_SECRET
+  if (!secret) {
+    console.error('Falta BACKOFFICE_JWT_SECRET en el entorno o en .env')
+    process.exit(2)
+  }
+  const webUrl = process.env.BACKOFFICE_URL ?? 'http://127.0.0.1:5173'
+  const admin = connect(databaseUrl('admin'), { max: 1 })
+  const email = values.email.trim().toLowerCase()
+  const tenantId = values.tenant
+  // Con el rol administrador solo para esta alta; la pertenencia queda bajo RLS como cualquier fila.
+  const userId = await withTenant(admin.db, tenantId, async (tx) => {
+    const [t] = await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId))
+    if (!t) throw new Error('no existe ese tenant')
+    const [existing] = await tx.select().from(tenantUsers).where(eq(tenantUsers.email, email))
+    if (existing) return existing.userId
+    const id = randomUUID()
+    await tx.insert(tenantUsers).values({ tenantId, userId: id, email })
+    return id
+  })
+  await admin.close()
+  const token = issueToken(secret, { sub: userId, email, tenant_id: tenantId }, Number(values.hours ?? 8) * 3600)
+  console.log(`usuario ${email} en el tenant ${tenantId}`)
+  console.log(`enlace de acceso (vigente ${values.hours ?? '8'} h): ${webUrl}/entrar#token=${token}`)
+} else {
+  usage()
+}

@@ -27,8 +27,11 @@ const app = createApp({
   boss,
   storage: new LocalDocumentStorage({ root: env.STORAGE_DIR ?? join(REPO, 'data/storage'), secret, publicBaseUrl: publicUrl }),
   resendWebhookSecret: env.RESEND_WEBHOOK_SECRET ?? null,
+  backofficeJwtSecret: env.BACKOFFICE_JWT_SECRET ?? null,
+  secureCookies: publicUrl.startsWith('https://'),
   logger: { error: (m) => { log('error', m) } },
 })
+if (!env.BACKOFFICE_JWT_SECRET) log('info', 'BACKOFFICE_JWT_SECRET sin definir: /bo/v1 (backoffice) deshabilitado')
 const server = app.listen(port, '127.0.0.1', () => {
   log('info', `api escuchando en ${publicUrl}`)
 })
