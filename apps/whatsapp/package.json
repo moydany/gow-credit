@@ -14,10 +14,12 @@
   "dependencies": {
     "@gow/db": "workspace:*",
     "@whiskeysockets/baileys": "7.0.0-rc14",
-    "drizzle-orm": "0.45.4"
+    "drizzle-orm": "0.45.4",
+    "qrcode": "1.5.4"
   },
   "devDependencies": {
     "pg": "8.23.1",
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "@types/qrcode": "1.5.6"
   }
 }

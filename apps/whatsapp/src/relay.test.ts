@@ -3,11 +3,15 @@
  * buzón de su tenant, inserta entrantes una vez y no puede leer nada más.
  */
 import { randomUUID } from 'node:crypto'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { connect, type Database } from '@gow/db'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { jidToNumber, numberToJid } from './baileys.ts'
+import { renderQrForTerminal, writeQrPng } from './qr.ts'
 import { deliverPending, storeIncoming, type IncomingWhatsApp, type WhatsAppTransport } from './relay.ts'
 
 const available = await postgresAvailable()
@@ -90,5 +94,17 @@ describe.skipIf(!available)('relay de WhatsApp (necesita el Postgres de docker c
     await storeIncoming(wa.db, A, m)
     const rows = await admin.query<{ tenant_id: string }>("SELECT tenant_id::text FROM app.inbound_messages WHERE external_id = 'wamid.1'")
     expect(rows.rows).toEqual([{ tenant_id: A }])
+  })
+})
+
+describe('QR para vincular', () => {
+  it('se dibuja en la terminal y se guarda como PNG legible', async () => {
+    const sample = '2@reto-de-vinculacion-de-prueba,llave-publica,llave-de-identidad,secreto'
+    const art = await renderQrForTerminal(sample)
+    expect(art.split('\n').length).toBeGreaterThan(10)
+    expect(art).toMatch(/[▀▄█]/)
+    const path = join(mkdtempSync(join(tmpdir(), 'gow-qr-')), 'sub', 'qr.png')
+    await writeQrPng(sample, path)
+    expect(readFileSync(path).subarray(1, 4).toString('latin1')).toBe('PNG')
   })
 })
