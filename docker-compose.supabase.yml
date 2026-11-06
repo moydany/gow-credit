@@ -1,0 +1,279 @@
+# Supabase local (autohospedado y recortado) para probar el modo full contra Supabase en vez del
+# Postgres simple de docker-compose.yml (ADR 0034). No reemplaza ese archivo: los dos conviven.
+#
+#   pnpm supabase:env    # genera infra/supabase/.env y infra/supabase/app.env (secretos de desarrollo)
+#   pnpm supabase:up     # docker compose -f docker-compose.supabase.yml --env-file infra/supabase/.env up -d --wait
+#   pnpm supabase:down   # detiene el stack; los volúmenes se conservan (añade -v para borrarlos)
+#
+# Adaptado del compose oficial de autohospedaje (github.com/supabase/supabase, docker/), commit
+# bc27d2661edd09a5d0b8d76ce33da6d4071a756e del 2026-10-16 ("update 2026-10-16 - 0.8.3"). Las
+# imágenes son las de ese commit: el repo exige al menos dos semanas de antigüedad (supply chain).
+# Los archivos de infra/supabase/volumes son copias de ese commit; solo roles.sql cambia (una línea).
+#
+# Recorte frente al oficial (nada de esto lo usa el sistema hoy):
+#   - realtime: el backoffice consulta por HTTP; no hay suscripciones.
+#   - analytics (logflare) y vector: los procesos registran en stdout (pino); Studio queda sin la
+#     pestaña de logs (ENABLED_FEATURES_LOGS_ALL=false, igual que el oficial por defecto).
+#   - functions (edge runtime): no hay edge functions.
+#   - supavisor: la app conecta directo a Postgres con un rol por proceso (docs/05 §2).
+#   - imgproxy: solo sirve a las transformaciones de imagen de Storage; están apagadas.
+#   - webhooks.sql, realtime.sql, logs.sql, pooler.sql y _supabase.sql: esquemas de los servicios
+#     quitados. Envoy conserva las rutas de realtime y functions; sin esos servicios responden 503.
+# Añadido: `mail` (Inbucket, el mismo del compose de desarrollo oficial) para ver los correos de
+# Auth (magic links, confirmaciones) en local, y Studio y Postgres publicados en el host.
+#
+# Todos los puertos escuchan solo en 127.0.0.1. Por defecto: Postgres 54340, gateway (Envoy) 54341,
+# Studio 54342, correo (Inbucket) 54343. No chocan con docker-compose.yml (54330), la API (3000),
+# la web (5173) ni el stack de la Supabase CLI (54321-54324).
+
+name: gow-supabase
+
+services:
+  db:
+    image: supabase/postgres:17.6.1.136
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GOW_SUPABASE_DB_PORT:-54340}:5432"
+    volumes:
+      # Contraseñas de authenticator, supabase_auth_admin, etc. (del oficial, sin supabase_functions_admin).
+      - ./infra/supabase/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./infra/supabase/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      # Los seis roles de la app con su contraseña de desarrollo (el mismo archivo que usa
+      # docker-compose.yml). Va en migrations/ para correr como supabase_admin después de que la
+      # imagen quita el superusuario a `postgres`; el archivo siguiente le da a `postgres` la
+      # membresía que tendría en Supabase si hubiera creado él los roles.
+      - ./infra/postgres/init/00-roles.sql:/docker-entrypoint-initdb.d/migrations/98-gow-roles.sql:ro
+      - ./infra/supabase/init/99-gow-roles-postgres.sql:/docker-entrypoint-initdb.d/migrations/99-gow-roles-postgres.sql:ro
+      - gow-supabase-db:/var/lib/postgresql/data
+      # La llave de pgsodium vive aquí y debe sobrevivir a los reinicios (como en el oficial).
+      - gow-supabase-db-config:/etc/postgresql-custom
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_EXP: ${JWT_EXPIRY}
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+
+  auth:
+    image: supabase/gotrue:v2.197.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      mail:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      timeout: 5s
+      interval: 5s
+      retries: 10
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      # HS256 con el JWT secret del proyecto: el mismo que BACKOFFICE_JWT_SECRET de la API.
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_ISSUER: ${API_EXTERNAL_URL}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      # Todo el correo va a Inbucket (sin autenticación SMTP); se lee en http://127.0.0.1:54343.
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_HOST: mail
+      GOTRUE_SMTP_PORT: 2500
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+
+  rest:
+    image: postgrest/postgrest:v14.18
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      # El esquema `app` no se expone: los datos de negocio solo se leen con los roles de la app.
+      PGRST_DB_SCHEMAS: public,graphql_public
+      PGRST_DB_MAX_ROWS: 1000
+      PGRST_DB_EXTRA_SEARCH_PATH: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command: ["postgrest"]
+
+  # Encendido para uso futuro: la app todavía guarda los documentos en disco (LocalDocumentStorage);
+  # el adaptador de Supabase Storage está pendiente (docs/deploy.md).
+  storage:
+    image: supabase/storage-api:v1.81.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/status"]
+      timeout: 5s
+      interval: 5s
+      retries: 10
+      start_period: 10s
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      STORAGE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      GLOBAL_S3_BUCKET: stub
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - gow-supabase-storage:/var/lib/storage
+
+  meta:
+    image: supabase/postgres-meta:v0.100.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then((r) => { if (r.status !== 200) process.exit(1) }).catch(() => process.exit(1))"]
+      timeout: 5s
+      interval: 5s
+      retries: 10
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+
+  studio:
+    image: supabase/studio:2026.10.12-sha-3699278
+    restart: unless-stopped
+    depends_on:
+      meta:
+        condition: service_healthy
+    ports:
+      # Directo y sin la autenticación básica del gateway: solo escucha en 127.0.0.1.
+      - "127.0.0.1:${GOW_SUPABASE_STUDIO_PORT:-54342}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/platform/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)})\""]
+      timeout: 10s
+      interval: 5s
+      retries: 10
+      start_period: 30s
+    environment:
+      HOSTNAME: "0.0.0.0"
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PORT: 5432
+      POSTGRES_HOST: db
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER_READ_WRITE: postgres
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+      PGRST_DB_SCHEMAS: public,graphql_public
+      PGRST_DB_MAX_ROWS: 1000
+      PGRST_DB_EXTRA_SEARCH_PATH: public
+      DEFAULT_ORGANIZATION_NAME: GOW Credit
+      DEFAULT_PROJECT_NAME: gow-local
+      SUPABASE_URL: http://api-gw:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      ENABLED_FEATURES_LOGS_ALL: "false"
+      SNIPPETS_MANAGEMENT_FOLDER: /app/snippets
+    volumes:
+      - gow-supabase-snippets:/app/snippets
+
+  # Envoy es el gateway por defecto del compose oficial (antes Kong). Rutas /auth/v1, /rest/v1,
+  # /storage/v1, /pg y Studio en / (con autenticación básica DASHBOARD_USERNAME/PASSWORD).
+  api-gw:
+    image: envoyproxy/envoy:v1.39.1
+    restart: unless-stopped
+    networks:
+      default:
+        aliases: [envoy, kong]
+    healthcheck:
+      # La imagen no trae curl ni wget.
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/8000'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      studio:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GOW_SUPABASE_API_PORT:-54341}:8000"
+    volumes:
+      - ./infra/supabase/volumes/api/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./infra/supabase/volumes/api/envoy/cds.yaml:/etc/envoy/cds.yaml:ro
+      - ./infra/supabase/volumes/api/envoy/lds.template.yaml:/etc/envoy/lds.template.yaml:ro
+      - ./infra/supabase/volumes/api/envoy/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_PUBLISHABLE_KEY: ""
+      SUPABASE_SECRET_KEY: ""
+      ANON_KEY_ASYMMETRIC: ""
+      SERVICE_ROLE_KEY_ASYMMETRIC: ""
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
+
+  mail:
+    image: inbucket/inbucket:3.0.3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GOW_SUPABASE_MAIL_PORT:-54343}:9000"
+
+volumes:
+  gow-supabase-db:
+  gow-supabase-db-config:
+  gow-supabase-storage:
+  gow-supabase-snippets:

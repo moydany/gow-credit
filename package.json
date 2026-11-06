@@ -28,7 +28,10 @@
     "whatsapp": "pnpm -F @gow/whatsapp start",
     "demo:load": "pnpm -F @gow/api demo",
     "corrections:export": "pnpm -F @gow/api corrections export",
-    "web": "pnpm -F @gow/web dev"
+    "web": "pnpm -F @gow/web dev",
+    "supabase:env": "sh scripts/supabase-env.sh",
+    "supabase:up": "docker compose -f docker-compose.supabase.yml --env-file infra/supabase/.env up -d --wait",
+    "supabase:down": "docker compose -f docker-compose.supabase.yml --env-file infra/supabase/.env down"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
