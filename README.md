@@ -16,6 +16,9 @@ Postgres, cola, WhatsApp, correo y un backoffice.
 
 ## Cómo correrlo en 5 minutos
 
+Para pasarlo a otra computadora con tus llaves, los PDFs, el ground truth y la caché, sigue
+[`docs/local-setup.md`](docs/local-setup.md); `pnpm doctor` dice qué falta.
+
 **Necesitas:**
 
 - Node 24 o posterior.
@@ -333,6 +336,7 @@ Para producción, el plan está en [`docs/deploy.md`](docs/deploy.md): Cloud Run
 
 | Comando | Qué hace | Costo |
 |---|---|---|
+| `pnpm doctor` | Revisa herramientas, llaves de `.env` (sin mostrarlas) y datos de esta máquina | 0 |
 | `pnpm typecheck` | TypeScript estricto en todo el monorepo | 0 |
 | `pnpm lint` | ESLint con reglas estrictas con tipos | 0 |
 | `pnpm test` | Pruebas unitarias. Las de Postgres se saltan si no está arriba | 0 |
@@ -343,6 +347,7 @@ Para producción, el plan está en [`docs/deploy.md`](docs/deploy.md): Cloud Run
 | `pnpm simulate --policy <json>` | Política borrador contra la vigente sobre un conjunto de perfiles | 0 |
 | `pnpm corrections:export --tenant <id>` | Correcciones del analista a `data/corrections/`; `pnpm -F @gow/evals corrections` las mide contra el modelo actual | 0 |
 | `pnpm -F @gow/evals gt:review sample` | Muestra del ground truth para revisar a mano contra el PDF; `record --reviewer <iniciales>` guarda el resultado sin valores | 0 |
+| `pnpm data:pack` / `pnpm data:unpack` | Paquete cifrado con `data/dev`, el ground truth y la caché, para pasarlos a otra máquina (`EVAL_BUNDLE_KEY`) | 0 |
 
 Los 9 PDFs de desarrollo no están en el repositorio. Con el enlace compartido, se descargan y se
 verifican contra su manifiesto de hashes:
@@ -381,7 +386,7 @@ El detalle por banco está en
 | `apps/api`, `apps/worker`, `apps/whatsapp`, `apps/web` | Procesos del modo full y el backoffice |
 | `evals/`, `scenarios/` | Evals con Evalite y escenarios de `docs/06` |
 | `prompts/` | Prompts versionados con su changelog |
-| `docs/` | Diseño (`00` a `09`), [spec de una página](docs/00-spec.md), [ADRs](docs/adr/README.md), [cómo se construyó](docs/harness.md), [despliegue](docs/deploy.md), spikes y experimentos |
+| `docs/` | Diseño (`00` a `09`), [spec de una página](docs/00-spec.md), [ADRs](docs/adr/README.md), [cómo se construyó](docs/harness.md), [otra máquina](docs/local-setup.md), [despliegue](docs/deploy.md), spikes y experimentos |
 
 ## English summary
 
@@ -422,3 +427,4 @@ transaction with none invented or missed, and all 9 reconcile.
 - Design and decisions: `docs/00-spec.md`, which links to the ADRs.
 - How it was built with a coding agent: `docs/harness.md`.
 - Deployment plan: `docs/deploy.md`.
+- Setting it up on another machine: `docs/local-setup.md`.
