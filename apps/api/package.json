@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "tsx src/main.ts",
     "tenant": "tsx src/cli/tenant.ts",
-    "demo": "tsx src/cli/demo.ts"
+    "demo": "tsx src/cli/demo.ts",
+    "corrections": "tsx src/cli/corrections.ts"
   },
   "dependencies": {
     "@gow/channels": "workspace:*",

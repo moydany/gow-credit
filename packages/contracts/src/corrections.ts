@@ -92,3 +92,16 @@ export const DISCARD_REASON_LABELS: Record<DiscardReason, string> = {
   incomplete: 'Le faltan páginas o periodos',
 }
 export const DISCARDED_PREFIX = 'document_discarded:'
+
+/**
+ * Correcciones exportadas para las evals (ADR 0020, fase 8): un archivo por documento, llave el
+ * sha256 del PDF. Sin usuario, tenant ni solicitud: solo qué se leyó, qué era y en qué página.
+ * Vive en `data/corrections/`, que no se versiona, porque los valores son datos del documento.
+ */
+export const CorrectionsExport = z.strictObject({
+  version: z.literal(1),
+  document_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  exported_at: z.string(),
+  corrections: z.array(z.strictObject({ target: CorrectionTarget, read_value: z.union([z.string(), z.number(), z.null()]), value: CorrectionValue, page: z.int().min(1).nullable() })).min(1),
+})
+export type CorrectionsExport = z.infer<typeof CorrectionsExport>
