@@ -74,8 +74,8 @@ export function Shell() {
                     <p className="truncate text-[14px] font-medium">{me.data.user.email}</p>
                     <p className="mt-0.5 truncate text-[13px] text-muted">{me.data.tenant.name}</p>
                     <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted">
-                      <span className={clsx('size-1.5 rounded-full', me.data.tenant.whatsapp_number ? 'bg-lime-ink' : 'bg-amber')} />
-                      {me.data.tenant.whatsapp_number ? `WhatsApp ${me.data.tenant.whatsapp_number}` : 'WhatsApp sin vincular: respondes tú'}
+                      <span className={clsx('size-1.5 rounded-full', me.data.tenant.whatsapp_linked_number ? 'bg-lime-ink' : 'bg-amber')} />
+                      {me.data.tenant.whatsapp_linked_number ? `WhatsApp ${me.data.tenant.whatsapp_linked_number}` : 'WhatsApp sin vincular: respondes tú'}
                     </p>
                   </div>
                   <button

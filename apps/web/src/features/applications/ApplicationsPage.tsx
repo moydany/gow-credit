@@ -88,7 +88,7 @@ export function ApplicationsPage() {
             <div>
               {isPending ? <Skeleton className="h-12 w-20" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.clarification}</p>}
               <p className="mt-2 flex items-center gap-1.5 text-[13px] text-muted">
-                <Icon name="chat" size={14} /> {me.data?.tenant.whatsapp_number ? 'Se preguntan por WhatsApp o correo' : 'Sin WhatsApp: respondes desde aquí'}
+                <Icon name="chat" size={14} /> {me.data?.tenant.whatsapp_linked_number ? 'Se preguntan por WhatsApp o correo' : 'Sin WhatsApp: respondes desde aquí'}
               </p>
             </div>
           </div>

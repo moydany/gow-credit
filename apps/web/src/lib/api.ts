@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, OwnerAnswer, PolicyVersionItem, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantUserCreated, TenantUserItem } from '@gow/contracts'
+import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, OwnerAnswer, PolicyVersionItem, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -66,6 +66,8 @@ export const api = {
   apiKeys: () => request<ApiKeyItem[]>('GET', '/api-keys'),
   createApiKey: (scopes: ApiKeyScope[]) => request<ApiKeyCreated>('POST', '/api-keys', { scopes }),
   revokeApiKey: (id: string) => request<ApiKeyItem>('POST', `/api-keys/${id}/revoke`),
+  whatsapp: () => request<WhatsAppLinkState>('GET', '/whatsapp'),
+  unlinkWhatsapp: () => request<WhatsAppUnlinkRequested>('POST', '/whatsapp/unlink'),
 }
 
 export const documentUrl = (documentId: string) => `/bo/v1/documents/${documentId}/file`

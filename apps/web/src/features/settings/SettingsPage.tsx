@@ -1,7 +1,8 @@
 /**
  * Configuración del tenant (docs/08 §2): usuarios, llaves de API y canales. El enlace de acceso de un
  * invitado y la llave completa se muestran una sola vez, en un diálogo, y no se guardan en el
- * navegador. WhatsApp, retención y aviso de privacidad son de solo lectura en esta versión.
+ * navegador. WhatsApp se vincula escaneando el QR aquí mismo (ADR 0033); correo, retención y aviso
+ * de privacidad son de solo lectura en esta versión.
  */
 import { ApiKeyScope, TenantUserCreateBody, type ApiKeyItem, type TenantUserItem } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,6 +15,7 @@ import { Icon } from '../../ui/icons'
 import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, Skeleton } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
 import { PageTitle } from '../applications/ApplicationsPage'
+import { WhatsAppLink } from './WhatsAppLink'
 
 const SCOPE_LABEL: Record<ApiKeyScope, { label: string; hint: string }> = {
   ingest: { label: 'Ingesta', hint: 'Proveedores, documentos, solicitudes, respuestas y outcomes' },
@@ -297,7 +299,7 @@ function ApiKeysCard() {
   )
 }
 
-// ---------- Canales y privacidad (solo lectura)
+// ---------- Canales (WhatsApp se vincula aquí; correo de solo lectura) y privacidad
 
 function ChannelsCard() {
   const { data, isPending, isError, error, refetch } = useSettings()
@@ -310,26 +312,7 @@ function ChannelsCard() {
         <ListSkeleton />
       ) : (
         <div className="mt-4 space-y-3 px-6">
-          <div className="inner p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="flex items-center gap-2 text-[14.5px] font-medium">
-                <Icon name="phone" size={16} /> WhatsApp
-              </p>
-              {data.whatsapp.number ? (
-                <Chip tone="lime" dot>
-                  {data.whatsapp.number}
-                </Chip>
-              ) : (
-                <Chip tone="amber" dot>
-                  Sin vincular
-                </Chip>
-              )}
-            </div>
-            <p className="mt-2.5 text-[13px] leading-relaxed text-muted">
-              {data.whatsapp.number ? 'Las aclaraciones salen por este número a los contactos verificados.' : 'Mientras no haya número, las aclaraciones quedan como manuales y las respondes desde Aclaraciones.'} Para vincular el número se corre{' '}
-              <code className="rounded-md bg-card px-1.5 py-0.5 font-mono text-[12px] text-ink">WHATSAPP_TENANT_ID={data.tenant.id} pnpm whatsapp</code> y se escanea el QR. La vinculación desde esta pantalla aún no existe.
-            </p>
-          </div>
+          <WhatsAppLink settings={data} />
           <div className="inner p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-[14.5px] font-medium">

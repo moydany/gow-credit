@@ -25,7 +25,7 @@ export function ClarificationsPage() {
 
   return (
     <div>
-      <PageTitle title="Aclaraciones" muted={me.data?.tenant.whatsapp_number ? undefined : 'sin WhatsApp'}>
+      <PageTitle title="Aclaraciones" muted={me.data?.tenant.whatsapp_linked_number ? undefined : 'sin WhatsApp'}>
         <p className="max-w-sm text-[13.5px] text-muted">Preguntas al proveedor cuando un dato dudoso puede cambiar el resultado. Sin un contacto verificado, las respondes tú.</p>
       </PageTitle>
 
