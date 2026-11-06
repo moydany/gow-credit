@@ -75,3 +75,20 @@ export function checkCorrectionValue(t: CorrectionTarget, value: string | number
       return String(value).trim().length > 0 ? null : 'No puede ir vacío'
   }
 }
+
+/**
+ * Descartar el documento en revisión humana (docs/08 §2): el analista concluye que no sirve para
+ * decidir. Motivo cerrado, sin texto libre: la bitácora y la solicitud no guardan notas que puedan
+ * llevar datos del documento. La solicitud termina en `not_qualified` con
+ * `failure_reason = document_discarded:<motivo>`; el proveedor puede volver a solicitar con otro.
+ */
+export const DiscardReason = z.enum(['wrong_document', 'illegible', 'altered', 'incomplete'])
+export type DiscardReason = z.infer<typeof DiscardReason>
+export const DiscardBody = z.strictObject({ reason: DiscardReason })
+export const DISCARD_REASON_LABELS: Record<DiscardReason, string> = {
+  wrong_document: 'No es un estado de cuenta del proveedor',
+  illegible: 'No se puede leer',
+  altered: 'Parece alterado',
+  incomplete: 'Le faltan páginas o periodos',
+}
+export const DISCARDED_PREFIX = 'document_discarded:'

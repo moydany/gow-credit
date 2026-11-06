@@ -5,7 +5,7 @@
  * efecto y el mismo rastro sin importar por dónde llegó.
  */
 import { isComplete } from '@gow/channels'
-import { CorrectionsBody, OwnerAnswer, parsePolicy, Profile, Question, StatementExtraction, type SimulationCase } from '@gow/contracts'
+import { CorrectionsBody, DiscardBody, DISCARDED_PREFIX, OwnerAnswer, parsePolicy, Profile, Question, StatementExtraction, type SimulationCase } from '@gow/contracts'
 import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, extractions, outcomes, policies, policyVersions, withTenant, type Db, type Tx } from '@gow/db'
 import { simulatePolicy } from '@gow/decision'
 import { applyCorrections, CorrectionError, readValue } from '@gow/extraction/corrections'
@@ -153,3 +153,17 @@ export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId
   await enqueueRedecide(deps.boss, { tenant_id: tenantId, application_id: applicationId, correction_batch: batch })
   return { batch, corrections: body.corrections.length }
 }
+
+/** Descartar el documento en revisión humana: la solicitud cierra en `not_qualified` sin pasar por el motor. */
+export async function discardDocument(db: Db, tenantId: string, userId: string, applicationId: string, input: unknown): Promise<{ id: string; status: 'not_qualified' }> {
+  const body = parse(DiscardBody, input)
+  await withTenant(db, tenantId, async (tx) => {
+    const [a] = await tx.select().from(applications).where(eq(applications.id, applicationId))
+    if (!a) throw new HttpError(404, 'solicitud no encontrada')
+    if (a.status !== 'human_review') throw new HttpError(409, `la solicitud está ${a.status}; solo se descarta en revisión humana`)
+    await tx.update(applications).set({ status: 'not_qualified', failureReason: `${DISCARDED_PREFIX}${body.reason}`, updatedAt: new Date() }).where(eq(applications.id, applicationId))
+    await audit(tx, tenantId, `user:${userId}`, 'application.discarded', applicationId, { reason: body.reason })
+  })
+  return { id: applicationId, status: 'not_qualified' }
+}
+

@@ -11,7 +11,7 @@ import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
-import { answerClarification, audit, createPolicyDraft, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
+import { answerClarification, audit, createPolicyDraft, discardDocument, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 import { CSRF_HEADER, clearedCookie, readCookie, SESSION_COOKIE, sessionCookie, verifyToken } from './session.ts'
 
 export interface BackofficeDeps {
@@ -224,6 +224,12 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   r.post('/applications/:id/corrections', async (req, res) => {
     const w = who(res)
     res.status(202).json(await recordCorrections(deps, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
+  })
+
+  /** Descartar el documento en revisión humana: cierra la solicitud sin reevaluar. */
+  r.post('/applications/:id/discard', async (req, res) => {
+    const w = who(res)
+    res.json(await discardDocument(deps.db, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
   })
 
   // ---------- Aclaraciones con respuesta manual

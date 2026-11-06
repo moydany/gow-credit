@@ -177,6 +177,29 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })).status).toBe(409)
   })
 
+  it('descartar el documento en revisión humana cierra en not_qualified con motivo cerrado y entra a la bitácora', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const sup = randomUUID()
+    const app = randomUUID()
+    await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3)', [sup, tenantA, 'Proveedor a descartar'])
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'human_review')", [app, tenantA, sup])
+    const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
+    const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
+
+    // Motivo fuera de la lista, o texto libre: 400 y nada cambia.
+    expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'otro' } })).status).toBe(400)
+    expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'illegible', note: 'x' } })).status).toBe(400)
+    // Otro tenant no la ve.
+    expect((await call('POST', `/applications/${app}/discard`, { cookie: b, body: { reason: 'illegible' } })).status).toBe(404)
+
+    const ok = await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'altered' } })
+    expect(ok.status).toBe(200)
+    expect((await q('SELECT status, failure_reason FROM app.applications WHERE id = $1', [app])).rows[0]).toEqual({ status: 'not_qualified', failure_reason: 'document_discarded:altered' })
+    expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'application.discarded'", [app])).rows[0]).toEqual({ actor: `user:${userA}`, details: { reason: 'altered' } })
+    // Ya no está en revisión humana.
+    expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'altered' } })).status).toBe(409)
+  })
+
   it('el esquema de tenant_users está en el catálogo de tablas con RLS', () => {
     expect(tenantUsers).toBeDefined()
   })
