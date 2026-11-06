@@ -39,6 +39,9 @@ export interface ApiDeps {
   backofficeUrl?: string | null
   /** Supabase Auth para el login del backoffice por correo (ADR 0035); sin él, solo el enlace con el JWT. */
   auth?: AuthDirectory | null
+  /** Límites de la sesión renovable con Supabase Auth (ADR 0036), en horas: absoluto e inactividad. */
+  sessionMaxHours?: number
+  sessionIdleHours?: number
 }
 
 interface Auth {

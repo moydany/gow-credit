@@ -7,14 +7,14 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { apiKeys, applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, supplierContacts, suppliers, tenants, tenantUsers, whatsappSessions, withTenant, type Db, type Tx } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
+import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { hashSecret, newApiKey } from './admin.ts'
 import { answerClarification, audit, createPolicyDraft, discardDocument, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
-import { CSRF_HEADER, clearedCookie, issueToken, readCookie, SESSION_COOKIE, sessionCookie, verifyToken } from './session.ts'
+import { clearedCookies, CSRF_HEADER, issueToken, openRefresh, readCookie, REFRESH_COOKIE, refreshCookie, refreshRemaining, sealRefresh, SESSION_COOKIE, sessionCookie, verifyToken, type RefreshPayload, type SessionClaims, type SessionLimits } from './session.ts'
 import type { AuthDirectory } from './supabase-auth.ts'
 
 export interface BackofficeDeps {
@@ -30,6 +30,13 @@ export interface BackofficeDeps {
    * un enlace que llega por correo. Sin él, el enlace con el JWT de desarrollo de siempre.
    */
   auth?: AuthDirectory | null
+  /**
+   * Con Supabase Auth la sesión se renueva sola (ADR 0036) hasta `sessionMaxHours` desde el login
+   * (`BACKOFFICE_SESSION_MAX_HOURS`, 12 por defecto) o hasta `sessionIdleHours` sin renovarse
+   * (`BACKOFFICE_SESSION_IDLE_HOURS`, 8 por defecto).
+   */
+  sessionMaxHours?: number
+  sessionIdleHours?: number
   logger?: { error(message: string): void }
 }
 
@@ -40,6 +47,19 @@ interface Who {
 }
 
 const SESSION_SECONDS = 8 * 60 * 60
+/**
+ * Con menos de esto de vida, el access token se renueva en la petición que llegue: 5 min, o la mitad
+ * de su vida si es más corta (un `JWT_EXPIRY` de 2 min no renueva en cada petición).
+ */
+const REFRESH_BEFORE_SECONDS = 5 * 60
+const refreshBefore = (c: SessionClaims) => (c.iat === undefined ? REFRESH_BEFORE_SECONDS : Math.min(REFRESH_BEFORE_SECONDS, Math.floor((c.exp - c.iat) / 2)))
+/**
+ * Una renovación se comparte con las peticiones que lleguen con el mismo refresh token en este lapso
+ * (las que salieron en paralelo del navegador antes de recibir las cookies nuevas).
+ */
+const REFRESH_SHARE_MS = 30_000
+const nowSeconds = () => Math.floor(Date.now() / 1000)
+const errorText = (e: unknown) => (e instanceof Error ? e.message : 'error')
 /** Ruta del backoffice que termina el login: lee el token del fragmento y lo cambia por la cookie. */
 const ENTER_PATH = '/entrar'
 
@@ -117,11 +137,111 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   const magicLinkPerIp = windowLimiter(5, 60_000)
   const magicLinkPerEmail = windowLimiter(3, 15 * 60_000)
 
-  async function membership(token: string): Promise<(Who & { exp: number; supabaseSession: boolean }) | null> {
-    const claims = verifyToken(deps.backofficeJwtSecret, token)
-    if (!claims) return null
+  const limits: SessionLimits = { maxSeconds: (deps.sessionMaxHours ?? 12) * 3600, idleSeconds: (deps.sessionIdleHours ?? 8) * 3600 }
+
+  /** La pertenencia vigente de unos claims ya verificados, o null si ya no es miembro. */
+  async function memberOf(claims: SessionClaims): Promise<(Who & { exp: number; supabaseSession: boolean }) | null> {
     const [m] = await withTenant(deps.db, claims.tenant_id, (tx) => tx.select().from(tenantUsers).where(and(eq(tenantUsers.tenantId, claims.tenant_id), eq(tenantUsers.userId, claims.sub))))
     return m ? { userId: m.userId, email: m.email, tenantId: m.tenantId, exp: claims.exp, supabaseSession: claims.session_id !== undefined } : null
+  }
+
+  async function membership(token: string): Promise<(Who & { exp: number; supabaseSession: boolean }) | null> {
+    const claims = verifyToken(deps.backofficeJwtSecret, token)
+    return claims ? memberOf(claims) : null
+  }
+
+  /** Cierra la sesión de GoTrue de un access token; si falla, solo se registra el código. */
+  async function revokeQuietly(auth: AuthDirectory, accessToken: string, what: string): Promise<void> {
+    await auth.revokeSession(accessToken).catch((e: unknown) => {
+      deps.logger?.error(`backoffice: no se cerró la sesión de Auth ${what} (${errorText(e)})`)
+    })
+  }
+
+  /**
+   * Renovaciones en curso o recién hechas, por hash del refresh token (nunca el token como llave).
+   * Varias peticiones en paralelo con la misma cookie hacen una sola llamada a GoTrue y reciben los
+   * mismos tokens nuevos. Entre instancias, lo cubre el intervalo de reúso de GoTrue (ADR 0036).
+   */
+  const refreshes = new Map<string, { at: number; result: Promise<{ accessToken: string; refreshToken: string } | null> }>()
+  function refreshOnce(auth: AuthDirectory, refreshToken: string): Promise<{ accessToken: string; refreshToken: string } | null> {
+    const key = createHash('sha256').update(refreshToken).digest('base64url')
+    const now = Date.now()
+    if (refreshes.size > 1_000) for (const [k, v] of refreshes) if (now - v.at > REFRESH_SHARE_MS) refreshes.delete(k)
+    const hit = refreshes.get(key)
+    if (hit && now - hit.at <= REFRESH_SHARE_MS) return hit.result
+    const result = auth.refreshSession(refreshToken)
+    refreshes.set(key, { at: now, result })
+    // Un error transitorio no se comparte más allá de quien ya esperaba: la siguiente petición reintenta.
+    result.catch(() => {
+      if (refreshes.get(key)?.result === result) refreshes.delete(key)
+    })
+    return result
+  }
+
+  /** Las cookies de una sesión renovada: el access token y el refresh token nuevo, cifrado. */
+  function renewedCookies(accessToken: string, exp: number, payload: RefreshPayload): string[] {
+    const now = nowSeconds()
+    const left = refreshRemaining(payload, limits, now)
+    return [sessionCookie(accessToken, { maxAgeSeconds: Math.min(SESSION_SECONDS, exp - now, left), secure }), refreshCookie(sealRefresh(deps.backofficeJwtSecret, payload), { maxAgeSeconds: left, secure })]
+  }
+
+  function unauthorized(res: Response, clear: boolean): HttpError {
+    if (clear) res.setHeader('Set-Cookie', clearedCookies(secure))
+    return new HttpError(401, 'sesión requerida')
+  }
+
+  /**
+   * Sesión por cookie (ADR 0036). Con un access token vigente y de un miembro, entra; si le quedan
+   * menos de 5 min y hay cookie de refresh, se renueva antes. Sin access token vigente, se renueva
+   * con la cookie de refresh o se responde 401 y se borran las cookies. Mientras el access token
+   * actual sirva, un fallo al renovar no saca a nadie.
+   */
+  async function cookieSession(req: Request, res: Response): Promise<Who> {
+    const header = req.header('cookie')
+    const token = readCookie(header, SESSION_COOKIE)
+    const sealed = deps.auth ? readCookie(header, REFRESH_COOKIE) : null
+    const hadCookies = Boolean(token ?? readCookie(header, REFRESH_COOKIE))
+    const now = nowSeconds()
+    const claims = token ? verifyToken(deps.backofficeJwtSecret, token, now) : null
+    let rc = sealed ? openRefresh(deps.backofficeJwtSecret, sealed, limits, now) : null
+    if (rc && claims && rc.sub !== claims.sub) rc = null
+
+    let current: Who | null = null
+    if (claims && token) {
+      current = await memberOf(claims)
+      if (!current) {
+        // Quitaron al usuario: fuera, y su sesión de GoTrue se cierra con el token que trae.
+        if (deps.auth && claims.session_id !== undefined) await revokeQuietly(deps.auth, token, 'de un usuario sin pertenencia')
+        throw unauthorized(res, true)
+      }
+      if (!rc || claims.exp - now > refreshBefore(claims)) return current
+    }
+    const auth = deps.auth
+    if (!rc || !auth) throw unauthorized(res, hadCookies)
+
+    let fresh: { accessToken: string; refreshToken: string } | null
+    try {
+      fresh = await refreshOnce(auth, rc.rt)
+    } catch (e) {
+      deps.logger?.error(`backoffice: no se renovó la sesión (${errorText(e)})`)
+      if (current) return current
+      throw new HttpError(503, 'no se pudo renovar la sesión; intenta de nuevo')
+    }
+    if (!fresh) {
+      // GoTrue rechazó el refresh token. Si el access token actual sirve, se sigue con él: otra
+      // petición en paralelo pudo haber rotado ya el refresh token y sus cookies son las buenas.
+      if (current) return current
+      throw unauthorized(res, true)
+    }
+    const next = verifyToken(deps.backofficeJwtSecret, fresh.accessToken)
+    const renewed = next && next.sub === rc.sub ? await memberOf(next) : null
+    if (!next || !renewed) {
+      // Sin `tenant_id` (el hook ya no lo pone) o sin pertenencia: fuera, y se cierra su sesión de GoTrue.
+      await revokeQuietly(auth, fresh.accessToken, 'de un usuario sin pertenencia')
+      throw unauthorized(res, true)
+    }
+    res.setHeader('Set-Cookie', renewedCookies(fresh.accessToken, next.exp, { ...rc, rt: fresh.refreshToken, rat: now }))
+    return renewed
   }
 
   /** Correo con el enlace de acceso, fuera de la petición: el tiempo de respuesta no dice si la cuenta existe. */
@@ -149,19 +269,20 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (!w0 || now - w0.start > 60_000) attempts.set(key, { start: now, count: 1 })
     else if (++w0.count > 20) throw new HttpError(429, 'demasiados intentos')
     if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
-    const body = parse(z.strictObject({ token: z.string().min(20).max(4000) }), req.body)
+    const body = parse(SessionCreateBody, req.body)
     const w = await membership(body.token)
     if (!w) throw new HttpError(401, 'el enlace de acceso no es válido o ya venció')
-    // La cookie vive lo que el token (ADR 0035): con Supabase Auth, una hora por defecto; después se
-    // vuelve a pedir el enlace. No se refresca: el refresh token ni siquiera llega a la API.
-    const ttl = Math.min(SESSION_SECONDS, w.exp - Math.floor(Date.now() / 1000))
-    res.setHeader('Set-Cookie', sessionCookie(body.token, { maxAgeSeconds: ttl, secure }))
-    // El refresh token de GoTrue viajó en el fragmento de la URL y nadie lo usa: se cierra su sesión
-    // de Auth para que no sirva para emitir tokens nuevos. El access token sigue válido hasta `exp`.
-    if (deps.auth && w.supabaseSession) {
-      await deps.auth.revokeSession(body.token).catch((e: unknown) => {
-        deps.logger?.error(`backoffice: no se cerró la sesión de Auth (${e instanceof Error ? e.message : 'error'})`)
-      })
+    const at = nowSeconds()
+    if (deps.auth && w.supabaseSession && body.refresh_token) {
+      // Supabase Auth (ADR 0036): el refresh token se queda del lado de la API, cifrado en una cookie
+      // HttpOnly, y la sesión se renueva sola hasta sus límites.
+      res.setHeader('Set-Cookie', renewedCookies(body.token, w.exp, { v: 1, rt: body.refresh_token, sub: w.userId, iat: at, rat: at }))
+    } else {
+      // Enlace de desarrollo: la cookie vive lo que el token (8 h como máximo).
+      res.setHeader('Set-Cookie', sessionCookie(body.token, { maxAgeSeconds: Math.min(SESSION_SECONDS, w.exp - at), secure }))
+      // Un token de Supabase sin su refresh token: nadie va a usar ese refresh token, que viajó en
+      // la URL. Se cierra su sesión de Auth; el access token sigue valiendo hasta `exp` (ADR 0035).
+      if (deps.auth && w.supabaseSession) await revokeQuietly(deps.auth, body.token, 'sin refresh token')
     }
     res.json(await meOf(w))
   })
@@ -187,21 +308,47 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.status(202).json(out)
   })
 
-  r.delete('/session', (req, res) => {
+  /**
+   * Salir: borra las dos cookies y, con Supabase Auth, cierra la sesión de GoTrue (su refresh token
+   * deja de servir). Si el access token ya venció, se renueva una vez solo para poder cerrarla.
+   */
+  r.delete('/session', async (req, res) => {
     if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
-    res.setHeader('Set-Cookie', clearedCookie(secure))
+    const auth = deps.auth
+    if (auth) {
+      const header = req.header('cookie')
+      let token = readCookie(header, SESSION_COOKIE)
+      let claims = token ? verifyToken(deps.backofficeJwtSecret, token) : null
+      const sealed = readCookie(header, REFRESH_COOKIE)
+      const rc = sealed ? openRefresh(deps.backofficeJwtSecret, sealed, limits) : null
+      if (!claims && rc) {
+        const fresh = await refreshOnce(auth, rc.rt).catch(() => null)
+        token = fresh?.accessToken ?? null
+        claims = token ? verifyToken(deps.backofficeJwtSecret, token) : null
+      }
+      if (token && claims?.session_id !== undefined) await revokeQuietly(auth, token, 'al salir')
+    }
+    res.setHeader('Set-Cookie', clearedCookies(secure))
     res.status(204).end()
   })
 
   // ---------- Todo lo demás exige sesión vigente y miembro del tenant
   r.use(async (req: Request, res: Response, next: NextFunction) => {
     const bearer = /^Bearer (.+)$/.exec(req.header('authorization') ?? '')?.[1]
-    const token = bearer ?? readCookie(req.header('cookie'), SESSION_COOKIE)
-    const w = token ? await membership(token) : null
-    if (!w) throw new HttpError(401, 'sesión requerida')
-    // Con cookie, toda escritura debe traer el encabezado: un formulario de otro sitio no puede.
-    if (!['GET', 'HEAD'].includes(req.method) && !bearer && req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
-    res.locals.who = w
+    if (bearer) {
+      // Con Bearer no hay cookies ni renovación: el token vale lo que dice su `exp`.
+      const w = await membership(bearer)
+      if (!w) throw new HttpError(401, 'sesión requerida')
+      res.locals.who = w
+      next()
+      return
+    }
+    // Con cookie, toda escritura debe traer el encabezado: un formulario de otro sitio no puede. Se
+    // revisa antes de renovar nada.
+    const header = req.header('cookie')
+    const withCookies = Boolean(readCookie(header, SESSION_COOKIE) ?? readCookie(header, REFRESH_COOKIE))
+    if (withCookies && !['GET', 'HEAD'].includes(req.method) && req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+    res.locals.who = await cookieSession(req, res)
     next()
   })
 

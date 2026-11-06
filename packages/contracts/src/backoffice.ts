@@ -196,6 +196,13 @@ export type TenantUserCreated = z.infer<typeof TenantUserCreated>
 export const SessionConfig = z.strictObject({ magic_link: z.boolean() })
 export type SessionConfig = z.infer<typeof SessionConfig>
 
+/**
+ * Lo que manda `/entrar` para crear la sesión: el JWT y, con Supabase Auth, el refresh token del
+ * mismo fragmento. La API guarda el refresh token cifrado en una cookie `HttpOnly` (ADR 0036).
+ */
+export const SessionCreateBody = z.strictObject({ token: z.string().min(20).max(4000), refresh_token: z.string().min(1).max(4000).optional() })
+export type SessionCreateBody = z.infer<typeof SessionCreateBody>
+
 export const MagicLinkBody = z.strictObject({ email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')) })
 export type MagicLinkBody = z.input<typeof MagicLinkBody>
 

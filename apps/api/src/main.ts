@@ -24,6 +24,17 @@ const publicUrl = env.API_PUBLIC_URL ?? `http://127.0.0.1:${String(port)}`
 const db = connect(databaseUrl('api'), { max: 10 })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } }, { supervise: false })
 const auth = supabaseAuthFromEnv(env)
+/** Horas de una variable del entorno (positivas); sin ella, el valor por defecto. */
+const hours = (name: string, fallback: number): number => {
+  const raw = env[name]?.trim()
+  if (!raw) return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) {
+    log('error', `${name} debe ser un número de horas mayor que cero`)
+    process.exit(2)
+  }
+  return n
+}
 const app = createApp({
   db: db.db,
   boss,
@@ -33,10 +44,12 @@ const app = createApp({
   secureCookies: publicUrl.startsWith('https://'),
   backofficeUrl: env.BACKOFFICE_URL ?? null,
   auth,
+  sessionMaxHours: hours('BACKOFFICE_SESSION_MAX_HOURS', 12),
+  sessionIdleHours: hours('BACKOFFICE_SESSION_IDLE_HOURS', 8),
   logger: { error: (m) => { log('error', m) } },
 })
 if (!env.BACKOFFICE_JWT_SECRET) log('info', 'BACKOFFICE_JWT_SECRET sin definir: /bo/v1 (backoffice) deshabilitado')
-else if (auth) log('info', 'Supabase Auth configurado: el backoffice entra con enlace por correo')
+else if (auth) log('info', 'Supabase Auth configurado: el backoffice entra con enlace por correo y la sesión se renueva sola')
 const server = app.listen(port, '127.0.0.1', () => {
   log('info', `api escuchando en ${publicUrl}`)
 })
