@@ -1,0 +1,14 @@
+# Nunca entra a una imagen: datos reales, secretos, dependencias del host.
+data/
+.env
+.env.*
+!.env.example
+**/node_modules
+.git
+.github
+.claude
+.evalite
+.mastra
+**/dist
+spikes/out
+docs/*.docx
