@@ -166,6 +166,22 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
     expect((ko as Error).message).toMatch(/row-level security/)
   })
 
+  it('la API lista y revoca llaves de su tenant sin poder leer el hash ni cambiar otra columna', async () => {
+    const seen = await asTenant(api, A, () => api.query<{ t: string }>('SELECT tenant_id::text AS t, prefix, scopes, revoked_at FROM app.api_keys'))
+    expect(new Set(seen.rows.map((r) => r.t))).toEqual(new Set([A]))
+    const hash = await asTenant(api, A, () => attempt(api, 'SELECT key_hash FROM app.api_keys'))
+    expect((hash as Error).message).toMatch(/permission denied/)
+    const scopes = await asTenant(api, A, () => attempt(api, "UPDATE app.api_keys SET scopes = '{policies}'"))
+    expect((scopes as Error).message).toMatch(/permission denied/)
+    const revokeB = await asTenant(api, A, () => api.query('UPDATE app.api_keys SET revoked_at = now() WHERE tenant_id = $1', [B]))
+    expect(revokeB.rowCount).toBe(0)
+  })
+
+  it('la API quita usuarios solo de su tenant', async () => {
+    const r = await asTenant(api, A, () => api.query('DELETE FROM app.tenant_users WHERE tenant_id = $1', [B]))
+    expect(r.rowCount).toBe(0)
+  })
+
   it('la llave de API se resuelve sin conocer el tenant, solo desde la API', async () => {
     const { rows } = await admin.query<{ prefix: string }>('SELECT prefix FROM app.api_keys WHERE tenant_id = $1', [A])
     const r = await api.query<{ tenant_id: string }>('SELECT tenant_id::text FROM app.resolve_api_key($1)', [rows[0]?.prefix])
