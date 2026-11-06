@@ -57,6 +57,13 @@
       "when": 1793929975784,
       "tag": "0007_whatsapp_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793998649724,
+      "tag": "0008_access_token_hook",
+      "breakpoints": true
     }
   ]
 }
