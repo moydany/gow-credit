@@ -20,6 +20,7 @@ export const outcome = app.enum('outcome', ['paid', 'late', 'default', 'fraud'])
 export const documentOrigin = app.enum('document_origin', ['submitted', 'owner_answer'])
 export const messageStatus = app.enum('message_status', ['pending', 'sent', 'failed'])
 export const decisionKind = app.enum('decision_kind', ['active', 'shadow'])
+export const whatsappSessionStatus = app.enum('whatsapp_session_status', ['starting', 'waiting_qr', 'open', 'closed', 'logged_out'])
 
 const id = () => uuid('id').primaryKey().default(sql`gen_random_uuid()`)
 const tenantId = () => uuid('tenant_id').notNull()
@@ -310,6 +311,29 @@ export const corrections = app.table(
   (t) => [index('corrections_application').on(t.tenantId, t.applicationId, t.createdAt)],
 )
 
+/**
+ * Estado de la sesión de WhatsApp de cada tenant (ADR 0033): lo publica el proceso de WhatsApp y lo
+ * lee el backoffice para vincular el número escaneando el QR desde Configuración. Una fila por tenant.
+ * `gow_whatsapp` escribe todo; `gow_api` lee y solo puede pedir desvincular (`unlink_requested_at`).
+ */
+export const whatsappSessions = app.table('whatsapp_sessions', {
+  tenantId: tenantId()
+    .primaryKey()
+    .references(() => tenants.id),
+  status: whatsappSessionStatus('status').notNull().default('starting'),
+  /** Reto de vinculación vigente; se borra en cuanto la sesión abre. Nunca va a registros. */
+  qr: text('qr'),
+  qrExpiresAt: timestamp('qr_expires_at', { withTimezone: true }),
+  /** Número vinculado (+52...), derivado de la cuenta de la sesión abierta. */
+  linkedNumber: text('linked_number'),
+  /** Latido del proceso (reloj de la base); null tras un apagado limpio. */
+  heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+  /** Lo pide un usuario del backoffice; el proceso lo atiende si es más nuevo que `unlink_handled_at`. */
+  unlinkRequestedAt: timestamp('unlink_requested_at', { withTimezone: true }),
+  unlinkHandledAt: timestamp('unlink_handled_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 /** Bitácora inmutable: los roles de aplicación solo pueden insertar (docs/05 §7). */
 export const auditLog = app.table(
   'audit_log',
@@ -346,5 +370,6 @@ export const TENANT_TABLES = [
   'inbound_messages',
   'outcomes',
   'corrections',
+  'whatsapp_sessions',
   'audit_log',
 ] as const

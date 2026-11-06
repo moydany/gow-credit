@@ -4,7 +4,8 @@
  *   TENANT_TABLES (una tabla nueva sin política hace fallar esta prueba);
  * - tabla por tabla: A no ve, no actualiza ni inserta filas de B;
  * - sin `app.tenant_id` no hay filas;
- * - el rol de WhatsApp no puede leer documentos ni nada fuera de su buzón.
+ * - el rol de WhatsApp no puede leer documentos ni nada fuera de su buzón y del estado de su sesión;
+ * - la API lee ese estado y solo puede pedir desvincular.
  * Necesita el Postgres de docker compose; sin él se salta.
  */
 import { randomUUID } from 'node:crypto'
@@ -51,6 +52,7 @@ async function seed(admin: pg.Client, tenant: string, label: string): Promise<vo
   await q("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body) VALUES ($1, 'whatsapp', 'x', 'hola')", [tenant])
   await q("INSERT INTO app.corrections (tenant_id, application_id, document_id, target, value) VALUES ($1, $2, $3, '{\"kind\":\"holder\",\"field\":\"name\"}', '\"Prueba\"')", [tenant, appId, doc])
   await q("INSERT INTO app.outcomes (tenant_id, application_id, outcome, observed_at) VALUES ($1, $2, 'paid', now())", [tenant, appId])
+  await q("INSERT INTO app.whatsapp_sessions (tenant_id, status, qr, qr_expires_at, heartbeat_at) VALUES ($1, 'waiting_qr', $2, now() + interval '1 minute', now())", [tenant, `2@reto-${label}`])
   await q("INSERT INTO app.audit_log (tenant_id, actor, action) VALUES ($1, 'test', 'seed')", [tenant])
 }
 
@@ -175,6 +177,34 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
     expect((scopes as Error).message).toMatch(/permission denied/)
     const revokeB = await asTenant(api, A, () => api.query('UPDATE app.api_keys SET revoked_at = now() WHERE tenant_id = $1', [B]))
     expect(revokeB.rowCount).toBe(0)
+  })
+
+  it('WhatsApp publica el estado de la sesión solo de su tenant', async () => {
+    const seen = await asTenant(whatsapp, A, () => whatsapp.query<{ t: string; qr: string }>('SELECT tenant_id::text AS t, qr FROM app.whatsapp_sessions'))
+    expect(seen.rows).toEqual([{ t: A, qr: '2@reto-A' }])
+    const ok = await asTenant(whatsapp, A, () => whatsapp.query("UPDATE app.whatsapp_sessions SET status = 'open', qr = NULL, linked_number = '+5215500000001', heartbeat_at = now(), unlink_handled_at = now()"))
+    expect(ok.rowCount).toBe(1)
+    const other = await asTenant(whatsapp, A, () => whatsapp.query("UPDATE app.whatsapp_sessions SET status = 'open' WHERE tenant_id = $1", [B]))
+    expect(other.rowCount).toBe(0)
+    const ko = await asTenant(whatsapp, A, () => attempt(whatsapp, 'INSERT INTO app.whatsapp_sessions (tenant_id) VALUES ($1)', [B]))
+    expect((ko as Error).message).toMatch(/row-level security/)
+  })
+
+  it('la API lee el estado de WhatsApp de su tenant y solo puede pedir desvincular', async () => {
+    const seen = await asTenant(api, A, () => api.query<{ t: string }>('SELECT tenant_id::text AS t, status, qr, linked_number, heartbeat_at, unlink_handled_at FROM app.whatsapp_sessions'))
+    expect(seen.rows.map((r) => r.t)).toEqual([A])
+    const unlink = await asTenant(api, A, () => api.query('UPDATE app.whatsapp_sessions SET unlink_requested_at = now()'))
+    expect(unlink.rowCount).toBe(1)
+    const unlinkB = await asTenant(api, A, () => api.query('UPDATE app.whatsapp_sessions SET unlink_requested_at = now() WHERE tenant_id = $1', [B]))
+    expect(unlinkB.rowCount).toBe(0)
+    for (const set of ["status = 'open'", 'qr = NULL', "linked_number = '+520000000000'", 'heartbeat_at = now()', 'unlink_handled_at = now()']) {
+      const r = await asTenant(api, A, () => attempt(api, `UPDATE app.whatsapp_sessions SET ${set}`))
+      expect((r as Error).message, set).toMatch(/permission denied/)
+    }
+    const insert = await asTenant(api, A, () => attempt(api, 'INSERT INTO app.whatsapp_sessions (tenant_id) VALUES ($1)', [A]))
+    expect((insert as Error).message).toMatch(/permission denied/)
+    const workerRead = await asTenant(worker, A, () => attempt(worker, 'SELECT 1 FROM app.whatsapp_sessions'))
+    expect((workerRead as Error).message).toMatch(/permission denied/)
   })
 
   it('la API quita usuarios solo de su tenant', async () => {
