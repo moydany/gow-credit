@@ -92,6 +92,11 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      # Sesión renovable del backoffice (ADR 0036): el refresh token rota en cada uso y, durante 10 s,
+      # el anterior todavía sirve (peticiones en paralelo que llegan a varias instancias de la API).
+      # Fuera de ese intervalo, reusarlo cierra la sesión. Son los valores por defecto, aquí explícitos.
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: "true"
+      GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: "10"
       # HS256 con el JWT secret del proyecto: el mismo que BACKOFFICE_JWT_SECRET de la API.
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
       GOTRUE_JWT_ISSUER: ${API_EXTERNAL_URL}
