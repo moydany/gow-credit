@@ -47,6 +47,22 @@ export async function clearAuthState(dir: string): Promise<number> {
 
 const LOGOUT_TIMEOUT_MS = 10_000
 
+type BaileysLogger = NonNullable<Parameters<typeof makeWASocket>[0]['logger']>
+/**
+ * Baileys registra por defecto con pino en nivel `info`, y lo que registra trae el número de la
+ * cuenta (el `username` del login) y nodos del protocolo. Sin PII en registros: se calla. El
+ * estado de la conexión sale por los eventos, que solo llevan códigos.
+ */
+const silent: BaileysLogger = {
+  level: 'silent',
+  child: () => silent,
+  trace: () => undefined,
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+}
+
 export class BaileysTransport implements LinkableTransport {
   readonly #authDir: string
   readonly #listeners: ((e: LinkEvent) => void)[] = []
@@ -74,7 +90,7 @@ export class BaileysTransport implements LinkableTransport {
 
   async #connect(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.#authDir)
-    const sock = makeWASocket({ auth: state, markOnlineOnConnect: false })
+    const sock = makeWASocket({ auth: state, markOnlineOnConnect: false, logger: silent })
     this.#sock = sock
     sock.ev.on('creds.update', () => void saveCreds())
     sock.ev.on('connection.update', (u) => {
