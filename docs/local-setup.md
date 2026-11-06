@@ -42,6 +42,16 @@ EVAL_BUNDLE_KEY='tu frase larga' pnpm data:pack ~/gow-data.tar.gz.enc
 Pasa `~/gow-data.tar.gz.enc` y tu `.env` a la otra máquina por un canal privado: USB, AirDrop o
 tu nube personal. La llave del paquete va por otro canal, no junto al archivo.
 
+**Sin llave.** Si lo pasas tú mismo por un medio tuyo (USB, AirDrop), puede ir sin cifrar. El
+archivo queda dentro de `data/`, ignorado por git:
+
+```bash
+tar -czf data/gow-data.tar.gz data/dev data/ground-truth data/llm-cache
+```
+
+Sin cifrar contiene los estados de cuenta: bórralo de la USB, de la nube y de las dos máquinas en
+cuanto `pnpm doctor` pase en la nueva.
+
 ## 2. En la máquina nueva: clonar e instalar
 
 ```bash
@@ -85,6 +95,20 @@ manifiesto de hashes. Después borra el paquete:
 ```bash
 rm ~/gow-data.tar.gz.enc
 ```
+
+Si el paquete va sin cifrar, ponlo en la raíz del repositorio y desempácalo desde ahí, no dentro
+de `data/`: sus rutas ya empiezan con `data/`. Git lo ignora en la raíz.
+
+```bash
+tar -xzf gow-data.tar.gz
+```
+
+```bash
+rm gow-data.tar.gz
+```
+
+Si trabajas con Claude Code en la máquina nueva, `CLAUDE.md` le dice dónde buscar el paquete y
+cómo desempacarlo.
 
 Si solo necesitas los PDFs y el enlace compartido sigue vivo, `scripts/download-dev-data.sh` los
 baja; el ground truth y la caché solo vienen en el paquete.
