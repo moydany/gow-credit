@@ -84,7 +84,10 @@ services:
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
-      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+      # Sin registro público: las cuentas las crea la API o el CLI con la llave service_role al dar
+      # de alta a un usuario del backoffice (ADR 0035). Evita que alguien registre antes el correo
+      # de un analista con una contraseña suya.
+      GOTRUE_DISABLE_SIGNUP: "true"
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
@@ -105,6 +108,11 @@ services:
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
       GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
       GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+      # Custom access token hook (ADR 0035): agrega `tenant_id` al token de quien es miembro de un
+      # tenant. La función la crea `pnpm db:migrate` (0008_access_token_hook.sql); antes de migrar,
+      # GoTrue no puede emitir tokens.
+      GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED: "true"
+      GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI: pg-functions://postgres/app/custom_access_token_hook
 
   rest:
     image: postgrest/postgrest:v14.18
