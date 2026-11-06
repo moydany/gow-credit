@@ -220,6 +220,85 @@ WhatsApp, con `WHATSAPP_TENANT_ID=<id> pnpm whatsapp` corriendo, se escanea el Q
 Configuración → Canales; ahí mismo se desvincula o se cambia de número (ADR 0033). Sin WhatsApp
 vinculado, las aclaraciones se responden a mano desde el backoffice.
 
+### Modo full con Supabase local
+
+El mismo modo full contra un Supabase autohospedado y recortado (ADR 0034). Incluye Postgres,
+Auth, PostgREST, Storage, Studio, el gateway Envoy e Inbucket para los correos. Ahí `postgres` no
+es superusuario, igual que en un proyecto de Supabase. Convive con `docker-compose.yml`: usa otros
+puertos y otros volúmenes.
+
+1. Genera los secretos de desarrollo. Escribe `infra/supabase/.env` y `infra/supabase/app.env`,
+   ignorados por git; si `.env` ya existe, lo conserva:
+
+   ```bash
+   pnpm supabase:env
+   ```
+
+2. Levanta el stack y espera a que todo esté sano (la primera vez descarga unos 6.5 GB):
+
+   ```bash
+   pnpm supabase:up
+   ```
+
+3. Carga el entorno de la app en tu shell. Gana sobre el `.env` de la raíz, que no se toca:
+
+   ```bash
+   set -a; . infra/supabase/app.env; set +a
+   ```
+
+4. Desde esa misma shell, migra, prueba y corre lo que necesites:
+
+   ```bash
+   pnpm db:migrate
+   ```
+
+   ```bash
+   pnpm test
+   ```
+
+   ```bash
+   pnpm scenario run --all --mode full
+   ```
+
+   ```bash
+   pnpm tenant create --name "Prestamista Supabase"
+   ```
+
+   ```bash
+   pnpm api
+   ```
+
+   ```bash
+   pnpm worker
+   ```
+
+   `app.env` trae `LLM_CACHE_MODE=read`, así que el worker no gasta en modelos. Para `pnpm web`
+   no hace falta el entorno: Vite manda `/bo` a la API en `127.0.0.1:3000`.
+
+| Dirección | Qué es |
+|---|---|
+| `127.0.0.1:54340` | Postgres. Migraciones con `postgres`, procesos con `gow_*` |
+| `http://127.0.0.1:54341` | Gateway (`SUPABASE_URL`): `/auth/v1`, `/rest/v1`, `/storage/v1`, con `apikey` |
+| `http://127.0.0.1:54342` | Studio, sin contraseña porque solo escucha en local |
+| `http://127.0.0.1:54343` | Inbucket: los correos de Auth, como los magic links |
+
+`BACKOFFICE_JWT_SECRET` es el JWT secret del proyecto, así que el enlace de `pnpm tenant user
+add` lo firma la misma llave que Supabase Auth. Falta por conectar:
+
+- El adaptador de Supabase Storage. Storage corre, pero los documentos siguen en disco, en
+  `data/storage-supabase`.
+- El login del backoffice con Supabase Auth. Sus JWT todavía no traen `tenant_id`.
+
+`pnpm supabase:down` detiene el stack y conserva los datos. Para empezar de cero:
+
+```bash
+docker compose -f docker-compose.supabase.yml --env-file infra/supabase/.env down -v
+```
+
+```bash
+pnpm supabase:env --force
+```
+
 Para producción, el plan está en [`docs/deploy.md`](docs/deploy.md): Cloud Run, Supabase y Vercel.
 
 ## Otros comandos

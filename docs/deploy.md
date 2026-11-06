@@ -38,7 +38,18 @@ llaves de servicio de larga vida.
    - Crear el proyecto en la región más cercana a la de Cloud Run.
    - Correr `infra/postgres/init/00-roles.sql` adaptado: en Supabase los roles se crean con
      contraseña propia, una por proceso, nunca la del dueño.
-   - Correr `pnpm db:migrate` con `DATABASE_ADMIN_URL`.
+   - Como `postgres`, que no es superusuario en Supabase, darse SET sobre los dueños de los
+     esquemas de pg-boss y Mastra. Sin esto, la migración 0001 falla en `CREATE SCHEMA ...
+     AUTHORIZATION` (ADR 0034):
+
+     ```sql
+     GRANT gow_queue, gow_mastra TO postgres WITH INHERIT FALSE, SET TRUE;
+     ```
+
+   - Correr `pnpm db:migrate` con `DATABASE_ADMIN_URL`, la URL del rol `postgres`.
+   - Antes de tocar el proyecto real, todo esto se prueba con el Supabase local
+     (`pnpm supabase:up`, README "Modo full con Supabase local"): ahí `postgres` tampoco es
+     superusuario.
    - La prueba de RLS (`pnpm test` contra esa base, en un proyecto de staging) confirma que
      ninguna tabla de negocio quedó sin política.
 2. **Secretos** en Google Secret Manager, montados como variables en cada servicio:
