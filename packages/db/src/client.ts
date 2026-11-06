@@ -56,8 +56,19 @@ export interface Database {
   close(): Promise<void>
 }
 
-export function connect(url: string, opts: { max?: number } = {}): Database {
+/** Registro por omisión de un error en una conexión inactiva: solo el código de Postgres, sin datos. */
+function logIdleError(err: Error & { code?: string }): void {
+  process.stderr.write(`${JSON.stringify({ level: 'warn', event: 'db_idle_client_error', code: err.code ?? null })}\n`)
+}
+
+/**
+ * Pool de un rol. Una conexión inactiva puede morir del lado del servidor (reinicio, failover,
+ * `pg_terminate_backend`, `DROP DATABASE ... WITH (FORCE)` en las pruebas): el pool la descarta y
+ * reemite el error. Sin este manejador ese `error` no tiene quién lo escuche y tumba el proceso.
+ */
+export function connect(url: string, opts: { max?: number; onIdleError?: (err: Error & { code?: string }) => void } = {}): Database {
   const pool = new pg.Pool({ connectionString: url, max: opts.max ?? 5 })
+  pool.on('error', opts.onIdleError ?? logIdleError)
   const db = drizzle(pool, { schema })
   return { db, pool, close: () => pool.end() }
 }
