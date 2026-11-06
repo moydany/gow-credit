@@ -19,6 +19,10 @@ const available = await postgresAvailable()
 class FakeTransport implements WhatsAppTransport {
   readonly sent: { to: string; text: string }[] = []
   failNext = false
+  open = true
+  connected(): boolean {
+    return this.open
+  }
   start(_onMessage: (m: IncomingWhatsApp) => Promise<void>): Promise<void> {
     return Promise.resolve()
   }
@@ -76,9 +80,14 @@ describe.skipIf(!available)('relay de WhatsApp (necesita el Postgres de docker c
     await tdb.drop()
   })
 
-  it('entrega solo el buzón de su tenant; un fallo se reintenta', async () => {
+  it('entrega solo el buzón de su tenant; sin sesión abierta no intenta; un fallo se reintenta', async () => {
     const t = new FakeTransport()
+    t.open = false
     t.failNext = true
+    // Esperando el QR: no se intenta ni se gasta un intento.
+    expect(await deliverPending(wa.db, A, t)).toBe(0)
+    expect((await admin.query<{ attempts: number }>('SELECT attempts FROM app.outbound_messages WHERE tenant_id = $1', [A])).rows).toEqual([{ attempts: 0 }])
+    t.open = true
     expect(await deliverPending(wa.db, A, t)).toBe(1)
     expect(t.sent).toEqual([])
     expect(await deliverPending(wa.db, A, t)).toBe(1)

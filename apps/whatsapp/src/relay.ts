@@ -19,6 +19,8 @@ export interface WhatsAppTransport {
   start(onMessage: (m: IncomingWhatsApp) => Promise<void>): Promise<void>
   send(to: string, text: string): Promise<void>
   stop(): Promise<void>
+  /** Si se sabe, ¿hay sesión abierta? Sin ella no se intenta entregar: esperando el QR, nada se marca fallido. */
+  connected?(): boolean
 }
 
 export async function storeIncoming(db: Db, tenantId: string, m: IncomingWhatsApp): Promise<void> {
@@ -28,6 +30,7 @@ export async function storeIncoming(db: Db, tenantId: string, m: IncomingWhatsAp
 
 /** Entrega los pendientes de WhatsApp del tenant, del más viejo al más nuevo. */
 export async function deliverPending(db: Db, tenantId: string, transport: WhatsAppTransport, limit = 20): Promise<number> {
+  if (transport.connected && !transport.connected()) return 0
   const pending = await withTenant(db, tenantId, (tx) =>
     tx
       .select({ id: outboundMessages.id, destination: outboundMessages.destination, body: outboundMessages.body, attempts: outboundMessages.attempts })

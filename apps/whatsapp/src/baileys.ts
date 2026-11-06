@@ -52,6 +52,7 @@ export class BaileysTransport implements LinkableTransport {
   readonly #listeners: ((e: LinkEvent) => void)[] = []
   #onMessage: ((m: IncomingWhatsApp) => Promise<void>) | null = null
   #sock: WASocket | null = null
+  #open = false
   #stopped = false
 
   constructor(opts: { authDir: string }) {
@@ -79,6 +80,7 @@ export class BaileysTransport implements LinkableTransport {
     sock.ev.on('connection.update', (u) => {
       // Un socket viejo (reemplazado al reconectar o al desvincular) ya no reporta nada.
       if (sock !== this.#sock || this.#stopped) return
+      if (u.connection) this.#open = u.connection === 'open'
       if (u.qr) this.#emit({ type: 'qr', qr: u.qr })
       if (u.connection === 'connecting') this.#emit({ type: 'connecting' })
       if (u.connection === 'open') this.#emit({ type: 'open' })
@@ -103,6 +105,10 @@ export class BaileysTransport implements LinkableTransport {
     })
   }
 
+  connected(): boolean {
+    return this.#open
+  }
+
   linkedNumber(): string | null {
     const id = this.#sock?.user?.id
     return id ? accountJidToNumber(id) : null
@@ -116,6 +122,7 @@ export class BaileysTransport implements LinkableTransport {
   async unlink(): Promise<void> {
     const sock = this.#sock
     this.#sock = null
+    this.#open = false
     if (sock) {
       let timer: NodeJS.Timeout | undefined
       try {
