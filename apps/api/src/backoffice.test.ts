@@ -2,7 +2,7 @@
  * El backoffice contra Postgres real: sesión por cookie, pertenencia verificada en cada petición,
  * CSRF, aislamiento entre tenants, bandeja, respuesta manual de una aclaración y bitácora con el usuario.
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -198,6 +198,138 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'application.discarded'", [app])).rows[0]).toEqual({ actor: `user:${userA}`, details: { reason: 'altered' } })
     // Ya no está en revisión humana.
     expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'altered' } })).status).toBe(409)
+  })
+
+  it('proveedores: alta, lista, detalle con contactos, historial y outcomes; edición validada y en la bitácora sin valores', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
+    const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
+
+    // Alta inválida: 400 con la ruta del campo y sin el valor en la respuesta.
+    const bad = await call('POST', '/suppliers', { cookie: a, body: { legal_name: 'Proveedor Uno', rfc: 'NOPE99', clabes: ['123456'] } })
+    expect(bad.status).toBe(400)
+    expect((bad.json as unknown as { issues: { path: string }[] }).issues.map((i) => i.path).sort()).toEqual(['clabes.0', 'rfc'])
+    expect(JSON.stringify(bad.json)).not.toMatch(/NOPE99|123456/)
+
+    const created = await call('POST', '/suppliers', { cookie: a, body: { legal_name: 'Proveedor Uno', rfc: 'abc-010101-ab1', external_ref: 'erp-1', clabes: ['012 180 001234567899'] } })
+    expect(created.status).toBe(201)
+    const sup = (created.json as unknown as { id: string }).id
+    expect((await q('SELECT rfc, clabes FROM app.suppliers WHERE id = $1', [sup])).rows[0]).toEqual({ rfc: 'ABC010101AB1', clabes: ['012180001234567899'] })
+    expect((await call('POST', '/suppliers', { cookie: a, body: { legal_name: 'Otro', external_ref: 'erp-1' } })).status).toBe(409)
+
+    const app = randomUUID()
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status, request) VALUES ($1, $2, $3, 'qualified', $4)", [app, tenantA, sup, JSON.stringify({ amount: 50000 })])
+    await q("INSERT INTO app.outcomes (tenant_id, application_id, outcome, observed_at) VALUES ($1, $2, 'paid', now())", [tenantA, app])
+    await q("INSERT INTO app.supplier_contacts (tenant_id, supplier_id, channel, address, verified_at, verification_method) VALUES ($1, $2, 'whatsapp', '+5215550000000', now(), 'kyc'), ($1, $2, 'email', 'pagos@proveedor.test', null, null)", [tenantA, sup])
+
+    const list = (await call('GET', '/suppliers', { cookie: a })).json as unknown as { id: string; applications: number; last_application: { id: string; status: string } | null }[]
+    expect(list.find((x) => x.id === sup)).toMatchObject({ applications: 1, last_application: { id: app, status: 'qualified' } })
+    const detail = (await call('GET', `/suppliers/${sup}`, { cookie: a })).json as unknown as { contacts: { channel: string; verified_at: string | null }[]; applications: { id: string; outcomes: { outcome: string }[] }[] }
+    expect(detail.contacts.map((c) => [c.channel, c.verified_at !== null])).toEqual([['whatsapp', true], ['email', false]])
+    expect(detail.applications).toMatchObject([{ id: app, outcomes: [{ outcome: 'paid' }] }])
+
+    // Otro tenant ni lo lista, ni lo ve, ni lo edita.
+    expect(((await call('GET', '/suppliers', { cookie: b })).json as unknown as { id: string }[]).some((x) => x.id === sup)).toBe(false)
+    expect((await call('GET', `/suppliers/${sup}`, { cookie: b })).status).toBe(404)
+    expect((await call('PATCH', `/suppliers/${sup}`, { cookie: b, body: { legal_name: 'Robado' } })).status).toBe(404)
+
+    // Edición: validada con los mismos validadores, y nada cambia si falla.
+    expect((await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: {} })).status).toBe(400)
+    expect((await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: { clabes: ['012180001234567890'] } })).status).toBe(400)
+    expect((await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: { external_ref: 'x' } })).status).toBe(400)
+    const ok = await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: { rfc: 'GOMA800101AB1', clabes: ['002180012345678906', '012180001234567899'] } })
+    expect(ok.status).toBe(200)
+    expect((await q('SELECT legal_name, rfc, clabes FROM app.suppliers WHERE id = $1', [sup])).rows[0]).toEqual({ legal_name: 'Proveedor Uno', rfc: 'GOMA800101AB1', clabes: ['002180012345678906', '012180001234567899'] })
+    const log = await q("SELECT actor, action, details FROM app.audit_log WHERE subject = $1 AND action LIKE 'supplier.%' ORDER BY at", [sup])
+    expect(log.rows).toEqual([
+      { actor: `user:${userA}`, action: 'supplier.created', details: { contacts: 0 } },
+      { actor: `user:${userA}`, action: 'supplier.viewed', details: {} },
+      { actor: `user:${userA}`, action: 'supplier.updated', details: { fields: ['rfc', 'clabes'] } },
+    ])
+    expect(JSON.stringify(log.rows)).not.toMatch(/GOMA|0021800/)
+  })
+
+  it('usuarios: invitar devuelve el enlace una vez, no se puede quitar a sí mismo y cada tenant ve solo los suyos', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
+    const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
+
+    expect((await call('POST', '/users', { cookie: a, body: { email: 'no-es-correo' } })).status).toBe(400)
+    // Ya está en este tenant, o en otro: no se emite enlace.
+    expect((await call('POST', '/users', { cookie: a, body: { email: 'a@prestamista.test' } })).status).toBe(409)
+    expect((await call('POST', '/users', { cookie: a, body: { email: 'b@prestamista.test' } })).status).toBe(409)
+
+    const added = await call('POST', '/users', { cookie: a, body: { email: 'Nueva@Prestamista.test' } })
+    expect(added.status).toBe(201)
+    const created = added.json as unknown as { user: { id: string; email: string; invited_by: string }; access_link: string }
+    expect(created.user).toMatchObject({ email: 'nueva@prestamista.test', invited_by: 'a@prestamista.test' })
+    const token = /#token=(.+)$/.exec(created.access_link)?.[1] ?? ''
+    const nueva = await login(token)
+    expect((await call('GET', '/me', { cookie: nueva })).json).toMatchObject({ user: { email: 'nueva@prestamista.test' }, tenant: { id: tenantA } })
+
+    const usersA = (await call('GET', '/users', { cookie: a })).json as unknown as { id: string; is_me: boolean }[]
+    expect(usersA.map((u) => u.id)).toContain(created.user.id)
+    expect(usersA.find((u) => u.id === userA)?.is_me).toBe(true)
+    expect(((await call('GET', '/users', { cookie: b })).json as unknown as { id: string }[]).map((u) => u.id)).toEqual([userB])
+
+    expect((await call('DELETE', `/users/${userA}`, { cookie: a })).status).toBe(409)
+    expect((await call('DELETE', `/users/${created.user.id}`, { cookie: b })).status).toBe(404)
+    expect((await call('DELETE', `/users/${created.user.id}`, { cookie: a, csrf: false })).status).toBe(403)
+    expect((await call('DELETE', `/users/${created.user.id}`, { cookie: a })).status).toBe(204)
+    expect((await call('GET', '/me', { cookie: nueva })).status).toBe(401)
+
+    const log = await q("SELECT actor, action, details FROM app.audit_log WHERE subject = $1 ORDER BY at", [created.user.id])
+    expect(log.rows).toEqual([
+      { actor: `user:${userA}`, action: 'user.added', details: {} },
+      { actor: `user:${userA}`, action: 'user.removed', details: {} },
+    ])
+  })
+
+  it('llaves de API: la completa se muestra una vez, se guarda el hash y revocar corta /v1 de inmediato', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
+    const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
+
+    expect((await call('POST', '/api-keys', { cookie: a, body: { scopes: [] } })).status).toBe(400)
+    expect((await call('POST', '/api-keys', { cookie: a, body: { scopes: ['admin'] } })).status).toBe(400)
+
+    const created = await call('POST', '/api-keys', { cookie: a, body: { scopes: ['read', 'policies'] } })
+    expect(created.status).toBe(201)
+    const { key, secret_key } = created.json as unknown as { key: { id: string; prefix: string; scopes: string[]; revoked_at: string | null }; secret_key: string }
+    expect(secret_key.startsWith(`${key.prefix}.`)).toBe(true)
+    expect(key).toMatchObject({ scopes: ['read', 'policies'], revoked_at: null })
+    const secret = secret_key.slice(key.prefix.length + 1)
+    const stored = (await q('SELECT key_hash, tenant_id::text AS tenant FROM app.api_keys WHERE id = $1', [key.id])).rows[0] as { key_hash: string; tenant: string }
+    expect(stored).toEqual({ key_hash: createHash('sha256').update(secret).digest('hex'), tenant: tenantA })
+
+    // La lista nunca trae el secreto ni el hash.
+    const listed = await call('GET', '/api-keys', { cookie: a })
+    expect(JSON.stringify(listed.json)).not.toContain(secret)
+    expect(JSON.stringify(listed.json)).not.toContain(stored.key_hash)
+    expect((listed.json as unknown as { id: string }[]).some((k) => k.id === key.id)).toBe(true)
+    expect(((await call('GET', '/api-keys', { cookie: b })).json as unknown as { id: string }[]).some((k) => k.id === key.id)).toBe(false)
+
+    const v1 = () => fetch(`${base}/v1/policies/versions`, { headers: { authorization: `Bearer ${secret_key}` } }).then((r) => r.status)
+    expect(await v1()).toBe(200)
+    expect((await call('POST', `/api-keys/${key.id}/revoke`, { cookie: b })).status).toBe(404)
+    expect(await v1()).toBe(200)
+    const revoked = await call('POST', `/api-keys/${key.id}/revoke`, { cookie: a })
+    expect(revoked.status).toBe(200)
+    expect((revoked.json as unknown as { revoked_at: string | null }).revoked_at).not.toBeNull()
+    expect(await v1()).toBe(401)
+    expect((await call('POST', `/api-keys/${key.id}/revoke`, { cookie: a })).status).toBe(409)
+
+    const log = await q("SELECT actor, action, details FROM app.audit_log WHERE subject = $1 ORDER BY at", [key.id])
+    expect(log.rows).toEqual([
+      { actor: `user:${userA}`, action: 'api_key.created', details: { prefix: key.prefix, scopes: ['read', 'policies'] } },
+      { actor: `user:${userA}`, action: 'api_key.revoked', details: { prefix: key.prefix } },
+    ])
+    expect(JSON.stringify(log.rows)).not.toContain(secret)
+  })
+
+  it('configuración: los canales del tenant se leen de la sesión, sin WhatsApp vinculado', async () => {
+    const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
+    expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null } })
   })
 
   it('el esquema de tenant_users está en el catálogo de tablas con RLS', () => {

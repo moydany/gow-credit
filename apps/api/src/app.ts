@@ -34,6 +34,8 @@ export interface ApiDeps {
   backofficeJwtSecret?: string | null
   /** Cookie de sesión con `Secure` (producción detrás de HTTPS). */
   secureCookies?: boolean
+  /** Origen del backoffice para los enlaces de acceso de usuarios invitados (`BACKOFFICE_URL`). */
+  backofficeUrl?: string | null
 }
 
 interface Auth {

@@ -29,6 +29,7 @@ const app = createApp({
   resendWebhookSecret: env.RESEND_WEBHOOK_SECRET ?? null,
   backofficeJwtSecret: env.BACKOFFICE_JWT_SECRET ?? null,
   secureCookies: publicUrl.startsWith('https://'),
+  backofficeUrl: env.BACKOFFICE_URL ?? null,
   logger: { error: (m) => { log('error', m) } },
 })
 if (!env.BACKOFFICE_JWT_SECRET) log('info', 'BACKOFFICE_JWT_SECRET sin definir: /bo/v1 (backoffice) deshabilitado')

@@ -4,15 +4,17 @@
  * y todo corre en `withTenant` con el rol `gow_api`. Cada mutación entra a la bitácora con el
  * usuario; la vista de una solicitud también (docs/08 §2, "quién vio qué").
  */
-import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
+import { randomUUID } from 'node:crypto'
+import { apiKeys, applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, supplierContacts, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ClarificationStatus, CorrectionTarget, type ApplicationDetail, type Correction, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
+import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, type TenantUserCreated, type TenantUserItem } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
+import { hashSecret, newApiKey } from './admin.ts'
 import { answerClarification, audit, createPolicyDraft, discardDocument, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
-import { CSRF_HEADER, clearedCookie, readCookie, SESSION_COOKIE, sessionCookie, verifyToken } from './session.ts'
+import { CSRF_HEADER, clearedCookie, issueToken, readCookie, SESSION_COOKIE, sessionCookie, verifyToken } from './session.ts'
 
 export interface BackofficeDeps {
   db: Db
@@ -20,6 +22,8 @@ export interface BackofficeDeps {
   storage: DocumentStorage
   backofficeJwtSecret: string
   secureCookies?: boolean
+  /** Origen del backoffice para el enlace de acceso de un usuario invitado (`BACKOFFICE_URL`). */
+  backofficeUrl?: string | null
 }
 
 interface Who {
@@ -33,6 +37,18 @@ const SESSION_SECONDS = 8 * 60 * 60
 const who = (res: Response) => res.locals.who as Who
 const actorOf = (w: Who) => `user:${w.userId}`
 const iso = (d: Date | string | null): string | null => (d === null ? null : new Date(d).toISOString())
+
+/** Violación de unicidad de Postgres, venga directa o envuelta por Drizzle. */
+function uniqueViolation(e: unknown): boolean {
+  for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
+    if ((x as { code?: unknown }).code === '23505') return true
+  }
+  return false
+}
+
+/** Columnas visibles de una llave de API: el hash nunca sale de la base (ni siquiera hay privilegio para leerlo). */
+const apiKeyColumns = { id: apiKeys.id, prefix: apiKeys.prefix, scopes: apiKeys.scopes, createdAt: apiKeys.createdAt, revokedAt: apiKeys.revokedAt }
+const apiKeyItem = (k: { id: string; prefix: string; scopes: string[]; createdAt: Date; revokedAt: Date | null }): ApiKeyItem => ({ id: k.id, prefix: k.prefix, scopes: k.scopes as ApiKeyItem['scopes'], created_at: k.createdAt.toISOString(), revoked_at: iso(k.revokedAt) })
 
 export function backofficeRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
@@ -287,6 +303,206 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     )
     const list: AuditEntry[] = rows.rows.map((l) => ({ id: l.id, actor: l.actor, actor_label: l.actor_label, action: l.action, subject: l.subject, details: l.details, at: new Date(l.at).toISOString() }))
     res.json(list)
+  })
+
+  // ---------- Proveedores: lista, alta, detalle y edición (docs/08 §2)
+  r.get('/suppliers', async (_req, res) => {
+    const rows = await withTenant(deps.db, who(res).tenantId, (tx) =>
+      tx.execute<{ id: string; legal_name: string; rfc: string | null; external_ref: string | null; created_at: Date; applications: number; last_id: string | null; last_status: ApplicationRow['status'] | null; last_at: Date | null }>(sql`
+        select s.id, s.legal_name, s.rfc, s.external_ref, s.created_at,
+               (select count(*)::int from app.applications a where a.supplier_id = s.id) as applications,
+               l.id as last_id, l.status as last_status, l.created_at as last_at
+          from app.suppliers s
+          left join lateral (select a.id, a.status, a.created_at from app.applications a where a.supplier_id = s.id order by a.created_at desc limit 1) l on true
+         order by coalesce(l.created_at, s.created_at) desc
+         limit 500`),
+    )
+    const list: SupplierRow[] = rows.rows.map((x) => ({
+      id: x.id,
+      legal_name: x.legal_name,
+      rfc: x.rfc,
+      external_ref: x.external_ref,
+      applications: x.applications,
+      last_application: x.last_id && x.last_status && x.last_at ? { id: x.last_id, status: x.last_status, created_at: new Date(x.last_at).toISOString() } : null,
+      created_at: new Date(x.created_at).toISOString(),
+    }))
+    res.json(list)
+  })
+
+  /** Alta sin contactos: un vínculo verificado entra por la API de integración (KYC del tenant, docs/05 §2b). */
+  r.post('/suppliers', async (req, res) => {
+    const w = who(res)
+    const body = parse(SupplierCreateBody, req.body)
+    try {
+      const id = await withTenant(deps.db, w.tenantId, async (tx) => {
+        const [s] = await tx.insert(suppliers).values({ tenantId: w.tenantId, legalName: body.legal_name, rfc: body.rfc, externalRef: body.external_ref, clabes: body.clabes }).returning({ id: suppliers.id })
+        if (!s) throw new HttpError(500, 'no se creó el proveedor')
+        await audit(tx, w.tenantId, actorOf(w), 'supplier.created', s.id, { contacts: 0 })
+        return s.id
+      })
+      res.status(201).json({ id })
+    } catch (e) {
+      if (uniqueViolation(e)) throw new HttpError(409, 'ya existe un proveedor con esa referencia externa', [{ path: 'external_ref', message: 'referencia repetida' }])
+      throw e
+    }
+  })
+
+  r.get('/suppliers/:id', async (req, res) => {
+    const id = parse(z.uuid(), req.params.id)
+    const w = who(res)
+    const out = await withTenant(deps.db, w.tenantId, async (tx) => {
+      const [s] = await tx.select().from(suppliers).where(eq(suppliers.id, id))
+      if (!s) throw new HttpError(404, 'proveedor no encontrado')
+      const contacts = await tx.select().from(supplierContacts).where(eq(supplierContacts.supplierId, id)).orderBy(supplierContacts.createdAt)
+      const apps = await tx.execute<{ id: string; status: ApplicationRow['status']; request: ApplicationRow['request']; created_at: Date; decision_status: NonNullable<ApplicationRow['decision']>['status'] | null; limit_amount: string | null; score: string | null; outcomes: { outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }[] }>(sql`
+        select a.id, a.status, a.request, a.created_at, d.status as decision_status, d.limit_amount, d.score,
+               coalesce((select jsonb_agg(jsonb_build_object('outcome', o.outcome, 'observed_at', o.observed_at) order by o.observed_at desc) from app.outcomes o where o.application_id = a.id), '[]'::jsonb) as outcomes
+          from app.applications a
+          left join lateral (select dd.status, dd.limit_amount, dd.score from app.decisions dd where dd.application_id = a.id and dd.kind = 'active' order by dd.created_at desc limit 1) d on true
+         where a.supplier_id = ${id}::uuid
+         order by a.created_at desc`)
+      // Ver un proveedor es ver su RFC y sus CLABEs: queda en la bitácora como ver una solicitud.
+      await audit(tx, w.tenantId, actorOf(w), 'supplier.viewed', id)
+      return { s, contacts, apps: apps.rows }
+    })
+    const detail: SupplierDetail = {
+      id: out.s.id,
+      legal_name: out.s.legalName,
+      rfc: out.s.rfc,
+      external_ref: out.s.externalRef,
+      clabes: out.s.clabes,
+      created_at: out.s.createdAt.toISOString(),
+      contacts: out.contacts.map((c) => ({ id: c.id, channel: c.channel, address: c.address, verified_at: iso(c.verifiedAt), verification_method: c.verificationMethod, created_at: c.createdAt.toISOString() })),
+      applications: out.apps.map((a) => ({
+        id: a.id,
+        status: a.status,
+        request: a.request,
+        decision: a.decision_status ? { status: a.decision_status, limit: a.limit_amount === null ? null : Number(a.limit_amount), score: a.score === null ? null : Number(a.score) } : null,
+        outcomes: a.outcomes.map((o) => ({ outcome: o.outcome, observed_at: new Date(o.observed_at).toISOString() })),
+        created_at: new Date(a.created_at).toISOString(),
+      })),
+    }
+    res.json(detail)
+  })
+
+  /** Edición de razón social, RFC y CLABEs; la bitácora lleva solo los nombres de los campos, nunca los valores. */
+  r.patch('/suppliers/:id', async (req, res) => {
+    const id = parse(z.uuid(), req.params.id)
+    const w = who(res)
+    const body = parse(SupplierUpdateBody, req.body)
+    const set = { ...(body.legal_name === undefined ? {} : { legalName: body.legal_name }), ...(body.rfc === undefined ? {} : { rfc: body.rfc }), ...(body.clabes === undefined ? {} : { clabes: body.clabes }) }
+    const fields = (['legal_name', 'rfc', 'clabes'] as const).filter((f) => body[f] !== undefined)
+    await withTenant(deps.db, w.tenantId, async (tx) => {
+      const [s] = await tx.update(suppliers).set(set).where(eq(suppliers.id, id)).returning({ id: suppliers.id })
+      if (!s) throw new HttpError(404, 'proveedor no encontrado')
+      await audit(tx, w.tenantId, actorOf(w), 'supplier.updated', id, { fields })
+    })
+    res.json({ id, fields })
+  })
+
+  // ---------- Configuración: canales del tenant (solo lectura)
+  r.get('/settings', async (_req, res) => {
+    const w = who(res)
+    const [t] = await withTenant(deps.db, w.tenantId, (tx) => tx.select().from(tenants).where(eq(tenants.id, w.tenantId)))
+    if (!t) throw new HttpError(404, 'tenant no encontrado')
+    const out: TenantSettings = { tenant: { id: t.id, name: t.name, created_at: t.createdAt.toISOString() }, whatsapp: { number: t.whatsappNumber }, email: { from: t.emailFrom } }
+    res.json(out)
+  })
+
+  // ---------- Configuración: usuarios del backoffice
+  r.get('/users', async (_req, res) => {
+    const w = who(res)
+    const rows = await withTenant(deps.db, w.tenantId, (tx) =>
+      tx.execute<{ user_id: string; email: string; created_at: Date; invited_by: string | null }>(sql`
+        select u.user_id, u.email, u.created_at, i.email as invited_by
+          from app.tenant_users u left join app.tenant_users i on i.user_id = u.invited_by
+         order by u.created_at`),
+    )
+    const list: TenantUserItem[] = rows.rows.map((u) => ({ id: u.user_id, email: u.email, created_at: new Date(u.created_at).toISOString(), invited_by: u.invited_by, is_me: u.user_id === w.userId }))
+    res.json(list)
+  })
+
+  /**
+   * Invitar: da de alta la pertenencia y devuelve, una sola vez, el enlace de acceso con el mismo JWT
+   * que emite `pnpm tenant user add` (en producción lo manda Supabase Auth por correo). Un usuario que
+   * ya existe no recibe enlace nuevo por aquí: sería entrar a nombre de otro.
+   */
+  r.post('/users', async (req, res) => {
+    const w = who(res)
+    const body = parse(TenantUserCreateBody, req.body)
+    const conflict = new HttpError(409, 'ese correo ya tiene acceso al backoffice', [{ path: 'email', message: 'correo ya registrado' }])
+    let row: { userId: string; email: string; createdAt: Date }
+    try {
+      row = await withTenant(deps.db, w.tenantId, async (tx) => {
+        const [existing] = await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))
+        if (existing) throw conflict
+        const [u] = await tx.insert(tenantUsers).values({ tenantId: w.tenantId, userId: randomUUID(), email: body.email, invitedBy: w.userId }).returning()
+        if (!u) throw new HttpError(500, 'no se agregó el usuario')
+        await audit(tx, w.tenantId, actorOf(w), 'user.added', u.userId)
+        return u
+      })
+    } catch (e) {
+      // El correo es único entre tenants: si es de otro, RLS no deja verlo y la unicidad lo detiene.
+      if (uniqueViolation(e)) throw conflict
+      throw e
+    }
+    const token = issueToken(deps.backofficeJwtSecret, { sub: row.userId, email: row.email, tenant_id: w.tenantId }, SESSION_SECONDS)
+    const base = (deps.backofficeUrl ?? 'http://127.0.0.1:5173').replace(/\/+$/, '')
+    const out: TenantUserCreated = {
+      user: { id: row.userId, email: row.email, created_at: row.createdAt.toISOString(), invited_by: w.email, is_me: false },
+      access_link: `${base}/entrar#token=${token}`,
+      expires_at: new Date(Date.now() + SESSION_SECONDS * 1000).toISOString(),
+    }
+    res.status(201).json(out)
+  })
+
+  /** Quitar a un usuario corta su sesión en la siguiente petición (la pertenencia se lee siempre). */
+  r.delete('/users/:id', async (req, res) => {
+    const id = parse(z.uuid(), req.params.id)
+    const w = who(res)
+    if (id === w.userId) throw new HttpError(409, 'no puedes quitarte a ti mismo')
+    await withTenant(deps.db, w.tenantId, async (tx) => {
+      const [u] = await tx.delete(tenantUsers).where(eq(tenantUsers.userId, id)).returning({ id: tenantUsers.userId })
+      if (!u) throw new HttpError(404, 'usuario no encontrado')
+      await audit(tx, w.tenantId, actorOf(w), 'user.removed', id)
+    })
+    res.status(204).end()
+  })
+
+  // ---------- Configuración: llaves de API (la completa se muestra una vez; se guarda el hash)
+  r.get('/api-keys', async (_req, res) => {
+    const rows = await withTenant(deps.db, who(res).tenantId, (tx) => tx.select(apiKeyColumns).from(apiKeys).orderBy(desc(apiKeys.createdAt)))
+    res.json(rows.map(apiKeyItem))
+  })
+
+  r.post('/api-keys', async (req, res) => {
+    const w = who(res)
+    const body = parse(ApiKeyCreateBody, req.body)
+    const key = newApiKey()
+    const row = await withTenant(deps.db, w.tenantId, async (tx) => {
+      const [k] = await tx.insert(apiKeys).values({ tenantId: w.tenantId, prefix: key.prefix, keyHash: hashSecret(key.secret), scopes: body.scopes }).returning(apiKeyColumns)
+      if (!k) throw new HttpError(500, 'no se creó la llave')
+      await audit(tx, w.tenantId, actorOf(w), 'api_key.created', k.id, { prefix: k.prefix, scopes: k.scopes })
+      return k
+    })
+    const out: ApiKeyCreated = { key: apiKeyItem(row), secret_key: key.key }
+    res.status(201).json(out)
+  })
+
+  /** Revocar es inmediato: `resolve_api_key` ignora las revocadas. La fila se conserva para la bitácora. */
+  r.post('/api-keys/:id/revoke', async (req, res) => {
+    const id = parse(z.uuid(), req.params.id)
+    const w = who(res)
+    const row = await withTenant(deps.db, w.tenantId, async (tx) => {
+      const [k] = await tx.update(apiKeys).set({ revokedAt: new Date() }).where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt))).returning(apiKeyColumns)
+      if (!k) {
+        const [exists] = await tx.select({ id: apiKeys.id }).from(apiKeys).where(eq(apiKeys.id, id))
+        throw exists ? new HttpError(409, 'la llave ya está revocada') : new HttpError(404, 'llave no encontrada')
+      }
+      await audit(tx, w.tenantId, actorOf(w), 'api_key.revoked', k.id, { prefix: k.prefix })
+      return k
+    })
+    res.json(apiKeyItem(row))
   })
 
   return r
