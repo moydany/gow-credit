@@ -1,0 +1,58 @@
+# Eval de extracción contra el ground truth con umbral por banco (fase 3, ADR 0012).
+# Necesita lo que no se versiona: los 9 PDFs de desarrollo, el ground truth y la caché de
+# respuestas. Se restauran de un paquete cifrado (scripts/eval-bundle.sh) que vive en
+# almacenamiento privado. Sin los dos secretos el job no corre y lo dice; nunca llama a un
+# modelo: la caché se lee en modo solo lectura, y una respuesta faltante falla el umbral.
+#
+# Secretos: EVAL_BUNDLE_URL (URL firmada de solo lectura al paquete) y EVAL_BUNDLE_KEY.
+name: eval-extraction
+
+on:
+  pull_request:
+    paths:
+      - prompts/**
+      - packages/extraction/**
+      - packages/llm/**
+      - packages/contracts/**
+      - evals/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    name: extracción contra ground truth
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      EVAL_BUNDLE_URL: ${{ secrets.EVAL_BUNDLE_URL }}
+      EVAL_BUNDLE_KEY: ${{ secrets.EVAL_BUNDLE_KEY }}
+    steps:
+      - name: Sin paquete privado configurado
+        if: env.EVAL_BUNDLE_URL == '' || env.EVAL_BUNDLE_KEY == ''
+        run: echo "::notice::Faltan EVAL_BUNDLE_URL y EVAL_BUNDLE_KEY; la eval de extracción se corre a mano con pnpm eval (README)."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+        with:
+          node-version: 24.17.0
+          cache: pnpm
+      - if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+        run: pnpm install --frozen-lockfile
+      - name: Restaurar data/ desde el paquete cifrado
+        if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+        run: |
+          curl -fsSL "$EVAL_BUNDLE_URL" -o "$RUNNER_TEMP/eval-bundle.tar.gz.enc"
+          scripts/eval-bundle.sh unpack "$RUNNER_TEMP/eval-bundle.tar.gz.enc"
+          rm -f "$RUNNER_TEMP/eval-bundle.tar.gz.enc"
+      - name: pnpm eval (umbral por banco)
+        if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+        run: pnpm eval
+      # Solo métricas, bancos y nombres de campo (gate.ts): nada del documento.
+      - name: Reporte por banco
+        if: always() && env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
+        run: cat data/eval-results/report.md >> "$GITHUB_STEP_SUMMARY"
