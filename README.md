@@ -232,6 +232,8 @@ Para producción, el plan está en [`docs/deploy.md`](docs/deploy.md): Cloud Run
 | `pnpm extract <pdf\|carpeta>` | Solo la extracción, con tokens y costo por documento | pagado |
 | `pnpm decide <extracción.json>` | Perfil y veredicto sobre una extracción ya hecha | 0 |
 | `pnpm simulate --policy <json>` | Política borrador contra la vigente sobre un conjunto de perfiles | 0 |
+| `pnpm corrections:export --tenant <id>` | Correcciones del analista a `data/corrections/`; `pnpm -F @gow/evals corrections` las mide contra el modelo actual | 0 |
+| `pnpm -F @gow/evals gt:review sample` | Muestra del ground truth para revisar a mano contra el PDF; `record --reviewer <iniciales>` guarda el resultado sin valores | 0 |
 
 Los 9 PDFs de desarrollo no están en el repositorio. Con el enlace compartido, se descargan y se
 verifican contra su manifiesto de hashes:

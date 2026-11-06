@@ -160,3 +160,24 @@ muestra personalización y el loop de aprendizaje.
   solicitud se reevalúa sin modelos con las correcciones aplicadas encima de la extracción inmutable.
   Descartar un documento y exportar los pares al ground truth de las evals quedan pendientes.
 
+- **Fase 8, pantallas que faltaban (ADR 0019 y 0020, "Cambios").**
+  - **Proveedores.** Lista con número de solicitudes y la última; detalle con RFC, CLABEs,
+    contactos por canal con su verificación, historial de solicitudes y outcomes. Alta y edición
+    de razón social, RFC y CLABEs, validadas con los mismos contratos que la API. Abrir un
+    proveedor entra a la bitácora, como abrir una solicitud.
+  - **Distinto al plan, en Proveedores:**
+    - Los contactos son de solo lectura: los vínculos verificados siguen entrando por `/v1`.
+    - "Créditos vigentes" no aparece: el adaptador `ExistingCredits` no tiene tabla todavía.
+  - **Configuración.**
+    - **Usuarios**: invitar, con el enlace de acceso visible una sola vez, y quitar; nadie puede
+      quitarse a sí mismo.
+    - **Llaves de API**: crear (se muestra una sola vez y se guarda como hash) y revocar; la API
+      no puede leer el hash.
+    - **Solo lectura**: el estado de WhatsApp, con la instrucción para vincularlo, la retención y
+      el aviso de privacidad.
+  - **Revisión humana: descartar el documento** con un motivo cerrado. La solicitud cierra en
+    `not_qualified` sin reevaluar.
+  - **Revisión humana: exportar las correcciones** a las evals (`pnpm corrections:export`) y
+    medirlas contra el modelo actual (`pnpm -F @gow/evals corrections`).
+  - **Sigue pendiente**: el formulario de política generado del esquema, la vinculación de
+    WhatsApp por QR desde la pantalla y el modo oscuro.
