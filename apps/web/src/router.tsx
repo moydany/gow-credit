@@ -7,6 +7,9 @@ import { ClarificationsPage } from './features/clarifications/ClarificationsPage
 import { OutcomesPage } from './features/outcomes/OutcomesPage'
 import { PoliciesPage } from './features/policies/PoliciesPage'
 import { ReviewPage } from './features/review/ReviewPage'
+import { SettingsPage } from './features/settings/SettingsPage'
+import { SupplierDetailPage } from './features/suppliers/SupplierDetailPage'
+import { SuppliersPage } from './features/suppliers/SuppliersPage'
 import { Shell } from './ui/Shell'
 
 const root = createRootRoute({ component: Outlet })
@@ -37,8 +40,11 @@ const review = createRoute({ getParentRoute: () => shell, path: '/revision', com
 const policies = createRoute({ getParentRoute: () => shell, path: '/politicas', component: PoliciesPage, validateSearch: (s: Record<string, unknown>): { v?: string } => ({ v: str(s.v) }) })
 const outcomes = createRoute({ getParentRoute: () => shell, path: '/outcomes', component: OutcomesPage })
 const audit = createRoute({ getParentRoute: () => shell, path: '/bitacora', component: AuditPage })
+const suppliers = createRoute({ getParentRoute: () => shell, path: '/proveedores', component: SuppliersPage, validateSearch: (s: Record<string, unknown>): { q?: string } => ({ q: str(s.q) }) })
+const supplier = createRoute({ getParentRoute: () => shell, path: '/proveedores/$id', component: SupplierDetailPage })
+const settings = createRoute({ getParentRoute: () => shell, path: '/configuracion', component: SettingsPage })
 
-const tree = root.addChildren([enter, shell.addChildren([applications, detail, clarifications, review, policies, outcomes, audit])])
+const tree = root.addChildren([enter, shell.addChildren([applications, detail, clarifications, review, suppliers, supplier, policies, outcomes, audit, settings])])
 export const router = createRouter({ routeTree: tree, defaultPreload: 'intent' })
 
 declare module '@tanstack/react-router' {

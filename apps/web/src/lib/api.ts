@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, OwnerAnswer, PolicyVersionItem, SimulationReport } from '@gow/contracts'
+import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, OwnerAnswer, PolicyVersionItem, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantUserCreated, TenantUserItem } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -55,6 +55,17 @@ export const api = {
   activate: (id: string) => request<{ id: string; status: string }>('POST', `/policies/versions/${id}/activate`),
   recordOutcome: (body: { application_id: string; outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }) => request<{ ok: true }>('POST', '/outcomes', body),
   audit: () => request<AuditEntry[]>('GET', '/audit'),
+  suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),
+  supplier: (id: string) => request<SupplierDetail>('GET', `/suppliers/${id}`),
+  createSupplier: (body: SupplierCreateBody) => request<{ id: string }>('POST', '/suppliers', body),
+  updateSupplier: (id: string, body: SupplierUpdateBody) => request<{ id: string; fields: string[] }>('PATCH', `/suppliers/${id}`, body),
+  settings: () => request<TenantSettings>('GET', '/settings'),
+  users: () => request<TenantUserItem[]>('GET', '/users'),
+  addUser: (email: string) => request<TenantUserCreated>('POST', '/users', { email }),
+  removeUser: (id: string) => request<undefined>('DELETE', `/users/${id}`),
+  apiKeys: () => request<ApiKeyItem[]>('GET', '/api-keys'),
+  createApiKey: (scopes: ApiKeyScope[]) => request<ApiKeyCreated>('POST', '/api-keys', { scopes }),
+  revokeApiKey: (id: string) => request<ApiKeyItem>('POST', `/api-keys/${id}/revoke`),
 }
 
 export const documentUrl = (documentId: string) => `/bo/v1/documents/${documentId}/file`

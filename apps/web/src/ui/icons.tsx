@@ -24,6 +24,11 @@ const PATHS = {
   bolt: 'M13 3L5 14h6l-1 7 8-11h-6l1-7z',
   edit: 'M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17v3zM14 7l3 3',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
+  key: 'M15.5 14a5 5 0 10-4.8-3.6L3 18v3h3v-2h2v-2h2l1.6-1.6a5 5 0 003.9 1.2zM16.5 7.5h.01',
+  copy: 'M9 9h10a1 1 0 011 1v10a1 1 0 01-1 1H9a1 1 0 01-1-1V10a1 1 0 011-1zM5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12M9 7V4h6v3',
+  phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z',
+  mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
 } as const
 
 export type IconName = keyof typeof PATHS

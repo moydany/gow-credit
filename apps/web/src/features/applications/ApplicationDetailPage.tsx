@@ -112,7 +112,11 @@ export function ApplicationDetailPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="display text-[clamp(30px,4.2vw,46px)]">{data.supplier.legal_name}</h1>
+            <h1 className="display text-[clamp(30px,4.2vw,46px)]">
+              <Link to="/proveedores/$id" params={{ id: data.supplier.id }} className="rounded-xl decoration-2 underline-offset-[6px] hover:underline">
+                {data.supplier.legal_name}
+              </Link>
+            </h1>
             <p className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13.5px] text-muted">
               <StatusChip status={data.status} />
               <span>{x?.bank_name.value ?? 'Banco sin identificar'}</span>

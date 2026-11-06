@@ -10,6 +10,11 @@ export const useApplication = (id: string) => useQuery({ queryKey: ['application
 export const useClarifications = () => useQuery({ queryKey: ['clarifications'], queryFn: api.clarifications, ...LIVE })
 export const usePolicyVersions = () => useQuery({ queryKey: ['policies'], queryFn: api.policyVersions })
 export const useAudit = () => useQuery({ queryKey: ['audit'], queryFn: api.audit })
+export const useSuppliers = () => useQuery({ queryKey: ['suppliers'], queryFn: api.suppliers })
+export const useSupplier = (id: string) => useQuery({ queryKey: ['supplier', id], queryFn: () => api.supplier(id) })
+export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: api.settings })
+export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: api.users })
+export const useApiKeys = () => useQuery({ queryKey: ['api-keys'], queryFn: api.apiKeys })
 
 export function useRefresh() {
   const qc = useQueryClient()

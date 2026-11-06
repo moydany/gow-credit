@@ -10,9 +10,11 @@ const NAV = [
   { to: '/', label: 'Solicitudes', badge: 'none' },
   { to: '/aclaraciones', label: 'Aclaraciones', badge: 'clarifications' },
   { to: '/revision', label: 'Revisión', badge: 'review' },
+  { to: '/proveedores', label: 'Proveedores', badge: 'none' },
   { to: '/politicas', label: 'Políticas', badge: 'none' },
   { to: '/outcomes', label: 'Outcomes', badge: 'none' },
   { to: '/bitacora', label: 'Bitácora', badge: 'none' },
+  { to: '/configuracion', label: 'Configuración', badge: 'none' },
 ] as const
 
 export function Shell() {
