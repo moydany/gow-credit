@@ -19,7 +19,12 @@ export const OutcomeName = z.enum(['paid', 'late', 'default', 'fraud'])
 
 export const BackofficeMe = z.strictObject({
   user: z.strictObject({ id: z.uuid(), email: z.string() }),
-  tenant: z.strictObject({ id: z.uuid(), name: z.string(), whatsapp_number: z.string().nullable() }),
+  tenant: z.strictObject({
+    id: z.uuid(),
+    name: z.string(),
+    whatsapp_number: z.string().nullable(),
+    whatsapp_linked_number: z.string().nullable().describe('Número vinculado con la sesión abierta y el proceso de WhatsApp vivo (ADR 0033); null si no'),
+  }),
 })
 export type BackofficeMe = z.infer<typeof BackofficeMe>
 
@@ -196,3 +201,27 @@ export const TenantSettings = z.strictObject({
   email: z.strictObject({ from: z.string().nullable() }),
 })
 export type TenantSettings = z.infer<typeof TenantSettings>
+
+// ---------- Vinculación de WhatsApp desde Configuración (ADR 0033)
+
+export const WhatsAppSessionStatus = z.enum(['starting', 'waiting_qr', 'open', 'closed', 'logged_out'])
+export type WhatsAppSessionStatus = z.infer<typeof WhatsAppSessionStatus>
+
+/**
+ * Estado de la sesión de WhatsApp del tenant. El QR solo viene con el proceso vivo, en `waiting_qr`
+ * y sin caducar: quien lo escanee vincula su cuenta al bot del tenant, por eso verlo queda en la
+ * bitácora.
+ */
+export const WhatsAppLinkState = z.strictObject({
+  process_running: z.boolean().describe('Latido del proceso de WhatsApp en los últimos 30 s'),
+  status: WhatsAppSessionStatus.nullable().describe('Último estado publicado; null si el proceso nunca ha corrido para este tenant'),
+  linked_number: z.string().nullable(),
+  qr: z.string().nullable(),
+  qr_expires_at: z.string().nullable(),
+  unlink_pending: z.boolean().describe('Se pidió desvincular y el proceso aún no lo atiende'),
+  updated_at: z.string().nullable(),
+})
+export type WhatsAppLinkState = z.infer<typeof WhatsAppLinkState>
+
+export const WhatsAppUnlinkRequested = z.strictObject({ unlink_requested_at: z.string() })
+export type WhatsAppUnlinkRequested = z.infer<typeof WhatsAppUnlinkRequested>

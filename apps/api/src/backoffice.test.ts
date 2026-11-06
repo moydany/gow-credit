@@ -35,9 +35,10 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   const userB = randomUUID()
 
   const tokenFor = (sub: string, tenant: string, email: string, ttl = 600) => issueToken(SECRET, { sub, email, tenant_id: tenant }, ttl)
-  const call = async (method: string, path: string, opts: { cookie?: string; body?: unknown; csrf?: boolean } = {}) => {
+  const call = async (method: string, path: string, opts: { cookie?: string; bearer?: string; body?: unknown; csrf?: boolean } = {}) => {
     const headers: Record<string, string> = {}
     if (opts.cookie) headers.cookie = opts.cookie
+    if (opts.bearer) headers.authorization = `Bearer ${opts.bearer}`
     if (opts.csrf !== false && method !== 'GET') headers['x-gow-backoffice'] = '1'
     if (opts.body !== undefined) headers['content-type'] = 'application/json'
     const res = await fetch(`${base}/bo/v1${path}`, { method, headers, ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }) })
@@ -330,6 +331,75 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   it('configuración: los canales del tenant se leen de la sesión, sin WhatsApp vinculado', async () => {
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
     expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null } })
+  })
+
+  // El inicio de sesión tiene límite por IP y las pruebas anteriores lo agotan: estas van con el JWT como Bearer.
+  const as = (user: string, tenant: string, email: string) => {
+    const bearer = tokenFor(user, tenant, email)
+    return (method: string, path: string) => call(method, path, { bearer })
+  }
+
+  it('WhatsApp: sin proceso no hay QR ni se puede desvincular; el estado de cada tenant es suyo', async () => {
+    const a = as(userA, tenantA, 'a@prestamista.test')
+    const b = as(userB, tenantB, 'b@prestamista.test')
+    // Nunca ha corrido el proceso para A.
+    expect((await a('GET', '/whatsapp')).json).toEqual({ process_running: false, status: null, linked_number: null, qr: null, qr_expires_at: null, unlink_pending: false, updated_at: null })
+    expect((await a('POST', '/whatsapp/unlink')).status).toBe(409)
+
+    // B tiene el proceso vivo y esperando QR; A tiene un latido viejo con un QR vigente en la fila.
+    await admin.query("INSERT INTO app.whatsapp_sessions (tenant_id, status, qr, qr_expires_at, heartbeat_at) VALUES ($1, 'waiting_qr', '2@reto-de-b', now() + interval '1 minute', now())", [tenantB])
+    await admin.query("INSERT INTO app.whatsapp_sessions (tenant_id, status, qr, qr_expires_at, heartbeat_at) VALUES ($1, 'waiting_qr', '2@reto-de-a', now() + interval '1 minute', now() - interval '45 seconds')", [tenantA])
+    const stale = await a('GET', '/whatsapp')
+    expect(stale.json).toMatchObject({ process_running: false, status: 'waiting_qr', qr: null, qr_expires_at: null })
+    expect(JSON.stringify(stale.json)).not.toContain('reto-de-b')
+    expect((await a('POST', '/whatsapp/unlink')).status).toBe(409)
+    expect((await b('GET', '/whatsapp')).json).toMatchObject({ process_running: true, status: 'waiting_qr', qr: '2@reto-de-b', qr_expires_at: expect.any(String) as unknown })
+    const log = await admin.query("SELECT tenant_id::text AS t, actor FROM app.audit_log WHERE action LIKE 'whatsapp.%'")
+    expect(log.rows).toEqual([{ t: tenantB, actor: `user:${userB}` }])
+  })
+
+  it('WhatsApp: el QR se muestra solo vigente y verlo queda en la bitácora una vez por QR; desvincular se pide y se audita', async () => {
+    const a = as(userA, tenantA, 'a@prestamista.test')
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const viewed = () => q("SELECT actor, details FROM app.audit_log WHERE tenant_id = $1 AND action = 'whatsapp.qr_viewed' ORDER BY at", [tenantA])
+    await q("UPDATE app.whatsapp_sessions SET status = 'waiting_qr', qr = '2@reto-1', qr_expires_at = now() + interval '1 minute', heartbeat_at = now() WHERE tenant_id = $1", [tenantA])
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ process_running: true, qr: '2@reto-1' })
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ qr: '2@reto-1' })
+    expect((await viewed()).rows).toHaveLength(1)
+    // Un QR nuevo es otra vista; el valor nunca va a la bitácora, solo una huella truncada.
+    await q("UPDATE app.whatsapp_sessions SET qr = '2@reto-2' WHERE tenant_id = $1", [tenantA])
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ qr: '2@reto-2' })
+    const rows = (await viewed()).rows as { actor: string; details: { qr_digest: string } }[]
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.actor === `user:${userA}` && /^[0-9a-f]{16}$/.test(r.details.qr_digest))).toBe(true)
+    expect(JSON.stringify(rows)).not.toContain('reto')
+
+    // Caducado: no se entrega ni se audita.
+    await q("UPDATE app.whatsapp_sessions SET qr = '2@reto-3', qr_expires_at = now() - interval '1 second' WHERE tenant_id = $1", [tenantA])
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ process_running: true, status: 'waiting_qr', qr: null, qr_expires_at: null })
+    expect((await viewed()).rows).toHaveLength(2)
+
+    // Abierta: el número, sin QR; aparece también en /me.
+    await q("UPDATE app.whatsapp_sessions SET status = 'open', qr = NULL, qr_expires_at = NULL, linked_number = '+5215500000001' WHERE tenant_id = $1", [tenantA])
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ process_running: true, status: 'open', linked_number: '+5215500000001', qr: null, unlink_pending: false })
+    expect((await a('GET', '/me')).json).toMatchObject({ tenant: { whatsapp_linked_number: '+5215500000001' } })
+
+    // Desvincular queda pendiente hasta que el proceso lo atienda.
+    const un = await a('POST', '/whatsapp/unlink')
+    expect(un.status).toBe(202)
+    expect(un.json).toEqual({ unlink_requested_at: expect.any(String) as unknown })
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ status: 'open', unlink_pending: true })
+    await q('UPDATE app.whatsapp_sessions SET unlink_handled_at = unlink_requested_at WHERE tenant_id = $1', [tenantA])
+    expect((await a('GET', '/whatsapp')).json).toMatchObject({ unlink_pending: false })
+    const log = await q("SELECT actor, details FROM app.audit_log WHERE tenant_id = $1 AND action = 'whatsapp.unlink_requested'", [tenantA])
+    expect(log.rows).toEqual([{ actor: `user:${userA}`, details: { status: 'open' } }])
+    expect(JSON.stringify(log.rows)).not.toContain('+52')
+    // El tenant B no vio nada de esto.
+    expect((await q("SELECT unlink_requested_at FROM app.whatsapp_sessions WHERE tenant_id = $1", [tenantB])).rows).toEqual([{ unlink_requested_at: null }])
+
+    // Con el proceso detenido, /me deja de mostrar el número vinculado.
+    await q("UPDATE app.whatsapp_sessions SET heartbeat_at = NULL WHERE tenant_id = $1", [tenantA])
+    expect((await a('GET', '/me')).json).toMatchObject({ tenant: { whatsapp_linked_number: null } })
   })
 
   it('el esquema de tenant_users está en el catálogo de tablas con RLS', () => {
