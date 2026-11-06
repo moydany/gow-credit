@@ -52,10 +52,24 @@ llaves de servicio de larga vida.
      superusuario.
    - La prueba de RLS (`pnpm test` contra esa base, en un proyecto de staging) confirma que
      ninguna tabla de negocio quedó sin política.
+   - **Auth del backoffice (ADR 0035).** La migración 0008 crea el custom access token hook y,
+     como existe `supabase_auth_admin`, le da `EXECUTE`. Después:
+     - Activarlo en Authentication → Hooks → "Customize Access Token (JWT) Claims", tipo
+       Postgres, función `app.custom_access_token_hook`. Si el panel no lista el esquema `app`,
+       usar la Management API (`PATCH /v1/projects/{ref}/config/auth` con
+       `hook_custom_access_token_enabled: true` y
+       `hook_custom_access_token_uri: "pg-functions://postgres/app/custom_access_token_hook"`).
+     - Apagar el registro público ("Allow new users to sign up").
+     - Poner el backoffice como Site URL y `https://<backoffice>/entrar` en las Redirect URLs.
+     - Configurar el SMTP propio (Resend) y la plantilla del magic link en español.
+     - Dejar la llave HS256 heredada como la que firma: la API no verifica JWKS todavía.
+     - Comprobar con un usuario de prueba que su token trae `tenant_id`.
 2. **Secretos** en Google Secret Manager, montados como variables en cada servicio:
    - `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`;
    - una `DATABASE_URL_*` por rol;
    - `STORAGE_SIGNING_SECRET`, `BACKOFFICE_JWT_SECRET` (el JWT secret de Supabase);
+   - para el `api`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` y
+     `BACKOFFICE_URL` (login por correo, ADR 0035);
    - `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`.
 
    Cada servicio recibe solo los suyos: el `api` no ve las llaves de modelos y el `whatsapp` no
@@ -84,7 +98,7 @@ llaves de servicio de larga vida.
 | Almacenamiento en Supabase Storage | Hoy `LocalDocumentStorage` escribe al disco del contenedor, que en Cloud Run se pierde | Adaptador de Storage detrás de la interfaz existente (ADR 0018), con bucket privado por tenant |
 | Sesión de Baileys persistente | `WHATSAPP_AUTH_DIR` es un directorio local; un reinicio obliga a volver a escanear el QR | Guardar el estado de autenticación cifrado en Postgres o en un volumen (Cloud Storage FUSE) |
 | WhatsApp no probado contra el servicio real | El número no se ha vinculado; todo el flujo se probó con el doble de los escenarios | Vincular un número de prueba y correr los escenarios 12 a 15 contra él |
-| Backoffice con Supabase Auth | Hoy el enlace de acceso lo imprime `pnpm tenant user add` | Magic link de Supabase Auth; la API ya verifica el JWT con `BACKOFFICE_JWT_SECRET` |
+| Backoffice con Supabase Auth (hecho en parte, ADR 0035) | Enlace por correo, hook de `tenant_id` y alta de cuentas probados contra el Supabase local | Falta: plantilla del correo en español, verificación con JWKS si el proyecto firma con llaves asimétricas, límites de enlaces compartidos entre instancias y, si una hora no alcanza, refresco de sesión |
 | Logs con pino y trazas | Hoy hay una línea JSON sin PII por evento; Langfuse no está conectado (ADR 0027) | pino con redacción, exportador de trazas de Mastra con PII filtrada |
 | Equidad entre tenants y Batches API | Un tenant con mil documentos puede acaparar el worker | Cola por tenant con cuota; Batches API para cargas masivas (`docs/02` §4b) |
 | Verificación ante el SAT | Apagada; `cfdi_sat_status` queda en `null` | Adaptador de "Verifica CFDI" con caché y límite de ritmo (`docs/09` §6) |

@@ -282,12 +282,37 @@ puertos y otros volúmenes.
 | `http://127.0.0.1:54342` | Studio, sin contraseña porque solo escucha en local |
 | `http://127.0.0.1:54343` | Inbucket: los correos de Auth, como los magic links |
 
-`BACKOFFICE_JWT_SECRET` es el JWT secret del proyecto, así que el enlace de `pnpm tenant user
-add` lo firma la misma llave que Supabase Auth. Falta por conectar:
+#### Entrar al backoffice con tu correo
 
-- El adaptador de Supabase Storage. Storage corre, pero los documentos siguen en disco, en
-  `data/storage-supabase`.
-- El login del backoffice con Supabase Auth. Sus JWT todavía no traen `tenant_id`.
+Con `app.env` cargado, el backoffice entra con Supabase Auth (ADR 0035). Un hook de la migración
+0008 agrega `tenant_id` al token de quien es miembro de un tenant; por eso `pnpm db:migrate` va
+antes. Sin registro público: la cuenta se crea al dar de alta al usuario.
+
+1. Desde la shell con `app.env`, da de alta tu correo en el tenant. Crea la pertenencia y la
+   cuenta de Auth con el mismo id (también imprime el enlace de desarrollo, que sigue sirviendo):
+
+   ```bash
+   pnpm tenant user add --tenant <id del tenant> --email tu@correo.mx
+   ```
+
+2. Arranca `pnpm api` en esa shell y `pnpm web` en otra.
+3. Abre `http://127.0.0.1:5173/entrar`, escribe tu correo y pulsa "Mandar enlace".
+4. El correo llega a Inbucket, en `http://127.0.0.1:54343`, buzón con la parte de tu correo antes
+   de la `@`. Abre "Sign in" en el mismo navegador: GoTrue te regresa a `/entrar` y entras.
+
+Notas:
+
+- La sesión dura una hora (`JWT_EXPIRY`); después vuelves a pedir el enlace.
+- GoTrue manda un correo por dirección cada 60 s; uno pedido antes no llega.
+- Un correo sin cuenta recibe la misma respuesta y ningún correo.
+- Desde Configuración, invitar a alguien crea su cuenta y le manda el enlace.
+- El enlace de Inbucket regresa a `http://127.0.0.1:5173`. Si la web corre en otro puerto,
+  agrégalo a `ADDITIONAL_REDIRECT_URLS` en `infra/supabase/.env` y cambia `BACKOFFICE_URL` en
+  `app.env`.
+
+`BACKOFFICE_JWT_SECRET` es el JWT secret del proyecto, así que el enlace de `pnpm tenant user
+add` y los tokens de Supabase Auth los firma la misma llave. Falta por conectar el adaptador de
+Supabase Storage: Storage corre, pero los documentos siguen en disco, en `data/storage-supabase`.
 
 `pnpm supabase:down` detiene el stack y conserva los datos. Para empezar de cero:
 

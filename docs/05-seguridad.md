@@ -331,3 +331,19 @@ prioridad, para discutirlo en la llamada.
   (`app.whatsapp_sessions`, RLS forzada). `gow_api` la lee y solo puede pedir desvincular. Las
   pruebas de RLS cubren ambos privilegios y el aislamiento entre tenants.
 - **El proceso tiene que estar corriendo** para vincular: en Cloud Run, 1 instancia fija.
+
+### Fase 8 (2026-11-06): login del backoffice con Supabase Auth (ADR 0035)
+
+- **§2, `tenant_id` como claim firmado**: lo agrega un custom access token hook (migración 0008).
+  La única función que salta RLS es `security definer` y devuelve solo el id del tenant. El hook
+  descarta cualquier `tenant_id` que traigan los claims. Solo `supabase_auth_admin` puede
+  ejecutarlas; `anon`, `authenticated`, `service_role` y los roles `gow_*`, no. La API sigue
+  leyendo la pertenencia en cada petición.
+- **Sin enumeración de cuentas**: pedir el enlace siempre responde 202 con el mismo cuerpo, y la
+  llamada a GoTrue va fuera de la petición. Hay límite por IP (429) y por correo (en silencio).
+  GoTrue no crea cuentas ahí (`create_user: false`) y el registro público está apagado: las
+  cuentas solo las crea la API o el CLI con la llave service_role, que nunca llega al navegador.
+- **Tokens fuera del navegador**: el access token llega en el fragmento de la URL, se quita de
+  la barra y del historial al leerlo y se cambia por la cookie `HttpOnly`. El refresh token no se
+  usa, y la API cierra su sesión de GoTrue al crear la cookie. Ni el correo ni los tokens van a
+  los registros.

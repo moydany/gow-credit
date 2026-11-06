@@ -191,3 +191,13 @@ muestra personalización y el loop de aprendizaje.
 
     Ver el QR y pedir desvincular quedan en la bitácora. El menú de usuario, Solicitudes y
     Aclaraciones usan el número vinculado. Sale de "Sigue pendiente".
+  - **Login con Supabase Auth (ADR 0035, 2026-11-06).** Con `SUPABASE_URL` y
+    `SUPABASE_SERVICE_ROLE_KEY`, la pantalla de acceso pide el correo y Supabase Auth manda el
+    enlace. La respuesta es la misma tenga o no cuenta. Un custom access token hook agrega
+    `tenant_id` al token de quien es miembro. Cambios:
+    - Invitar desde Configuración crea la cuenta de Auth y le manda el enlace; ya no muestra un
+      enlace para compartir.
+    - Quitar a un usuario solo quita la pertenencia.
+    - La sesión dura lo que el access token (una hora por defecto) y no se refresca.
+
+    Sin Supabase sigue el enlace con el JWT de `pnpm tenant user add`.
