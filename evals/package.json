@@ -9,7 +9,8 @@
     "gt:build": "tsx src/ground-truth/build.ts",
     "eval": "evalite run --hideTable && tsx src/gate.ts",
     "eval:ui": "evalite serve",
-    "score": "tsx src/score-dir.ts"
+    "score": "tsx src/score-dir.ts",
+    "corrections": "tsx src/corrections.ts"
   },
   "dependencies": {
     "@gow/contracts": "workspace:*",
