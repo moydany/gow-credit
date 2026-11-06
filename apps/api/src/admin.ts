@@ -4,12 +4,13 @@
  * de API, que se muestra una sola vez y se guarda como hash (docs/05 §2).
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import type { Policy } from '@gow/contracts'
+import { ApiKeyScope, type Policy } from '@gow/contracts'
 import { apiKeys, auditLog, policies, policyVersions, tenants, withTenant, type Db } from '@gow/db'
 import { basePolicyTemplate } from '@gow/decision'
 
-export const API_KEY_SCOPES = ['ingest', 'read', 'policies'] as const
-export type ApiKeyScope = (typeof API_KEY_SCOPES)[number]
+/** Alcances de una llave; el contrato vive en `@gow/contracts` (lo usa también el backoffice). */
+export const API_KEY_SCOPES = ApiKeyScope.options
+export type { ApiKeyScope }
 
 export function hashSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex')
