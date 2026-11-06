@@ -347,3 +347,22 @@ prioridad, para discutirlo en la llamada.
   la barra y del historial al leerlo y se cambia por la cookie `HttpOnly`. El refresh token no se
   usa, y la API cierra su sesión de GoTrue al crear la cookie. Ni el correo ni los tokens van a
   los registros.
+
+### Fase 8 (2026-11-06): sesión del backoffice que se renueva sola (ADR 0036)
+
+- **Ajusta el punto anterior**: el refresh token ya se usa, pero nunca lo guarda JavaScript. La
+  API lo recibe una vez de `/entrar` y lo guarda en una segunda cookie (`gow_refresh`, `HttpOnly;
+  SameSite=Strict; Path=/bo`, `Secure` detrás de HTTPS), cifrado con AES-256-GCM. La llave se
+  deriva con HKDF de `BACKOFFICE_JWT_SECRET` con una etiqueta fija; no es la llave que firma los
+  JWT. Una cookie alterada o de otra llave se ignora.
+- **Límites**: 12 h desde el login (`BACKOFFICE_SESSION_MAX_HOURS`) y 8 h sin renovar
+  (`BACKOFFICE_SESSION_IDLE_HOURS`). Van dentro del texto cifrado, así que el navegador no los
+  puede estirar.
+- **Cada renovación vuelve a verificar**: firma, `tenant_id` del hook, mismo usuario y pertenencia
+  vigente. Quitar a un usuario lo saca en la siguiente petición, renueve o no, y en esa petición
+  se cierra su sesión de GoTrue. Salir también la cierra.
+- **Peticiones en paralelo**: una renovación por refresh token y proceso, compartida 30 s; entre
+  instancias, el intervalo de reúso de GoTrue (10 s). Un fallo al renovar no saca a quien todavía
+  tiene un access token vigente; con GoTrue caído y el token vencido, 503 sin borrar cookies.
+- Ni los tokens ni el correo van a los registros: la llave del mapa de renovaciones es el hash
+  del refresh token, y un error de GoTrue registra solo el código.

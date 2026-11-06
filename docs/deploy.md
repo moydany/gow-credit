@@ -64,12 +64,15 @@ llaves de servicio de larga vida.
      - Configurar el SMTP propio (Resend) y la plantilla del magic link en español.
      - Dejar la llave HS256 heredada como la que firma: la API no verifica JWKS todavía.
      - Comprobar con un usuario de prueba que su token trae `tenant_id`.
+     - Dejar encendida la rotación de refresh tokens con su intervalo de reúso (10 s por
+       defecto): la API depende de él para peticiones en paralelo entre instancias (ADR 0036).
 2. **Secretos** en Google Secret Manager, montados como variables en cada servicio:
    - `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`;
    - una `DATABASE_URL_*` por rol;
    - `STORAGE_SIGNING_SECRET`, `BACKOFFICE_JWT_SECRET` (el JWT secret de Supabase);
    - para el `api`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` y
-     `BACKOFFICE_URL` (login por correo, ADR 0035);
+     `BACKOFFICE_URL` (login por correo, ADR 0035); opcionales, `BACKOFFICE_SESSION_MAX_HOURS`
+     (12) y `BACKOFFICE_SESSION_IDLE_HOURS` (8), los límites de la sesión renovable (ADR 0036);
    - `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`.
 
    Cada servicio recibe solo los suyos: el `api` no ve las llaves de modelos y el `whatsapp` no
@@ -98,7 +101,7 @@ llaves de servicio de larga vida.
 | Almacenamiento en Supabase Storage | Hoy `LocalDocumentStorage` escribe al disco del contenedor, que en Cloud Run se pierde | Adaptador de Storage detrás de la interfaz existente (ADR 0018), con bucket privado por tenant |
 | Sesión de Baileys persistente | `WHATSAPP_AUTH_DIR` es un directorio local; un reinicio obliga a volver a escanear el QR | Guardar el estado de autenticación cifrado en Postgres o en un volumen (Cloud Storage FUSE) |
 | WhatsApp no probado contra el servicio real | El número no se ha vinculado; todo el flujo se probó con el doble de los escenarios | Vincular un número de prueba y correr los escenarios 12 a 15 contra él |
-| Backoffice con Supabase Auth (hecho en parte, ADR 0035) | Enlace por correo, hook de `tenant_id` y alta de cuentas probados contra el Supabase local | Falta: plantilla del correo en español, verificación con JWKS si el proyecto firma con llaves asimétricas, límites de enlaces compartidos entre instancias y, si una hora no alcanza, refresco de sesión |
+| Backoffice con Supabase Auth (hecho en parte, ADR 0035 y 0036) | Enlace por correo, hook de `tenant_id`, alta de cuentas y sesión renovable probados contra el Supabase local | Hecho: renovación de sesión del lado de la API (ADR 0036). Falta: plantilla del correo en español, verificación con JWKS si el proyecto firma con llaves asimétricas y límites de enlaces compartidos entre instancias |
 | Logs con pino y trazas | Hoy hay una línea JSON sin PII por evento; Langfuse no está conectado (ADR 0027) | pino con redacción, exportador de trazas de Mastra con PII filtrada |
 | Equidad entre tenants y Batches API | Un tenant con mil documentos puede acaparar el worker | Cola por tenant con cuota; Batches API para cargas masivas (`docs/02` §4b) |
 | Verificación ante el SAT | Apagada; `cfdi_sat_status` queda en `null` | Adaptador de "Verifica CFDI" con caché y límite de ritmo (`docs/09` §6) |

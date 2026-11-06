@@ -302,7 +302,10 @@ antes. Sin registro público: la cuenta se crea al dar de alta al usuario.
 
 Notas:
 
-- La sesión dura una hora (`JWT_EXPIRY`); después vuelves a pedir el enlace.
+- La sesión se renueva sola (ADR 0036) mientras uses el backoffice: hasta 12 h desde que
+  entraste (`BACKOFFICE_SESSION_MAX_HOURS`) o hasta 8 h sin usarlo
+  (`BACKOFFICE_SESSION_IDLE_HOURS`). Después vuelves a pedir el enlace. Salir cierra también la
+  sesión de Supabase Auth.
 - GoTrue manda un correo por dirección cada 60 s; uno pedido antes no llega.
 - Un correo sin cuenta recibe la misma respuesta y ningún correo.
 - Desde Configuración, invitar a alguien crea su cuenta y le manda el enlace.

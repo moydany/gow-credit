@@ -201,3 +201,14 @@ muestra personalización y el loop de aprendizaje.
     - La sesión dura lo que el access token (una hora por defecto) y no se refresca.
 
     Sin Supabase sigue el enlace con el JWT de `pnpm tenant user add`.
+  - **La sesión se renueva sola (ADR 0036, 2026-11-06).** Con Supabase Auth, `/entrar` manda
+    también el refresh token; la API lo guarda cifrado en una cookie `HttpOnly` y renueva el
+    access token cuando le quedan menos de 5 min o ya venció. Las consultas que se refrescan solas
+    mantienen viva la sesión. Cambios:
+    - Dura hasta 12 h desde que se entra, o hasta 8 h sin usar el backoffice; después se pide otro
+      enlace. Las dos se configuran (`BACKOFFICE_SESSION_MAX_HOURS`, `BACKOFFICE_SESSION_IDLE_HOURS`).
+    - Salir cierra también la sesión de Supabase Auth.
+    - Quitar a un usuario lo saca en su siguiente petición y cierra su sesión de Supabase Auth en
+      ese momento.
+
+    Sin Supabase nada cambia.
