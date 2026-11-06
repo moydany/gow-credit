@@ -5,8 +5,9 @@
  *
  * Alta de tenant con el rol administrador: clona la política base como activa y emite la primera
  * llave de API (solo se muestra aquí; se guarda como hash). `user add` da de alta al usuario del
- * backoffice (un rol, varios usuarios por tenant, docs/08 §1) e imprime su enlace de acceso: en
- * desarrollo hace el papel del correo de invitación de Supabase Auth, con el mismo tipo de JWT.
+ * backoffice (un rol, varios usuarios por tenant, docs/08 §1) e imprime su enlace de acceso, firmado
+ * con el JWT secret del proyecto. Con SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY (ADR 0035) además crea
+ * o encuentra su cuenta de Supabase Auth y usa ese id: la persona puede entrar con su correo.
  */
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -18,6 +19,7 @@ import { loadRootEnv } from '@gow/llm'
 import { eq } from 'drizzle-orm'
 import { createTenant } from '../admin.ts'
 import { issueToken } from '../session.ts'
+import { supabaseAuthFromEnv } from '../supabase-auth.ts'
 
 loadRootEnv()
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { name: { type: 'string' }, whatsapp: { type: 'string' }, 'email-from': { type: 'string' }, policy: { type: 'string' }, tenant: { type: 'string' }, email: { type: 'string' }, hours: { type: 'string' } } })
@@ -53,19 +55,31 @@ if (positionals[0] === 'create' && values.name) {
   const admin = connect(databaseUrl('admin'), { max: 1 })
   const email = values.email.trim().toLowerCase()
   const tenantId = values.tenant
+  const auth = supabaseAuthFromEnv(process.env)
   // Con el rol administrador solo para esta alta; la pertenencia queda bajo RLS como cualquier fila.
-  const userId = await withTenant(admin.db, tenantId, async (tx) => {
+  const existing = await withTenant(admin.db, tenantId, async (tx) => {
     const [t] = await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId))
     if (!t) throw new Error('no existe ese tenant')
-    const [existing] = await tx.select().from(tenantUsers).where(eq(tenantUsers.email, email))
-    if (existing) return existing.userId
-    const id = randomUUID()
-    await tx.insert(tenantUsers).values({ tenantId, userId: id, email })
-    return id
+    const [u] = await tx.select().from(tenantUsers).where(eq(tenantUsers.email, email))
+    return u ?? null
   })
+  let userId = existing?.userId ?? randomUUID()
+  if (auth) {
+    // Una pertenencia anterior a Supabase Auth conserva su id: la cuenta nueva se crea con él, así la
+    // bitácora sigue apuntando a la misma persona.
+    const authId = await auth.ensureUser(email, existing?.userId)
+    if (existing && authId !== existing.userId) {
+      await admin.close()
+      console.error('ese correo ya tiene una cuenta de Supabase Auth con otro id que el de su pertenencia; revísalo en Studio (ADR 0035)')
+      process.exit(1)
+    }
+    userId = authId
+  }
+  if (!existing) await withTenant(admin.db, tenantId, (tx) => tx.insert(tenantUsers).values({ tenantId, userId, email }))
   await admin.close()
   const token = issueToken(secret, { sub: userId, email, tenant_id: tenantId }, Number(values.hours ?? 8) * 3600)
   console.log(`usuario ${email} en el tenant ${tenantId}`)
+  if (auth) console.log(`cuenta de Supabase Auth ${userId}: entra con su correo en ${webUrl}/entrar`)
   console.log(`enlace de acceso (vigente ${values.hours ?? '8'} h): ${webUrl}/entrar#token=${token}`)
 } else {
   usage()

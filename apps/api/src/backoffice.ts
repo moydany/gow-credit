@@ -7,7 +7,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { apiKeys, applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, supplierContacts, suppliers, tenants, tenantUsers, whatsappSessions, withTenant, type Db, type Tx } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
+import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
@@ -15,6 +15,7 @@ import { z } from 'zod'
 import { hashSecret, newApiKey } from './admin.ts'
 import { answerClarification, audit, createPolicyDraft, discardDocument, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 import { CSRF_HEADER, clearedCookie, issueToken, readCookie, SESSION_COOKIE, sessionCookie, verifyToken } from './session.ts'
+import type { AuthDirectory } from './supabase-auth.ts'
 
 export interface BackofficeDeps {
   db: Db
@@ -24,6 +25,12 @@ export interface BackofficeDeps {
   secureCookies?: boolean
   /** Origen del backoffice para el enlace de acceso de un usuario invitado (`BACKOFFICE_URL`). */
   backofficeUrl?: string | null
+  /**
+   * Supabase Auth (ADR 0035): con él, dar de alta a un usuario crea su cuenta de Auth y se entra con
+   * un enlace que llega por correo. Sin él, el enlace con el JWT de desarrollo de siempre.
+   */
+  auth?: AuthDirectory | null
+  logger?: { error(message: string): void }
 }
 
 interface Who {
@@ -33,6 +40,26 @@ interface Who {
 }
 
 const SESSION_SECONDS = 8 * 60 * 60
+/** Ruta del backoffice que termina el login: lee el token del fragmento y lo cambia por la cookie. */
+const ENTER_PATH = '/entrar'
+
+/**
+ * Ventana fija por llave en memoria (un proceso de API). Se limpia sola al crecer: un atacante que
+ * rota llaves no la hace crecer sin límite.
+ */
+function windowLimiter(limit: number, windowMs: number) {
+  const hits = new Map<string, { start: number; count: number }>()
+  return (key: string): boolean => {
+    const now = Date.now()
+    if (hits.size > 10_000) for (const [k, v] of hits) if (now - v.start > windowMs) hits.delete(k)
+    const w = hits.get(key)
+    if (!w || now - w.start > windowMs) {
+      hits.set(key, { start: now, count: 1 })
+      return true
+    }
+    return ++w.count <= limit
+  }
+}
 
 const who = (res: Response) => res.locals.who as Who
 const actorOf = (w: Who) => `user:${w.userId}`
@@ -85,12 +112,23 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
 
   const attempts = new Map<string, { start: number; count: number }>()
   const secure = deps.secureCookies === true
+  const backofficeBase = (deps.backofficeUrl ?? 'http://127.0.0.1:5173').replace(/\/+$/, '')
+  // Pedir enlaces: por IP responde 429; por correo se descarta en silencio (la respuesta no cambia).
+  const magicLinkPerIp = windowLimiter(5, 60_000)
+  const magicLinkPerEmail = windowLimiter(3, 15 * 60_000)
 
-  async function membership(token: string): Promise<Who | null> {
+  async function membership(token: string): Promise<(Who & { exp: number; supabaseSession: boolean }) | null> {
     const claims = verifyToken(deps.backofficeJwtSecret, token)
     if (!claims) return null
     const [m] = await withTenant(deps.db, claims.tenant_id, (tx) => tx.select().from(tenantUsers).where(and(eq(tenantUsers.tenantId, claims.tenant_id), eq(tenantUsers.userId, claims.sub))))
-    return m ? { userId: m.userId, email: m.email, tenantId: m.tenantId } : null
+    return m ? { userId: m.userId, email: m.email, tenantId: m.tenantId, exp: claims.exp, supabaseSession: claims.session_id !== undefined } : null
+  }
+
+  /** Correo con el enlace de acceso, fuera de la petición: el tiempo de respuesta no dice si la cuenta existe. */
+  function sendMagicLink(auth: AuthDirectory, email: string): void {
+    auth.sendMagicLink(email, `${backofficeBase}${ENTER_PATH}`).catch((e: unknown) => {
+      deps.logger?.error(`backoffice: no se pidió el enlace de acceso (${e instanceof Error ? e.message : 'error'})`)
+    })
   }
 
   async function meOf(w: Who): Promise<BackofficeMe> {
@@ -114,8 +152,39 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     const body = parse(z.strictObject({ token: z.string().min(20).max(4000) }), req.body)
     const w = await membership(body.token)
     if (!w) throw new HttpError(401, 'el enlace de acceso no es válido o ya venció')
-    res.setHeader('Set-Cookie', sessionCookie(body.token, { maxAgeSeconds: SESSION_SECONDS, secure }))
+    // La cookie vive lo que el token (ADR 0035): con Supabase Auth, una hora por defecto; después se
+    // vuelve a pedir el enlace. No se refresca: el refresh token ni siquiera llega a la API.
+    const ttl = Math.min(SESSION_SECONDS, w.exp - Math.floor(Date.now() / 1000))
+    res.setHeader('Set-Cookie', sessionCookie(body.token, { maxAgeSeconds: ttl, secure }))
+    // El refresh token de GoTrue viajó en el fragmento de la URL y nadie lo usa: se cierra su sesión
+    // de Auth para que no sirva para emitir tokens nuevos. El access token sigue válido hasta `exp`.
+    if (deps.auth && w.supabaseSession) {
+      await deps.auth.revokeSession(body.token).catch((e: unknown) => {
+        deps.logger?.error(`backoffice: no se cerró la sesión de Auth (${e instanceof Error ? e.message : 'error'})`)
+      })
+    }
     res.json(await meOf(w))
+  })
+
+  r.get('/session/config', (_req, res) => {
+    const out: SessionConfig = { magic_link: Boolean(deps.auth) }
+    res.json(out)
+  })
+
+  /**
+   * Pedir el enlace de acceso por correo (Supabase Auth). Siempre 202 con el mismo cuerpo, exista o
+   * no la cuenta: no revela quién tiene acceso. GoTrue no crea cuentas aquí (`create_user: false`).
+   * El correo nunca va a los registros.
+   */
+  r.post('/session/magic-link', (req, res) => {
+    const auth = deps.auth
+    if (!auth) throw new HttpError(404, 'no encontrado')
+    if (!magicLinkPerIp(req.ip ?? 'local')) throw new HttpError(429, 'demasiados intentos; espera un minuto')
+    if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+    const { email } = parse(MagicLinkBody, req.body)
+    if (magicLinkPerEmail(createHash('sha256').update(email).digest('hex'))) sendMagicLink(auth, email)
+    const out: MagicLinkAccepted = { accepted: true }
+    res.status(202).json(out)
   })
 
   r.delete('/session', (req, res) => {
@@ -504,40 +573,66 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Invitar: da de alta la pertenencia y devuelve, una sola vez, el enlace de acceso con el mismo JWT
-   * que emite `pnpm tenant user add` (en producción lo manda Supabase Auth por correo). Un usuario que
-   * ya existe no recibe enlace nuevo por aquí: sería entrar a nombre de otro.
+   * Invitar: da de alta la pertenencia. Sin Supabase Auth devuelve, una sola vez, el enlace de acceso
+   * con el mismo JWT que emite `pnpm tenant user add`. Con Supabase Auth (ADR 0035) crea o encuentra
+   * la cuenta de Auth, guarda su id como `user_id` y le manda el enlace por correo; no hay enlace que
+   * compartir. Un usuario que ya existe no recibe enlace nuevo por aquí: sería entrar a nombre de otro.
    */
   r.post('/users', async (req, res) => {
     const w = who(res)
     const body = parse(TenantUserCreateBody, req.body)
     const conflict = new HttpError(409, 'ese correo ya tiene acceso al backoffice', [{ path: 'email', message: 'correo ya registrado' }])
+    const memberOfThisTenant = async (tx: Tx) => (await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))).length > 0
+    let userId: string = randomUUID()
+    if (deps.auth) {
+      // Antes de tocar Auth, para no crear cuentas por un conflicto que ya se ve aquí.
+      if (await withTenant(deps.db, w.tenantId, memberOfThisTenant)) throw conflict
+      try {
+        userId = await deps.auth.ensureUser(body.email)
+      } catch (e) {
+        deps.logger?.error(`backoffice: no se creó la cuenta de Auth (${e instanceof Error ? e.message : 'error'})`)
+        throw new HttpError(502, 'no se pudo crear la cuenta de acceso; intenta de nuevo')
+      }
+    }
     let row: { userId: string; email: string; createdAt: Date }
     try {
       row = await withTenant(deps.db, w.tenantId, async (tx) => {
-        const [existing] = await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))
-        if (existing) throw conflict
-        const [u] = await tx.insert(tenantUsers).values({ tenantId: w.tenantId, userId: randomUUID(), email: body.email, invitedBy: w.userId }).returning()
+        if (await memberOfThisTenant(tx)) throw conflict
+        const [u] = await tx.insert(tenantUsers).values({ tenantId: w.tenantId, userId, email: body.email, invitedBy: w.userId }).returning()
         if (!u) throw new HttpError(500, 'no se agregó el usuario')
         await audit(tx, w.tenantId, actorOf(w), 'user.added', u.userId)
         return u
       })
     } catch (e) {
       // El correo es único entre tenants: si es de otro, RLS no deja verlo y la unicidad lo detiene.
+      // Con Supabase la cuenta de Auth ya existe y se queda sin pertenencia: sin tenant_id no entra.
       if (uniqueViolation(e)) throw conflict
       throw e
     }
+    const user = { id: row.userId, email: row.email, created_at: row.createdAt.toISOString(), invited_by: w.email, is_me: false }
+    if (deps.auth) {
+      const sent = await deps.auth.sendMagicLink(row.email, `${backofficeBase}${ENTER_PATH}`).catch((e: unknown) => {
+        deps.logger?.error(`backoffice: no se mandó el enlace al invitado (${e instanceof Error ? e.message : 'error'})`)
+        return false
+      })
+      const out: TenantUserCreated = { user, access_link: null, expires_at: null, email_sent: sent }
+      return void res.status(201).json(out)
+    }
     const token = issueToken(deps.backofficeJwtSecret, { sub: row.userId, email: row.email, tenant_id: w.tenantId }, SESSION_SECONDS)
-    const base = (deps.backofficeUrl ?? 'http://127.0.0.1:5173').replace(/\/+$/, '')
     const out: TenantUserCreated = {
-      user: { id: row.userId, email: row.email, created_at: row.createdAt.toISOString(), invited_by: w.email, is_me: false },
-      access_link: `${base}/entrar#token=${token}`,
+      user,
+      access_link: `${backofficeBase}${ENTER_PATH}#token=${token}`,
       expires_at: new Date(Date.now() + SESSION_SECONDS * 1000).toISOString(),
+      email_sent: false,
     }
     res.status(201).json(out)
   })
 
-  /** Quitar a un usuario corta su sesión en la siguiente petición (la pertenencia se lee siempre). */
+  /**
+   * Quitar a un usuario corta su sesión en la siguiente petición (la pertenencia se lee siempre). Con
+   * Supabase Auth solo se quita la pertenencia: la cuenta de Auth se queda (sin tenant_id no entra) y
+   * su id sigue explicando la bitácora.
+   */
   r.delete('/users/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)

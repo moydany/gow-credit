@@ -178,9 +178,30 @@ export type TenantUserItem = z.infer<typeof TenantUserItem>
 export const TenantUserCreateBody = z.strictObject({ email: z.email('Correo inválido').transform((s) => s.trim().toLowerCase()) })
 export type TenantUserCreateBody = z.input<typeof TenantUserCreateBody>
 
-/** El enlace de acceso se devuelve una sola vez, a quien invita (en producción lo manda Supabase Auth por correo). */
-export const TenantUserCreated = z.strictObject({ user: TenantUserItem, access_link: z.string(), expires_at: z.string() })
+/**
+ * Sin Supabase Auth, el enlace de acceso se devuelve una sola vez, a quien invita. Con Supabase Auth
+ * (ADR 0035) no hay enlace que compartir: la persona entra con su correo y se le manda uno.
+ */
+export const TenantUserCreated = z.strictObject({
+  user: TenantUserItem,
+  access_link: z.string().nullable().describe('Enlace de desarrollo con el JWT; null con Supabase Auth'),
+  expires_at: z.string().nullable(),
+  email_sent: z.boolean().describe('true si Supabase Auth mandó el enlace de acceso al correo invitado'),
+})
 export type TenantUserCreated = z.infer<typeof TenantUserCreated>
+
+// ---------- Sesión: login por correo con Supabase Auth (ADR 0035)
+
+/** Qué formas de entrar ofrece la API; sin Supabase Auth solo el enlace con el JWT. */
+export const SessionConfig = z.strictObject({ magic_link: z.boolean() })
+export type SessionConfig = z.infer<typeof SessionConfig>
+
+export const MagicLinkBody = z.strictObject({ email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')) })
+export type MagicLinkBody = z.input<typeof MagicLinkBody>
+
+/** La misma respuesta exista o no el correo: no revela quién tiene cuenta. */
+export const MagicLinkAccepted = z.strictObject({ accepted: z.literal(true) })
+export type MagicLinkAccepted = z.infer<typeof MagicLinkAccepted>
 
 export const ApiKeyScope = z.enum(['ingest', 'read', 'policies'])
 export type ApiKeyScope = z.infer<typeof ApiKeyScope>

@@ -5,6 +5,7 @@ import { connect, databaseUrl } from '@gow/db'
 import { loadRootEnv } from '@gow/llm'
 import { LocalDocumentStorage, startQueue } from '@gow/platform'
 import { createApp } from './app.ts'
+import { supabaseAuthFromEnv } from './supabase-auth.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
 const log = (level: 'info' | 'error', message: string) => {
@@ -22,6 +23,7 @@ const port = Number(env.PORT ?? 3000)
 const publicUrl = env.API_PUBLIC_URL ?? `http://127.0.0.1:${String(port)}`
 const db = connect(databaseUrl('api'), { max: 10 })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } }, { supervise: false })
+const auth = supabaseAuthFromEnv(env)
 const app = createApp({
   db: db.db,
   boss,
@@ -30,9 +32,11 @@ const app = createApp({
   backofficeJwtSecret: env.BACKOFFICE_JWT_SECRET ?? null,
   secureCookies: publicUrl.startsWith('https://'),
   backofficeUrl: env.BACKOFFICE_URL ?? null,
+  auth,
   logger: { error: (m) => { log('error', m) } },
 })
 if (!env.BACKOFFICE_JWT_SECRET) log('info', 'BACKOFFICE_JWT_SECRET sin definir: /bo/v1 (backoffice) deshabilitado')
+else if (auth) log('info', 'Supabase Auth configurado: el backoffice entra con enlace por correo')
 const server = app.listen(port, '127.0.0.1', () => {
   log('info', `api escuchando en ${publicUrl}`)
 })

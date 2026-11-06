@@ -1,9 +1,9 @@
 /**
  * Sesión del backoffice (docs/08 §1 y §4). El navegador presenta un JWT HS256 con `sub`,
- * `email`, `tenant_id` y `exp`: Supabase Auth lo emite en producción (con `tenant_id` como claim
- * firmado) y `pnpm tenant user add` uno equivalente en desarrollo. La API lo verifica una vez y lo
- * guarda en una cookie `HttpOnly; SameSite=Strict`: ninguna pieza de JavaScript del navegador
- * toca el token (sin `localStorage`). La pertenencia al tenant se vuelve a leer de `tenant_users`
+ * `email`, `tenant_id` y `exp`: Supabase Auth lo emite tras el enlace por correo (`tenant_id` lo
+ * agrega el custom access token hook, ADR 0035) y `pnpm tenant user add` uno equivalente sin
+ * Supabase. La API lo verifica una vez y lo guarda en una cookie `HttpOnly; SameSite=Strict`:
+ * ninguna pieza de JavaScript del navegador toca el token después (sin `localStorage`). La pertenencia al tenant se vuelve a leer de `tenant_users`
  * en cada petición, así que quitar a un usuario surte efecto de inmediato.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
@@ -18,6 +18,8 @@ const Claims = z.object({
   email: z.email(),
   tenant_id: z.uuid(),
   exp: z.number().int(),
+  /** Solo en tokens de Supabase Auth: la sesión de GoTrue que los emitió. */
+  session_id: z.string().optional(),
 })
 export type SessionClaims = z.infer<typeof Claims>
 
@@ -28,7 +30,7 @@ function sign(secret: string, payload: string): Buffer {
 }
 
 /** JWT HS256 mínimo. En desarrollo lo emite el CLI; la verificación es la misma que para Supabase. */
-export function issueToken(secret: string, claims: Omit<SessionClaims, 'exp'>, ttlSeconds: number, nowSeconds = Math.floor(Date.now() / 1000)): string {
+export function issueToken(secret: string, claims: Omit<SessionClaims, 'exp' | 'session_id'>, ttlSeconds: number, nowSeconds = Math.floor(Date.now() / 1000)): string {
   const head = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const body = b64(JSON.stringify({ ...claims, exp: nowSeconds + ttlSeconds }))
   return `${head}.${body}.${b64(sign(secret, `${head}.${body}`))}`

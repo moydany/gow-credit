@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { hashSecret, type ApiKeyScope } from './admin.ts'
 import { backofficeRouter } from './backoffice.ts'
 import { answerClarification, audit, createPolicyDraft, HttpError, parse, PolicyBody, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
+import type { AuthDirectory } from './supabase-auth.ts'
 
 export interface ApiDeps {
   db: Db
@@ -36,6 +37,8 @@ export interface ApiDeps {
   secureCookies?: boolean
   /** Origen del backoffice para los enlaces de acceso de usuarios invitados (`BACKOFFICE_URL`). */
   backofficeUrl?: string | null
+  /** Supabase Auth para el login del backoffice por correo (ADR 0035); sin él, solo el enlace con el JWT. */
+  auth?: AuthDirectory | null
 }
 
 interface Auth {

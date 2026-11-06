@@ -2,7 +2,7 @@
  * El backoffice contra Postgres real: sesión por cookie, pertenencia verificada en cada petición,
  * CSRF, aislamiento entre tenants, bandeja, respuesta manual de una aclaración y bitácora con el usuario.
  */
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createTenant } from './admin.ts'
 import { createApp } from './app.ts'
 import { issueToken } from './session.ts'
+import type { AuthDirectory } from './supabase-auth.ts'
 
 const available = await postgresAvailable()
 const SECRET = 'secreto-de-pruebas-del-backoffice'
@@ -29,19 +30,44 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   let boss: PgBoss
   let server: Server
   let base = ''
+  // La misma API con Supabase Auth simulado (ADR 0035).
+  let serverSb: Server
+  let baseSb = ''
+  const gotrue = {
+    users: new Map<string, string>(),
+    links: [] as { email: string; redirectTo: string }[],
+    revoked: [] as string[],
+    down: false,
+  }
+  const auth: AuthDirectory = {
+    ensureUser: (email) => {
+      if (gotrue.down) return Promise.reject(new Error('Supabase Auth respondió 503'))
+      const id = gotrue.users.get(email) ?? randomUUID()
+      gotrue.users.set(email, id)
+      return Promise.resolve(id)
+    },
+    sendMagicLink: (email, redirectTo) => {
+      gotrue.links.push({ email, redirectTo })
+      return Promise.resolve(gotrue.users.has(email))
+    },
+    revokeSession: (token) => {
+      gotrue.revoked.push(token)
+      return Promise.resolve()
+    },
+  }
   let tenantA = ''
   let tenantB = ''
   const userA = randomUUID()
   const userB = randomUUID()
 
   const tokenFor = (sub: string, tenant: string, email: string, ttl = 600) => issueToken(SECRET, { sub, email, tenant_id: tenant }, ttl)
-  const call = async (method: string, path: string, opts: { cookie?: string; bearer?: string; body?: unknown; csrf?: boolean } = {}) => {
+  const call = async (method: string, path: string, opts: { cookie?: string; bearer?: string; body?: unknown; csrf?: boolean; base?: string } = {}) => {
     const headers: Record<string, string> = {}
     if (opts.cookie) headers.cookie = opts.cookie
     if (opts.bearer) headers.authorization = `Bearer ${opts.bearer}`
     if (opts.csrf !== false && method !== 'GET') headers['x-gow-backoffice'] = '1'
     if (opts.body !== undefined) headers['content-type'] = 'application/json'
-    const res = await fetch(`${base}/bo/v1${path}`, { method, headers, ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }) })
+    const res = await fetch(`${opts.base ?? base}/bo/v1${path}`, { method, headers, ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }) })
     const text = await res.text()
     return { status: res.status, headers: res.headers, json: (text ? JSON.parse(text) : {}) as Record<string, unknown> & unknown[] }
   }
@@ -67,10 +93,15 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`
     const storage = new LocalDocumentStorage({ root: mkdtempSync(join(tmpdir(), 'gow-bo-')), secret: 'firma-local', publicBaseUrl: base })
     server.on('request', createApp({ db: apiDb.db, boss, storage, backofficeJwtSecret: SECRET }))
+    serverSb = createServer(createApp({ db: apiDb.db, boss, storage, backofficeJwtSecret: SECRET, backofficeUrl: 'https://bo.prestamista.test', auth }))
+    serverSb.listen(0)
+    await new Promise((r) => serverSb.once('listening', r))
+    baseSb = `http://127.0.0.1:${String((serverSb.address() as AddressInfo).port)}`
   }, 60_000)
 
   afterAll(async () => {
     await new Promise((r) => server.close(r))
+    await new Promise((r) => serverSb.close(r))
     await boss.stop({ graceful: false })
     await admin.end()
     await apiDb.close()
@@ -284,6 +315,54 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
       { actor: `user:${userA}`, action: 'user.added', details: {} },
       { actor: `user:${userA}`, action: 'user.removed', details: {} },
     ])
+  })
+
+  it('con Supabase Auth: invitar crea la cuenta de Auth, guarda su id y manda el enlace; no hay enlace que compartir', async () => {
+    // Con el JWT como Bearer: el límite de inicios de sesión por IP es del otro servidor y ya va gastado.
+    const a = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const added = await call('POST', '/users', { base: baseSb, bearer: a, body: { email: 'Auth@Prestamista.test' } })
+    expect(added.status).toBe(201)
+    const authId = gotrue.users.get('auth@prestamista.test')
+    expect(added.json).toMatchObject({ user: { id: authId, email: 'auth@prestamista.test' }, access_link: null, expires_at: null, email_sent: true })
+    expect(gotrue.links).toEqual([{ email: 'auth@prestamista.test', redirectTo: 'https://bo.prestamista.test/entrar' }])
+    const rows = await admin.query('SELECT tenant_id, user_id FROM app.tenant_users WHERE email = $1', ['auth@prestamista.test'])
+    expect(rows.rows).toEqual([{ tenant_id: tenantA, user_id: authId }])
+
+    // Un conflicto visible en el tenant no toca Auth; GoTrue caído no deja pertenencia a medias.
+    const before = gotrue.users.size
+    expect((await call('POST', '/users', { base: baseSb, bearer: a, body: { email: 'auth@prestamista.test' } })).status).toBe(409)
+    expect(gotrue.users.size).toBe(before)
+    gotrue.down = true
+    try {
+      expect((await call('POST', '/users', { base: baseSb, bearer: a, body: { email: 'caido@prestamista.test' } })).status).toBe(502)
+    } finally {
+      gotrue.down = false
+    }
+    expect((await admin.query('SELECT 1 FROM app.tenant_users WHERE email = $1', ['caido@prestamista.test'])).rowCount).toBe(0)
+
+    // Quitarlo solo quita la pertenencia: la cuenta de Auth sigue, pero ya no entra.
+    expect((await call('DELETE', `/users/${String(authId)}`, { base: baseSb, bearer: a })).status).toBe(204)
+    expect(gotrue.users.has('auth@prestamista.test')).toBe(true)
+  })
+
+  it('con Supabase Auth: el access token entra, la cookie vive lo que el token y se cierra la sesión de Auth; sin tenant_id no entra', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const supabaseToken = (claims: Record<string, unknown>) => {
+      const b64 = (x: unknown) => Buffer.from(JSON.stringify(x)).toString('base64url')
+      const head = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(claims)}`
+      return `${head}.${createHmac('sha256', SECRET).update(head).digest('base64url')}`
+    }
+    const claims = { aud: 'authenticated', role: 'authenticated', sub: userA, email: 'a@prestamista.test', session_id: randomUUID(), iat: now, exp: now + 3600 }
+    const token = supabaseToken({ ...claims, tenant_id: tenantA })
+    const r = await call('POST', '/session', { base: baseSb, body: { token } })
+    expect(r.status).toBe(200)
+    const maxAge = Number(/Max-Age=(\d+)/.exec(r.headers.get('set-cookie') ?? '')?.[1])
+    expect(maxAge).toBeGreaterThan(3500)
+    expect(maxAge).toBeLessThanOrEqual(3600)
+    expect(gotrue.revoked).toEqual([token])
+    // Lo que emite GoTrue para quien no es miembro: sin el claim del hook.
+    expect((await call('POST', '/session', { base: baseSb, body: { token: supabaseToken(claims) } })).status).toBe(401)
+    expect(gotrue.revoked).toHaveLength(1)
   })
 
   it('llaves de API: la completa se muestra una vez, se guarda el hash y revocar corta /v1 de inmediato', async () => {
