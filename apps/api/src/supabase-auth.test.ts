@@ -76,4 +76,19 @@ describe('Supabase Auth del lado del servidor', () => {
     const down = fakeFetch(() => ({ status: 503 }))
     await expect(supabaseAuth({ ...cfg, fetch: down.fn }).revokeSession('t')).rejects.toBeInstanceOf(AuthDirectoryError)
   })
+
+  it('renovar manda el refresh token con la llave anon y devuelve el par nuevo', async () => {
+    const f = fakeFetch(() => ({ status: 200, body: { access_token: 'a'.repeat(40), refresh_token: 'nuevo', expires_in: 3600, token_type: 'bearer', user: {} } }))
+    expect(await supabaseAuth({ ...cfg, fetch: f.fn }).refreshSession('viejo')).toEqual({ accessToken: 'a'.repeat(40), refreshToken: 'nuevo' })
+    expect(f.seen[0]).toMatchObject({ method: 'POST', url: 'http://gotrue.test/auth/v1/token?grant_type=refresh_token', headers: { apikey: 'anon-key' }, body: { refresh_token: 'viejo' } })
+  })
+
+  it('renovar: un rechazo de GoTrue es null; 429, 5xx o una respuesta rara son errores transitorios', async () => {
+    const rejected = fakeFetch(() => ({ status: 400, body: { error_code: 'refresh_token_already_used' } }))
+    expect(await supabaseAuth({ ...cfg, fetch: rejected.fn }).refreshSession('x')).toBeNull()
+    for (const reply of [{ status: 429 }, { status: 503 }, { status: 200, body: { access_token: 'corto' } }]) {
+      const f = fakeFetch(() => reply)
+      await expect(supabaseAuth({ ...cfg, fetch: f.fn }).refreshSession('x')).rejects.toBeInstanceOf(AuthDirectoryError)
+    }
+  })
 })

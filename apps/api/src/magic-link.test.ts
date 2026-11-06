@@ -22,6 +22,7 @@ function fakeAuth() {
       links.push({ email, redirectTo })
       return Promise.resolve(MEMBERS.has(email))
     },
+    refreshSession: () => Promise.resolve(null),
     revokeSession: () => Promise.resolve(),
   }
   return { auth, links }
@@ -109,7 +110,7 @@ describe('Backoffice: enlace de acceso por correo', () => {
   })
 
   it('un GoTrue caído no cambia la respuesta', async () => {
-    const down: AuthDirectory = { ensureUser: () => Promise.reject(new Error('x')), sendMagicLink: () => Promise.reject(new Error('Supabase Auth respondió 503')), revokeSession: () => Promise.resolve() }
+    const down: AuthDirectory = { ensureUser: () => Promise.reject(new Error('x')), sendMagicLink: () => Promise.reject(new Error('Supabase Auth respondió 503')), refreshSession: () => Promise.resolve(null), revokeSession: () => Promise.resolve() }
     const s = await serve(down)
     try {
       expect(await post(s.base, { email: 'a@prestamista.test' })).toEqual({ status: 202, text: '{"accepted":true}' })

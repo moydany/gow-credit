@@ -4,9 +4,11 @@
  * - `ensureUser`: al dar de alta a un usuario del backoffice, crea su cuenta de Auth ya confirmada
  *   (o encuentra la existente) y devuelve su id, que se guarda como `tenant_users.user_id`;
  * - `sendMagicLink`: pide a GoTrue el correo con el enlace de acceso, sin crear cuentas;
+ * - `refreshSession`: cambia un refresh token por un access token nuevo (ADR 0036; GoTrue rota el
+ *   refresh token en cada uso);
  * - `revokeSession`: cierra la sesión de GoTrue de un access token (invalida su refresh token).
  *
- * Ningún error lleva el correo ni el token: solo el código HTTP.
+ * Ningún error lleva el correo ni los tokens: solo el código HTTP.
  */
 import { z } from 'zod'
 
@@ -18,7 +20,17 @@ export interface AuthDirectory {
   ensureUser(email: string, preferredId?: string): Promise<string>
   /** true si GoTrue mandó el correo; false si no hay cuenta con ese correo (no se crea). */
   sendMagicLink(email: string, redirectTo: string): Promise<boolean>
+  /**
+   * Tokens nuevos, o null si GoTrue rechazó el refresh token (vencido, ya usado fuera del intervalo de
+   * reúso, sesión cerrada, usuario bloqueado). Un error transitorio (5xx, 429, red) se lanza.
+   */
+  refreshSession(refreshToken: string): Promise<RefreshedSession | null>
   revokeSession(accessToken: string): Promise<void>
+}
+
+export interface RefreshedSession {
+  accessToken: string
+  refreshToken: string
 }
 
 export interface SupabaseAuthConfig {
@@ -38,6 +50,7 @@ export class AuthDirectoryError extends Error {
 
 const AdminUser = z.object({ id: z.uuid(), email: z.string().nullish() })
 const AdminUserList = z.object({ users: z.array(AdminUser) })
+const TokenResponse = z.object({ access_token: z.string().min(20), refresh_token: z.string().min(1) })
 const GoTrueError = z.object({ error_code: z.string().optional() }).loose()
 
 /** Con `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en el entorno; si falta alguno, null (modo sin Supabase). */
@@ -100,6 +113,18 @@ export function supabaseAuth(cfg: SupabaseAuthConfig): AuthDirectory {
       // Sin cuenta: GoTrue no la crea (create_user: false) y responde 422 otp_disabled.
       if (r.status === 422) return false
       throw new AuthDirectoryError(r.status)
+    },
+
+    async refreshSession(refreshToken) {
+      const r = await call('POST', '/token?grant_type=refresh_token', { key: publicKey, body: { refresh_token: refreshToken } })
+      if (r.status === 200) {
+        const t = TokenResponse.safeParse(r.json)
+        if (!t.success) throw new AuthDirectoryError(r.status)
+        return { accessToken: t.data.access_token, refreshToken: t.data.refresh_token }
+      }
+      // 429: el límite de renovaciones de GoTrue (por IP); no dice nada del token.
+      if (r.status === 429 || r.status >= 500) throw new AuthDirectoryError(r.status)
+      return null
     },
 
     async revokeSession(accessToken) {

@@ -50,6 +50,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
       gotrue.links.push({ email, redirectTo })
       return Promise.resolve(gotrue.users.has(email))
     },
+    refreshSession: () => Promise.resolve(null),
     revokeSession: (token) => {
       gotrue.revoked.push(token)
       return Promise.resolve()
@@ -345,7 +346,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(gotrue.users.has('auth@prestamista.test')).toBe(true)
   })
 
-  it('con Supabase Auth: el access token entra, la cookie vive lo que el token y se cierra la sesión de Auth; sin tenant_id no entra', async () => {
+  it('con Supabase Auth y sin refresh token: la cookie vive lo que el token y se cierra la sesión de Auth; sin tenant_id no entra', async () => {
     const now = Math.floor(Date.now() / 1000)
     const supabaseToken = (claims: Record<string, unknown>) => {
       const b64 = (x: unknown) => Buffer.from(JSON.stringify(x)).toString('base64url')
