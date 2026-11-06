@@ -10,8 +10,10 @@ import { router } from './router'
 import { ToastProvider } from './ui/toast'
 
 /**
- * Una sesión vencida (con Supabase Auth dura lo que el access token, ADR 0035) aparece como 401 en
- * cualquier consulta: se vuelve a pedir /me, y el Shell manda a /entrar cuando también responde 401.
+ * La API renueva la sesión de Supabase Auth en cualquier petición (ADR 0036): las consultas que se
+ * refrescan solas la mantienen viva sin hacer nada aquí. Una sesión terminada (límite absoluto,
+ * inactividad, usuario quitado, salir) aparece como 401 en cualquier consulta: se vuelve a pedir
+ * /me, y el Shell manda a /entrar cuando también responde 401.
  */
 const onUnauthorized = (err: unknown) => {
   if (err instanceof ApiError && err.status === 401) void queryClient.invalidateQueries({ queryKey: ['me'] })

@@ -9,15 +9,18 @@ import { Button } from '../../ui/primitives'
 /**
  * Lo que trae la URL al volver de un enlace de acceso, siempre en el fragmento (nunca viaja al
  * servidor ni a los registros): `#token=` del enlace de desarrollo, `#access_token=` de Supabase Auth
- * (flujo implícito, ADR 0035) o `#error=` si GoTrue rechazó el enlace. El refresh token que también
- * manda Supabase se descarta: la sesión dura lo que el access token.
+ * (flujo implícito, ADR 0035) o `#error=` si GoTrue rechazó el enlace. Con Supabase también viene el
+ * `refresh_token`: va una sola vez a la API, que lo guarda cifrado en una cookie HttpOnly y renueva
+ * la sesión sola (ADR 0036). Nada de esto se guarda en el navegador.
  */
-function readReturn(): { token: string | null; failed: boolean } {
+function readReturn(): { token: string | null; refreshToken: string | null; failed: boolean } {
   const hash = new URLSearchParams(window.location.hash.slice(1))
   const query = new URLSearchParams(window.location.search)
-  const token = hash.get('access_token') ?? hash.get('token')
+  const supabase = hash.get('access_token')
+  const token = supabase ?? hash.get('token')
+  const refreshToken = supabase ? hash.get('refresh_token') : null
   const failed = hash.has('error') || hash.has('error_code') || query.has('error')
-  return { token, failed }
+  return { token, refreshToken, failed }
 }
 
 type State = { kind: 'idle' } | { kind: 'working' } | { kind: 'error'; message: string } | { kind: 'sent'; email: string }
@@ -39,7 +42,7 @@ export function Enter() {
     }
     setState({ kind: 'working' })
     api
-      .signIn(back.token)
+      .signIn(back.token, back.refreshToken)
       .then(() => navigate({ to: '/' }))
       .catch((e: unknown) => {
         setState({ kind: 'error', message: e instanceof ApiError ? e.message : 'No se pudo iniciar sesión' })
