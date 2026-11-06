@@ -62,8 +62,9 @@ llaves de servicio de larga vida.
 
 5. **Resend.** Dominio verificado y webhook de correo entrante hacia `POST` de la API, con el
    secreto de firma.
-6. **WhatsApp.** Vincular el número con `pnpm whatsapp` una vez (QR). Ver "Falta para
-   producción".
+6. **WhatsApp.** Con el servicio `whatsapp` arriba, vincular el número escaneando el QR en el
+   backoffice, en Configuración (ADR 0033). Sin terminal, el QR no se imprime en los registros. Ver
+   "Falta para producción".
 
 ## Falta para producción
 

@@ -199,7 +199,7 @@ LLM_CACHE_MODE=read pnpm worker
 | `pnpm tenant create --name ...` | Imprime la llave de API del tenant |
 | `pnpm api` | API: subida por URL firmada, solicitudes, aclaraciones, políticas y outcomes |
 | `pnpm worker` | pg-boss y el workflow de Mastra. Con `LLM_CACHE_MODE=read` solo usa respuestas guardadas: costo cero, y si falta una, falla |
-| `pnpm whatsapp` | Canal de WhatsApp (Baileys). Requiere `WHATSAPP_TENANT_ID`; la primera vez imprime el QR |
+| `pnpm whatsapp` | Canal de WhatsApp (Baileys). Requiere `WHATSAPP_TENANT_ID`. El número se vincula escaneando el QR en el backoffice (Configuración); en una terminal interactiva también lo imprime |
 
 **Backoffice:**
 
@@ -215,7 +215,9 @@ pnpm demo:load --key <llave>
 pnpm web
 ```
 
-El primero imprime el enlace de acceso y el segundo carga `data/dev` por la API. Sin WhatsApp
+El primero imprime el enlace de acceso y el segundo carga `data/dev` por la API. Para vincular
+WhatsApp, con `WHATSAPP_TENANT_ID=<id> pnpm whatsapp` corriendo, se escanea el QR en
+Configuración → Canales; ahí mismo se desvincula o se cambia de número (ADR 0033). Sin WhatsApp
 vinculado, las aclaraciones se responden a mano desde el backoffice.
 
 Para producción, el plan está en [`docs/deploy.md`](docs/deploy.md): Cloud Run, Supabase y Vercel.

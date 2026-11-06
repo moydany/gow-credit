@@ -181,3 +181,13 @@ muestra personalización y el loop de aprendizaje.
     medirlas contra el modelo actual (`pnpm -F @gow/evals corrections`).
   - **Sigue pendiente**: el formulario de política generado del esquema, la vinculación de
     WhatsApp por QR desde la pantalla y el modo oscuro.
+  - **WhatsApp por QR desde Configuración (ADR 0033, 2026-11-06).** Ya no es de solo lectura.
+    La tarjeta muestra, según el estado:
+    - el QR para escanear, con los pasos en el teléfono, actualizado cada 2 s;
+    - el número vinculado, con "Desvincular", que cierra la sesión y deja un QR nuevo para
+      vincular este u otro número;
+    - cómo arrancar el proceso si no corre;
+    - qué hacer si la sesión se cerró desde el teléfono.
+
+    Ver el QR y pedir desvincular quedan en la bitácora. El menú de usuario, Solicitudes y
+    Aclaraciones usan el número vinculado. Sale de "Sigue pendiente".

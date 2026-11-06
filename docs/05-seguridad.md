@@ -318,3 +318,16 @@ prioridad, para discutirlo en la llamada.
 - **TypeSafe AI (Jev)** recibe, con `TYPESAFE_API_KEY`, el texto de las primeras páginas y las
   descripciones de los movimientos (ADR 0022). Sus términos de uso de datos **no están
   verificados**. Hasta revisarlos, en producción Jev se habilita por tenant y no por defecto.
+
+### Fase 8 (2026-11-06): vinculación de WhatsApp desde el backoffice (ADR 0033)
+
+- **§2b, un número por tenant**:
+  - El QR para vincular el número se muestra en Configuración, solo a usuarios del tenant, y
+    caduca. Quien lo escanee vincula su cuenta al bot del tenant: verlo queda en la bitácora
+    (huella del QR, nunca el valor) y nunca va a registros. Sin terminal interactiva, el
+    proceso no lo dibuja en stdout.
+  - El logger de Baileys se silencia porque imprime el número de la cuenta.
+- **§2b, radio de daño**: `gow_whatsapp` ahora también escribe el estado de su propia sesión
+  (`app.whatsapp_sessions`, RLS forzada). `gow_api` la lee y solo puede pedir desvincular. Las
+  pruebas de RLS cubren ambos privilegios y el aislamiento entre tenants.
+- **El proceso tiene que estar corriendo** para vincular: en Cloud Run, 1 instancia fija.
