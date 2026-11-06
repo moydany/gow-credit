@@ -113,7 +113,9 @@ function UsersCard() {
   const invite = useMutation({
     mutationFn: () => api.addUser(email.trim()),
     onSuccess: (r) => {
-      setLink({ email: r.user.email, url: r.access_link, expires: r.expires_at })
+      // Con Supabase Auth no hay enlace que compartir: la persona entra con su correo (ADR 0035).
+      if (r.access_link && r.expires_at) setLink({ email: r.user.email, url: r.access_link, expires: r.expires_at })
+      else toast.ok(r.email_sent ? `Listo: le mandamos a ${r.user.email} un enlace de acceso` : `Listo: ${r.user.email} ya puede entrar con su correo`)
       setEmail('')
       setTried(false)
       void qc.invalidateQueries({ queryKey: ['users'] })
@@ -184,7 +186,7 @@ function UsersCard() {
       )}
 
       <ShowOnce open={link !== null} onClose={() => { setLink(null) }} title={`Enlace de acceso para ${link?.email ?? ''}`} value={link?.url ?? ''}>
-        Compártelo solo con esa persona: quien lo abra entra a su nombre. No se vuelve a mostrar y vence el {link ? dateTime(link.expires) : ''}. En producción la invitación llega por correo.
+        Compártelo solo con esa persona: quien lo abra entra a su nombre. No se vuelve a mostrar y vence el {link ? dateTime(link.expires) : ''}. Con Supabase Auth no hay enlace: la persona entra con su correo.
       </ShowOnce>
       <Confirm open={removing !== null} onClose={() => { setRemoving(null) }} title="Quitar usuario" action="Quitar" pending={remove.isPending} onConfirm={() => { if (removing) remove.mutate(removing.id) }}>
         {removing?.email} deja de tener acceso de inmediato, aunque tenga una sesión abierta. Lo que hizo sigue en la bitácora.

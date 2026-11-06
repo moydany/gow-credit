@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, OwnerAnswer, PolicyVersionItem, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -40,6 +40,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   signIn: (token: string) => request<BackofficeMe>('POST', '/session', { token }),
+  sessionConfig: () => request<SessionConfig>('GET', '/session/config'),
+  requestMagicLink: (email: string) => request<MagicLinkAccepted>('POST', '/session/magic-link', { email }),
   signOut: () => request<undefined>('DELETE', '/session'),
   me: () => request<BackofficeMe>('GET', '/me'),
   applications: () => request<ApplicationRow[]>('GET', '/applications'),
