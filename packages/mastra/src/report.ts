@@ -218,7 +218,7 @@ export function renderReport(result: ApplicationResult, state: AppState | null):
   out.push('', '## Supuestos', '')
   out.push('- Modo standalone: no se consultan crédito vigente, buró, SAT ni listas; esas features quedan sin dato y la política las trata según `onUnknown`.')
   if (identityUnverifiable(result)) {
-    out.push(`- La identidad no se pudo comparar (titular, RFC o CLABE redactados, o sin proveedor registrado) y la compuerta \`identity\` de esta política lo pregunta. Para ver la decisión sin ese bloqueo: \`--policy ${STANDALONE_POLICY_PATH}\`, o registra al proveedor con \`--request supplier_name=...,supplier_rfc=...\`.`)
+    out.push(`- La identidad no se pudo comparar (titular, RFC o CLABE redactados, o sin proveedor registrado) y la compuerta \`identity\` de esta política lo pregunta. Para ver la decisión sin ese bloqueo: corre sin \`--policy base\` (por defecto se usa \`${STANDALONE_POLICY_PATH}\`), o registra al proveedor con \`--request supplier_name=...,supplier_rfc=...\`.`)
   }
   out.push('- Los movimientos los clasifican reglas y, donde no alcanzan, Jev o Haiku; un abono bajo el umbral de confianza no suma ingresos.')
   out.push('- Ningún valor no verificado contra el documento decide: si cambia la banda, se pregunta o va a revisión (docs/04 §5).')

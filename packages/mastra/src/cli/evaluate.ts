@@ -1,8 +1,8 @@
 /* eslint-disable no-console -- CLI: la salida en consola es el resultado; solo estados, conteos y costos */
 /**
  * pnpm run evaluate <carpeta|pdf>... [--out <dir>] [--request <k=v,...|archivo.json>]
- *   [--answers <archivo.json>] [--as-of YYYY-MM-DD] [--policy <archivo.json>] [--interactive]
- *   [--cache readwrite|read|off] [--force] [--concurrency 3]
+ *   [--answers <archivo.json>] [--as-of YYYY-MM-DD] [--policy <archivo.json|base>] [--interactive]
+ *   [--cache readwrite|read|off] [--force] [--concurrency 3] [--help]
  *
  * Modo standalone (docs/07 A): por cada PDF corre el workflow `processApplication` (extracción,
  * clasificación de movimientos, perfil, política, aclaración) y escribe en la carpeta de salida
@@ -106,9 +106,15 @@ function toSupplier(spec: RequestSpec | null): SupplierIdentity | null {
   return SupplierIdentity.parse({ legal_name: spec.supplier_name, rfc: spec.supplier_rfc ?? null, clabes: spec.supplier_clabe ? [spec.supplier_clabe] : [] })
 }
 
+/**
+ * Sin `--policy`, la política de ejemplo standalone (ADR 0015 §20 y "Cambios"): en standalone no hay
+ * registro de proveedores y la identidad casi nunca se puede comparar. Solo difiere de la base en que
+ * una identidad no comparable no bloquea; si se registra al proveedor con `--request`, se comporta
+ * igual que la base. `--policy base` usa la plantilla base tal cual.
+ */
 function loadPolicyArg(arg: string | undefined): { policy: Policy; id: string } {
-  if (!arg) return { policy: basePolicyTemplate(), id: BASE_POLICY_ID }
-  const path = resolve(USER_CWD, arg)
+  if (arg === 'base') return { policy: basePolicyTemplate(), id: BASE_POLICY_ID }
+  const path = arg === undefined ? join(REPO, STANDALONE_POLICY_PATH) : resolve(USER_CWD, arg)
   if (!existsSync(path)) fail(`--policy: no existe ${arg}`)
   const r = parsePolicy(JSON.parse(readFileSync(path, 'utf8')))
   if (!r.ok) fail(`--policy: ${r.message}`)
@@ -135,6 +141,10 @@ function templateAnswer(q: Question): Record<string, unknown> {
     case 'documents':
       return { question_id: q.id, kind: 'documents', paths: [] }
   }
+}
+
+function docStale(result: ApplicationResult): boolean {
+  return result.decision?.reasons.some((r) => r.code === 'gate_doc_recent') ?? false
 }
 
 async function askInteractively(questions: readonly Question[]): Promise<OwnerAnswer[]> {
@@ -167,6 +177,8 @@ async function askInteractively(questions: readonly Question[]): Promise<OwnerAn
 interface Row {
   id: string
   identity_unverifiable: boolean
+  /** La compuerta doc_recent falló: el estado tiene más de 90 días a la fecha de cálculo. */
+  stale: boolean
   /** Sin monto solicitado: el estado con el que calificaría pidiendo la línea máxima, y la línea. */
   max_line: { status: string; amount: number } | null
   status: string
@@ -183,26 +195,79 @@ function printRow(r: Row): void {
   console.log(`${r.id.padEnd(34)} ${r.status.padEnd(20)} preguntas ${String(r.questions).padStart(2)}  movimientos: ${r.classifier.padEnd(6)}  llamadas ${String(r.calls).padStart(3)} (${String(r.cache_hits)} de caché)  USD ${r.usd_this_run.toFixed(4)}${r.max_line ? `  · línea máxima: ${r.max_line.status}` : ''}${r.note ? `  · ${r.note}` : ''}`)
 }
 
+const USAGE = `uso: pnpm run evaluate <carpeta|pdf>... [opciones]
+
+Evalúa cada PDF (extracción, perfil, política, aclaración) y escribe en la carpeta de salida
+<id>.extraction.json, <id>.result.json, <id>.md, summary.md, summary.json y, si alguna solicitud
+quedó pausada, answers.template.json. La consola nunca muestra datos del documento.
+
+Opciones:
+  --out <dir>             Carpeta de salida (por defecto data/out/evaluate)
+  --policy <archivo|base> Política del tenant. Por defecto ${STANDALONE_POLICY_PATH}:
+                          la plantilla base, salvo que una identidad que no se puede comparar
+                          (documento redactado, sin proveedor registrado) no bloquea. "base" usa
+                          la plantilla base tal cual (ADR 0015).
+  --as-of <AAAA-MM-DD>    Fecha de cálculo (por defecto hoy). La compuerta doc_recent pide un
+                          estado de cuenta de 90 días o menos respecto a esta fecha.
+  --request <k=v,...|archivo.json>
+                          Datos de la solicitud: amount, maturity, buyer, buyer_rfc, buyer_aliases
+                          (separados por |), supplier_name, supplier_rfc, supplier_clabe. Un JSON
+                          { "<id>": {...}, "*": {...} } da datos por documento. Sin monto, la
+                          salida incluye la línea máxima.
+  --answers <archivo.json>
+                          Respuestas para reanudar solicitudes pausadas (parte de
+                          answers.template.json).
+  --interactive           Pregunta en la terminal y reanuda en la misma corrida.
+  --cache <modo>          readwrite (por defecto), read (solo respuestas guardadas: costo cero,
+                          falla si falta una) u off.
+  --cache-dir <dir>       Caché de respuestas (por defecto data/llm-cache).
+  --force                 Repite documentos ya evaluados en la carpeta de salida.
+  --concurrency <n>       Llamadas simultáneas al modelo (por defecto 3).
+  -h, --help              Muestra esta ayuda.
+
+Llaves: ANTHROPIC_API_KEY obligatoria (salvo --cache read). Con GEMINI_API_KEY la extracción va
+con Gemini 3.8 Flash y los PDFs se mandan a Google; sin ella, con Claude Opus (ADR 0011).
+TYPESAFE_API_KEY activa Jev para clasificar; sin ella clasifica Haiku.`
+
+function parseCli() {
+  try {
+    return parseArgs({
+      allowPositionals: true,
+      options: {
+        out: { type: 'string', default: join(REPO, 'data/out/evaluate') },
+        request: { type: 'string' },
+        answers: { type: 'string' },
+        'as-of': { type: 'string' },
+        policy: { type: 'string' },
+        interactive: { type: 'boolean', default: false },
+        cache: { type: 'string', default: 'readwrite' },
+        'cache-dir': { type: 'string', default: join(REPO, 'data/llm-cache') },
+        force: { type: 'boolean', default: false },
+        concurrency: { type: 'string', default: '3' },
+        help: { type: 'boolean', short: 'h', default: false },
+      },
+    })
+  } catch (e) {
+    return fail(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`)
+  }
+}
+
 async function main(): Promise<void> {
   loadRootEnv()
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      out: { type: 'string', default: join(REPO, 'data/out/evaluate') },
-      request: { type: 'string' },
-      answers: { type: 'string' },
-      'as-of': { type: 'string' },
-      policy: { type: 'string' },
-      interactive: { type: 'boolean', default: false },
-      cache: { type: 'string', default: 'readwrite' },
-      'cache-dir': { type: 'string', default: join(REPO, 'data/llm-cache') },
-      force: { type: 'boolean', default: false },
-      concurrency: { type: 'string', default: '3' },
-    },
-  })
-  if (positionals.length === 0) fail('uso: pnpm run evaluate <carpeta|pdf>... [--out dir] [--request k=v,...] [--answers archivo.json] [--as-of AAAA-MM-DD] [--policy archivo.json] [--interactive]')
+  const { values, positionals } = parseCli()
+  if (values.help) {
+    console.log(USAGE)
+    return
+  }
+  if (positionals.length === 0) fail(USAGE)
   const asOf = values['as-of'] ?? new Date().toISOString().slice(0, 10)
   if (!IsoDate.safeParse(asOf).success) fail('--as-of debe ser una fecha AAAA-MM-DD')
+  const policy = loadPolicyArg(values.policy)
+  console.error(
+    values.policy === undefined
+      ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: una identidad que no se puede comparar no bloquea; --policy base para la plantilla base, ADR 0015) · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`
+      : `Política: ${policy.id} · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`,
+  )
   const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
   const anthropic = readAnthropicEnv()
   const googleAvailable = readGoogleEnv().apiKey !== null
@@ -210,7 +275,6 @@ async function main(): Promise<void> {
   const primary = googleAvailable ? EXTRACTION_MODEL : PROVIDER_FALLBACK_MODEL
   console.error(providerOf(primary) === 'google' ? `Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia (ADR 0011).` : `Sin llave de Google: extracción con ${primary} (ADR 0011).`)
 
-  const policy = loadPolicyArg(values.policy)
   const requestFor = loadRequests(values.request)
   const answers = loadAnswers(values.answers)
   const outDir = resolve(USER_CWD, values.out)
@@ -258,7 +322,7 @@ async function main(): Promise<void> {
         outcome = await resumeApplication(wf, prevResult.run.run_id, prevResult.run.suspended_step, { answers: given.answers, base_dir: answers.baseDir })
         note = 'reanudada con respuestas'
       } else {
-        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status === 'suspended' ? 'pausada; sin respuestas para ella' : 'ya evaluada (--force para repetir)' })
+        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), stale: docStale(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status === 'suspended' ? 'pausada; sin respuestas para ella' : 'ya evaluada (--force para repetir)' })
         if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { answers: prevResult.clarification.questions.map(templateAnswer) }
         printRow(rows.at(-1) as Row)
         continue
@@ -290,6 +354,7 @@ async function main(): Promise<void> {
     rows.push({
       id,
       identity_unverifiable: identityUnverifiable(result),
+      stale: docStale(result),
       max_line: result.max_line && { status: result.max_line.status, amount: result.max_line.amount },
       status: result.status,
       questions: result.clarification?.status === 'open' ? result.clarification.questions.length : 0,
@@ -325,9 +390,14 @@ async function main(): Promise<void> {
     console.log(`  pnpm run evaluate ${positionals.join(' ')} --out ${outDir} --answers <archivo>`)
   }
   const unverifiable = rows.filter((r) => r.identity_unverifiable).length
-  if (unverifiable > 0 && values.policy === undefined) {
+  if (unverifiable > 0 && values.policy === 'base') {
     console.log(`\n${String(unverifiable)} solicitud(es) sin identidad comparable (documento redactado o sin proveedor registrado): la política base lo pregunta.`)
-    console.log(`Para ver la decisión sin ese bloqueo, en otra carpeta de salida: --policy ${STANDALONE_POLICY_PATH} --out <dir>`)
+    console.log(`Para ver la decisión sin ese bloqueo, en otra carpeta de salida, quita --policy base (usa ${STANDALONE_POLICY_PATH}) y agrega --out <dir>`)
+  }
+  const stale = rows.filter((r) => r.stale).length
+  if (stale > 0) {
+    console.log(`\n${String(stale)} solicitud(es) con un estado de cuenta de más de 90 días a la fecha de cálculo ${asOf}: la política pide uno reciente.`)
+    console.log('Para evaluarlas como si se hubieran recibido al corte, repite con --as-of <fecha poco posterior al corte> --force (en otra carpeta con --out si quieres conservar esta).')
   }
   console.log(`\n${String(rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)} · salida en ${outDir}`)
   if (failures > 0) process.exit(1)
