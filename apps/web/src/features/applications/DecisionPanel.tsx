@@ -1,4 +1,4 @@
-import { FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName } from '@gow/contracts'
+import { DISCARD_REASON_LABELS, DISCARDED_PREFIX, DiscardReason, FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName } from '@gow/contracts'
 import clsx from 'clsx'
 import { useState } from 'react'
 import { describeTarget, DECISION_LABEL, featureLabel, featureValue, jsonValue, money, number, OP_LABEL, OUTCOME_LABEL, PROVENANCE_LABEL, VERIFICATION_LABEL, date } from '../../lib/format'
@@ -10,6 +10,8 @@ const EXCLUDED: Record<string, string> = { unknown: 'sin dato', low_confidence: 
 export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationDetail; onAnswer: () => void; tray?: React.ReactNode }) {
   const d = detail.decision?.payload
   const open = detail.clarifications.filter((c) => c.status === 'open')
+  const discardedReason = detail.failure_reason?.startsWith(DISCARDED_PREFIX) ? DiscardReason.safeParse(detail.failure_reason.slice(DISCARDED_PREFIX.length)) : null
+  const discarded = discardedReason?.success ? DISCARD_REASON_LABELS[discardedReason.data] : null
   if (!d) {
     return (
       <div className="px-6 pb-6 pt-5">
@@ -23,6 +25,12 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
   return (
     <div className="scroll-thin h-full overflow-y-auto px-6 pb-6 pt-5">
       <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
+      {discarded ? (
+        <div className="mt-4 rounded-[24px] bg-coral-soft p-5">
+          <p className="flex items-center gap-2 text-[14px] font-medium"><Icon name="x" size={16} /> Documento descartado por el analista</p>
+          <p className="mt-1 text-[13px] text-ink-2">{discarded}. La solicitud cerró en no califica sin reevaluar; el veredicto de abajo es el que llevó a revisión humana.</p>
+        </div>
+      ) : null}
       <Verdict detail={detail} d={d} />
       {tray}
 

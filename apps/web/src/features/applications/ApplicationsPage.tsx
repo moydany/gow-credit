@@ -198,7 +198,7 @@ export function ApplicationsPage() {
 }
 
 function Row({ a }: { a: ApplicationRow }) {
-  const reason = a.status === 'failed' ? a.failure_reason : a.decision?.reasons[0]?.message
+  const reason = a.status === 'failed' ? a.failure_reason : a.failure_reason?.startsWith('document_discarded:') ? 'Documento descartado por el analista' : a.decision?.reasons[0]?.message
   return (
     <Link
       to="/solicitudes/$id"

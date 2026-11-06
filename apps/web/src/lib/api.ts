@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, OwnerAnswer, PolicyVersionItem, SimulationReport } from '@gow/contracts'
+import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, OwnerAnswer, PolicyVersionItem, SimulationReport } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -45,6 +45,7 @@ export const api = {
   applications: () => request<ApplicationRow[]>('GET', '/applications'),
   application: (id: string) => request<ApplicationDetail>('GET', `/applications/${id}`),
   correct: (id: string, corrections: CorrectionInput[]) => request<{ batch: string; corrections: number }>('POST', `/applications/${id}/corrections`, { corrections }),
+  discard: (id: string, reason: DiscardReason) => request<{ id: string; status: 'not_qualified' }>('POST', `/applications/${id}/discard`, { reason }),
   clarifications: () => request<ClarificationItem[]>('GET', '/clarifications'),
   answer: (id: string, answers: OwnerAnswer[]) => request<{ id: string; complete: boolean }>('POST', `/clarifications/${id}/answers`, { answers }),
   policyVersions: () => request<PolicyVersionItem[]>('GET', '/policies/versions'),

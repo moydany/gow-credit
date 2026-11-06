@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import clsx from 'clsx'
+import { DISCARD_REASON_LABELS, DiscardReason } from '@gow/contracts'
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { date, money } from '../../lib/format'
 import { api, ApiError, documentUrl } from '../../lib/api'
@@ -54,6 +55,16 @@ export function ApplicationDetailPage() {
       void qc.invalidateQueries()
     },
     onError: (e: unknown) => { toast.error(e instanceof ApiError ? (e.issues[0]?.message ?? e.message) : 'No se pudieron guardar las correcciones') },
+  })
+  const [discardReason, setDiscardReason] = useState<DiscardReason | ''>('')
+  const discard = useMutation({
+    mutationFn: (reason: DiscardReason) => api.discard(id, reason),
+    onSuccess: () => {
+      toast.ok('Documento descartado. La solicitud cerró en no califica.')
+      setDiscardReason('')
+      void qc.invalidateQueries()
+    },
+    onError: (e: unknown) => { toast.error(e instanceof ApiError ? e.message : 'No se pudo descartar el documento') },
   })
   const review: ReviewApi = useMemo(
     () => ({
@@ -207,6 +218,20 @@ export function ApplicationDetailPage() {
                         </Button>
                       </>
                     )}
+                    {pending.length === 0 ? (
+                      <div className="mt-4 border-t border-amber-ink/15 pt-3">
+                        <label htmlFor="discard-reason" className="text-[13px] font-medium text-amber-ink">O descarta el documento si no sirve para decidir</label>
+                        <div className="mt-2 flex gap-2">
+                          <select id="discard-reason" className="min-w-0 flex-1 rounded-full bg-white/80 px-3 py-1.5 text-[13px]" value={discardReason} onChange={(e) => { setDiscardReason(e.target.value as DiscardReason | '') }}>
+                            <option value="">Elige el motivo…</option>
+                            {DiscardReason.options.map((r) => <option key={r} value={r}>{DISCARD_REASON_LABELS[r]}</option>)}
+                          </select>
+                          <Button variant="danger" size="sm" disabled={discardReason === '' || discard.isPending} onClick={() => { if (discardReason !== '') discard.mutate(discardReason) }}>
+                            {discard.isPending ? 'Descartando…' : 'Descartar'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null
               }
