@@ -281,3 +281,40 @@ prioridad, para discutirlo en la llamada.
   el tenant. Webhook de Resend con firma, ventana contra replay e idempotencia por id. Baileys
   fijado en 7.0.0-rc14 con sus scripts de instalación negados; su sesión vive en disco y no cifrada
   en Storage (pendiente).
+
+### Fase 8 (2026-11-05): Google y TypeSafe como encargados (ADR 0011 y 0022)
+
+- **Google es encargado de datos junto a Anthropic.** Con `GEMINI_API_KEY`, el PDF completo va a
+  la Gemini API para extraer (ADR 0011). Anthropic sigue recibiendo el PDF en la doble lectura y
+  en la emergencia, y en la extracción cuando no hay llave de Google. Con Haiku, recibe el texto
+  de las primeras páginas y las descripciones de los movimientos. El README lo dice en
+  "Privacidad del dataset", antes del primer comando.
+- **Términos de la Gemini API de pago**, en
+  [aistudio.google.com/docs/terms](https://aistudio.google.com/docs/terms) ("Effective March 23,
+  2026"; consultados el 2026-11-05):
+  - **Entrenamiento.** En servicios de pago, Google "doesn't use your prompts … or responses to
+    improve our products". La redacción es más estrecha que la de los servicios gratuitos, que
+    sí mencionan aprendizaje automático. Solo cuenta como pago la API usada desde un proyecto de
+    Cloud con facturación activa: **la llave del despliegue tiene que ser de un proyecto con
+    facturación**, nunca una del nivel gratuito.
+  - **Registro.** Google registra prompts y respuestas "for a limited period of time, solely for
+    detecting and preventing violations" de su política de uso prohibido, y también por
+    seguridad del servicio y por obligaciones legales. Los datos "may be stored transiently or
+    cached in any country": **no hay control de región** comparable a `inference_geo`.
+  - **Plazo.** Según [aistudio.google.com/docs/usage-policies](https://aistudio.google.com/docs/usage-policies),
+    prompts, contexto y respuestas se retienen **55 días** para detectar abusos. La página no
+    distingue pago de gratuito ni ofrece retención cero.
+  - **Contrato.** Prompts y respuestas se procesan conforme al Data Processing Addendum de Google
+    (Google como encargado). Los datos de cuenta y facturación siguen los Controller-Controller
+    Data Protection Terms.
+  - **Edad.** Uso solo para mayores de 18 años, y la aplicación no puede dirigirse a menores. No
+    aplica a este sistema: los usuarios son prestamistas y proveedores.
+- **Consecuencias para el aviso de privacidad y el contrato con el tenant:**
+  1. Los dos proveedores de modelos se nombran como encargados, cada uno con su plazo de
+     retención: 55 días en Google; el de los términos comerciales en Anthropic.
+  2. La transferencia internacional se declara sin región fija para Google.
+  3. Un tenant que exija retención cero o región fija se configura sin `GEMINI_API_KEY`, con
+     extracción en Claude, a unas 5 veces el costo (README, "Costo estimado").
+- **TypeSafe AI (Jev)** recibe, con `TYPESAFE_API_KEY`, el texto de las primeras páginas y las
+  descripciones de los movimientos (ADR 0022). Sus términos de uso de datos **no están
+  verificados**. Hasta revisarlos, en producción Jev se habilita por tenant y no por defecto.
