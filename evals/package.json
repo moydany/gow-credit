@@ -10,7 +10,8 @@
     "eval": "evalite run --hideTable && tsx src/gate.ts",
     "eval:ui": "evalite serve",
     "score": "tsx src/score-dir.ts",
-    "corrections": "tsx src/corrections.ts"
+    "corrections": "tsx src/corrections.ts",
+    "gt:review": "tsx src/ground-truth/review.ts"
   },
   "dependencies": {
     "@gow/contracts": "workspace:*",
