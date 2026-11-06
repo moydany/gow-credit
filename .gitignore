@@ -18,3 +18,7 @@ coverage/
 *.db
 *.db-*
 spikes/out/
+
+# Supabase local (docker-compose.supabase.yml): secretos generados por scripts/supabase-env.sh
+infra/supabase/.env
+infra/supabase/app.env
