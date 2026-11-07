@@ -15,8 +15,8 @@ import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/d
 import { basePolicyTemplate } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
 import { CachingStructuredLlm, createLimiter, type Classifier } from '@gow/llm'
-import { Writer } from '@gow/mastra'
-import { LocalDocumentStorage } from '@gow/platform'
+import { CLARIFICATION_LOOP_ID, Writer, WORKFLOW_ID } from '@gow/mastra'
+import { enqueueProcess, enqueueResume, LocalDocumentStorage, QUEUES, startQueue } from '@gow/platform'
 import { PostgresStore } from '@mastra/pg'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -26,7 +26,7 @@ import { handleRedecide } from './redecide.ts'
 import { startConfirmation } from './registration.ts'
 import { loadContext, queueVerdict } from './store.ts'
 import type { Interpretation, InterpretInput, MessageInterpreter } from './interpret.ts'
-import { handleProcess, handleResume, SYNTHETIC_SUFFIX, type SyntheticDocument, type WorkerServices } from './worker.ts'
+import { handleProcess, handlePurge, handleResume, SYNTHETIC_SUFFIX, type SyntheticDocument, type WorkerServices } from './worker.ts'
 
 const available = await postgresAvailable()
 
@@ -166,6 +166,40 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     expect(v.rows).toHaveLength(1)
     expect(v.rows[0]?.body).toMatch(/^Revisamos tu factura de \$100,000\.00 pesos a Cadena Norte SA de CV\. Califica con un límite: podemos adelantarte hasta \$[\d,]+\.\d{2} pesos\./)
     expect(v.rows[0]?.body).not.toContain('DFI150304AB1')
+  })
+
+  it('la limpieza de un proveedor borrado quita su PDF, el estado de Mastra de sus corridas y sus trabajos en cola (ADR 0059)', async () => {
+    // Las tablas de Mastra se crean al primer uso; esta prueba puede correr sola.
+    await store.init()
+    const workflows = await store.getStore('workflows')
+    const runId = `purge-${randomUUID()}`
+    const gone = randomUUID()
+    const kept = randomUUID()
+    const snapshot = { runId, status: 'suspended', value: {}, context: {}, serializedStepGraph: [], activePaths: [], activeStepsPath: {}, suspendedPaths: {}, resumeLabels: {}, waitingPaths: {}, timestamp: Date.now() } as unknown as Parameters<NonNullable<typeof workflows>['persistWorkflowSnapshot']>[0]['snapshot']
+    for (const workflowName of [WORKFLOW_ID, CLARIFICATION_LOOP_ID]) await workflows?.persistWorkflowSnapshot({ workflowName, runId, snapshot })
+    const path = `${tenant}/${randomUUID()}.pdf`
+    const outside = `${randomUUID()}/${randomUUID()}.pdf`
+    await services.storage.put(path, Buffer.from('%PDF-1.7'))
+    await services.storage.put(outside, Buffer.from('%PDF-1.7'))
+    const boss = await startQueue(tdb.url('queue'), { error: () => undefined }, { supervise: false })
+    try {
+      await enqueueProcess(boss, { tenant_id: tenant, application_id: gone }, 'a'.repeat(64))
+      await enqueueResume(boss, { tenant_id: tenant, application_id: gone, clarification_id: randomUUID() })
+      await enqueueProcess(boss, { tenant_id: tenant, application_id: kept }, 'b'.repeat(64))
+
+      const r = await handlePurge(services, boss, { tenant_id: tenant, supplier_id: randomUUID(), application_ids: [gone], run_ids: [runId], storage_paths: [path, outside] })
+      // Una ruta de otro tenant no se toca aunque venga en el trabajo.
+      expect(r).toEqual({ files: 1, runs: 1, jobs: 2 })
+      expect(await services.storage.exists(path)).toBe(false)
+      expect(await services.storage.exists(outside)).toBe(true)
+      for (const workflowName of [WORKFLOW_ID, CLARIFICATION_LOOP_ID]) expect(await workflows?.loadWorkflowSnapshot({ workflowName, runId })).toBeNull()
+      expect(await boss.findJobs(QUEUES.process, { data: { application_id: gone } })).toEqual([])
+      expect(await boss.findJobs(QUEUES.process, { data: { application_id: kept } })).toHaveLength(1)
+      // Idempotente: si pg-boss reintenta, lo que ya no está no es error.
+      expect(await handlePurge(services, boss, { tenant_id: tenant, supplier_id: randomUUID(), application_ids: [gone], run_ids: [runId], storage_paths: [path] })).toEqual({ files: 1, runs: 1, jobs: 0 })
+    } finally {
+      await boss.stop({ graceful: false })
+    }
   })
 
   it('una reanudación con una aclaración de otra solicitud no hace nada', async () => {

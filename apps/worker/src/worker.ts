@@ -15,8 +15,8 @@ import { calendarToday, describeFailure, emptyExternalSnapshot, type ExternalSna
 import type { Db } from '@gow/db'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import type { Classifier, Limiter, StructuredLlm, TransactionClassifier } from '@gow/llm'
-import { createRuntime, resumeApplication, startApplication, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
-import { enqueueProcess, enqueueRedecide, enqueueResume, ProcessJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
+import { CLARIFICATION_LOOP_ID, createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
+import { deleteApplicationJobs, enqueueProcess, enqueueRedecide, enqueueResume, pathBelongsTo, ProcessJob, PurgeJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
 import type { MastraCompositeStore } from '@mastra/core/storage'
 import { OwnerAnswer } from '@gow/contracts'
 import { clarifications, withTenant } from '@gow/db'
@@ -159,6 +159,26 @@ export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<num
   return pending.length
 }
 
+/**
+ * Limpieza de un proveedor borrado desde el backoffice (ADR 0059): la base ya no tiene sus filas; aquí
+ * se borran sus PDFs, los trabajos de la cola de sus solicitudes y el estado de Mastra de sus corridas.
+ * Todo es idempotente: si pg-boss reintenta, lo que ya no está no es error.
+ */
+export async function handlePurge(s: WorkerServices, boss: PgBoss, job: PurgeJob): Promise<{ files: number; runs: number; jobs: number }> {
+  let files = 0
+  for (const path of job.storage_paths) {
+    if (!pathBelongsTo(path, job.tenant_id)) continue
+    await s.storage.remove(path)
+    files++
+  }
+  const workflows = await s.mastraStore.getStore('workflows')
+  for (const runId of job.run_ids) {
+    for (const workflowName of [WORKFLOW_ID, CLARIFICATION_LOOP_ID]) await workflows?.deleteWorkflowRunById({ runId, workflowName })
+  }
+  const jobs = await deleteApplicationJobs(boss, job.application_ids)
+  return { files, runs: job.run_ids.length, jobs }
+}
+
 export interface RunningWorker {
   stop(): Promise<void>
 }
@@ -193,6 +213,16 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
       throw err
     }
   })
+  await boss.work<PurgeJob>(QUEUES.purge, polling, async ([job]) => {
+    if (!job) return
+    try {
+      const r = await handlePurge(s, boss, PurgeJob.parse(job.data))
+      s.logger.info(`proveedor ${job.data.supplier_id} borrado: ${String(r.files)} PDF, ${String(r.runs)} corridas, ${String(r.jobs)} trabajos`)
+    } catch (err) {
+      s.logger.error(`purge ${job.id}: ${errorText(err)}`)
+      throw err
+    }
+  })
   let sweeping = false
   const timer = setInterval(() => {
     if (sweeping) return
@@ -211,6 +241,7 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
       await boss.offWork(QUEUES.process)
       await boss.offWork(QUEUES.resume)
       await boss.offWork(QUEUES.redecide)
+      await boss.offWork(QUEUES.purge)
     },
   }
 }
