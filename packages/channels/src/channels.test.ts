@@ -260,6 +260,9 @@ describe('datos de la factura y aviso del veredicto (ADR 0039)', () => {
     const t = 'Prestamista Demo'
     expect(renderVerdict({ status: 'qualified', limit: 180000, request, tenantName: t })).toMatch(/^Buenas noticias: tu factura de \$180,000\.00 pesos a Cadena Norte con vencimiento el 20\/12\/2026 califica/)
     expect(renderVerdict({ status: 'qualified_with_limit', limit: 95000, request, tenantName: t })).toMatch(/hasta \$95,000\.00 pesos/)
+    // Lo pedido cabe en la línea: aprobado completo, sin "con un límite" (ADR 0053).
+    expect(renderVerdict({ status: 'qualified_with_limit', limit: 112304.66, request: { amount: 50000, maturity: null, buyer: null }, tenantName: t })).toBe('Buenas noticias: tu solicitud de adelanto de $50,000.00 pesos está aprobada con Prestamista Demo. Te contactaremos para los siguientes pasos.')
+    expect(renderVerdict({ status: 'qualified_with_limit', limit: 40000, request: { amount: 50000, maturity: null, buyer: null }, tenantName: t })).toMatch(/Califica con un límite: podemos adelantarte hasta \$40,000\.00 pesos/)
     expect(renderVerdict({ status: 'qualified_with_limit', limit: 95000, request: null, tenantName: t })).toMatch(/^Revisamos tu estado de cuenta\. Podemos adelantarte hasta \$95,000\.00 pesos/)
     expect(renderVerdict({ status: 'not_qualified', limit: null, request, tenantName: t })).toMatch(/no califica para adelanto con [^.]+\. Si tu situación cambia/)
     expect(renderVerdict({ status: 'human_review', limit: null, request: null, tenantName: t })).toMatch(/analista/)

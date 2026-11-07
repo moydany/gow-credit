@@ -344,6 +344,8 @@ export function renderVerdict(v: {
     case 'qualified':
       return invoice ? `Buenas noticias: ${invoice} califica para adelanto con ${v.tenantName}. Te contactaremos para los siguientes pasos.` : `Buenas noticias: calificas para adelanto con ${v.tenantName}${limit ? ` hasta por ${limit}` : ''}. Te contactaremos para los siguientes pasos.`
     case 'qualified_with_limit':
+      // Lo que pidió cabe en la línea: se aprueba completo; "con límite" solo si pidió más (ADR 0053).
+      if (invoice && v.request?.amount != null && v.limit !== null && v.request.amount <= v.limit + 0.005) return `Buenas noticias: ${invoice} está aprobada con ${v.tenantName}. Te contactaremos para los siguientes pasos.`
       return invoice ? `Revisamos ${invoice}. Califica con un límite: podemos adelantarte hasta ${limit ?? 'un monto menor al de la factura'}. Te contactaremos para los siguientes pasos.` : `Revisamos tu estado de cuenta. Podemos adelantarte hasta ${limit ?? 'un monto limitado'} con ${v.tenantName}. Te contactaremos para los siguientes pasos.`
     case 'not_qualified': {
       const why = v.reasons?.length ? ` porque ${listEs(v.reasons)}` : ''
