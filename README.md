@@ -192,7 +192,34 @@ precio de lista:
 
 ## Modo full
 
-Es el mismo workflow con persistencia y canales. Corre en local con Docker:
+Es el mismo workflow con persistencia y canales.
+
+### Todo con un comando (recomendado)
+
+Levanta Supabase, las migraciones, la API, el worker, WhatsApp y el backoffice con docker compose
+(ADR 0061). Necesitas Docker y Node; la primera vez construye la imagen y descarga las de Supabase:
+
+```bash
+pnpm stack:up
+```
+
+Abre `http://127.0.0.1:5173`: el wizard del primer inicio crea al prestamista y a su administrador
+(ADR 0060) y termina con el QR para vincular WhatsApp. No hay nada más que configurar. Para que el
+worker extraiga documentos nuevos pon tus llaves en el `.env` de la raíz (`cp .env.example .env`); sin
+ellas solo corre lo que esté en caché. Los enlaces de acceso de Supabase Auth llegan por Resend si el
+`.env` trae `RESEND_API_KEY` (ADR 0063); si no, se leen en Inbucket, `http://127.0.0.1:54343`.
+
+| Comando | Qué hace |
+|---|---|
+| `pnpm stack:up` | Genera los secretos de desarrollo si faltan, construye y levanta todo |
+| `pnpm stack:ps` | Estado de los servicios |
+| `pnpm stack:logs` | Registros de la API, el worker y WhatsApp |
+| `pnpm stack:down` | Detiene; los datos se conservan |
+| `pnpm stack:reset` | Detiene y borra base, sesión de WhatsApp y documentos |
+
+### Procesos a mano
+
+Lo mismo, cada proceso en su terminal (para desarrollar). Corre en local con Docker:
 
 ```bash
 docker compose up -d
@@ -203,12 +230,10 @@ pnpm db:migrate
 ```
 
 ```bash
-pnpm tenant create --name "Prestamista demo"
-```
-
-```bash
 pnpm api
 ```
+
+En un sistema vacío, abre el backoffice (`pnpm web`, `http://127.0.0.1:5173`): el wizard del primer inicio crea al prestamista y a su administrador y te deja vincular WhatsApp (ADR 0060). Por terminal también se puede: `pnpm tenant create --name "Prestamista demo"`, que además imprime la llave de API; con el wizard, la llave (la que pide `pnpm demo:load --key`) se crea en Configuración.
 
 ```bash
 LLM_CACHE_MODE=read pnpm worker
@@ -221,7 +246,7 @@ LLM_CACHE_MODE=read pnpm worker
 | `pnpm tenant create --name ...` | Imprime la llave de API del tenant |
 | `pnpm api` | API: subida por URL firmada, solicitudes, aclaraciones, políticas y outcomes |
 | `pnpm worker` | pg-boss y el workflow de Mastra. Con `LLM_CACHE_MODE=read` solo usa respuestas guardadas: costo cero, y si falta una, falla |
-| `pnpm whatsapp` | Canal de WhatsApp (Baileys). Requiere `WHATSAPP_TENANT_ID`. El número se vincula escaneando el QR en el backoffice (Configuración); en una terminal interactiva también lo imprime |
+| `pnpm whatsapp` | Canal de WhatsApp (Baileys). Descubre solo al tenant (el único que exista, y espera a que el wizard lo cree); `WHATSAPP_TENANT_ID` solo con varios tenants o en producción. El número se vincula escaneando el QR en el backoffice (Configuración); en una terminal interactiva también lo imprime |
 
 **Backoffice:**
 
@@ -238,7 +263,7 @@ pnpm web
 ```
 
 El primero imprime el enlace de acceso y el segundo carga `data/dev` por la API. Para vincular
-WhatsApp, con `WHATSAPP_TENANT_ID=<id> pnpm whatsapp` corriendo, se escanea el QR en
+WhatsApp, con `pnpm whatsapp` corriendo (sin variables: encuentra solo al tenant), se escanea el QR en
 Configuración → Canales; ahí mismo se desvincula o se cambia de número (ADR 0033). Sin WhatsApp
 vinculado, las aclaraciones se responden a mano desde el backoffice.
 
