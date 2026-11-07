@@ -17,6 +17,25 @@ function withIdentityGate() {
   return parsed.policy
 }
 
+/**
+ * The base no longer caps by history (ADR 0072); the cap mechanics are tested with the cap the base
+ * used to have: under 3 months, at most `qualified_with_limit`.
+ */
+const monthsCapPolicy = (() => {
+  const raw = structuredClone(basePolicyTemplate()) as unknown as { decision: { caps: unknown[] } }
+  raw.decision.caps.unshift({ when: { feature: 'months_of_history', op: '<', value: 3 }, maxStatus: 'qualified_with_limit' })
+  const parsed = parsePolicy(raw)
+  if (!parsed.ok) throw new Error('política de prueba inválida')
+  return parsed.policy
+})()
+
+/** The base evaluating three months in a row (policies/examples/gow-base-tres-meses.v1.json). */
+const threeMonths = (() => {
+  const parsed = parsePolicy(JSON.parse(readFileSync(new URL('../../../../policies/examples/gow-base-tres-meses.v1.json', import.meta.url), 'utf8')))
+  if (!parsed.ok) throw new Error('política de tres meses inválida')
+  return parsed.policy
+})()
+
 type Values = Parameters<typeof sampleProfile>[0]
 
 /** Healthy profile for the base policy: score 100, no caps. */
@@ -112,8 +131,14 @@ describe('evaluate(policy, profile) con la política base', () => {
   })
 
   describe('topes y bandas', () => {
-    it('un mes de historia topa en qualified_with_limit y la línea baja a la banda de 25 %', () => {
+    it('ADR 0072: la plantilla base evalúa un mes y no topa por historia', () => {
       const d = evaluate(policy, profile({ months_of_history: 1 }))
+      expect([d.status, d.limit]).toEqual(['qualified', 150000])
+      expect(d.evaluation.gates.map((g) => g.id)).not.toContain('history_months')
+    })
+
+    it('un tope por meses de historia (si la política lo pone) topa en qualified_with_limit y la línea baja a la banda de 25 %', () => {
+      const d = evaluate(monthsCapPolicy, profile({ months_of_history: 1 }))
       expect([d.status, d.limit]).toEqual(['qualified_with_limit', 75000])
       expect(codes(d)).toContain('cap_months_of_history')
       expect(d.next_steps[0]).toMatchObject({ code: 'cap_months_of_history', current_value: 1, target_value: 3, to: { status: 'qualified' } })
@@ -125,7 +150,7 @@ describe('evaluate(policy, profile) con la política base', () => {
     })
 
     it('un tope sobre una feature desconocida aplica (conservador)', () => {
-      expect(evaluate(policy, profile({ months_of_history: null })).status).toBe('qualified_with_limit')
+      expect(evaluate(monthsCapPolicy, profile({ months_of_history: null })).status).toBe('qualified_with_limit')
     })
 
     it('sin contrafactual de una sola dimensión cuando ninguna alcanza sola la banda siguiente', () => {
@@ -201,7 +226,7 @@ describe('evaluate(policy, profile) con la política base', () => {
     })
 
     it('un tope sobre un dato no verificado que cambia el estado → aclaración o revisión', () => {
-      const d = evaluate(policy, profile({ months_of_history: 1 }, { months_of_history: { verification: 'unverified' } }))
+      const d = evaluate(monthsCapPolicy, profile({ months_of_history: 1 }, { months_of_history: { verification: 'unverified' } }))
       expect([d.status, d.clarification?.topics]).toEqual(['needs_clarification', ['additional_months']])
     })
   })
@@ -213,16 +238,48 @@ describe('evaluate(policy, profile) con la política base', () => {
   })
 
   it('cada contrafactual da exactamente el resultado que dice', () => {
-    const cases: Values[] = [{ months_of_history: 1 }, { document_age_days: 300, identity_match: null }, { existing_exposure_days_past_due: 15 }, { operating_income_monthly: 50000, buyer_payments_count: 1 }]
-    for (const v of cases) {
+    const cases: [typeof policy, Values][] = [
+      [monthsCapPolicy, { months_of_history: 1 }],
+      [threeMonths, { months_of_history: 2 }],
+      [policy, { document_age_days: 300, identity_match: null }],
+      [policy, { existing_exposure_days_past_due: 15 }],
+      [policy, { operating_income_monthly: 50000, buyer_payments_count: 1 }],
+    ]
+    for (const [pol, v] of cases) {
       const p = profile(v)
-      const d = evaluate(policy, p)
+      const d = evaluate(pol, p)
       expect(d.next_steps.length, JSON.stringify(v)).toBeGreaterThan(0)
       for (const s of d.next_steps) {
-        const to = evaluate(policy, withFeatures(p, [{ feature: s.feature, value: s.target_value }, ...s.related.map((r) => ({ feature: r.feature, value: r.target_value }))]))
+        const to = evaluate(pol, withFeatures(p, [{ feature: s.feature, value: s.target_value }, ...s.related.map((r) => ({ feature: r.feature, value: r.target_value }))]))
         expect({ status: to.status, score: to.score, limit: to.limit }, s.code).toEqual(s.to)
       }
     }
+  })
+})
+
+describe('ADR 0072: history.months', () => {
+  it('con 3 meses, menos de 3 seguidos pide los que faltan; 3 o más califica', () => {
+    const short = evaluate(threeMonths, profile({ months_of_history: 2 }))
+    expect([short.status, short.clarification?.topics]).toEqual(['needs_clarification', ['additional_months']])
+    expect(short.evaluation.gates[0]).toMatchObject({ id: 'history_months', threshold: 3, outcome: 'fail' })
+    expect(evaluate(threeMonths, profile({ months_of_history: 3 })).status).toBe('qualified')
+  })
+
+  it('con 3 meses y sin fechas, se pregunta en vez de decidir', () => {
+    expect(evaluate(threeMonths, profile({ months_of_history: null })).clarification?.topics).toEqual(['additional_months'])
+  })
+
+  it('la compuerta es del motor: una política no puede declarar el mismo id', () => {
+    const raw = structuredClone(basePolicyTemplate()) as unknown as { gates: unknown[] }
+    raw.gates.push({ id: 'history_months', when: { feature: 'months_of_history', op: '>=', value: 3 }, onFail: { status: 'not_qualified' } })
+    expect(parsePolicy(raw).ok).toBe(false)
+  })
+
+  it('sin history la política evalúa un mes', () => {
+    const raw = structuredClone(basePolicyTemplate()) as unknown as { history?: unknown }
+    delete raw.history
+    const parsed = parsePolicy(raw)
+    expect(parsed.ok && parsed.policy.history).toEqual({ months: 1 })
   })
 })
 

@@ -7,7 +7,7 @@
  * (`conditional_on`). A gate that rejects or sends to review, or a result that depends on
  * doubtful data, does: then there is no maximum line to offer.
  */
-import type { FinalDecisionStatus, MaxLine, Policy, Profile, StatementAgeSetting } from '@gow/contracts'
+import { HISTORY_GATE_ID, type FinalDecisionStatus, type MaxLine, type Policy, type Profile, type StatementAgeSetting } from '@gow/contracts'
 import { withFeatures } from './engine/counterfactuals.ts'
 import { evaluate } from './engine/evaluate.ts'
 import { floor2 } from './util/num.ts'
@@ -27,7 +27,8 @@ export function maxLine(policy: Policy, profile: Profile, opts: { statementAge?:
   const base = evaluate(policy, profile, { counterfactuals: false, ...age })
   if (base.evaluation.gates.some((g) => g.effect === 'not_qualified' || g.effect === 'human_review')) return null
   const pending = base.evaluation.gates.filter((g) => g.effect === 'needs_clarification').map((g) => g.id)
-  const relaxed: Policy = { ...policy, gates: policy.gates.filter((g) => !pending.includes(g.id)) }
+  // The history gate is the engine's: it is relaxed by evaluating as if the policy asked for one month.
+  const relaxed: Policy = { ...policy, gates: policy.gates.filter((g) => !pending.includes(g.id)), ...(pending.includes(HISTORY_GATE_ID) ? { history: { months: 1 as const } } : {}) }
 
   const probe = (amount: number): Probe => {
     const d = evaluate(relaxed, withFeatures(profile, [{ feature: 'requested_amount', value: amount }]), { counterfactuals: false, ...age })

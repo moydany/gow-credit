@@ -40,8 +40,12 @@ describe('decide: abonos grandes inciertos (docs/03 §7)', () => {
   })
 
   it('no pregunta si la respuesta no cambia la banda', () => {
+    // A cap leaves status and line where they are whatever the answer: it is not asked. The base no
+    // longer caps by history (ADR 0072), so the policy here does.
+    const capped = basePolicyTemplate()
+    capped.decision.caps = [{ when: { feature: 'months_of_history', op: '<', value: 3 }, maxStatus: 'qualified_with_limit' }, ...capped.decision.caps]
     const strong = [{ kind: 'customer_payment' as const, amount: 60000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 30000 }]
-    const d = decide(input([stmt([...strong, { kind: 'cash_deposit', amount: 150000 }])])).decision
+    const d = decide(input([stmt([...strong, { kind: 'cash_deposit', amount: 150000 }])], { policy: capped })).decision
     expect(d.status).toBe('qualified_with_limit')
     expect(d.reasons.map((x) => x.code)).not.toContain('deposit_clarification')
   })

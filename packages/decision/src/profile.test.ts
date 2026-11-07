@@ -62,21 +62,33 @@ describe('perfil desde un estado de cuenta', () => {
     expect(f(p, 'operating_expenses_monthly').confidence).toBe(1)
   })
 
-  it('un periodo de tres meses cuenta como tres meses, igual que tres periodos mensuales', () => {
+  it('ADR 0072: con tres meses se evalúa solo el último, venga en un periodo impreso o en tres mensuales', () => {
     const spec: Spec = { months: 3, monthly: BASIC }
     const single = profileOf([stmt({ ...spec, periods: 'single' })])
     const monthly = profileOf([stmt({ ...spec, periods: 'monthly' })])
-    expect(f(single, 'months_of_history').value).toBe(3)
+    const lastMonth = profileOf([stmt({ start: '2026-11-01', monthly: BASIC })])
+    expect(f(single, 'months_of_history').value).toBe(1)
+    expect(f(single, 'operating_income_monthly').value).toBeCloseTo(f(lastMonth, 'operating_income_monthly').value as number, 2)
+    expect(f(single, 'activity_count').value).toBe(f(lastMonth, 'activity_count').value)
     for (const name of ['months_of_history', 'operating_income_monthly', 'operating_expenses_monthly', 'debt_service_monthly', 'free_cash_flow_monthly', 'avg_daily_balance', 'income_trend'] as const) {
       expect(f(single, name).value, name).toEqual(f(monthly, name).value)
     }
   })
 
-  it('tendencia de ingresos con tres meses o más', () => {
+  it('ADR 0072: con un solo mes evaluado no hay tendencia de ingresos, aunque lleguen tres', () => {
     const growing = profileOf([stmt({ months: 3, growth: 0.1, monthly: [{ kind: 'customer_payment', amount: 100000, count: 2 }] })], { at: '2026-12-05T12:00:00.000Z' })
-    expect(f(growing, 'income_trend').value).toBeGreaterThan(0.08)
-    const flat = profileOf([stmt({ months: 3, monthly: [{ kind: 'customer_payment', amount: 100000, count: 2 }] })], { at: '2026-12-05T12:00:00.000Z' })
-    expect(Math.abs(f(flat, 'income_trend').value as number)).toBeLessThan(0.03)
+    expect(f(growing, 'income_trend').value).toBeNull()
+    expect(f(growing, 'months_of_history').value).toBe(1)
+  })
+
+  it('ADR 0072: de varios documentos entra el del mes más reciente; los anteriores quedan en la nota', () => {
+    const old = stmt({ start: '2026-08-01', monthly: BASIC }, 'old')
+    const recent = stmt({ start: '2026-09-01', monthly: [{ kind: 'customer_payment', amount: 50000, count: 2 }] }, 'recent')
+    const { profile, ledger } = buildProfileWithLedger({ statements: [old, recent], request: null, supplier: null, computedAt: AT })
+    expect(ledger.documents.map((d) => d.sha256)).toEqual([recent.document.sha256])
+    expect(ledger.submitted).toHaveLength(2)
+    expect(ledger.skipped.some((s) => s.includes('fuera del mes evaluado'))).toBe(true)
+    expect(f(profile, 'activity_count').value).toBe(2)
   })
 
   it('los traspasos internos no son ingreso ni gasto', () => {
@@ -445,13 +457,18 @@ describe('el sobregiro calculado solo se cree si el periodo cuadra', () => {
     expect(f(p, 'integrity_ok').value).toBe(false)
   })
 
-  it('basta un periodo que no cuadra entre varios', () => {
+  it('ADR 0072: con dos meses solo cuenta el último; el saldo inicial del mes evaluado sale del anterior', () => {
+    // Month 1 goes to -400; month 2 opens at 4,100 and never goes below zero.
     const s = negative({ months: 2 })
-    expect(f(profileOf([s]), 'red_flags').value).toEqual(['overdraft'])
-    const second = s.accounts[0]?.periods[1]
-    if (!second?.reconciliation) throw new Error('sin segundo periodo')
-    second.reconciliation.status = 'not_reconciled'
-    expect(f(profileOf([s]), 'red_flags')).toMatchObject({ value: [], note: 'saldo calculado no confiable: el periodo no cuadra' })
+    expect(f(profileOf([s]), 'red_flags').value).toEqual([])
+    const single = negative({ months: 2, periods: 'single' })
+    expect(f(profileOf([single]), 'red_flags').value).toEqual([])
+    expect(f(profileOf([single]), 'avg_daily_balance').value).toBe(f(profileOf([s]), 'avg_daily_balance').value)
+    // The previous month not reconciling does not touch the evaluated one.
+    const first = s.accounts[0]?.periods[0]
+    if (!first?.reconciliation) throw new Error('sin primer periodo')
+    first.reconciliation.status = 'not_reconciled'
+    expect(f(profileOf([s]), 'integrity_ok').value).toBe(true)
   })
 
   it('un cuadre parcial tampoco basta: solo cuenta reconciled', () => {

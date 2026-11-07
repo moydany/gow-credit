@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "name": "Plantilla base GOW, tres meses",
+  "description": "La plantilla base (policies/gow-base.v1.json) evaluando los 3 meses más recientes, seguidos (ADR 0072). Si llegan menos o hay un hueco, pide los meses que faltan; por WhatsApp, los 3 PDF juntos en un solo envío. Para usarla, créala como versión de la política del tenant (backoffice o POST /v1/policies/versions) y actívala.",
+  "history": { "months": 3 },
+  "gates": [
+    {
+      "id": "doc_recent",
+      "description": "El estado de cuenta más reciente tiene 90 días o menos",
+      "when": { "feature": "document_age_days", "op": "<=", "value": 90 },
+      "onFail": { "status": "needs_clarification", "ask": "recent_statement" }
+    },
+    {
+      "id": "pages_complete",
+      "description": "El estado de cuenta trae todas las páginas que imprime su paginación",
+      "when": { "feature": "document_pages_missing", "op": "==", "value": false },
+      "onFail": { "status": "needs_clarification", "ask": "missing_pages" },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "integrity",
+      "description": "El estado de cuenta cuadra",
+      "when": { "feature": "integrity_ok", "op": "==", "value": true },
+      "onFail": { "status": "human_review" }
+    },
+    {
+      "id": "no_red_flags",
+      "when": { "feature": "red_flags", "op": "empty" },
+      "onFail": { "status": "human_review" }
+    },
+    {
+      "id": "no_tamper_signals",
+      "description": "Sin señales de que el documento se alteró: texto dirigido al sistema, cadena fiscal que no coincide, timbrado lejos del periodo, páginas repetidas o lecturas del encabezado que no coinciden",
+      "when": { "feature": "document_tamper_signals", "op": "empty" },
+      "onFail": { "status": "human_review" },
+      "onUnknown": "pass"
+    },
+    {
+      "id": "no_arrears",
+      "description": "Sin atraso en créditos vigentes con este prestamista",
+      "when": { "feature": "existing_exposure_days_past_due", "op": "<=", "value": 0 },
+      "onFail": { "status": "not_qualified" },
+      "onUnknown": "pass"
+    }
+  ],
+  "score": {
+    "dimensions": [
+      { "id": "capacity", "weight": 35, "feature": "operating_income_monthly", "relativeTo": "requested_amount", "zeroAt": 0.5, "fullAt": 3 },
+      { "id": "buyer", "weight": 25, "feature": "buyer_payments_count", "zeroAt": 0, "fullAt": 2 },
+      { "id": "stability", "weight": 15, "feature": "payment_capacity_pct", "zeroAt": 0.1, "fullAt": 0.5 },
+      { "id": "debt", "weight": 15, "feature": "debt_service_monthly", "relativeTo": "operating_income_monthly", "zeroAt": 0.4, "fullAt": 0.1, "inverse": true },
+      { "id": "recurrence", "weight": 10, "feature": "recurring_income_share", "zeroAt": 0.2, "fullAt": 0.6 }
+    ],
+    "minConfidence": 0.7
+  },
+  "decision": {
+    "bands": [
+      { "min": 70, "status": "qualified", "limit": { "pctOf": "operating_income_monthly", "pct": 50 } },
+      { "min": 50, "status": "qualified_with_limit", "limit": { "pctOf": "operating_income_monthly", "pct": 25 } },
+      { "min": 0, "status": "not_qualified" }
+    ],
+    "caps": [
+      { "when": { "feature": "buyer_payments_count", "op": "==", "value": 0 }, "maxStatus": "qualified_with_limit" }
+    ],
+    "limitFormula": "min(band, debt_capacity - existing_exposure_balance, program_available_limit)"
+  },
+  "clarification": { "maxRounds": 2, "askWhenAmountAbovePctOfIncome": 30 }
+}

@@ -36,6 +36,12 @@ const changesNothing = (s: { from: { status: string; limit: number | null }; to:
 
 describe('contrafactuales: cuentan solo si cambian el estado o suben la línea', () => {
   const base = basePolicyTemplate()
+  // The base no longer caps by history (ADR 0072): these cases use a policy that does.
+  const monthsCap = (() => {
+    const raw = structuredClone(base)
+    raw.decision.caps = [{ when: { feature: 'months_of_history', op: '<', value: 3 }, maxStatus: 'qualified_with_limit' }, ...raw.decision.caps]
+    return clonePolicy(raw, { version: 2 })
+  })()
 
   // One month of history (cap at "califica con límite") and a score of 66.5, in the 25% band.
   // Improving buyer payments lifts the score to the "califica" band, but the cap leaves status and
@@ -43,17 +49,17 @@ describe('contrafactuales: cuentan solo si cambian el estado o suben la línea',
   const capped = profile({ months_of_history: 1, operating_income_monthly: 150000, buyer_payments_count: 1 })
 
   it('un puntaje que cambia de banda con un tope que deja estado y línea iguales no es un paso', () => {
-    const d = evaluate(base, capped)
+    const d = evaluate(monthsCap, capped)
     expect([d.status, d.score, d.band?.index, d.limit]).toEqual(['qualified_with_limit', 66.5, 1, 37500])
     expect(d.next_steps.filter(changesNothing)).toEqual([])
     expect(d.next_steps.map((s) => s.feature)).not.toContain('buyer_payments_count')
     // What used to be proposed does raise the score band and changes nothing for the supplier.
-    const buyer2 = evaluate(base, withFeatures(capped, [{ feature: 'buyer_payments_count', value: 2 }]), { counterfactuals: false })
+    const buyer2 = evaluate(monthsCap, withFeatures(capped, [{ feature: 'buyer_payments_count', value: 2 }]), { counterfactuals: false })
     expect([buyer2.band?.index, buyer2.status, buyer2.limit]).toEqual([0, 'qualified_with_limit', 37500])
   })
 
   it('el tope que sí cambia el estado sigue siendo un paso, con la línea de antes y de después', () => {
-    const d = evaluate(base, profile({ months_of_history: 1 }))
+    const d = evaluate(monthsCap, profile({ months_of_history: 1 }))
     expect(d.next_steps[0]).toMatchObject({ code: 'cap_months_of_history', from: { status: 'qualified_with_limit', limit: 75000 }, to: { status: 'qualified', limit: 150000 } })
   })
 

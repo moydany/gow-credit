@@ -23,7 +23,8 @@ const specArb = fc.record({
 })
 
 const at = (s: StatementExtraction) => `${s.accounts[0]?.periods.at(-1)?.period_end.value ?? '2026-12-31'}T12:00:00.000Z`
-const profileOf = (s: StatementExtraction) => buildProfile({ statements: [s], request: null, supplier: null, computedAt: at(s) })
+/** By default the whole statement is evaluated (window wider than any spec); `months` narrows it (ADR 0072). */
+const profileOf = (s: StatementExtraction, months = 12) => buildProfile({ statements: [s], request: null, supplier: null, computedAt: at(s), parameters: { evaluation_months: months } })
 
 const MONTHLY = ['months_of_history', 'operating_income_monthly', 'operating_expenses_monthly', 'debt_service_monthly', 'free_cash_flow_monthly', 'payment_capacity_pct', 'debt_capacity', 'avg_daily_balance', 'low_balance_days', 'income_trend', 'new_debt_in_period'] as const
 
@@ -35,6 +36,11 @@ describe('propiedades del perfil', () => {
         const monthly = profileOf(syntheticStatement({ ...spec, periods: 'monthly' }, holder, 'x'))
         for (const f of MONTHLY) expect(single.features[f].value, f).toEqual(monthly.features[f].value)
         expect(single.features.months_of_history.value).toBe(spec.months)
+        // Evaluating only the most recent month, the cut period and the last monthly one agree too.
+        const lastSingle = profileOf(syntheticStatement({ ...spec, periods: 'single' }, holder, 'x'), 1)
+        const lastMonthly = profileOf(syntheticStatement({ ...spec, periods: 'monthly' }, holder, 'x'), 1)
+        for (const f of MONTHLY) expect(lastSingle.features[f].value, f).toEqual(lastMonthly.features[f].value)
+        expect(lastSingle.features.months_of_history.value).toBe(1)
       }),
       { numRuns: 100 },
     )

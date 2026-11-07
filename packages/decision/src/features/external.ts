@@ -25,10 +25,10 @@ function unavailable(source: string): string {
   return `fuente ${source} no disponible`
 }
 
-/** UUIDs of the CFDIs in the documents used (statement fingerprint). */
+/** UUIDs of the CFDIs in every submitted document (statement fingerprint): a reused or cancelled one counts even outside the evaluated months. */
 export function documentUuids(ledger: Ledger): string[] {
   const out = new Set<string>()
-  for (const d of ledger.documents) for (const f of d.statement.fiscal_documents) if (f.uuid.value) out.add(f.uuid.value.toUpperCase())
+  for (const d of ledger.submitted) for (const f of d.statement.fiscal_documents) if (f.uuid.value) out.add(f.uuid.value.toUpperCase())
   return [...out]
 }
 

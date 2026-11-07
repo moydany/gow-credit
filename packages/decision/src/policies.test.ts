@@ -41,15 +41,71 @@ describe('políticas de ejemplo', () => {
     const input = { statements: [statement], request, supplier: null, external: noCredits, computedAt: AT }
     const d = decide({ ...input, policy: basePolicyTemplate() }).decision
     expect(d.clarification?.topics ?? []).not.toContain('identity_fields')
-    expect(d.status).toBe('qualified_with_limit')
+    expect(d.status).toBe('qualified')
   })
 
   it('una identidad que no coincide se informa pero no cambia la decisión', () => {
     const other = { legal_name: 'Otra Empresa SA de CV', rfc: 'OEM900101AB1', clabes: [] }
     const d = decide({ statements: [statement], request, supplier: other, external: noCredits, computedAt: AT, policy: basePolicyTemplate() }).decision
     expect(d.profile.features.identity_match.value).toBe('mismatch')
-    expect(d.status).toBe('qualified_with_limit')
+    expect(d.status).toBe('qualified')
     expect(d.clarification?.topics ?? []).not.toContain('identity_fields')
+  })
+})
+
+describe('ADR 0072: un mes o tres meses seguidos', () => {
+  const months = (start: string, n = 1, periods: 'monthly' | 'single' = 'monthly', seed = start) =>
+    syntheticStatement({ start, months: n, periods, opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 40000 }] }, holder, `m-${seed}-${String(n)}-${periods}`)
+  const at = '2026-12-05T12:00:00.000Z'
+  const run = (policy: Policy, statements: StatementExtraction[]) => decide({ policy, statements, request, supplier: null, external: noCredits, computedAt: at }).decision
+
+  it.each([
+    ['standalone-evaluation.v1.json', 'standalone-tres-meses.v1.json'],
+    ['../gow-base.v1.json', 'gow-base-tres-meses.v1.json'],
+  ])('%s y %s solo difieren en history (y nombre y descripción)', (one, three) => {
+    const a = load(one)
+    const b = load(three)
+    expect([a.history.months, b.history.months]).toEqual([1, 3])
+    expect({ ...b, history: a.history, name: a.name, description: a.description }).toEqual(a)
+  })
+
+  const three = load('standalone-tres-meses.v1.json')
+  const one = load('standalone-evaluation.v1.json')
+
+  it('con 3 meses: un solo mes pide los que faltan, seguidos', () => {
+    const d = run(three, [months('2026-11-01')])
+    expect([d.status, d.clarification?.topics]).toEqual(['needs_clarification', ['additional_months']])
+    expect(d.profile.features.months_of_history.value).toBe(1)
+  })
+
+  it('con 3 meses: tres PDF, un PDF con un periodo de 3 meses o un PDF con 3 estados de cuenta califican igual', () => {
+    const threePdfs = run(three, [months('2026-09-01'), months('2026-10-01'), months('2026-11-01')])
+    const onePeriod = run(three, [months('2026-09-01', 3, 'single')])
+    const threeInOne = run(three, [months('2026-09-01', 3, 'monthly')])
+    for (const d of [threePdfs, onePeriod, threeInOne]) {
+      expect(d.status).toBe('qualified')
+      expect(d.profile.features.months_of_history.value).toBe(3)
+    }
+    expect(onePeriod.profile.features.operating_income_monthly.value).toBe(threeInOne.profile.features.operating_income_monthly.value)
+  })
+
+  it('con 3 meses: un hueco no cuenta; se piden los meses seguidos', () => {
+    const d = run(three, [months('2026-09-01'), months('2026-11-01')])
+    expect(d.profile.features.months_of_history.value).toBe(1)
+    expect(d.clarification?.topics).toEqual(['additional_months'])
+  })
+
+  it('con 3 meses: si llegan más, se evalúan los 3 más recientes', () => {
+    const d = run(three, [months('2026-07-01', 5)])
+    expect(d.profile.features.months_of_history.value).toBe(3)
+    expect(d.profile.parameters.evaluation_months).toBe(3)
+  })
+
+  it('con un mes: de tres meses solo cuenta el más reciente', () => {
+    const d = run(one, [months('2026-09-01'), months('2026-10-01'), months('2026-11-01')])
+    expect(d.status).toBe('qualified')
+    expect(d.profile.features.months_of_history.value).toBe(1)
+    expect(d.profile.inputs.document_sha256).toHaveLength(1)
   })
 })
 
@@ -86,7 +142,7 @@ describe('robustez documental en las políticas', () => {
 
   it.each(policies)('%s: un documento sin señales sigue calificando', (_, policy) => {
     const d = run(policy, withSignals([], []))
-    expect(d.status).toBe('qualified_with_limit')
+    expect(d.status).toBe('qualified')
     expect(d.profile.features.document_pages_missing.value).toBe(false)
     expect(d.profile.features.document_tamper_signals.value).toEqual([])
   })
@@ -123,7 +179,7 @@ describe('estado de cuenta con domicilio', () => {
     expect(base.gates.some((g) => g.when.feature === 'holder_address_present')).toBe(false)
     const d = run(base, statement(null))
     expect(d.clarification?.topics ?? []).not.toContain('statement_with_address')
-    expect(d.status).toBe('qualified_with_limit')
+    expect(d.status).toBe('qualified')
   })
 
   it('con la compuerta activada y sin domicilio, pide un estado de cuenta que lo traiga', () => {
@@ -135,6 +191,6 @@ describe('estado de cuenta con domicilio', () => {
 
   it('con la compuerta activada y con domicilio, pasa', () => {
     const d = run(requiring, statement('CALLE 5 DE MAYO 12, CENTRO, PUEBLA, PUE., C.P. 72000'))
-    expect(d.status).toBe('qualified_with_limit')
+    expect(d.status).toBe('qualified')
   })
 })

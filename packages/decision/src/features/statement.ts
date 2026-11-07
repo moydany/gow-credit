@@ -73,14 +73,18 @@ function rulesNote(rows: readonly LedgerRow[]): string {
 // History, age, identity, integrity, flags
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Months in a row up to the most recent cutoff (ADR 0072): only the last stretch with no gaps
+ * counts, so a missing month in between lowers the value and a policy that requires three asks for
+ * the missing ones.
+ */
 function monthsOfHistory(ledger: Ledger, cov: Coverage): Entry {
-  if (cov.days === 0) return unknown('sin periodos con fechas')
-  const value = Math.floor(cov.months + MONTH_TOLERANCE)
-  return known(value, {
-    verification: cov.verified ? 'verified' : 'unverified',
-    evidence: ledger.periods.map((p) => `${p.doc.tag}:${p.period.id}`),
-    note: `${String(cov.days)} días cubiertos (${cov.months.toFixed(2)} meses) en ${String(cov.segments.length)} tramo(s)`,
-  })
+  const last = cov.segments.at(-1)
+  if (cov.days === 0 || last === undefined) return unknown('sin periodos con fechas')
+  const days = last.end - last.start + 1
+  const gaps = cov.segments.length > 1 ? `; hay ${String(cov.segments.length - 1)} hueco(s) antes, que no cuentan` : ''
+  const note = `${String(days)} días seguidos hasta el corte más reciente (${(days / AVG_MONTH_DAYS).toFixed(2)} meses)${gaps}`
+  return known(Math.floor(days / AVG_MONTH_DAYS + MONTH_TOLERANCE), { verification: cov.verified ? 'verified' : 'unverified', evidence: ledger.periods.map((p) => `${p.doc.tag}:${p.period.id}`), note })
 }
 
 function documentAgeDays(ctx: StatementContext): Entry {
@@ -284,18 +288,18 @@ function holderAddressPresent(ledger: Ledger): Entry {
 
 /**
  * `document_pages_missing` and `document_tamper_signals`, from the flags and issues extraction
- * left on each document in the ledger. Evidence is `sha:issue id`; if the signal is only a flag,
+ * left on every submitted document, inside the evaluated month or not. Evidence is `sha:issue id`; if the signal is only a flag,
  * `sha:flag`.
  */
 function documentSignals(ledger: Ledger): { pagesMissing: Entry; tamper: Entry } {
-  if (ledger.documents.length === 0) {
+  if (ledger.submitted.length === 0) {
     const note = 'sin estados de cuenta'
     return { pagesMissing: unknown(note), tamper: unknown(note) }
   }
   const missing: string[] = []
   const signals = new Map<TamperSignal, string[]>()
   const add = (signal: TamperSignal, refs: readonly string[]) => signals.set(signal, [...(signals.get(signal) ?? []), ...refs])
-  for (const doc of ledger.documents) {
+  for (const doc of ledger.submitted) {
     const s = doc.statement
     const ids = (match: (i: Issue) => boolean): string[] => s.issues.filter(match).map((i) => `${doc.tag}:${i.id}`)
     // A flag with no issue explaining it still counts; its evidence is the flag.
@@ -481,7 +485,7 @@ function dailyBalances(ledger: Ledger, threshold: number): DailyBalances | strin
       const d = Math.min(Math.max(r.day, p.start), p.end)
       byDay.set(d, (byDay.get(d) ?? 0) + Math.round((r.type === 'credit' ? 1 : -1) * r.amount * 100))
     }
-    let cents = Math.round(opening.value * 100)
+    let cents = Math.round((opening.value + p.openingShift) * 100)
     for (let d = p.start; d <= p.end; d++) {
       cents += byDay.get(d) ?? 0
       perDay.set(d, (perDay.get(d) ?? 0) + cents)

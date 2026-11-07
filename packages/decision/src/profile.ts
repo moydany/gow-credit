@@ -26,6 +26,7 @@ export const DEFAULT_PROFILE_PARAMETERS: ProfileParameters = {
   low_balance_threshold: 1000,
   min_classification_confidence: 0.7,
   debt_capacity_months: 3,
+  evaluation_months: 1,
 }
 
 export interface ProfileInput {
@@ -62,7 +63,7 @@ export function buildProfileWithLedger(input: ProfileInput): ProfileResult {
   const asOfDay = toDay(input.computedAt.slice(0, 10))
   const declarations = input.declarations ?? NO_DECLARATIONS
   const request = effectiveRequest(input.request, declarations)
-  const ledger = buildLedger(input.statements, { request, minConfidence: params.min_classification_confidence, accountUse: declarations.account_use })
+  const ledger = buildLedger(input.statements, { request, minConfidence: params.min_classification_confidence, accountUse: declarations.account_use, months: params.evaluation_months })
 
   const st = statementFeatures({ ledger, request, supplier: input.supplier, params, asOfDay, buyerDeclared: request?.buyer != null && input.request?.buyer == null })
   const ex = externalFeatures({ snapshot: external, request, ledger, statement: st.entries, minConfidence: params.min_classification_confidence, asOfDay })

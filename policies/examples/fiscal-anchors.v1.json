@@ -258,14 +258,6 @@
     "caps": [
       {
         "when": {
-          "feature": "months_of_history",
-          "op": "<",
-          "value": 3
-        },
-        "maxStatus": "qualified_with_limit"
-      },
-      {
-        "when": {
           "feature": "buyer_payments_count",
           "op": "==",
           "value": 0

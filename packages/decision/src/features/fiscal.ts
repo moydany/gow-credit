@@ -67,17 +67,18 @@ export function fiscalRegime(ctx: StatementContext): Entry {
 /**
  * Fiscal anchor: the fee CFDI is signed by the SAT, outside the editable PDF. The document's fee
  * rows must add up to its total (if the bank itemizes IVA) or its subtotal (if not). A document
- * with no CFDI amounts does not count.
+ * with no CFDI amounts does not count. It checks the whole document, every submitted one, with all
+ * its movements: the CFDI covers the document, not the evaluated months (ADR 0072).
  */
 export function fiscalAnchor(ctx: StatementContext): Entry {
   const checks: { ok: boolean; where: string; verification: Verification }[] = []
-  for (const doc of ctx.ledger.documents) {
+  for (const doc of ctx.ledger.submitted) {
     for (const f of doc.statement.fiscal_documents) {
       if (f.kind !== 'income') continue
       const total = f.total.value ?? (f.subtotal.value !== null && f.tax.value !== null ? round2(f.subtotal.value + f.tax.value) : null)
       const subtotal = f.subtotal.value
       if (total === null && subtotal === null) continue
-      const feeRows = ctx.ledger.rows.filter((r) => r.doc === doc && r.type === 'debit' && r.classification.category === 'fee')
+      const feeRows = ctx.ledger.submittedRows.filter((r) => r.doc === doc && r.type === 'debit' && r.classification.category === 'fee')
       const fees = sumMoney(feeRows.map((r) => r.amount))
       const ok = (total !== null && Math.abs(fees - total) <= FISCAL_ANCHOR_TOLERANCE) || (subtotal !== null && Math.abs(fees - subtotal) <= FISCAL_ANCHOR_TOLERANCE)
       const verification = worst(f.total.verification, f.subtotal.verification, ...feeRows.map((r) => (r.verified ? 'verified' : 'unverified')))

@@ -19,7 +19,7 @@ const withBuyer: ApplicationRequest = { amount: 100000, maturity: null, buyer }
 const noBuyer: ApplicationRequest = { amount: 100000, maturity: null, buyer: null }
 const declared = (d: Partial<OwnerDeclarations>): OwnerDeclarations => ({ buyer: null, account_use: null, answered: [], ...d })
 
-/** Three months, so the low-history cap does not hide what is being tested. */
+/** Three months; the base evaluates the most recent one (ADR 0072). */
 function stmt(monthly: z.input<typeof SyntheticStatement>['monthly'], who = moral, seed = 'q1'): StatementExtraction {
   return syntheticStatement({ start: '2026-07-01', months: 3, opening_balance: 400000, monthly }, who, seed)
 }
@@ -58,7 +58,7 @@ describe('cargos dudosos', () => {
     const d = r.decision
     expect(d.status).toBe('needs_clarification')
     expect(d.clarification?.topics).toEqual(['charge_classification'])
-    expect(r.asked.map((x) => x.type)).toEqual(['debit', 'debit', 'debit'])
+    expect(r.asked.map((x) => x.type)).toEqual(['debit'])
     expect(d.reasons.map((x) => x.code)).toContain('charge_clarification')
     expect(d.next_steps[0]).toMatchObject({ code: 'classify_charges', feature: 'free_cash_flow_monthly', from: { status: 'not_qualified' } })
   })
@@ -131,6 +131,11 @@ describe('cliente principal', () => {
     expect(d.clarification?.topics ?? []).not.toContain('main_buyer')
   })
 
+  it('con la solicitud que arma el flujo en la línea máxima (no vino solicitud) no pregunta', () => {
+    const d = decide(input([healthy], { request: { amount: 50000, maturity: null, buyer: null }, askMainBuyer: false })).decision
+    expect(d.clarification?.topics ?? []).not.toContain('main_buyer')
+  })
+
   it('con comprador en la solicitud no pregunta', () => {
     const d = decide(input([healthy])).decision
     expect(d.clarification?.topics ?? []).not.toContain('main_buyer')
@@ -141,7 +146,7 @@ describe('cliente principal', () => {
     const applied = applyOwnerAnswers({ statements: [healthy], supplier: null, request: noBuyer, questions: [q], answers: [{ question_id: 'q1', kind: 'buyer', name: 'Cadena Norte SA de CV' }] })
     expect(applied.declarations).toEqual(declared({ buyer: 'Cadena Norte SA de CV', answered: ['main_buyer'] }))
     const d = decide(input([healthy], { request: noBuyer, declarations: applied.declarations, clarificationRoundsUsed: 1 })).decision
-    expect(d.profile.features.buyer_payments_count).toMatchObject({ value: 6, provenance: 'owner_answer' })
+    expect(d.profile.features.buyer_payments_count).toMatchObject({ value: 2, provenance: 'owner_answer' })
     expect(d.profile.inputs.request?.buyer?.name).toBe('Cadena Norte SA de CV')
     expect(d.profile.inputs.declarations.buyer).toBe('Cadena Norte SA de CV')
     expect(d.status).toBe('qualified')

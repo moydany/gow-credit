@@ -12,10 +12,13 @@
  * - Mixed-use account declared by the owner: a deposit that is only presumed a client payment
  *   (no RFC, not the buyer, confidence below `PRESUMPTION_CONFIDENCE`) drops to
  *   `MIXED_PRESUMED_CONFIDENCE` and stops counting as income.
+ * - Only the evaluated months enter: the most recent one, or the `months` most recent (the policy's
+ *   `history.months`, ADR 0072). Periods and movements before them are left out, and a period
+ *   that starts earlier is cut.
  */
 import type { AccountUse, ApplicationRequest, Period, Provenance, StatementExtraction, Transaction, TransactionClassification, TransactionRef } from '@gow/contracts'
 import { bankTokens, buyerMatch, classifyByRules, type RuleContext } from './classify/rules.ts'
-import { toDay } from './util/dates.ts'
+import { addMonths, fromDay, toDay } from './util/dates.ts'
 import { normalizeText } from './util/text.ts'
 
 export interface LedgerDocument {
@@ -38,6 +41,11 @@ export interface LedgerPeriod {
   boundsVerified: boolean
   /** The summary is consolidated and balances without the internal transfers. */
   excludesInternal: boolean
+  /**
+   * Net amount of the movements cut before `start` when the period was trimmed to the evaluated
+   * month: added to the printed opening balance gives the balance at the new start. 0 if not cut.
+   */
+  openingShift: number
 }
 
 export interface LedgerRow {
@@ -61,9 +69,21 @@ export interface LedgerRow {
 }
 
 export interface Ledger {
+  /** Documents with a period in the evaluated month. */
   documents: LedgerDocument[]
+  /**
+   * Every document that entered, including those left out of the evaluated month: tamper and
+   * missing-page signals look at all of them, so an altered older statement is not hidden.
+   */
+  submitted: LedgerDocument[]
   periods: LedgerPeriod[]
+  /** Movements of the evaluated months: every feature of the flow is computed from these. */
   rows: LedgerRow[]
+  /**
+   * Every movement of `submitted`, inside the evaluated months or not: for checks of a whole
+   * document against something outside it (the fee CFDI signed by the SAT).
+   */
+  submittedRows: LedgerRow[]
   /** Documents or accounts left out of the profile, with the reason (for `note`). */
   skipped: string[]
 }
@@ -73,6 +93,8 @@ export interface LedgerOptions {
   minConfidence: number
   /** Account use declared by the owner; null or absent: unknown. */
   accountUse?: AccountUse | null
+  /** Months evaluated, counted back from the latest period end. Default 1. */
+  months?: number
 }
 
 /** Below this confidence a client payment with no RFC or buyer is a presumption (third-party transfer). */
@@ -180,6 +202,7 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
           end: b.end,
           boundsVerified: b.verified,
           excludesInternal: p.reconciliation?.global?.excludes_internal_transfers ?? false,
+          openingShift: 0,
         }
         periods.push(lp)
         for (const t of p.transactions) {
@@ -233,5 +256,58 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
       }
     }
   }
-  return { documents, periods, rows, skipped }
+  return keepLatestMonths({ documents, submitted: documents, periods, rows, submittedRows: rows, skipped }, opts.months ?? 1)
+}
+
+/**
+ * First day of the month that ends on `end`: the calendar month if `end` is its last day; otherwise
+ * the day after the same date one month earlier (a cycle from the 5th to the 4th).
+ */
+export function monthStart(end: number): number {
+  const iso = fromDay(end)
+  if (fromDay(end + 1).endsWith('-01')) return toDay(`${iso.slice(0, 8)}01`)
+  return toDay(addMonths(iso, -1)) + 1
+}
+
+/** First day of the `months` months that end on `end`. */
+export function windowStart(end: number, months: number): number {
+  let start = monthStart(end)
+  for (let i = 1; i < months; i++) start = monthStart(start - 1)
+  return start
+}
+
+/**
+ * Keeps only the evaluated months: the `months` months that end on the latest period end. A period
+ * that does not reach them is left out; one that starts before them is cut, and the movements cut
+ * move its opening balance. Without dated periods nothing is cut.
+ */
+export function keepLatestMonths(ledger: Ledger, months: number): Ledger {
+  const ends = ledger.periods.flatMap((p) => (p.end === null ? [] : [p.end]))
+  if (ends.length === 0) return ledger
+  const end = Math.max(...ends)
+  const start = windowStart(end, months)
+  const toWindow = months === 1 ? 'al mes evaluado' : `a los ${String(months)} meses evaluados`
+  const ofWindow = months === 1 ? 'del mes evaluado' : `de los ${String(months)} meses evaluados`
+  const skipped = [...ledger.skipped]
+  const periods: LedgerPeriod[] = []
+  for (const p of ledger.periods) {
+    if (p.end === null || p.end < start) {
+      skipped.push(`periodo ${p.period.id} de ${p.doc.tag} anterior ${toWindow}: no entra al perfil`)
+      continue
+    }
+    if (p.start !== null && p.start < start) {
+      const cut = ledger.rows.filter((r) => r.period === p && r.day < start && !(p.excludesInternal && r.internal))
+      const openingShift = cut.reduce((s, r) => s + (r.type === 'credit' ? r.amount : -r.amount), 0)
+      skipped.push(`periodo ${p.period.id} de ${p.doc.tag} recortado ${toWindow} (${fromDay(start)} a ${fromDay(end)})`)
+      // Mutated in place: the rows point to this same object.
+      p.start = start
+      p.openingShift = Math.round(openingShift * 100) / 100
+    }
+    periods.push(p)
+  }
+  const kept = new Set(periods)
+  const rows = ledger.rows.filter((r) => kept.has(r.period) && r.day >= start)
+  const docs = new Set(periods.map((p) => p.doc))
+  for (const d of ledger.documents) if (!docs.has(d)) skipped.push(`documento ${d.tag} fuera ${ofWindow}: no entra al perfil`)
+  return { documents: ledger.documents.filter((d) => docs.has(d)), submitted: ledger.submitted, periods, rows, submittedRows: ledger.submittedRows, skipped }
 }

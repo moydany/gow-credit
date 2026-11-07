@@ -50,6 +50,11 @@ export interface DecideInput extends ProfileInput {
   clarificationRoundsUsed?: number
   /** Tenant setting: an old document warns instead of asking for a new one. */
   statementAge?: StatementAgeSetting
+  /**
+   * false when `request` is not the supplier's but the one the workflow builds at the maximum line
+   * (no request came): the main buyer is not asked, as with no request at all.
+   */
+  askMainBuyer?: boolean
 }
 
 export interface DecideResult {
@@ -329,7 +334,7 @@ function buyerAsk(c: Ctx): Ask | null {
   const { input, profile, ledger, base, declarations, from, outcomeOf } = c
   const hasCredits = ledger.rows.some((r) => r.type === 'credit' && !r.internal && r.verified)
   const buyerAsked = declarations.answered.includes('main_buyer')
-  if (!(base.status !== 'qualified' && input.request !== null && input.request.buyer === null && declarations.buyer === null && !buyerAsked && hasCredits)) return null
+  if (!(base.status !== 'qualified' && input.askMainBuyer !== false && input.request !== null && input.request.buyer === null && declarations.buyer === null && !buyerAsked && hasCredits)) return null
   const to = outcomeOf(withBuyerPayments(input.policy, profile))
   if (!better(to, from)) return null
   return {
@@ -411,7 +416,9 @@ function clarificationResult(c: Ctx, asks: Ask[]): DecideResult {
   return { decision, ledger, asked: askedRows }
 }
 
-export function decide(input: DecideInput): DecideResult {
+export function decide(raw: DecideInput): DecideResult {
+  // The months evaluated are the policy's (ADR 0072): the profile only sees those.
+  const input: DecideInput = { ...raw, parameters: { ...raw.parameters, evaluation_months: raw.policy.history.months } }
   const { profile, ledger } = buildProfileWithLedger(input)
   const rounds = input.clarificationRoundsUsed ?? 0
   const opts: EvaluateOptions = { policyId: input.policyId ?? null, clarificationRoundsUsed: rounds, ...(input.statementAge ? { statementAge: input.statementAge } : {}) }

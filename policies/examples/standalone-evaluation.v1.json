@@ -2,6 +2,9 @@
   "version": 1,
   "name": "Ejemplo: evaluación standalone con documentos redactados",
   "description": "Plantilla base sin la compuerta doc_recent: la antigüedad del estado de cuenta no decide. Es la política por defecto de pnpm run evaluate, que evalúa documentos de fecha desconocida, sin registro de proveedores; document_age_days sigue en el perfil y en el reporte. La plantilla base (--policy base) conserva la compuerta de 90 días porque es la política de un prestamista real. No es una política para producción.",
+  "history": {
+    "months": 1
+  },
   "gates": [
     {
       "id": "pages_complete",
@@ -132,14 +135,6 @@
       }
     ],
     "caps": [
-      {
-        "when": {
-          "feature": "months_of_history",
-          "op": "<",
-          "value": 3
-        },
-        "maxStatus": "qualified_with_limit"
-      },
       {
         "when": {
           "feature": "buyer_payments_count",

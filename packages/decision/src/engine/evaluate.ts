@@ -3,7 +3,7 @@
  * same policy and profile give the same verdict, with the diagnosis (gates, dimensions, caps,
  * line), reasons and counterfactuals. The verdict date is the profile's unless another is passed.
  */
-import { Decision, DOCUMENT_AGE_WARNING, monthsText, statementMaxAgeDays, type Policy, type Profile, type Reason, type StatementAgeSetting, type TransactionRef } from '@gow/contracts'
+import { Decision, DOCUMENT_AGE_WARNING, HISTORY_GATE_ID, monthsText, statementMaxAgeDays, type Policy, type Profile, type Reason, type StatementAgeSetting, type TransactionRef } from '@gow/contracts'
 import type { z } from 'zod'
 import { counterfactuals } from './counterfactuals.ts'
 import { evaluateCore } from './core.ts'
@@ -35,6 +35,24 @@ export function withoutDocumentAgeGates(policy: Policy): Policy {
 }
 
 /**
+ * The policy with the history gate (ADR 0072): with `history.months` above 1, the months in a row
+ * up to the latest cutoff must reach it; otherwise the supplier is asked for the missing ones. It is
+ * the first gate so that request goes out before any other question about documents.
+ */
+export function withHistoryGate(policy: Policy): Policy {
+  const months = policy.history.months
+  if (months <= 1 || policy.gates.some((g) => g.id === HISTORY_GATE_ID)) return policy
+  const gate = {
+    id: HISTORY_GATE_ID,
+    description: `La política evalúa ${String(months)} meses seguidos hasta el corte más reciente`,
+    when: { feature: 'months_of_history' as const, op: '>=' as const, value: months },
+    onFail: { status: 'needs_clarification' as const, ask: 'additional_months' as const },
+    onUnknown: 'ask' as const,
+  }
+  return { ...policy, gates: [gate, ...policy.gates] }
+}
+
+/**
  * The age warning: the most recent cutoff is older than the setting, or its date is unknown.
  * Never with no limit (`max_months: null`).
  */
@@ -53,7 +71,7 @@ export function documentAgeWarning(profile: Profile, setting: StatementAgeSettin
 
 export function evaluate(policy: Policy, profile: Profile, opts: EvaluateOptions = {}): Decision {
   const coreOpts = { clarificationRoundsUsed: opts.clarificationRoundsUsed ?? 0 }
-  const effective = opts.statementAge ? withoutDocumentAgeGates(policy) : policy
+  const effective = withHistoryGate(opts.statementAge ? withoutDocumentAgeGates(policy) : policy)
   const core = evaluateCore(effective, profile, coreOpts)
   const band = policy.decision.bands[core.bandIndex]
   const warning = opts.statementAge ? documentAgeWarning(profile, opts.statementAge) : null
