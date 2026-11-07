@@ -6,9 +6,7 @@ data/
 **/node_modules
 .git
 .github
-.claude
 .evalite
 .mastra
 **/dist
-spikes/out
 docs/*.docx

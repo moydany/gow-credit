@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['{packages,apps}/*/src/**/*.test.ts', 'evals/src/**/*.test.ts', 'spikes/src/**/*.test.ts', 'scenarios/**/*.test.ts'],
+    include: ['{packages,apps}/*/src/**/*.test.ts', 'evals/src/**/*.test.ts', 'scenarios/**/*.test.ts'],
     passWithNoTests: true,
     environment: 'node',
   },

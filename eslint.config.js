@@ -22,7 +22,7 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
-      // Nada de PII en logs: console solo en CLIs y spikes, que lo habilitan localmente.
+      // Nada de PII en logs: console solo en CLIs, que lo habilitan localmente.
       'no-console': 'error',
     },
   },
@@ -45,9 +45,8 @@ export default tseslint.config(
     },
   },
   {
-    // Tests, esquema de la BD y fixtures son largos o repetitivos por naturaleza; spikes es código
-    // desechable de investigación (docs/00-brief.md), no se mantiene.
-    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.eval.ts', 'packages/db/src/schema.ts', 'spikes/**'],
+    // Tests, the DB schema and fixtures run long and repetitive by nature.
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.eval.ts', 'packages/db/src/schema.ts'],
     rules: {
       'max-lines': 'off',
       'max-lines-per-function': 'off',
