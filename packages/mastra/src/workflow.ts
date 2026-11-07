@@ -10,13 +10,15 @@
  * Las dependencias entran por la fábrica para que los tests usen dobles sin red.
  */
 import { resolve } from 'node:path'
-import { Decision, emptyExternalSnapshot, type ExternalSnapshot, type StatementExtraction } from '@gow/contracts'
+import { Decision, emptyExternalSnapshot, extractionFailure, NO_DECLARATIONS, notBankStatementReason, type ExternalSnapshot, type HolderType, type Question, type StatementExtraction } from '@gow/contracts'
 import { applyOwnerAnswers, decide, maxLine, RULES_VERSION, transactionsForModel, withContradictions, withModelLabels } from '@gow/decision'
 import { classifyTransactionRows, type Limiter, type TransactionClassifier } from '@gow/llm'
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import type { ClarificationChannel } from './channels.ts'
+import { pesos } from './figures.ts'
 import { buildQuestions } from './questions.ts'
 import { AppInput, AppState, AskResume, AskSuspend } from './state.ts'
+import { explanationDraft } from './explanation.ts'
 import { nextStepTemplate, type CallRecord, type Writer } from './writer.ts'
 
 export const WORKFLOW_ID = 'process-application'
@@ -88,6 +90,33 @@ async function classifyStatements(deps: WorkflowDeps, state: AppState, statement
   return { statements: out, summary, calls }
 }
 
+const FINAL: ReadonlySet<string> = new Set(['qualified', 'qualified_with_limit', 'not_qualified'])
+
+/**
+ * Tipo de titular del primer estado de cuenta, para la explicación (ADR 0045). Si no se leyó, el RFC
+ * lo dice: 13 caracteres es persona física y 12, moral (ADR 0050).
+ */
+export function holderTypeOf(state: Pick<AppState, 'statements'>): HolderType | null {
+  const holder = state.statements[0]?.holder
+  if (!holder) return null
+  if (holder.holder_type.value !== null) return holder.holder_type.value
+  const rfc = holder.rfc.value?.replace(/[\s-]/g, '') ?? ''
+  return rfc.length === 13 ? 'individual' : rfc.length === 12 ? 'legal_entity' : null
+}
+
+/**
+ * Qué se pregunta, sin el texto ni el id (que se repiten entre rondas): el tema y, si cita un
+ * movimiento, cuál. Una segunda ronda no repite lo que ya se preguntó (ADR 0051).
+ */
+export function questionKey(q: Pick<Question, 'topic' | 'transaction'>): string {
+  return q.transaction ? `${q.topic}:${q.transaction.document_sha256}#${q.transaction.transaction_id}` : q.topic
+}
+
+/** Un run suspendido antes de ADR 0051 no trae `asked_keys`: el default del esquema lo deja vacío. */
+function askedKeys(state: AppState): string[] {
+  return AppState.shape.asked_keys.parse(state.asked_keys)
+}
+
 function humanReview(decision: Decision, code: string, message: string): Decision {
   return Decision.parse({ ...decision, status: 'human_review', limit: null, clarification: null, reasons: [...decision.reasons, { code, message, features: [] }] })
 }
@@ -100,25 +129,54 @@ function humanReview(decision: Decision, code: string, message: string): Decisio
 export function decideState(state: AppState, external: ExternalSnapshot): AppState {
   if (state.failure_reason !== null) return state
   const { input } = state
-  const base = decide({
-    policy: input.policy,
-    policyId: input.policy_id,
-    statements: state.statements,
-    request: input.request,
-    supplier: state.supplier,
-    external,
-    computedAt: `${input.as_of}T12:00:00.000Z`,
-    clarificationRoundsUsed: state.rounds,
-  }).decision
-  let decision = withContradictions(base, state.contradictions)
-  let questions = decision.status === 'needs_clarification' ? buildQuestions(decision, state.statements) : []
+  const age = input.statement_age ? { statementAge: input.statement_age } : {}
+  const run = (request: AppState['input']['request']) =>
+    withContradictions(
+      decide({
+        policy: input.policy,
+        policyId: input.policy_id,
+        statements: state.statements,
+        request,
+        supplier: state.supplier,
+        declarations: state.declarations,
+        external,
+        computedAt: `${input.as_of}T12:00:00.000Z`,
+        clarificationRoundsUsed: state.rounds,
+        ...age,
+      }).decision,
+      state.contradictions,
+    )
+  let decision = run(input.request)
+  // Sin monto solicitado, la capacidad no tiene contra qué medirse y el veredicto saldría peor de lo
+  // que es (ADR 0045): un veredicto final se decide con la línea máxima, el mayor monto que la
+  // política aprueba; si no hay ninguno, se dice así.
+  const noAmount = input.request?.amount == null
+  const lineAtStart = noAmount ? maxLine(input.policy, decision.profile, age) : null
+  if (noAmount && FINAL.has(decision.status)) {
+    if (lineAtStart !== null) {
+      const atLine = run({ amount: lineAtStart.amount, maturity: input.request?.maturity ?? null, buyer: input.request?.buyer ?? null })
+      decision = Decision.parse({ ...atLine, reasons: [{ code: 'evaluated_at_max_line', message: `Sin monto solicitado: se evaluó con la línea máxima (${pesos(lineAtStart.amount)}), el mayor monto que la política aprueba con este perfil.`, features: ['requested_amount'] }, ...atLine.reasons] })
+    } else if (decision.status === 'not_qualified') {
+      decision = Decision.parse({ ...decision, reasons: [{ code: 'no_amount_no_line', message: 'Sin monto solicitado: con ningún monto la política aprueba este perfil.', features: ['requested_amount'] }, ...decision.reasons] })
+    }
+  }
+  const built = decision.status === 'needs_clarification' ? buildQuestions(decision, state.statements) : []
+  // Lo que ya se preguntó en una ronda anterior no se repite (ADR 0051): si el dueño no supo o su
+  // respuesta no alcanzó, preguntar lo mismo no lo cambia.
+  const before = new Set(askedKeys(state))
+  let questions = built.filter((q) => !before.has(questionKey(q)))
   if (decision.status === 'needs_clarification' && questions.length === 0) {
-    decision = humanReview(decision, 'no_concrete_question', 'El motor pide aclaración pero no hay una pregunta concreta que hacerle al dueño: pasa a revisión humana.')
+    decision =
+      built.length > 0
+        ? humanReview(decision, 'clarification_already_asked', 'Lo que falta aclarar ya se le preguntó al dueño en una ronda anterior: pasa a revisión humana.')
+        : humanReview(decision, 'no_concrete_question', 'El motor pide aclaración pero no hay una pregunta concreta que hacerle al dueño: pasa a revisión humana.')
     questions = []
   }
   // Mientras no se redacte, cada next_step lleva la plantilla (siempre pasa el filtro de cifras).
   decision = { ...decision, next_steps: decision.next_steps.map((s) => ({ ...s, message: s.message ?? nextStepTemplate(s) })) }
-  const max_line = input.request?.amount == null ? maxLine(input.policy, decision.profile) : null
+  const max_line = noAmount ? lineAtStart : null
+  // Igual la explicación: la plantilla ya pasa el filtro; el paso `explain` la redacta con Haiku.
+  decision = { ...decision, explanation: { text: explanationDraft(decision, max_line, { holderType: holderTypeOf(state) }).template, text_source: 'template' } }
   return { ...state, decision, questions, max_line }
 }
 
@@ -135,20 +193,23 @@ export function createProcessApplication(deps: WorkflowDeps) {
     outputSchema: AppState,
     execute: async ({ inputData }) => {
       const s = await deps.extract(inputData.pdf_path)
-      let failure: string | null = null
-      if (s.extraction.status === 'failed') failure = `la extracción falló: ${s.extraction.failure_reason ?? 'sin detalle'}`
-      else if (s.classification.document_type !== 'bank_statement' || s.flags.includes('not_a_bank_statement')) failure = `el documento no es un estado de cuenta bancario (${s.classification.document_type})`
+      const notStatement = s.classification.document_type !== 'bank_statement' || s.flags.includes('not_a_bank_statement')
+      // Un documento que no se extrajo por no ser estado de cuenta (corte del modo full, ADR 0042)
+      // falla por eso, no por la extracción. Un PDF con contraseña o escaneado e ilegible lo dice (ADR 0049).
+      const failure = notStatement && (s.extraction.status !== 'failed' || s.flags.includes('not_a_bank_statement')) ? notBankStatementReason(s.classification.document_type) : extractionFailure(s)
       return {
         input: inputData,
         statements: [s],
         documents: [documentOf(s, 'submitted')],
         supplier: inputData.supplier,
+        declarations: NO_DECLARATIONS,
         classification: null,
         decision: null,
         max_line: null,
         questions: [],
         asked: [],
         answers: [],
+        asked_keys: [],
         rejected_answers: [],
         contradictions: [],
         rounds: 0,
@@ -193,6 +254,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
         ...state,
         questions: written.questions,
         asked: written.questions,
+        asked_keys: [...askedKeys(state), ...written.questions.map(questionKey)],
         calls: [...state.calls, ...written.calls],
         notes: written.errors.length ? [...state.notes, `el redactor de preguntas falló; se usaron plantillas: ${written.errors.join('; ')}`] : state.notes,
       }
@@ -206,7 +268,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
     outputSchema: AppState,
     execute: async ({ inputData: state }) => {
       if (state.decision?.status !== 'needs_clarification') return state
-      const r = applyOwnerAnswers({ statements: state.statements, supplier: state.supplier, request: state.input.request, questions: state.questions, answers: state.answers })
+      const r = applyOwnerAnswers({ statements: state.statements, supplier: state.supplier, request: state.input.request, questions: state.questions, answers: state.answers, declarations: state.declarations })
       let statements = r.statements
       let documents = state.documents
       let calls = state.calls
@@ -231,6 +293,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
         statements,
         documents,
         supplier: r.supplier,
+        declarations: r.declarations,
         classification,
         calls,
         notes,
@@ -260,13 +323,18 @@ export function createProcessApplication(deps: WorkflowDeps) {
     outputSchema: AppState,
     execute: async ({ inputData: state }) => {
       const d = state.decision
-      if (d === null || d.next_steps.length === 0) return state
-      const r = await deps.writer.nextSteps(d.next_steps.map((s) => ({ ...s, message: null })))
+      if (d === null) return state
+      const steps = d.next_steps.length > 0 ? await deps.writer.nextSteps(d.next_steps.map((s) => ({ ...s, message: null }))) : { next_steps: d.next_steps, calls: [], errors: [] }
+      // La explicación en prosa (ADR 0045): Haiku sobre los hechos de la decisión, con filtro de cifras.
+      const ex = await deps.writer.explanation(explanationDraft(d, state.max_line, { holderType: holderTypeOf(state) }))
+      const notes = [...state.notes]
+      if (steps.errors.length) notes.push(`el redactor de next_steps falló; se usaron plantillas: ${steps.errors.join('; ')}`)
+      if (ex.errors.length) notes.push(`el redactor de la explicación falló; se usó la plantilla: ${ex.errors.join('; ')}`)
       return {
         ...state,
-        decision: { ...d, next_steps: r.next_steps },
-        calls: [...state.calls, ...r.calls],
-        notes: r.errors.length ? [...state.notes, `el redactor de next_steps falló; se usaron plantillas: ${r.errors.join('; ')}`] : state.notes,
+        decision: { ...d, next_steps: steps.next_steps, explanation: { text: ex.text, text_source: ex.source } },
+        calls: [...state.calls, ...steps.calls, ...ex.calls],
+        notes,
       }
     },
   })

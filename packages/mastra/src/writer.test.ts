@@ -43,16 +43,17 @@ describe('preguntas', () => {
     for (const q of qs) expect(checkFigures(q.text, q.facts)).toEqual({ ok: true, unsupported: [] })
   })
 
-  it('documento viejo y sin proveedor registrado: pide estado reciente e identidad', () => {
+  it('documento viejo y sin proveedor registrado: pide estado reciente, no la identidad (ADR 0052)', () => {
     const d = decision('2027-06-01T12:00:00.000Z', null)
     const qs = buildQuestions(d, [statement])
-    expect(qs.map((q) => q.topic)).toEqual(expect.arrayContaining(['identity_fields', 'recent_statement']))
+    expect(qs.map((q) => q.topic)).toContain('recent_statement')
+    expect(qs.map((q) => q.topic)).not.toContain('identity_fields')
     for (const q of qs) expect(checkFigures(q.text, q.facts).ok).toBe(true)
     expect(qs.find((q) => q.topic === 'recent_statement')?.facts.map((f) => f.name)).toEqual(['fecha_de_corte_mas_reciente', 'dias_desde_el_corte', 'dias_maximos'])
   })
 
   it('sin aclaración pendiente no hay preguntas', () => {
-    const d = decide({ policy: basePolicyTemplate(), statements: [statement], request, supplier, external: noCredits, computedAt: '2026-10-05T12:00:00.000Z', clarificationRoundsUsed: 1 }).decision
+    const d = decide({ policy: basePolicyTemplate(), statements: [statement], request, supplier, external: noCredits, computedAt: '2026-10-05T12:00:00.000Z', clarificationRoundsUsed: 2 }).decision
     expect(buildQuestions(d, [statement])).toEqual([])
   })
 })

@@ -3,7 +3,7 @@
  * reporte Markdown legible para quien evalúa, sin tener que leer JSON. Ambos llevan datos del
  * documento: van a la carpeta de salida, nunca a la consola ni a logs.
  */
-import { APPLICATION_RESULT_VERSION, ApplicationResult, FEATURE_NAMES, type ApplicationStatus, type CostLine, type Decision, type Question, type StatementExtraction } from '@gow/contracts'
+import { APPLICATION_RESULT_VERSION, ApplicationResult, FEATURE_NAMES, type ApplicationStatus, type CostLine, type Decision, type OwnerAnswer, type Question, type StatementExtraction } from '@gow/contracts'
 import { buildLedger } from '@gow/decision'
 import { pesos } from './figures.ts'
 import type { AppState } from './state.ts'
@@ -94,6 +94,7 @@ function table(head: string[], rows: unknown[][]): string[] {
 function decisionSection(d: Decision): string[] {
   const out: string[] = []
   out.push('## Por qué', '')
+  if (d.explanation) out.push(d.explanation.text, '', d.reasons.length > 0 ? '**Detalle del motor:**' : '', '')
   for (const r of d.reasons) out.push(`- ${r.message} \`${r.code}\``)
   if (d.next_steps.length > 0) {
     out.push('', '## Qué cambiaría el resultado', '')
@@ -202,7 +203,7 @@ export function renderReport(result: ApplicationResult, state: AppState | null):
     if (result.clarification.status === 'open') out.push('', `Para responder: llena \`answers.template.json\` (en esta carpeta) y corre de nuevo el comando con \`--answers <archivo>\`. Ronda ${String(result.clarification.rounds_used + 1)}.`)
     if (result.clarification.answers.length > 0) {
       out.push('', 'Respuestas recibidas:', '')
-      for (const a of result.clarification.answers) out.push(`- ${a.question_id}: ${a.kind === 'deposit' ? `abono → \`${a.category}\`` : a.kind === 'identity' ? 'identidad declarada' : a.kind === 'documents' ? `${String(a.paths.length)} documento(s)` : 'no sabe o no tiene el dato'}`)
+      for (const a of result.clarification.answers) out.push(`- ${a.question_id}: ${answerText(a)}`)
     }
     for (const r of result.clarification.rejected_answers) out.push(`- Respuesta no aplicada (${r.question_id}): ${r.reason}`)
   }
@@ -224,4 +225,24 @@ export function renderReport(result: ApplicationResult, state: AppState | null):
   out.push('- Ningún valor no verificado contra el documento decide: si cambia la banda, se pregunta o va a revisión (docs/04 §5).')
   out.push('', `Generado ${result.generated_at} · run \`${result.run.run_id}\` (${result.run.status}).`)
   return `${out.join('\n')}\n`
+}
+
+/** Una respuesta en una línea, sin datos del documento ni nombres (el cliente principal no se escribe). */
+function answerText(a: OwnerAnswer): string {
+  switch (a.kind) {
+    case 'deposit':
+      return `abono → \`${a.category}\``
+    case 'charge':
+      return `cargo → \`${a.category}\``
+    case 'buyer':
+      return 'cliente principal declarado'
+    case 'account_use':
+      return `uso de la cuenta → \`${a.use}\``
+    case 'identity':
+      return 'identidad declarada'
+    case 'documents':
+      return `${String(a.paths.length)} documento(s)`
+    case 'decline':
+      return 'no sabe o no tiene el dato'
+  }
 }

@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
-import { AnswersFile, ApplicationRequest, ApplicationResult, IsoDate, parsePolicy, SupplierIdentity, type OwnerAnswer, type Policy, type Question } from '@gow/contracts'
+import { AnswersFile, ApplicationRequest, ApplicationResult, calendarToday, IsoDate, OwnerAnswer, parsePolicy, SupplierIdentity, type Policy, type Question } from '@gow/contracts'
 import { BASE_POLICY_ID, basePolicyTemplate } from '@gow/decision'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import {
@@ -136,6 +136,12 @@ function templateAnswer(q: Question): Record<string, unknown> {
   switch (q.kind) {
     case 'deposit':
       return { question_id: q.id, kind: 'deposit', category: q.options.map((o) => o.value).join(' | '), counterparty: null }
+    case 'charge':
+      return { question_id: q.id, kind: 'charge', category: q.options.map((o) => o.value).join(' | '), counterparty: null }
+    case 'buyer':
+      return { question_id: q.id, kind: 'buyer', name: null }
+    case 'account_use':
+      return { question_id: q.id, kind: 'account_use', use: q.options.map((o) => o.value).join(' | ') }
     case 'identity':
       return { question_id: q.id, kind: 'identity', legal_name: null, rfc: null, clabe: null }
     case 'documents':
@@ -153,11 +159,16 @@ async function askInteractively(questions: readonly Question[]): Promise<OwnerAn
   try {
     for (const q of questions) {
       console.log(`\n${q.id}. ${q.text}`)
-      if (q.kind === 'deposit') {
+      if (q.kind === 'deposit' || q.kind === 'charge' || q.kind === 'account_use') {
         q.options.forEach((o, i) => { console.log(`   ${String(i + 1)}) ${o.label}`); })
         const pick = Number((await rl.question('   Opción (vacío = no sé): ')).trim())
-        const option = q.options[pick - 1]
-        answers.push(option ? { question_id: q.id, kind: 'deposit', category: option.value as Extract<OwnerAnswer, { kind: 'deposit' }>['category'], counterparty: null } : { question_id: q.id, kind: 'decline', note: null })
+        const value = q.options[pick - 1]?.value
+        // El esquema valida la opción: una que no corresponda al tipo de pregunta queda como "no sé".
+        const parsed = value === undefined ? null : OwnerAnswer.safeParse(q.kind === 'account_use' ? { question_id: q.id, kind: q.kind, use: value } : { question_id: q.id, kind: q.kind, category: value, counterparty: null })
+        answers.push(parsed?.success ? parsed.data : { question_id: q.id, kind: 'decline', note: null })
+      } else if (q.kind === 'buyer') {
+        const name = (await rl.question('   Nombre del cliente principal (vacío = no sé): ')).replace(/\s+/g, ' ').trim()
+        answers.push(name.length >= 3 ? { question_id: q.id, kind: 'buyer', name } : { question_id: q.id, kind: 'decline', note: null })
       } else if (q.kind === 'identity') {
         const legal = (await rl.question('   Razón social o nombre del titular (vacío = no sé): ')).trim()
         const rfc = (await rl.question('   RFC (opcional): ')).trim()
@@ -260,7 +271,7 @@ async function main(): Promise<void> {
     return
   }
   if (positionals.length === 0) fail(USAGE)
-  const asOf = values['as-of'] ?? new Date().toISOString().slice(0, 10)
+  const asOf = values['as-of'] ?? calendarToday()
   if (!IsoDate.safeParse(asOf).success) fail('--as-of debe ser una fecha AAAA-MM-DD')
   const policy = loadPolicyArg(values.policy)
   console.error(
@@ -303,7 +314,7 @@ async function main(): Promise<void> {
 
   const pdfs = collectPdfs(positionals)
   const rows: Row[] = []
-  const pending: Record<string, { answers: Record<string, unknown>[] }> = {}
+  const pending: Record<string, { round: number; answers: Record<string, unknown>[] }> = {}
   let failures = 0
 
   for (const pdf of pdfs) {
@@ -317,13 +328,16 @@ async function main(): Promise<void> {
     let note = ''
 
     if (prevResult && !values.force) {
-      if (prevResult.run.status === 'suspended' && given && prevResult.run.suspended_step) {
+      // Los ids q1, q2... se repiten entre rondas (ADR 0051): respuestas de otra ronda no se aplican.
+      const pausedRound = (prevResult.clarification?.rounds_used ?? 0) + 1
+      const otherRound = given?.round !== undefined && given.round !== pausedRound
+      if (prevResult.run.status === 'suspended' && given && !otherRound && prevResult.run.suspended_step) {
         callsBefore = prevResult.costs.lines.reduce((n, l) => n + l.calls, 0)
         outcome = await resumeApplication(wf, prevResult.run.run_id, prevResult.run.suspended_step, { answers: given.answers, base_dir: answers.baseDir })
         note = 'reanudada con respuestas'
       } else {
-        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), stale: docStale(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status === 'suspended' ? 'pausada; sin respuestas para ella' : 'ya evaluada (--force para repetir)' })
-        if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { answers: prevResult.clarification.questions.map(templateAnswer) }
+        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), stale: docStale(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status !== 'suspended' ? 'ya evaluada (--force para repetir)' : otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(given.round)}` : 'pausada; sin respuestas para ella' })
+        if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { round: pausedRound, answers: prevResult.clarification.questions.map(templateAnswer) }
         printRow(rows.at(-1) as Row)
         continue
       }
@@ -349,7 +363,7 @@ async function main(): Promise<void> {
     writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`)
     writeFileSync(join(outDir, `${id}.md`), renderReport(result, outcome.state))
     if (outcome.status === 'failed') failures++
-    if (outcome.status === 'suspended' && result.clarification) pending[id] = { answers: result.clarification.questions.map(templateAnswer) }
+    if (outcome.status === 'suspended' && result.clarification) pending[id] = { round: result.clarification.rounds_used + 1, answers: result.clarification.questions.map(templateAnswer) }
     const newCalls = (outcome.state?.calls ?? []).slice(callsBefore)
     rows.push({
       id,
@@ -386,7 +400,7 @@ async function main(): Promise<void> {
   if (pendingIds.length > 0) {
     writeFileSync(join(outDir, 'answers.template.json'), `${JSON.stringify({ version: 1, applications: pending }, null, 2)}\n`)
     console.log(`\n${String(pendingIds.length)} solicitud(es) pausada(s). Las preguntas están en cada <id>.md y en outbox/.`)
-    console.log(`Copia ${join(outDir, 'answers.template.json')}, elige una categoría por abono (o cambia kind a "decline"), deja solo lo que respondas y corre:`)
+    console.log(`Copia ${join(outDir, 'answers.template.json')}, elige una opción por pregunta (o cambia kind a "decline"), deja solo lo que respondas y corre:`)
     console.log(`  pnpm run evaluate ${positionals.join(' ')} --out ${outDir} --answers <archivo>`)
   }
   const unverifiable = rows.filter((r) => r.identity_unverifiable).length

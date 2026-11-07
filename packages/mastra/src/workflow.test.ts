@@ -6,7 +6,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ApplicationRequest, StatementExtraction, SupplierIdentity } from '@gow/contracts'
+import { describeFailure, DOCUMENT_AGE_WARNING, PDF_PASSWORD_FAILURE, type ApplicationRequest, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
 import { ZERO_USAGE, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
@@ -33,7 +33,27 @@ const DOCS: Record<string, StatementExtraction> = {
     'wf2',
   ),
 }
+// Al aclarar el abono grande, otro abono incierto pasa a mover el resultado: segunda ronda (ADR 0051).
+DOCS['dos-rondas.pdf'] = syntheticStatement(
+  { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 80000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }, { kind: 'cash_deposit', amount: 150000 }, { kind: 'cash_deposit', amount: 50000 }] },
+  holder,
+  'wf3',
+)
+// Tres meses sanos con pagos de Cadena Norte; la solicitud no dice el comprador (ADR 0050).
+DOCS['sin-comprador.pdf'] = syntheticStatement(
+  { start: '2026-07-01', months: 3, opening_balance: 400000, monthly: [{ kind: 'customer_payment', amount: 300000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 120000 }] },
+  holder,
+  'wf3',
+)
 DOCS['factura.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), classification: { document_type: 'invoice', confidence: 0.95, bank: null } }
+// Lo que devuelve la extracción del modo full cuando corta antes de extraer (ADR 0042).
+DOCS['tdc.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), classification: { document_type: 'credit_card_statement', confidence: 1, bank: null }, flags: ['not_a_bank_statement'], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'failed', failure_reason: 'no es un estado de cuenta bancario (credit_card_statement); no se extrajo' } }
+
+// ADR 0049: un PDF con contraseña y uno escaneado que la visión no pudo leer.
+const CLARO = DOCS['claro.pdf'] as StatementExtraction
+DOCS['contrasena.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, accounts: [], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: PDF_PASSWORD_FAILURE } }
+DOCS['escaneado.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, accounts: [], flags: ['vision_only'], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: 'no se obtuvo el resumen del documento (pasada 1)' } }
+DOCS['escaneado-leido.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, flags: ['vision_only'] }
 
 function deps(channel = new MemoryChannel(), classifier: TransactionClassifier | null = null): WorkflowDeps {
   return {
@@ -85,6 +105,20 @@ describe('processApplication', () => {
     expect(second.state?.calls).toEqual(first.state?.calls)
   })
 
+  it('sin comprador pregunta por el cliente principal y usa la respuesta como comprador (ADR 0050)', async () => {
+    const file = db()
+    const first = await startApplication(createRuntime(deps(), file), input('sin-comprador.pdf', { request: { ...request, buyer: null } }))
+    expect(first.status).toBe('suspended')
+    expect(first.state?.questions.map((q) => q.kind)).toEqual(['buyer'])
+    const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'buyer', name: 'Cadena Norte SA de CV' }], base_dir: null })
+    expect(second.error).toBeNull()
+    expect(second.state?.declarations).toEqual({ buyer: 'Cadena Norte SA de CV', account_use: null, answered: ['main_buyer'] })
+    const d = second.state?.decision
+    expect(d?.status).toBe('qualified')
+    expect(d?.profile.features.buyer_payments_count).toMatchObject({ value: 6, provenance: 'owner_answer' })
+    expect(d?.explanation?.text).toMatch(/cliente principal que dijo el proveedor/)
+  })
+
   it('la redacción y su costo sobreviven a la reanudación', async () => {
     const file = db()
     const llm: StructuredLlm = {
@@ -97,13 +131,57 @@ describe('processApplication', () => {
     expect(first.state?.asked[0]?.text_source).toBe('writer')
     const second = await resumeApplication(createRuntime({ ...deps(), writer: new Writer(llm) }, file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'customer_payment', counterparty: null }], base_dir: null })
     const purposes = second.state?.calls.map((c) => c.purpose)
-    expect(purposes).toEqual(['clarification_questions', 'next_steps'])
+    expect(purposes).toEqual(['clarification_questions', 'next_steps', 'explanation'])
+    expect(second.state?.decision?.explanation?.text_source).toBe('writer')
     expect(second.state?.asked[0]?.text).toBe('¿Qué fue ese abono?')
   })
 
-  it('si el dueño no sabe, la ronda se gasta y va a revisión humana', async () => {
+  it('si el dueño no sabe, no se le pregunta lo mismo en otra ronda: va a revisión humana (ADR 0051)', async () => {
     const file = db()
-    const first = await startApplication(createRuntime(deps(), file), input('dudoso.pdf'))
+    const channel = new MemoryChannel()
+    const first = await startApplication(createRuntime(deps(channel), file), input('dudoso.pdf'))
+    const second = await resumeApplication(createRuntime(deps(channel), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'decline', note: null }], base_dir: null })
+    expect(second.status).toBe('success')
+    expect(second.state?.decision?.status).toBe('human_review')
+    expect(second.state?.decision?.reasons.map((r) => r.code)).toContain('clarification_already_asked')
+    expect(channel.sent).toHaveLength(1)
+  })
+
+  it('una segunda ronda real: pausa otra vez con lo nuevo, se reanuda en otra instancia y decide (ADR 0051)', async () => {
+    const file = db()
+    const channel = new MemoryChannel()
+    const amountOf = (q: { facts: { name: string; value: unknown }[] } | undefined) => q?.facts.find((f) => f.name === 'monto')?.value
+    const first = await startApplication(createRuntime(deps(channel), file), input('dos-rondas.pdf'))
+    expect(first.status).toBe('suspended')
+    expect(first.state?.questions.map(amountOf)).toEqual([150000])
+    const second = await resumeApplication(createRuntime(deps(channel), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'own_transfer', counterparty: null }], base_dir: null })
+    expect(second.status).toBe('suspended')
+    expect(second.suspendedStep).toEqual(['clarification-loop', 'ask-owner'])
+    expect(second.state?.rounds).toBe(1)
+    // Lo nuevo, sin repetir el abono que ya contestó; el canal recibe la ronda 2.
+    expect(second.state?.questions.map(amountOf)).toEqual([50000])
+    expect(channel.sent.map((m) => m.round)).toEqual([1, 2])
+    const third = await resumeApplication(createRuntime(deps(), file), second.runId, second.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'customer_payment', counterparty: null }], base_dir: null })
+    expect(third.error).toBeNull()
+    expect(third.status).toBe('success')
+    expect(third.state?.rounds).toBe(2)
+    expect(['qualified', 'qualified_with_limit', 'not_qualified']).toContain(third.state?.decision?.status)
+  })
+
+  it('si en la segunda ronda tampoco se aclara, se agotan las rondas y va a revisión humana', async () => {
+    const file = db()
+    const first = await startApplication(createRuntime(deps(), file), input('dos-rondas.pdf'))
+    const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'own_transfer', counterparty: null }], base_dir: null })
+    const third = await resumeApplication(createRuntime(deps(), file), second.runId, second.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'decline', note: null }], base_dir: null })
+    expect(third.status).toBe('success')
+    expect(third.state?.decision?.status).toBe('human_review')
+    expect(third.state?.decision?.reasons.map((r) => r.code)).toContain('clarification_rounds_exhausted')
+  })
+
+  it('con una sola ronda en la política, al agotarla va a revisión humana', async () => {
+    const file = db()
+    const policy = { ...basePolicyTemplate(), clarification: { ...basePolicyTemplate().clarification, maxRounds: 1 } }
+    const first = await startApplication(createRuntime(deps(), file), input('dudoso.pdf', { policy }))
     const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'decline', note: null }], base_dir: null })
     expect(second.state?.decision?.status).toBe('human_review')
     expect(second.state?.decision?.reasons.map((r) => r.code)).toContain('clarification_rounds_exhausted')
@@ -118,9 +196,16 @@ describe('processApplication', () => {
     expect(r.state?.max_line).toBeNull()
   })
 
-  it('sin monto solicitado calcula la línea máxima', async () => {
+  it('sin monto solicitado calcula la línea máxima y decide con ella (ADR 0045)', async () => {
     const r = await startApplication(createRuntime(deps(), db()), input('claro.pdf', { request: { ...request, amount: null } }))
-    expect(r.state?.max_line?.amount).toBeGreaterThan(0)
+    const line = r.state?.max_line?.amount ?? 0
+    expect(line).toBeGreaterThan(0)
+    const d = r.state?.decision
+    expect(d?.reasons[0]?.code).toBe('evaluated_at_max_line')
+    expect(d?.profile.features.requested_amount.value).toBe(line)
+    expect(['qualified', 'qualified_with_limit']).toContain(d?.status)
+    expect(d?.reasons.map((x) => x.code)).not.toContain('dimension_capacity_without_data')
+    expect(d?.explanation?.text).toMatch(/Como no se pidió un monto, se evaluó con la línea máxima/)
   })
 
   it('un documento que no es estado de cuenta termina sin veredicto y con razón', async () => {
@@ -128,6 +213,48 @@ describe('processApplication', () => {
     expect(r.status).toBe('success')
     expect(r.state?.decision).toBeNull()
     expect(r.state?.failure_reason).toContain('no es un estado de cuenta')
+  })
+
+  it('un documento que el modo full no extrajo falla por no ser estado de cuenta, no por la extracción', async () => {
+    const r = await startApplication(createRuntime(deps(), db()), input('tdc.pdf'))
+    expect(r.state?.decision).toBeNull()
+    expect(describeFailure(r.state?.failure_reason ?? null)).toMatchObject({ kind: 'not_bank_statement', documentType: 'credit_card_statement' })
+  })
+
+  it('PDF con contraseña y escaneado ilegible fallan con su motivo; un escaneado leído se analiza (ADR 0049)', async () => {
+    const password = await startApplication(createRuntime(deps(), db()), input('contrasena.pdf'))
+    expect(describeFailure(password.state?.failure_reason ?? null).kind).toBe('password_protected')
+    const scanned = await startApplication(createRuntime(deps(), db()), input('escaneado.pdf'))
+    expect(scanned.state?.decision).toBeNull()
+    expect(describeFailure(scanned.state?.failure_reason ?? null).kind).toBe('scanned_unreadable')
+    const read = await startApplication(createRuntime(deps(), db()), input('escaneado-leido.pdf'))
+    expect(read.state?.failure_reason).toBeNull()
+    expect(read.state?.decision?.status).toBe('qualified_with_limit')
+  })
+
+  it('con el ajuste del tenant, un estado viejo se analiza con advertencia; sin él, se pide uno reciente (ADR 0049)', async () => {
+    const old = { as_of: '2027-02-15' }
+    const standalone = await startApplication(createRuntime(deps(), db()), input('claro.pdf', old))
+    expect(standalone.status).toBe('suspended')
+    expect(standalone.state?.decision?.clarification?.topics).toEqual(['recent_statement'])
+
+    const channel = new MemoryChannel()
+    const full = await startApplication(createRuntime(deps(channel), db()), input('claro.pdf', { ...old, statement_age: { max_months: 3 } }))
+    expect(full.status).toBe('success')
+    expect(channel.sent).toHaveLength(0)
+    const d = full.state?.decision
+    expect(d?.status).toBe('qualified_with_limit')
+    expect(d?.reasons.map((r) => r.code)).toContain(DOCUMENT_AGE_WARNING)
+    expect(d?.explanation?.text).toMatch(/Aviso: el estado de cuenta tiene \d+ días desde su corte/)
+
+    // Sin monto, la línea máxima tampoco queda condicionada a un estado reciente.
+    const noAmount = await startApplication(createRuntime(deps(), db()), input('claro.pdf', { ...old, request: { ...request, amount: null }, statement_age: { max_months: 3 } }))
+    expect(noAmount.state?.max_line?.conditional_on).toEqual([])
+    expect(noAmount.state?.decision?.reasons.map((r) => r.code)).toEqual(expect.arrayContaining(['evaluated_at_max_line', DOCUMENT_AGE_WARNING]))
+
+    const none = await startApplication(createRuntime(deps(), db()), input('claro.pdf', { ...old, statement_age: { max_months: null } }))
+    expect(none.state?.decision?.status).toBe('qualified_with_limit')
+    expect(none.state?.decision?.reasons.map((r) => r.code)).not.toContain(DOCUMENT_AGE_WARNING)
   })
 
   it('el modelo de movimientos entra encima de las reglas; si falla quedan las reglas', async () => {

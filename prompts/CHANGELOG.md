@@ -5,6 +5,23 @@ usarse en una corrida de evals: un cambio crea `v<N+1>` y una entrada aquí con 
 por qué y qué métricas de `docs/04` 6 se midieron antes y después. El código referencia la
 versión exacta, y cada extracción guarda nombre y versión del prompt.
 
+## Fase 8 (2026-11-06): explicación del resultado en prosa
+
+Prompt nuevo, sin versión anterior contra la cual medir. ADR 0045.
+
+| Prompt | Uso | Notas |
+|---|---|---|
+| `explain_decision.v1` | Haiku redacta en tres a cinco oraciones el resultado de una solicitud para el analista (paso `explain`) | Hechos de la decisión (resultado, puntaje, flujo del periodo, compuertas, dimensiones, topes, línea) y una plantilla correcta como borrador. Pasa por el mismo filtro de cifras que las preguntas; si falla dos veces o no hay modelo, queda la plantilla. Sin eval todavía. |
+| `explain_decision.v2` | Lo mismo, tras la primera prueba real | En v1 Haiku contó dos veces una dimensión que tenía dos nombres (uno en los hechos, otro en los motivos), dijo que "no se pidió un monto" como causa cuando la política no aprobaba ningún monto, y listó el comprador (que por WhatsApp no se pide) como dato faltante. v2: un nombre por dimensión en `dimensiones` y en los motivos, `no_evaluado_por_diseno` aparte, regla de no contradecirse, y `tipo_de_titular` y `regimen_fiscal`. |
+
+## Fase 8 (2026-11-06): intérprete de respuestas por WhatsApp
+
+Prompt nuevo, sin versión anterior contra la cual medir. ADR 0040.
+
+| Prompt | Uso | Notas |
+|---|---|---|
+| `interpret_whatsapp_reply.v1` | Haiku clasifica una respuesta por WhatsApp que las reglas no leen y extrae el dato (razón social, comprador, RFC, monto, vencimiento u opción de una aclaración) | El mensaje va como dato dentro de `<mensaje>`; pedir que se ignoren las reglas es `nonsense`. El valor propuesto vuelve a pasar por el lector determinista del campo; Haiku no decide. Sin eval todavía: pendiente un conjunto de mensajes reales anonimizados. |
+
 ## Fase 5 (2026-11-05): clasificación de movimientos y redacción para el proveedor
 
 Prompts nuevos, sin versión anterior contra la cual medir. ADR 0015.

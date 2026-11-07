@@ -3,7 +3,7 @@
  * standalone), así que una solicitud pausada se reanuda en otro proceso con todo lo necesario:
  * extracciones ya clasificadas, veredicto, preguntas y respuestas.
  */
-import { ApplicationRequest, ClassificationSummary, Decision, IsoDate, MaxLine, OwnerAnswer, Policy, Question, Sha256, StatementExtraction, SupplierIdentity } from '@gow/contracts'
+import { ApplicationRequest, ClassificationSummary, Decision, IsoDate, MaxLine, NO_DECLARATIONS, OwnerAnswer, OwnerDeclarations, Policy, Question, Sha256, StatementAgeSetting, StatementExtraction, SupplierIdentity } from '@gow/contracts'
 import { z } from 'zod'
 
 export const AppInput = z.object({
@@ -14,6 +14,11 @@ export const AppInput = z.object({
   supplier: SupplierIdentity.nullable(),
   policy: Policy,
   policy_id: z.string().nullable(),
+  /**
+   * Ajuste de antigüedad del tenant (ADR 0049), fijado al abrir la corrida: el modo full lo pasa y la
+   * antigüedad del documento solo advierte. Ausente (standalone), aplica la compuerta de la política.
+   */
+  statement_age: StatementAgeSetting.optional(),
 })
 export type AppInput = z.infer<typeof AppInput>
 
@@ -26,11 +31,13 @@ export const AppState = z.object({
   statements: z.array(StatementExtraction),
   documents: z.array(z.object({ file_name: z.string(), sha256: Sha256, extraction_status: z.enum(['complete', 'partial', 'failed']), origin: z.enum(['submitted', 'owner_answer']) })),
   supplier: SupplierIdentity.nullable(),
+  declarations: OwnerDeclarations.default(NO_DECLARATIONS).describe('Cliente principal y uso de la cuenta que dijo el dueño (ADR 0050)'),
   classification: ClassificationSummary.nullable(),
   decision: Decision.nullable(),
   max_line: MaxLine.nullable(),
   questions: z.array(Question).describe('Preguntas pendientes que arma el veredicto actual'),
   asked: z.array(Question).describe('Las preguntas que se enviaron en la última ronda, ya redactadas'),
+  asked_keys: z.array(z.string()).default([]).describe('Tema y movimiento de todo lo que ya se preguntó en alguna ronda: no se vuelve a preguntar (ADR 0051)'),
   answers: z.array(OwnerAnswer),
   rejected_answers: z.array(Issue),
   contradictions: z.array(Issue),
