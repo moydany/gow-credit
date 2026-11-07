@@ -7,6 +7,7 @@
  */
 import type { AskTopic, Decision, GateEvaluation, Question, QuestionFact, StatementExtraction, TransactionRef } from '@gow/contracts'
 import { buildLedger, CHARGE_DEBT_CONFIDENCE_TO_TRUST, LOAN_CONFIDENCE_TO_TRUST, type LedgerRow } from '@gow/decision'
+import { z } from 'zod'
 import { pesos, spanishDate } from './figures.ts'
 
 /** Abonos que se preguntan cuando el motor pide aclarar la clasificación sin señalar movimientos. */
@@ -206,7 +207,31 @@ export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>
   }
 }
 
-function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classification' | 'charge_classification'>, decision: Decision): Question {
+/** La primera página impresa que falta y el total de páginas, del issue `page_missing` de la extracción. */
+const PageMissingDetails = z.object({ missing: z.array(z.int().positive()).min(1), total: z.int().positive() })
+
+function firstMissingPage(statements: readonly StatementExtraction[]): { page: number; total: number } | null {
+  for (const s of statements) {
+    for (const issue of s.issues) {
+      const d = issue.code === 'page_missing' ? PageMissingDetails.safeParse(issue.details) : null
+      if (d?.success) return { page: Math.min(...d.data.missing), total: d.data.total }
+    }
+  }
+  return null
+}
+
+/**
+ * Páginas faltantes (robustez documental, sección W): pide el PDF completo. Con el hueco conocido lo
+ * dice con un ejemplo ("la 2 de 3"); sin él, solo que faltan páginas. En WhatsApp el PDF nuevo es la
+ * respuesta (`isDocumentRequest` en `@gow/channels`); en standalone entra por `--answers`.
+ */
+function missingPagesQuestion(base: Pick<Question, 'id' | 'topic' | 'transaction' | 'options' | 'text_source'>, gap: { page: number; total: number } | null): Question {
+  const example = gap ? ` (por ejemplo la ${String(gap.page)} de ${String(gap.total)})` : ''
+  const facts: QuestionFact[] = gap ? [{ name: 'pagina_faltante', value: gap.page }, { name: 'paginas_del_documento', value: gap.total }] : []
+  return { ...base, kind: 'documents', facts, text: `Al estado de cuenta que mandaste le faltan páginas${example}. ¿Nos mandas el PDF completo?` }
+}
+
+function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classification' | 'charge_classification'>, decision: Decision, statements: readonly StatementExtraction[]): Question {
   const gate = gateFor(decision, topic)
   const base = { id, topic, transaction: null, options: [], text_source: 'template' as const }
   switch (topic) {
@@ -243,7 +268,7 @@ function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classificat
     case 'reconciliation_gap':
       return { ...base, kind: 'documents', facts: [], text: 'Los saldos del estado de cuenta no cuadran con sus movimientos. ¿Nos envías el documento completo, tal como lo descargas de tu banco?' }
     case 'missing_pages':
-      return { ...base, kind: 'documents', facts: [], text: 'Al estado de cuenta parecen faltarle páginas. ¿Nos envías el documento completo, tal como lo descargas de tu banco?' }
+      return missingPagesQuestion(base, firstMissingPage(statements))
   }
 }
 
@@ -262,7 +287,7 @@ export function buildQuestions(decision: Decision, statements: readonly Statemen
       const rows = mine.length > 0 ? mine : txRows(statements, uncertainRows(statements, decision, type))
       for (const row of rows) out.push(type === 'credit' ? depositQuestion(next(), row) : chargeQuestion(next(), row))
     } else {
-      out.push(otherQuestion(next(), topic, decision))
+      out.push(otherQuestion(next(), topic, decision, statements))
     }
   }
   return out

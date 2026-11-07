@@ -2,6 +2,8 @@ import { emptyExternalSnapshot, type ApplicationRequest, type Decision, type Ext
 import { basePolicyTemplate, decide } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
 import { describe, expect, it } from 'vitest'
+import { renderMessage } from './channels.ts'
+import { checkFigures } from './figures.ts'
 import { ACCOUNT_USE_OPTIONS, buildQuestions, CHARGE_OPTIONS, identityQuestion } from './questions.ts'
 
 const base = { id: 'q1', topic: 'identity_fields' as const, transaction: null, options: [], text_source: 'template' as const }
@@ -66,5 +68,39 @@ describe('preguntas nuevas al proveedor (ADR 0050)', () => {
     expect(qs[0]?.text).toMatch(/cliente principal/)
     expect(qs[1]?.options).toEqual(ACCOUNT_USE_OPTIONS)
     expect(qs[1]?.text).toBe('¿Usas esta cuenta solo para tu negocio o también para gastos personales?')
+  })
+})
+
+describe('páginas faltantes: la pregunta pide el PDF completo (robustez documental, sección W)', () => {
+  // El motor pide el tema `missing_pages`; aquí solo importa a qué se parece la pregunta.
+  const asking = { status: 'needs_clarification', clarification: { topics: ['missing_pages'], transactions: [] }, evaluation: { gates: [] } } as unknown as Decision
+  const withIssue = (details: Record<string, unknown> | null): StatementExtraction => {
+    const s = syntheticStatement({ start: '2026-07-01', opening_balance: 400000, monthly: [{ kind: 'customer_payment', amount: 60000 }] }, { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }, 'mp1')
+    const issue = { id: 'pm1', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: details ?? {} } as StatementExtraction['issues'][number]
+    return { ...s, flags: ['pages_missing'], issues: details ? [issue] : [] }
+  }
+
+  it('dice qué página falta con un ejemplo cuando la extracción la conoce', () => {
+    const [q, ...rest] = buildQuestions(asking, [withIssue({ missing: [2], total: 3 })])
+    expect(rest).toEqual([])
+    expect(q).toMatchObject({ id: 'q1', topic: 'missing_pages', kind: 'documents', transaction: null, options: [], text_source: 'template' })
+    expect(q?.text).toBe('Al estado de cuenta que mandaste le faltan páginas (por ejemplo la 2 de 3). ¿Nos mandas el PDF completo?')
+    expect(q?.facts).toEqual([{ name: 'pagina_faltante', value: 2 }, { name: 'paginas_del_documento', value: 3 }])
+    // La plantilla pasa el filtro de cifras que el redactor aplica después.
+    expect(checkFigures(q?.text ?? '', q?.facts ?? [])).toEqual({ ok: true, unsupported: [] })
+  })
+
+  it('con varias páginas faltantes cita la primera; sin el dato, solo dice que faltan', () => {
+    expect(buildQuestions(asking, [withIssue({ missing: [5, 2, 4], total: 9 })])[0]?.text).toMatch(/\(por ejemplo la 2 de 9\)/)
+    for (const details of [null, { missing: 'la 2', total: 3 }, { missing: [], total: 3 }]) {
+      const q = buildQuestions(asking, [withIssue(details)])[0]
+      expect(q?.text).toBe('Al estado de cuenta que mandaste le faltan páginas. ¿Nos mandas el PDF completo?')
+      expect(q?.facts).toEqual([])
+    }
+  })
+
+  it('en standalone el mensaje al proveedor lleva la pregunta (el <id>.ronda-N.txt)', () => {
+    const qs = buildQuestions(asking, [withIssue({ missing: [2], total: 3 })])
+    expect(renderMessage(qs)).toContain('1. Al estado de cuenta que mandaste le faltan páginas (por ejemplo la 2 de 3). ¿Nos mandas el PDF completo?')
   })
 })
