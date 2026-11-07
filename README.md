@@ -116,7 +116,23 @@ Todo va a `data/out/evaluate/`, o a la carpeta que indiques con `--out`. Por doc
 | `<id>.result.json` | `ApplicationResult`: perfil, veredicto con diagnóstico completo, contrafactuales, aclaración y costo por propósito y modelo. |
 | `<id>.md` | Reporte legible. Lo que no se verificó va marcado. |
 | `summary.md`, `summary.json` | Una fila por documento: estado, línea máxima, preguntas y costo de la corrida. |
+| `extraction-summary.csv`, `extraction-summary.json` | Resumen plano de la extracción, para contrastarla con una verdad de referencia: una fila por documento (y por cuenta si trae varias) con los campos de encabezado. |
 | `answers.template.json` | Solo si alguna solicitud quedó pausada. |
+
+El resumen plano trae estas columnas, con los nombres en inglés y las rutas de `StatementExtraction`:
+`file, document_type, bank, holder_name, holder_rfc, account_number, clabe, currency, period_start,
+period_end, opening_balance, closing_balance, total_credits, total_debits, credits_count,
+debits_count, transactions_extracted, reconciled, cfdi_uuid, extraction_status`.
+
+- Lo que el banco no imprimió va vacío; no se calcula ni se completa con otra cosa. Los totales y
+  conteos son los impresos por el banco, no la suma de los movimientos extraídos.
+- Con varios periodos en una cuenta (un PDF con varios meses impresos por separado), `period_start`
+  y `period_end` abarcan todos, el saldo inicial es el del primero, el final el del último, y los totales y
+  conteos son la suma de los periodos.
+- `reconciled` es `true` si todos los periodos cuadran contra el banco y `false` si alguno no.
+  `cfdi_uuid` lleva los folios fiscales separados por `;` si el documento trae varios.
+- El CSV lleva encabezado, comas y comillas donde hacen falta, e importes con dos decimales. La
+  consola nunca muestra estos valores.
 
 Los estados son los canónicos de `docs/README.md`: `qualified`, `qualified_with_limit`,
 `not_qualified`, `needs_clarification`, `human_review` y `failed`. Un documento que no se puede
@@ -412,7 +428,9 @@ GOW Credit takes a supplier's Mexican bank statement (PDF) and:
    block a decision by default (ADR 0054).
 
 Output goes to `data/out/evaluate/` as an extraction JSON, a result JSON and a Markdown report
-per document. `--help` lists every option.
+per document, plus `extraction-summary.csv` and `.json`: one flat row per document (and per
+account) with the header fields, to compare against a reference truth. `--help` lists every
+option.
 
 **Cost and privacy.**
 

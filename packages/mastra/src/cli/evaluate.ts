@@ -7,7 +7,9 @@
  * Modo standalone (docs/07 A): por cada PDF corre el workflow `processApplication` (extracción,
  * clasificación de movimientos, perfil, política, aclaración) y escribe en la carpeta de salida
  * `<id>.extraction.json` (contrato StatementExtraction), `<id>.result.json` (ApplicationResult),
- * `<id>.md` (reporte), `summary.md` y, si alguna quedó pausada, `answers.template.json`. Una
+ * `<id>.md` (reporte), `summary.md`, el resumen plano de la extracción (`extraction-summary.json` y
+ * `.csv`, para contrastar con una verdad de referencia) y, si alguna quedó pausada,
+ * `answers.template.json`. Una
  * solicitud pausada se reanuda en otra invocación con `--answers`. La consola nunca muestra datos
  * del documento: solo estados, conteos y costos (salvo `--interactive`, que muestra las preguntas
  * para que las conteste quien corre el comando).
@@ -16,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
-import { AnswersFile, ApplicationRequest, ApplicationResult, calendarToday, IsoDate, OwnerAnswer, parsePolicy, SupplierIdentity, type Policy, type Question } from '@gow/contracts'
+import { AnswersFile, ApplicationRequest, ApplicationResult, calendarToday, IsoDate, OwnerAnswer, parsePolicy, StatementExtraction, SupplierIdentity, type Policy, type Question } from '@gow/contracts'
 import { BASE_POLICY_ID, basePolicyTemplate } from '@gow/decision'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import {
@@ -38,7 +40,7 @@ import {
 import { z } from 'zod'
 import { OutboxChannel } from '../channels.ts'
 import { pesos } from '../figures.ts'
-import { identityUnverifiable, renderReport, STANDALONE_POLICY_PATH, toApplicationResult, type RunInfo } from '../report.ts'
+import { extractionSummaryCsv, extractionSummaryRows, identityUnverifiable, missingExtractionRow, renderReport, STANDALONE_POLICY_PATH, toApplicationResult, type ExtractionSummaryRow, type RunInfo } from '../report.ts'
 import { createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type RunOutcome } from '../runtime.ts'
 import type { AppInput } from '../state.ts'
 import { Writer } from '../writer.ts'
@@ -148,6 +150,27 @@ function templateAnswer(q: Question): Record<string, unknown> {
   }
 }
 
+/** Las extracciones de una solicitud que ya están en la carpeta de salida: `<id>.extraction.json`, `<id>.extraction-2.json`, ... */
+function readExtractions(outDir: string, id: string): StatementExtraction[] {
+  const out: StatementExtraction[] = []
+  for (let n = 1; ; n++) {
+    const path = join(outDir, `${id}.extraction${n === 1 ? '' : `-${String(n)}`}.json`)
+    if (!existsSync(path)) break
+    try {
+      const parsed = StatementExtraction.safeParse(JSON.parse(readFileSync(path, 'utf8')))
+      if (parsed.success) out.push(parsed.data)
+    } catch {
+      // Un archivo ilegible no tumba el resumen: ese documento queda fuera de él.
+    }
+  }
+  return out
+}
+
+/** Filas del resumen plano de una solicitud; sin extracción queda una fila con el archivo y, si falló, su estado. */
+function summaryRowsOf(statements: readonly StatementExtraction[], pdf: string, status: string): ExtractionSummaryRow[] {
+  return statements.length > 0 ? statements.flatMap(extractionSummaryRows) : [missingExtractionRow(basename(pdf), status === 'failed')]
+}
+
 async function askInteractively(questions: readonly Question[]): Promise<OwnerAnswer[]> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const answers: OwnerAnswer[] = []
@@ -202,8 +225,10 @@ function printRow(r: Row): void {
 const USAGE = `uso: pnpm run evaluate <carpeta|pdf>... [opciones]
 
 Evalúa cada PDF (extracción, perfil, política, aclaración) y escribe en la carpeta de salida
-<id>.extraction.json, <id>.result.json, <id>.md, summary.md, summary.json y, si alguna solicitud
-quedó pausada, answers.template.json. La consola nunca muestra datos del documento.
+<id>.extraction.json, <id>.result.json, <id>.md, summary.md, summary.json, extraction-summary.json,
+extraction-summary.csv (encabezado de cada documento y cuenta, para contrastar con una verdad de
+referencia) y, si alguna solicitud quedó pausada, answers.template.json. La consola nunca muestra
+datos del documento.
 
 Opciones:
   --out <dir>             Carpeta de salida (por defecto data/out/evaluate)
@@ -308,6 +333,7 @@ async function main(): Promise<void> {
 
   const pdfs = collectPdfs(positionals)
   const rows: Row[] = []
+  const summaryRows: ExtractionSummaryRow[] = []
   const pending: Record<string, { round: number; answers: Record<string, unknown>[] }> = {}
   let failures = 0
 
@@ -332,6 +358,7 @@ async function main(): Promise<void> {
       } else {
         rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status !== 'suspended' ? 'ya evaluada (--force para repetir)' : otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(given.round)}` : 'pausada; sin respuestas para ella' })
         if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { round: pausedRound, answers: prevResult.clarification.questions.map(templateAnswer) }
+        summaryRows.push(...summaryRowsOf(readExtractions(outDir, id), pdf, prevResult.status))
         printRow(rows.at(-1) as Row)
         continue
       }
@@ -356,6 +383,7 @@ async function main(): Promise<void> {
     }
     writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`)
     writeFileSync(join(outDir, `${id}.md`), renderReport(result, outcome.state))
+    summaryRows.push(...summaryRowsOf(outcome.state?.statements ?? [], pdf, result.status))
     if (outcome.status === 'failed') failures++
     if (outcome.status === 'suspended' && result.clarification) pending[id] = { round: result.clarification.rounds_used + 1, answers: result.clarification.questions.map(templateAnswer) }
     const newCalls = (outcome.state?.calls ?? []).slice(callsBefore)
@@ -388,6 +416,8 @@ async function main(): Promise<void> {
     '',
   ].join('\n')
   writeFileSync(join(outDir, 'summary.md'), summary)
+  writeFileSync(join(outDir, 'extraction-summary.json'), `${JSON.stringify(summaryRows, null, 2)}\n`)
+  writeFileSync(join(outDir, 'extraction-summary.csv'), extractionSummaryCsv(summaryRows))
   writeFileSync(join(outDir, 'summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), as_of: asOf, policy: policy.id, cost_usd_this_run: Math.round(total * 1e6) / 1e6, applications: rows }, null, 2)}\n`)
   const pendingIds = Object.keys(pending)
   if (pendingIds.length > 0) {

@@ -3,8 +3,9 @@
  * reporte Markdown legible para quien evalúa, sin tener que leer JSON. Ambos llevan datos del
  * documento: van a la carpeta de salida, nunca a la consola ni a logs.
  */
-import { APPLICATION_RESULT_VERSION, ApplicationResult, FEATURE_NAMES, type ApplicationStatus, type CostLine, type Decision, type OwnerAnswer, type Question, type StatementExtraction } from '@gow/contracts'
+import { APPLICATION_RESULT_VERSION, ApplicationResult, DocumentType, FEATURE_NAMES, IsoDate, StatementExtraction, type ApplicationStatus, type CostLine, type Decision, type OwnerAnswer, type Period, type Question } from '@gow/contracts'
 import { buildLedger } from '@gow/decision'
+import { z } from 'zod'
 import { pesos } from './figures.ts'
 import type { AppState } from './state.ts'
 import { SUPPLIER_STATUS_TEXT, valueText } from './writer.ts'
@@ -245,4 +246,126 @@ function answerText(a: OwnerAnswer): string {
     case 'decline':
       return 'no sabe o no tiene el dato'
   }
+}
+
+// ---------- Resumen plano de la extracción (extraction-summary.json y .csv)
+
+/**
+ * Una fila del resumen plano: los campos de encabezado que cualquier verdad de referencia trae, con
+ * nombres en inglés y las rutas del contrato `StatementExtraction`. Una fila por documento y, si trae
+ * varias cuentas, una por cuenta. Lo que el contrato no trae (o el banco no imprimió) va `null`: nunca
+ * se calcula ni se completa con otra cosa. Lleva datos del documento: solo va a la carpeta de salida.
+ */
+export const ExtractionSummaryRow = z.strictObject({
+  file: z.string().describe('document.file_name'),
+  document_type: DocumentType.nullable().describe('classification.document_type'),
+  bank: z.string().nullable().describe('bank_name.value; si no se leyó, classification.bank'),
+  holder_name: z.string().nullable().describe('holder.name.value'),
+  holder_rfc: z.string().nullable().describe('holder.rfc.value'),
+  account_number: z.string().nullable().describe('accounts[].account_number.value'),
+  clabe: z.string().nullable().describe('accounts[].clabe.value'),
+  currency: z.string().nullable().describe('accounts[].currency.value'),
+  period_start: IsoDate.nullable().describe('el menor accounts[].periods[].period_start.value'),
+  period_end: IsoDate.nullable().describe('el mayor accounts[].periods[].period_end.value'),
+  opening_balance: z.number().nullable().describe('summary.opening_balance.value del primer periodo'),
+  closing_balance: z.number().nullable().describe('summary.closing_balance.value del último periodo'),
+  total_credits: z.number().nullable().describe('suma del summary.total_credits.value impreso de los periodos'),
+  total_debits: z.number().nullable().describe('suma del summary.total_debits.value impreso de los periodos'),
+  credits_count: z.int().nullable().describe('suma del summary.credits_count.value impreso de los periodos'),
+  debits_count: z.int().nullable().describe('suma del summary.debits_count.value impreso de los periodos'),
+  transactions_extracted: z.int().nullable().describe('movimientos en accounts[].periods[].transactions'),
+  reconciled: z.boolean().nullable().describe('true si todos los periodos cuadran (reconciliation.status), false si alguno no; null si no se pudo comprobar'),
+  cfdi_uuid: z.string().nullable().describe('fiscal_documents[].uuid.value; varios van separados por ;'),
+  extraction_status: StatementExtraction.shape.extraction.shape.status.nullable().describe('extraction.status'),
+})
+export type ExtractionSummaryRow = z.infer<typeof ExtractionSummaryRow>
+
+/** Las columnas del CSV, en el orden de la fila. */
+export const EXTRACTION_SUMMARY_COLUMNS = Object.keys(ExtractionSummaryRow.shape) as (keyof ExtractionSummaryRow)[]
+
+const cents = (n: number) => Math.round(n * 100) / 100
+
+/** El valor de cada periodo, o null si a alguno le falta: una suma parcial no es lo que imprimió el banco. */
+function sumOfAll(periods: readonly Period[], pick: (p: Period) => number | null): number | null {
+  const values = periods.map(pick)
+  return values.length > 0 && values.every((v): v is number => v !== null) ? cents(values.reduce((sum, v) => sum + v, 0)) : null
+}
+
+function reconciledOf(periods: readonly Period[]): boolean | null {
+  const statuses = periods.map((p) => p.reconciliation?.status ?? null)
+  if (statuses.some((x) => x === 'not_reconciled' || x === 'partially_reconciled')) return false
+  return statuses.length > 0 && statuses.every((x) => x === 'reconciled') ? true : null
+}
+
+const NO_ACCOUNT = {
+  account_number: null,
+  clabe: null,
+  currency: null,
+  period_start: null,
+  period_end: null,
+  opening_balance: null,
+  closing_balance: null,
+  total_credits: null,
+  total_debits: null,
+  credits_count: null,
+  debits_count: null,
+  transactions_extracted: null,
+  reconciled: null,
+}
+
+/** Filas del resumen plano de un documento: una por cuenta, o una sola con la cuenta vacía si no se leyó ninguna. */
+export function extractionSummaryRows(s: StatementExtraction): ExtractionSummaryRow[] {
+  const uuids = [...new Set(s.fiscal_documents.map((f) => f.uuid.value).filter((u): u is string => u !== null))]
+  const head = {
+    file: s.document.file_name,
+    document_type: s.classification.document_type,
+    bank: s.bank_name.value ?? s.classification.bank,
+    holder_name: s.holder.name.value,
+    holder_rfc: s.holder.rfc.value,
+    cfdi_uuid: uuids.length > 0 ? uuids.join(';') : null,
+    extraction_status: s.extraction.status,
+  }
+  if (s.accounts.length === 0) return [ExtractionSummaryRow.parse({ ...head, ...NO_ACCOUNT })]
+  return s.accounts.map((a) => {
+    // Por inicio del periodo: el primero da el saldo inicial y el último, el final.
+    const periods = [...a.periods].sort((x, y) => (x.period_start.value ?? '9999-12-31').localeCompare(y.period_start.value ?? '9999-12-31'))
+    const starts = periods.flatMap((p) => (p.period_start.value === null ? [] : [p.period_start.value]))
+    const ends = periods.flatMap((p) => (p.period_end.value === null ? [] : [p.period_end.value]))
+    return ExtractionSummaryRow.parse({
+      ...head,
+      account_number: a.account_number.value,
+      clabe: a.clabe.value,
+      currency: a.currency.value,
+      period_start: starts.length > 0 ? starts.reduce((min, d) => (d < min ? d : min)) : null,
+      period_end: ends.length > 0 ? ends.reduce((max, d) => (d > max ? d : max)) : null,
+      opening_balance: periods.at(0)?.summary.opening_balance.value ?? null,
+      closing_balance: periods.at(-1)?.summary.closing_balance.value ?? null,
+      total_credits: sumOfAll(periods, (p) => p.summary.total_credits.value),
+      total_debits: sumOfAll(periods, (p) => p.summary.total_debits.value),
+      credits_count: sumOfAll(periods, (p) => p.summary.credits_count.value),
+      debits_count: sumOfAll(periods, (p) => p.summary.debits_count.value),
+      transactions_extracted: periods.reduce((n, p) => n + p.transactions.length, 0),
+      reconciled: reconciledOf(periods),
+    })
+  })
+}
+
+/** Fila de un documento del que no hay extracción (el workflow falló antes): solo el archivo y, si falló, su estado. */
+export function missingExtractionRow(file: string, failed: boolean): ExtractionSummaryRow {
+  return ExtractionSummaryRow.parse({ file, document_type: null, bank: null, holder_name: null, holder_rfc: null, cfdi_uuid: null, extraction_status: failed ? 'failed' : null, ...NO_ACCOUNT })
+}
+
+const MONEY_COLUMNS: ReadonlySet<keyof ExtractionSummaryRow> = new Set(['opening_balance', 'closing_balance', 'total_credits', 'total_debits'])
+
+function csvField(column: keyof ExtractionSummaryRow, value: ExtractionSummaryRow[keyof ExtractionSummaryRow]): string {
+  if (value === null) return ''
+  const text = typeof value === 'number' && MONEY_COLUMNS.has(column) ? value.toFixed(2) : String(value)
+  // RFC 4180: comillas si el valor lleva coma, comillas, salto de línea o espacios en las orillas.
+  return /[",\r\n]|^\s|\s$/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+/** CSV con encabezado y coma como separador; los importes con dos decimales y lo vacío sin nada entre las comas. */
+export function extractionSummaryCsv(rows: readonly ExtractionSummaryRow[]): string {
+  const lines = [EXTRACTION_SUMMARY_COLUMNS.join(','), ...rows.map((row) => EXTRACTION_SUMMARY_COLUMNS.map((c) => csvField(c, row[c])).join(','))]
+  return `${lines.join('\n')}\n`
 }
