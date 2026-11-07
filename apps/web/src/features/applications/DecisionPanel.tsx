@@ -52,13 +52,8 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
   return (
     <div className="scroll-thin h-full overflow-y-auto px-6 pb-6 pt-5">
       <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
-      {discarded ? (
-        <div className="mt-4 rounded-[24px] bg-coral-soft p-5">
-          <p className="flex items-center gap-2 text-[14px] font-medium"><Icon name="x" size={16} /> Documento descartado por el analista</p>
-          <p className="mt-1 text-[13px] text-ink-2">{discarded}. La solicitud cerró en no califica sin reevaluar; el veredicto de abajo es el que llevó a revisión humana.</p>
-        </div>
-      ) : null}
-      <Verdict detail={detail} d={d} />
+      {/* Descartado en revisión: el veredicto es el del analista, no el que lo mandó a revisión. */}
+      {discarded ? <Discarded detail={detail} d={d} reason={discarded} /> : <Verdict detail={detail} d={d} />}
       <AgeWarning d={d} />
       {tray}
 
@@ -75,7 +70,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
       ) : null}
 
       {d.explanation || d.reasons.length > 0 ? (
-        <Section title="Por qué">
+        <Section title={discarded ? 'Por qué fue a revisión' : 'Por qué'}>
           {/* La explicación en prosa (ADR 0045) y, debajo, los motivos del motor para auditar. */}
           {d.explanation ? <p className="text-[14px] leading-relaxed text-ink">{d.explanation.text}</p> : null}
           {d.reasons.length > 0 ? (
@@ -94,7 +89,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
         </Section>
       ) : null}
 
-      {d.next_steps.length > 0 ? (
+      {d.next_steps.length > 0 && !discarded ? (
         <Section title="Qué cambiaría el resultado" hint="Calculado con la misma política">
           <ul className="space-y-2">
             {d.next_steps.map((s) => {
@@ -217,6 +212,20 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
       </div>
       {children}
     </section>
+  )
+}
+
+/** El analista descartó el documento en revisión humana: la solicitud cerró en no califica sin reevaluar. */
+function Discarded({ detail, d, reason }: { detail: ApplicationDetail; d: Decision; reason: string }) {
+  return (
+    <div className="mt-4 rounded-[26px] bg-coral-soft p-5">
+      <div className="flex items-center justify-between gap-3">
+        <StatusChip status="not_qualified" decision />
+        <span className="text-[12px] text-ink-2/80">Política v{detail.decision?.policy_version ?? d.policy.version}</span>
+      </div>
+      <p className="display mt-5 text-[26px] leading-tight">Documento descartado por el analista</p>
+      <p className="mt-2 text-[13px] text-ink-2">{reason}. La solicitud cerró en no califica sin reevaluar.</p>
+    </div>
   )
 }
 
