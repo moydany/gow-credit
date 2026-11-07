@@ -47,6 +47,7 @@ const TOPIC_ORDER: readonly AskTopic[] = [
   'additional_months',
   'reconciliation_gap',
   'missing_pages',
+  'statement_with_address',
 ]
 
 function gateFor(decision: Decision, topic: AskTopic): GateEvaluation | null {
@@ -269,6 +270,9 @@ function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classificat
       return { ...base, kind: 'documents', facts: [], text: 'Los saldos del estado de cuenta no cuadran con sus movimientos. ¿Nos envías el documento completo, tal como lo descargas de tu banco?' }
     case 'missing_pages':
       return missingPagesQuestion(base, firstMissingPage(statements))
+    case 'statement_with_address':
+      // Sin cifras ni datos del documento: solo se pide otro PDF (ADR 0066).
+      return { ...base, kind: 'documents', facts: [], text: 'El estado de cuenta que mandaste no trae tu domicilio. ¿Nos mandas uno que sí lo traiga? Suele venir en la primera página, junto a tu nombre.' }
   }
 }
 

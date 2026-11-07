@@ -266,6 +266,21 @@ function isFiscalStampIssue(issue: Issue, statement: StatementExtraction): boole
 }
 
 /**
+ * `holder_address_present` (ADR 0066): algún estado de cuenta trae el domicilio del titular. La evidencia
+ * es `sha:holder.address` de los que lo traen; el domicilio no entra al perfil (es dato personal).
+ */
+function holderAddressPresent(ledger: Ledger): Entry {
+  if (ledger.documents.length === 0) return unknown('sin estados de cuenta')
+  const read = ledger.documents.filter((d) => (d.statement.holder.address.value ?? '').trim().length > 0)
+  if (read.length === 0) return known(false, { note: 'ningún estado de cuenta trae el domicilio del titular' })
+  // Uno ubicado en el texto basta; si ninguno se pudo ubicar (por ejemplo, un escaneado leído por visión), el dato
+  // queda sin verificar y no decide nada por sí solo (docs/04 §5).
+  const verified = read.filter((d) => d.statement.holder.address.verification === 'verified')
+  const evidence = (verified.length > 0 ? verified : read).map((d) => `${d.tag}:holder.address`)
+  return known(true, { evidence, verification: verified.length > 0 ? 'verified' : 'unverified', note: verified.length > 0 ? null : 'el domicilio leído no se pudo ubicar en el texto del documento' })
+}
+
+/**
  * `document_pages_missing` y `document_tamper_signals`, de las banderas y los problemas que dejó la
  * extracción en cada documento del libro. La evidencia es `sha:id del problema`; si la señal es solo una
  * bandera, `sha:bandera`.
@@ -617,6 +632,7 @@ export function statementFeatures(ctx: StatementContext): StatementFeatures {
   entries.regime_income_plausible = regimeIncomePlausible(entries.fiscal_regime, ff.incomeMonthly, entries.operating_income_monthly)
 
   const signals = documentSignals(ledger)
+  entries.holder_address_present = holderAddressPresent(ledger)
   entries.document_pages_missing = signals.pagesMissing
   entries.document_tamper_signals = signals.tamper
 

@@ -56,9 +56,51 @@ function classificationNotes(s: StatementExtraction): string[] {
   return []
 }
 
-/** ¿Alguna respuesta de esta ronda trae un documento para la pregunta de páginas faltantes? */
-function answeredMissingPages(state: AppState): boolean {
-  return state.answers.some((a) => a.kind === 'documents' && state.questions.some((q) => q.id === a.question_id && q.topic === 'missing_pages'))
+/** ¿Alguna respuesta de esta ronda trae un documento para la pregunta de ese tema? */
+function answeredWithDocument(state: AppState, topic: Question['topic']): boolean {
+  return state.answers.some((a) => a.kind === 'documents' && state.questions.some((q) => q.id === a.question_id && q.topic === topic))
+}
+
+const answeredMissingPages = (state: AppState): boolean => answeredWithDocument(state, 'missing_pages')
+
+const hasAddress = (s: StatementExtraction): boolean => (s.holder.address.value ?? '').trim().length > 0
+
+/** Días que cubren los periodos del estado de cuenta, como intervalos `[inicio, fin]` (ISO, comparables como texto). */
+function coveredRanges(s: StatementExtraction): [string, string][] {
+  const out: [string, string][] = []
+  for (const p of s.accounts.flatMap((a) => a.periods)) if (p.period_start.value && p.period_end.value) out.push([p.period_start.value, p.period_end.value])
+  return out
+}
+
+/**
+ * El estado de cuenta con domicilio que contesta `statement_with_address` (ADR 0066) reemplaza a los que no lo
+ * traen y cubren los mismos días: si se quedaran los dos, el periodo contaría doble. Uno de otro mes se queda.
+ */
+/**
+ * Lo que queda de los estados de cuenta anteriores cuando una respuesta trae PDFs nuevos:
+ * - El PDF completo que contesta `missing_pages` reemplaza al incompleto (ADR 0058): si se quedaran los dos, el
+ *   perfil vería las páginas faltantes del viejo y el periodo repetido, y volvería a preguntar.
+ * - El que trae domicilio y contesta `statement_with_address` reemplaza a los del mismo periodo sin él (ADR 0066).
+ */
+function withoutReplaced(state: AppState, statements: StatementExtraction[], incoming: readonly StatementExtraction[], notes: string[]): StatementExtraction[] {
+  if (incoming.length === 0) return statements
+  let kept = statements
+  if (answeredMissingPages(state)) {
+    const replaced = kept.filter((s) => s.flags.includes('pages_missing'))
+    kept = kept.filter((s) => !s.flags.includes('pages_missing'))
+    if (replaced.length > 0) notes.push(`${String(replaced.length)} documento(s) con páginas faltantes se reemplazaron por el PDF completo de la respuesta`)
+  }
+  if (answeredWithDocument(state, 'statement_with_address')) {
+    const replaced = new Set(replacedByAddress(kept, incoming))
+    kept = kept.filter((s) => !replaced.has(s))
+    if (replaced.size > 0) notes.push(`${String(replaced.size)} documento(s) sin domicilio se reemplazaron por el estado de cuenta con domicilio del mismo periodo`)
+  }
+  return kept
+}
+
+export function replacedByAddress(statements: readonly StatementExtraction[], incoming: readonly StatementExtraction[]): StatementExtraction[] {
+  const ranges = incoming.filter(hasAddress).flatMap(coveredRanges)
+  return statements.filter((s) => !hasAddress(s) && coveredRanges(s).some(([a, b]) => ranges.some(([c, d]) => a <= d && c <= b)))
 }
 
 function documentOf(s: StatementExtraction, origin: 'submitted' | 'owner_answer'): AppState['documents'][number] {
@@ -307,14 +349,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
           else extracted.push(s)
         }
         const c = await classifyStatements(deps, state, extracted)
-        // El PDF completo que contesta `missing_pages` reemplaza al incompleto (ADR 0058): si se quedaran los
-        // dos, el perfil vería las páginas faltantes del viejo y el periodo repetido, y volvería a preguntar.
-        if (c.statements.length > 0 && answeredMissingPages(state)) {
-          const replaced = statements.filter((s) => s.flags.includes('pages_missing'))
-          statements = statements.filter((s) => !s.flags.includes('pages_missing'))
-          if (replaced.length > 0) notes.push(`${String(replaced.length)} documento(s) con páginas faltantes se reemplazaron por el PDF completo de la respuesta`)
-        }
-        statements = [...statements, ...c.statements]
+        statements = [...withoutReplaced(state, statements, c.statements, notes), ...c.statements]
         classification = c.summary
         calls = [...calls, ...c.calls]
       }

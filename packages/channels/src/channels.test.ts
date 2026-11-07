@@ -1,6 +1,6 @@
 import { describeFailure, multipleStatementsReason, type Question } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
-import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderVerdict } from './conversation.ts'
+import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, documentRequestReplies, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderVerdict } from './conversation.ts'
 import { signSvix, verifySvix } from './svix.ts'
 import { ResendEmailTransport } from './transports.ts'
 
@@ -416,5 +416,24 @@ describe('resumen, confirmación y varias respuestas (ADR 0051)', () => {
   it('el aviso del analista es uno solo para todos los casos', () => {
     expect(REGISTRATION_REPLIES.analyst).toBe(ANALYST_NOTICE)
     expect(ANALYST_NOTICE).toBe('Un analista revisará tu estado de cuenta y te avisaremos el resultado por este chat.')
+  })
+})
+
+describe('pedido de un estado de cuenta con domicilio (ADR 0066)', () => {
+  const address: Question = { id: 'q1', topic: 'statement_with_address', kind: 'documents', transaction: null, facts: [], options: [], text: 'El estado de cuenta que mandaste no trae tu domicilio. ¿Nos mandas uno que sí lo traiga? Suele venir en la primera página, junto a tu nombre.', text_source: 'template' }
+  const pages: Question = { ...address, topic: 'missing_pages', text: 'Al estado de cuenta que mandaste le faltan páginas. ¿Nos mandas el PDF completo?' }
+
+  it('también se contesta mandando el PDF por el chat y no es conversacional', () => {
+    expect(isDocumentRequest(address)).toBe(true)
+    expect(isConversational(address)).toBe(false)
+    expect(renderDocumentRequest(address)).toMatch(/no trae tu domicilio[\s\S]*Mándalo por este chat como PDF/)
+  })
+
+  it('las respuestas hablan del domicilio, no de páginas faltantes; las de páginas no cambian', () => {
+    const r = documentRequestReplies(address)
+    for (const text of Object.values(r)) expect(text).not.toMatch(/completo|faltan páginas/)
+    expect(r.sameFile).toMatch(/no trae tu domicilio/)
+    expect(r.sendPdf).toMatch(/que traiga tu domicilio/)
+    expect(documentRequestReplies(pages)).toEqual({ received: DOCUMENT_REPLIES.answer_received, forReview: DOCUMENT_REPLIES.answer_for_review, sameFile: DOCUMENT_REPLIES.answer_same_file, sendPdf: DOCUMENT_REPLIES.send_pdf })
   })
 })

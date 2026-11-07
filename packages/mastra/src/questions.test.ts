@@ -104,3 +104,35 @@ describe('páginas faltantes: la pregunta pide el PDF completo (robustez documen
     expect(renderMessage(qs)).toContain('1. Al estado de cuenta que mandaste le faltan páginas (por ejemplo la 2 de 3). ¿Nos mandas el PDF completo?')
   })
 })
+
+describe('estado de cuenta con domicilio (ADR 0066)', () => {
+  const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
+  const spec = { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 40000 }] }
+  const base = basePolicyTemplate()
+  const policy = { ...base, gates: [...base.gates, { id: 'holder_address', description: 'Domicilio', when: { feature: 'holder_address_present' as const, op: '==' as const, value: true }, onFail: { status: 'needs_clarification' as const, ask: 'statement_with_address' as const }, onUnknown: 'pass' as const }] }
+
+  it('sin domicilio pide otro PDF que lo traiga, sin cifras ni datos del documento', () => {
+    const s = syntheticStatement(spec, holder, 'q-dom')
+    const d = decide({ policy, statements: [s], request: null, supplier: null, external: { ...emptyExternalSnapshot(), existing_credits: { available: true, simulated: true, credits: [] } }, computedAt: '2026-10-05T12:00:00.000Z' }).decision
+    const qs = buildQuestions(d, [s])
+    expect(qs.map((q) => [q.topic, q.kind])).toEqual([['statement_with_address', 'documents']])
+    expect(qs[0]?.text).toMatch(/no trae tu domicilio/)
+    expect(qs[0]?.facts).toEqual([])
+    for (const q of qs) expect(checkFigures(q.text, q.facts).ok).toBe(true)
+  })
+})
+
+describe('el estado de cuenta con domicilio reemplaza al del mismo periodo (ADR 0066)', () => {
+  const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
+  const month = (start: string, address: string | null, seed: string) => syntheticStatement({ start, opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2 }, { kind: 'supplier_payment' as const, amount: 40000 }] }, { ...holder, address }, seed)
+
+  it('reemplaza solo los que no traen domicilio y cubren los mismos días', async () => {
+    const { replacedByAddress } = await import('./workflow.ts')
+    const sept = month('2026-09-01', null, 'r-sep')
+    const aug = month('2026-08-01', null, 'r-ago')
+    const septWithAddress = month('2026-09-01', 'CALLE 1, CENTRO, PUEBLA, C.P. 72000', 'r-sep-dom')
+    expect(replacedByAddress([sept, aug], [septWithAddress])).toEqual([sept])
+    // Un PDF nuevo sin domicilio no reemplaza nada.
+    expect(replacedByAddress([sept], [month('2026-09-01', null, 'r-sep-2')])).toEqual([])
+  })
+})

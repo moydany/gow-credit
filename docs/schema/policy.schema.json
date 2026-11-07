@@ -117,6 +117,7 @@
                 "reconciliation_gap",
                 "additional_months",
                 "missing_pages",
+                "statement_with_address",
                 "charge_classification",
                 "main_buyer",
                 "account_use"
@@ -192,6 +193,7 @@
             "income_from_listed_rfc_share",
             "regime_income_plausible",
             "document_pages_missing",
+            "holder_address_present",
             "document_tamper_signals"
           ]
         },
@@ -291,6 +293,7 @@
             "income_from_listed_rfc_share",
             "regime_income_plausible",
             "document_pages_missing",
+            "holder_address_present",
             "document_tamper_signals"
           ]
         },
@@ -337,6 +340,7 @@
             "income_from_listed_rfc_share",
             "regime_income_plausible",
             "document_pages_missing",
+            "holder_address_present",
             "document_tamper_signals"
           ]
         },
@@ -453,6 +457,7 @@
                 "income_from_listed_rfc_share",
                 "regime_income_plausible",
                 "document_pages_missing",
+                "holder_address_present",
                 "document_tamper_signals"
               ]
             },

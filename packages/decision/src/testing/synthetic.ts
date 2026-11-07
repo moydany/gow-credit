@@ -23,6 +23,8 @@ export interface SyntheticHolder {
   name: string
   rfc: string | null
   clabe: string | null
+  /** Domicilio impreso en el encabezado (ADR 0066); sin él, el estado de cuenta no lo trae. */
+  address?: string | null
 }
 
 const CREDIT_KINDS: ReadonlySet<SyntheticFlowKind> = new Set(['customer_payment', 'sales_settlement', 'cash_deposit', 'unclassified_credit', 'loan_disbursement', 'own_transfer_in', 'refund', 'interest'])
@@ -120,6 +122,12 @@ function monthDrafts(spec: z.infer<typeof SyntheticStatement>, month: number, st
  * Genera la extracción. `seed` distingue documentos (entra al sha256), así que dos estados del
  * mismo proveedor no chocan y el mismo estado generado dos veces es idéntico.
  */
+/** El bloque del titular: lo que se imprime, o nada si el estado de cuenta viene redactado. */
+function holderBlock(holder: SyntheticHolder, redacted: boolean) {
+  const printed = (value: string | null | undefined) => (redacted || !value ? missing() : verified(value, 1))
+  return { name: printed(holder.name), rfc: printed(holder.rfc), holder_type: missing(), address: printed(holder.address) }
+}
+
 export function syntheticStatement(input: z.input<typeof SyntheticStatement>, holder: SyntheticHolder, seed: string): StatementExtraction {
   const spec = SyntheticStatement.parse(input)
   const months = Array.from({ length: spec.months }, (_, m) => ({ month: m + 1, start: toDay(addMonths(spec.start, m)), end: toDay(addDays(addMonths(spec.start, m + 1), -1)) }))
@@ -253,11 +261,7 @@ export function syntheticStatement(input: z.input<typeof SyntheticStatement>, ho
     document: { file_name: `synthetic-${seed}.pdf`, sha256: sha, size_bytes: 1024 * pageCount, page_count: pageCount, text_layer: 'ok', route: 'text_and_vision' },
     classification: { document_type: 'bank_statement', confidence: 0.99, bank: spec.bank },
     bank_name: verified(spec.bank, 1),
-    holder: {
-      name: redacted ? missing() : verified(holder.name, 1),
-      rfc: redacted || holder.rfc === null ? missing() : verified(holder.rfc, 1),
-      holder_type: missing(),
-    },
+    holder: holderBlock(holder, redacted),
     accounts: [
       {
         id: 'a1',

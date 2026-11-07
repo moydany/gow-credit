@@ -96,6 +96,8 @@ export const FEATURE_CATALOG = {
   regime_income_plausible: bool({ source: 'statement', unit: 'none', description: 'Ingresos anualizados dentro del tope del régimen fiscal, cuando el régimen tiene tope (RESICO 626: 3.5 millones)' }),
   // Catálogo 1.2.0: robustez documental, las señales de la extracción llegan al motor (ADR 0058).
   document_pages_missing: bool({ source: 'statement', unit: 'none', description: 'Faltan páginas en el estado de cuenta; algún documento trae la bandera de páginas faltantes: la paginación que imprime tiene huecos (por ejemplo "Pág 1/3" y "Pág 3/3")' }),
+  // Catálogo 1.3.0: el domicilio del titular (ADR 0066).
+  holder_address_present: bool({ source: 'statement', unit: 'none', description: 'Algún estado de cuenta trae el domicilio del titular' }),
   document_tamper_signals: enumList(DOCUMENT_TAMPER_SIGNALS, { source: 'statement', unit: 'none', description: 'Señales de que el documento pudo alterarse; texto dirigido al sistema, cadena fiscal que no coincide, timbrado lejos del periodo, páginas repetidas o lecturas del encabezado que no coinciden' }),
 } as const
 
@@ -106,7 +108,7 @@ export type FeatureKind = FeatureCatalog[FeatureName]['kind']
 export const FEATURE_NAMES = Object.keys(FEATURE_CATALOG) as [FeatureName, ...FeatureName[]]
 
 /** Versión del catálogo: sube cuando se agrega, quita o cambia una feature. */
-export const FEATURE_CATALOG_VERSION = '1.2.0'
+export const FEATURE_CATALOG_VERSION = '1.3.0'
 
 export const FeatureName = z.enum(FEATURE_NAMES, {
   error: (issue) => `feature desconocida ${JSON.stringify(issue.input)}; el catálogo (docs/03 §3) no la tiene`,

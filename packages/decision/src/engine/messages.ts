@@ -37,6 +37,7 @@ export const ASK_TEXT: Record<AskTopic, string> = {
   reconciliation_gap: 'aclarar un descuadre',
   additional_months: 'más meses de estados de cuenta',
   missing_pages: 'páginas faltantes',
+  statement_with_address: 'un estado de cuenta que traiga el domicilio del titular',
   charge_classification: 'aclarar qué fueron algunos cargos',
   main_buyer: 'saber quién es su cliente principal',
   account_use: 'saber si la cuenta también es personal',

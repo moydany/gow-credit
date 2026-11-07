@@ -475,3 +475,28 @@ describe('el sobregiro calculado solo se cree si el periodo cuadra (ADR 0058)', 
     expect(f(profileOf([s]), 'red_flags').value).toEqual(['garnishment'])
   })
 })
+
+describe('domicilio del titular (ADR 0066)', () => {
+  const ADDRESS = 'AV. REFORMA 100, COL. JUÁREZ, CUAUHTÉMOC, CDMX, C.P. 06600'
+  const withAddress = (address: string | null, seed: string) => syntheticStatement({ start: '2026-09-01', opening_balance: 50000, monthly: BASIC }, { ...holder, address }, seed)
+
+  it('un estado de cuenta con domicilio: presente, verificado y con su evidencia; el domicilio no entra al perfil', () => {
+    const p = profileOf([withAddress(ADDRESS, 'dom1')])
+    expect(f(p, 'holder_address_present')).toMatchObject({ value: true, verification: 'verified', evidence: [expect.stringMatching(/:holder\.address$/)] })
+    expect(JSON.stringify(p)).not.toContain('REFORMA')
+  })
+
+  it('sin domicilio en ningún documento: falso, con la nota', () => {
+    expect(f(profileOf([withAddress(null, 'dom2')]), 'holder_address_present')).toMatchObject({ value: false, note: 'ningún estado de cuenta trae el domicilio del titular' })
+  })
+
+  it('basta uno de varios estados de cuenta', () => {
+    expect(f(profileOf([withAddress(null, 'dom3'), withAddress(ADDRESS, 'dom4')]), 'holder_address_present').value).toBe(true)
+  })
+
+  it('leído pero no ubicado en el texto (escaneado por visión): presente y sin verificar', () => {
+    const s = withAddress(ADDRESS, 'dom5')
+    const unverified = { ...s, holder: { ...s.holder, address: { ...s.holder.address, verification: 'unverified' as const, source: null, confidence: 0.3 } } }
+    expect(f(profileOf([unverified]), 'holder_address_present')).toMatchObject({ value: true, verification: 'unverified' })
+  })
+})

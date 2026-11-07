@@ -26,6 +26,7 @@ const ASK_LABEL: Record<string, string> = {
   reconciliation_gap: 'un descuadre de saldos',
   additional_months: 'más meses de estados de cuenta',
   missing_pages: 'páginas faltantes del documento',
+  statement_with_address: 'un estado de cuenta que traiga su domicilio',
   charge_classification: 'qué fueron algunos cargos',
   main_buyer: 'quién es su cliente principal',
   account_use: 'si la cuenta también es personal',

@@ -111,3 +111,30 @@ describe('robustez documental en las políticas (ADR 0058)', () => {
     expect(d.status).toBe('human_review')
   })
 })
+
+describe('estado de cuenta con domicilio (ADR 0066)', () => {
+  const spec = { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 40000 }] }
+  const statement = (address: string | null) => syntheticStatement(spec, { ...holder, address }, `dom-${String(address)}`)
+  const run = (policy: Policy, s: StatementExtraction) => decide({ policy, statements: [s], request, supplier: null, external: noCredits, computedAt: AT }).decision
+  const base = basePolicyTemplate()
+  const requiring: Policy = { ...base, gates: [...base.gates, { id: 'holder_address', description: 'El estado de cuenta trae el domicilio del titular', when: { feature: 'holder_address_present', op: '==', value: true }, onFail: { status: 'needs_clarification', ask: 'statement_with_address' }, onUnknown: 'pass' }] }
+
+  it('la plantilla base no lo exige: sin domicilio no se pregunta nada', () => {
+    expect(base.gates.some((g) => g.when.feature === 'holder_address_present')).toBe(false)
+    const d = run(base, statement(null))
+    expect(d.clarification?.topics ?? []).not.toContain('statement_with_address')
+    expect(d.status).toBe('qualified_with_limit')
+  })
+
+  it('con la compuerta activada y sin domicilio, pide un estado de cuenta que lo traiga', () => {
+    expect(parsePolicy(requiring).ok).toBe(true)
+    const d = run(requiring, statement(null))
+    expect(d.status).toBe('needs_clarification')
+    expect(d.clarification?.topics).toEqual(['statement_with_address'])
+  })
+
+  it('con la compuerta activada y con domicilio, pasa', () => {
+    const d = run(requiring, statement('CALLE 5 DE MAYO 12, CENTRO, PUEBLA, PUE., C.P. 72000'))
+    expect(d.status).toBe('qualified_with_limit')
+  })
+})

@@ -36,7 +36,22 @@ export const DOCUMENT_REPLIES = {
   answer_same_file: 'Este es el mismo archivo que ya recibimos y le faltan páginas. Descarga el estado de cuenta completo desde tu banco y mándalo por aquí.',
   /** Escribió un texto cuando se espera el PDF. */
   send_pdf: 'Para continuar necesito el PDF completo de tu estado de cuenta. Mándalo por este chat, tal como lo descargaste de tu banco.',
+  /** El PDF contesta la pregunta del estado de cuenta con domicilio (ADR 0066): la solicitud sigue con él. */
+  address_received: 'Recibimos tu estado de cuenta. Lo estoy revisando y en unos minutos te aviso el resultado por aquí.',
+  address_for_review: 'Recibimos tu estado de cuenta. Un analista revisará tu solicitud y te avisaremos el resultado por este chat.',
+  /** Mandó otra vez el mismo archivo, que no trae el domicilio. */
+  address_same_file: 'Este es el mismo archivo que ya recibimos y no trae tu domicilio. Descarga un estado de cuenta que sí lo traiga y mándalo por aquí.',
+  /** Escribió un texto cuando se espera el PDF con domicilio. */
+  address_send_pdf: 'Para continuar necesito un estado de cuenta en PDF que traiga tu domicilio. Mándalo por este chat, tal como lo descargaste de tu banco.',
 } as const
+
+/** Las respuestas de `DOCUMENT_REPLIES` según qué PDF se pidió: el completo o uno con domicilio (ADR 0066). */
+export function documentRequestReplies(q: Question): { received: string; forReview: string; sameFile: string; sendPdf: string } {
+  const r = DOCUMENT_REPLIES
+  return q.topic === 'statement_with_address'
+    ? { received: r.address_received, forReview: r.address_for_review, sameFile: r.address_same_file, sendPdf: r.address_send_pdf }
+    : { received: r.answer_received, forReview: r.answer_for_review, sameFile: r.answer_same_file, sendPdf: r.send_pdf }
+}
 
 /**
  * Registro de un proveedor que escribe por primera vez (ADR 0038 y 0047, solo en la demo con
@@ -130,11 +145,12 @@ export function isConversational(q: Question): boolean {
 
 /**
  * Pregunta de documentos que el proveedor contesta mandando el PDF nuevo por el mismo chat (robustez
- * documental, sección W): hoy solo las páginas faltantes. Las demás preguntas de documentos siguen por
- * la API o el backoffice (ADR 0037). No es conversacional: el texto no la contesta, el PDF sí.
+ * documental, sección W): las páginas faltantes y el estado de cuenta con domicilio (ADR 0066). Las demás
+ * preguntas de documentos siguen por la API o el backoffice (ADR 0037). No es conversacional: el texto no
+ * la contesta, el PDF sí.
  */
 export function isDocumentRequest(q: Question): boolean {
-  return q.kind === 'documents' && q.topic === 'missing_pages'
+  return q.kind === 'documents' && (q.topic === 'missing_pages' || q.topic === 'statement_with_address')
 }
 
 /** La pregunta de `isDocumentRequest` tal como sale por el chat: el texto y cómo contestarla. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DOCUMENT_TAMPER_SIGNALS, FEATURE_CATALOG, FEATURE_CATALOG_VERSION, FEATURE_NAMES } from './features.ts'
-import { Profile, ProfileFeatures } from './profile.ts'
+import { Profile, ProfileFeatures, READABLE_CATALOG_VERSIONS } from './profile.ts'
 import { sampleProfile } from './testing/fixtures.ts'
 
 describe('catálogo y perfil', () => {
@@ -21,7 +21,10 @@ describe('catálogo y perfil', () => {
   })
 
   it('catálogo 1.2.0: las señales de robustez documental llegan al motor (ADR 0058)', () => {
-    expect(FEATURE_CATALOG_VERSION).toBe('1.2.0')
+    // 1.3.0 agrega el domicilio del titular (ADR 0066); 1.2.0 se sigue leyendo.
+    expect(FEATURE_CATALOG_VERSION).toBe('1.3.0')
+    expect(READABLE_CATALOG_VERSIONS).toContain('1.2.0')
+    expect(FEATURE_CATALOG.holder_address_present).toMatchObject({ kind: 'bool', source: 'statement' })
     expect(FEATURE_CATALOG.document_pages_missing).toMatchObject({ kind: 'bool', source: 'statement' })
     expect(FEATURE_CATALOG.document_tamper_signals).toMatchObject({ kind: 'enum_list', source: 'statement' })
     expect(FEATURE_CATALOG.document_tamper_signals.values).toEqual(DOCUMENT_TAMPER_SIGNALS)

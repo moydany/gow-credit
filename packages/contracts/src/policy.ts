@@ -31,6 +31,8 @@ export const AskTopic = z.enum([
   'reconciliation_gap',
   'additional_months',
   'missing_pages',
+  // ADR 0066: un estado de cuenta que traiga el domicilio del titular, si la política lo exige.
+  'statement_with_address',
   // ADR 0050: cargos dudosos, cliente principal y uso de la cuenta.
   'charge_classification',
   'main_buyer',

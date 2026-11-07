@@ -25,16 +25,19 @@ type FeatureValueSchema<T extends z.ZodType> = z.ZodObject<{ value: z.ZodNullabl
 type FeatureShape = { [K in keyof FeatureCatalog]: FeatureValueSchema<FeatureCatalog[K]['schema']> }
 
 /** Versiones del catálogo que este contrato lee: la vigente y las anteriores cuyos perfiles siguen guardados. */
-export const READABLE_CATALOG_VERSIONS = ['1.1.0', FEATURE_CATALOG_VERSION] as const
-/** Features que no existían en el catálogo 1.1.0: en un perfil guardado con esa versión entran como desconocidas. */
-const ADDED_IN_1_2_0: ReadonlySet<string> = new Set(['document_pages_missing', 'document_tamper_signals'])
+export const READABLE_CATALOG_VERSIONS = ['1.1.0', '1.2.0', FEATURE_CATALOG_VERSION] as const
+/**
+ * Features que no existían en algún catálogo anterior (1.2.0: páginas y señales, ADR 0058; 1.3.0: domicilio,
+ * ADR 0066): en un perfil guardado sin ellas entran como desconocidas.
+ */
+const ADDED_AFTER_1_1_0: ReadonlySet<string> = new Set(['document_pages_missing', 'document_tamper_signals', 'holder_address_present'])
 const notInOlderCatalog = () => ({ value: null, confidence: 0, verification: 'unverified' as const, provenance: 'extracted' as const, evidence: [] as string[], note: 'perfil calculado con un catálogo anterior: la feature no existía' })
 
 // Object.fromEntries pierde las llaves; el tipo se restituye desde el catálogo.
 const shape = Object.fromEntries(
   Object.entries(FEATURE_CATALOG).map(([name, def]) => {
     const entry = featureValue(def.schema)
-    return [name, ADDED_IN_1_2_0.has(name) ? entry.default(notInOlderCatalog) : entry]
+    return [name, ADDED_AFTER_1_1_0.has(name) ? entry.default(notInOlderCatalog) : entry]
   }),
 ) as unknown as FeatureShape
 
