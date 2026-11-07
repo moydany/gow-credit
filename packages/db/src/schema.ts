@@ -7,7 +7,7 @@
  * política) se guardan tal cual sus contratos Zod; las columnas sueltas son lo que se consulta.
  */
 import { sql } from 'drizzle-orm'
-import { bigint, boolean, customType, index, integer, jsonb, numeric, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, check, customType, foreignKey, index, integer, jsonb, numeric, pgSchema, primaryKey, text, timestamp, unique, uniqueIndex, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
 
 export const app = pgSchema('app')
 
@@ -462,6 +462,59 @@ export const llmExchanges = app.table(
   (t) => [index('llm_exchanges_tenant_at').on(t.tenantId, t.createdAt), index('llm_exchanges_application').on(t.tenantId, t.applicationId, t.createdAt)],
 )
 
+/**
+ * Prompts de los modelos (ADR 0065). Globales, no por tenant: los mismos para todas las
+ * instituciones crediticias, porque de ellos depende la precisión que miden las evals. Una fila por
+ * prompt del catálogo (`PROMPT_CATALOG` de @gow/contracts) con la versión activa. La siembra
+ * (`syncPromptFiles`, en cada `pnpm db:migrate`) la llena desde prompts/.
+ */
+export const prompts = app.table(
+  'prompts',
+  {
+    name: text('name').primaryKey(),
+    /** Versión de archivo que usa el código sin base; la siembra la actualiza. */
+    codeDefaultFileVersion: integer('code_default_file_version').notNull(),
+    activeVersionId: uuid('active_version_id'),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    /** Correo de quien la activó en el backoffice; null si la activó la siembra. */
+    activatedBy: text('activated_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [foreignKey({ name: 'prompts_active_version_fk', columns: [t.name, t.activeVersionId], foreignColumns: [promptVersions.promptName, promptVersions.id] })],
+)
+
+/**
+ * Versiones inmutables de un prompt: editar crea una nueva (un trigger rechaza UPDATE y DELETE).
+ * `source = 'file'` las siembra el dueño de la migración desde prompts/; `backoffice` las crea
+ * `gow_api` a nombre de un usuario.
+ */
+export const promptVersions = app.table(
+  'prompt_versions',
+  {
+    id: id(),
+    promptName: text('prompt_name')
+      .notNull()
+      .references((): AnyPgColumn => prompts.name),
+    version: integer('version').notNull(),
+    /** file | backoffice */
+    source: text('source').notNull(),
+    fileVersion: integer('file_version'),
+    text: text('text').notNull(),
+    sha256: text('sha256').notNull(),
+    note: text('note').notNull(),
+    /** `seed` o `user:<id>`. */
+    createdBy: text('created_by').notNull(),
+    createdByEmail: text('created_by_email'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique('prompt_versions_name_version').on(t.promptName, t.version),
+    unique('prompt_versions_name_id').on(t.promptName, t.id),
+    uniqueIndex('prompt_versions_name_file').on(t.promptName, t.fileVersion),
+    check('prompt_versions_source', sql`(${t.source} = 'file' AND ${t.fileVersion} IS NOT NULL) OR (${t.source} = 'backoffice' AND ${t.fileVersion} IS NULL)`),
+  ],
+)
+
 /** Bitácora inmutable: los roles de aplicación solo pueden insertar (docs/05 §7). */
 export const auditLog = app.table(
   'audit_log',
@@ -504,3 +557,9 @@ export const TENANT_TABLES = [
   'llm_exchanges',
   'audit_log',
 ] as const
+
+/**
+ * Tablas globales de `app` (sin `tenant_id`): también con RLS forzada, pero sus políticas no
+ * separan por tenant. La prueba de RLS exige que cada tabla de `app` esté en una de las dos listas.
+ */
+export const GLOBAL_TABLES = ['prompts', 'prompt_versions'] as const

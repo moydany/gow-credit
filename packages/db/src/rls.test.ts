@@ -1,7 +1,8 @@
 /**
  * Aislamiento por tenant (docs/05 §2, §2b y §8). Dos tenants con una fila en cada tabla:
  * - el catálogo: toda tabla de `app` tiene RLS habilitada y forzada, con política, y está en
- *   TENANT_TABLES (una tabla nueva sin política hace fallar esta prueba);
+ *   TENANT_TABLES o en GLOBAL_TABLES (una tabla nueva sin política hace fallar esta prueba);
+ * - las tablas globales (prompts, ADR 0065): todos leen, solo la API escribe y las versiones son inmutables;
  * - tabla por tabla: A no ve, no actualiza ni inserta filas de B;
  * - sin `app.tenant_id` no hay filas;
  * - el rol de WhatsApp no puede leer documentos ni nada fuera de su buzón y del estado de su sesión;
@@ -11,7 +12,7 @@
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { TENANT_TABLES } from './schema.ts'
+import { GLOBAL_TABLES, TENANT_TABLES } from './schema.ts'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from './testing.ts'
 
 const available = await postgresAvailable()
@@ -113,8 +114,44 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
              (SELECT count(*)::int FROM pg_policies p WHERE p.schemaname = 'app' AND p.tablename = c.relname) AS policies
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'app' AND c.relkind = 'r' ORDER BY 1`)
-    expect(rows.map((r) => r.table).sort()).toEqual([...TENANT_TABLES].sort())
+    expect(rows.map((r) => r.table).sort()).toEqual([...TENANT_TABLES, ...GLOBAL_TABLES].sort())
     for (const r of rows) expect({ table: r.table, rls: r.rls, forced: r.forced, hasPolicy: r.policies > 0 }).toEqual({ table: r.table, rls: true, forced: true, hasPolicy: true })
+  })
+
+  it('prompts (globales): todos los roles leen las versiones activas, sin tenant', async () => {
+    for (const c of [readonly, api, worker]) {
+      const r = await asTenant(c, null, () => c.query<{ n: number }>('SELECT count(*)::int AS n FROM app.prompts p JOIN app.prompt_versions v ON v.id = p.active_version_id'))
+      expect(r.rows[0]?.n).toBeGreaterThan(0)
+    }
+    const wa = await asTenant(whatsapp, A, () => attempt(whatsapp, 'SELECT 1 FROM app.prompt_versions'))
+    expect((wa as Error).message).toMatch(/permission denied/)
+  })
+
+  it('prompts: solo la API crea versiones del backoffice y cambia la activa; nadie modifica ni borra una versión', async () => {
+    const insert = "INSERT INTO app.prompt_versions (prompt_name, version, source, file_version, text, sha256, note, created_by) VALUES ('next_steps', 99, $1, $2, 'x {{steps}}', 'h', 'prueba', 'test') RETURNING id"
+    const fromWorker = await asTenant(worker, A, () => attempt(worker, insert, ['backoffice', null]))
+    expect((fromWorker as Error).message).toMatch(/permission denied/)
+    const fileFromApi = await asTenant(api, A, () => attempt(api, insert, ['file', 99]))
+    expect((fileFromApi as Error).message).toMatch(/row-level security/)
+    const workerActivate = await asTenant(worker, A, () => attempt(worker, 'UPDATE app.prompts SET activated_at = now()'))
+    expect((workerActivate as Error).message).toMatch(/permission denied/)
+    await api.query('BEGIN')
+    try {
+      const ok = await api.query<{ id: string }>(insert, ['backoffice', null])
+      expect(ok.rowCount).toBe(1)
+      const act = await api.query("UPDATE app.prompts SET active_version_id = $1, activated_at = now() WHERE name = 'next_steps'", [ok.rows[0]?.id])
+      expect(act.rowCount).toBe(1)
+      const wrong = await attempt(api, "UPDATE app.prompts SET active_version_id = $1 WHERE name = 'extract_system'", [ok.rows[0]?.id])
+      expect((wrong as Error).message).toMatch(/foreign key/)
+    } finally {
+      await api.query('ROLLBACK')
+    }
+    const edit = await asTenant(api, A, () => attempt(api, "UPDATE app.prompt_versions SET text = 'otro'"))
+    expect((edit as Error).message).toMatch(/permission denied/)
+    for (const sqlText of ["UPDATE app.prompt_versions SET note = 'otra' WHERE prompt_name = 'next_steps'", "DELETE FROM app.prompt_versions WHERE prompt_name = 'next_steps'"]) {
+      const asAdmin = await attempt(admin, sqlText)
+      expect((asAdmin as Error).message).toMatch(/inmutables/)
+    }
   })
 
   it.each([...TENANT_TABLES])('%s: A solo ve sus filas', async (table) => {
