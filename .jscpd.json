@@ -1,0 +1,18 @@
+{
+  "path": ["apps", "packages", "evals", "scenarios"],
+  "format": ["typescript", "tsx"],
+  "minLines": 8,
+  "minTokens": 70,
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.eval.ts",
+    "**/.mastra/**",
+    "packages/db/drizzle/**"
+  ],
+  "reporters": ["console"],
+  "gitignore": true,
+  "absolute": false
+}

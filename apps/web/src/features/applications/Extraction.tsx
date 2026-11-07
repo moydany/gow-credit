@@ -18,41 +18,50 @@ export function flattenTransactions(x: StatementExtraction): FlatTx[] {
   return x.accounts.flatMap((account) => account.periods.flatMap((period) => period.transactions.map((tx) => ({ tx, account, period }))))
 }
 
+type Walked = StatementExtraction['accounts'][number]['periods'][number]['transactions'][number]
+type WalkedField = { verification: string; value: unknown; source: { page: number } | null }
+
+/** Recorre cada valor de la extracción (cabecera, cuentas y periodos) y cada movimiento, para los avisos de revisión. */
+function walkExtraction(x: StatementExtraction, onField: (f: WalkedField) => void, onTransaction: (t: Walked) => void): void {
+  onField(x.bank_name)
+  Object.values(x.holder).forEach(onField)
+  for (const a of x.accounts) {
+    ;[a.product_name, a.account_type, a.account_number, a.clabe, a.currency].forEach(onField)
+    for (const p of a.periods) {
+      ;[p.period_start, p.period_end, p.statement_date].forEach(onField)
+      Object.values(p.summary).forEach(onField)
+      p.transactions.forEach(onTransaction)
+    }
+  }
+}
+
 /** Todo valor de la extracción que no quedó verificado, con su etiqueta, para el aviso de la cabecera. */
 export function unverifiedCount(x: StatementExtraction): number {
   let n = 0
-  const check = (f: { verification: string; value: unknown }) => {
-    if (f.verification !== 'verified' && f.value !== null) n++
-  }
-  check(x.bank_name)
-  Object.values(x.holder).forEach(check)
-  for (const a of x.accounts) {
-    ;[a.product_name, a.account_type, a.account_number, a.clabe, a.currency].forEach(check)
-    for (const p of a.periods) {
-      ;[p.period_start, p.period_end, p.statement_date].forEach(check)
-      Object.values(p.summary).forEach(check)
-      for (const t of p.transactions) if (t.verification !== 'verified') n++
-    }
-  }
+  walkExtraction(
+    x,
+    (f) => {
+      if (f.verification !== 'verified' && f.value !== null) n++
+    },
+    (t) => {
+      if (t.verification !== 'verified') n++
+    },
+  )
   return n
 }
 
 /** Páginas con algo por revisar: valores sin verificar, movimientos dudosos o alertas. */
 export function alertPages(x: StatementExtraction): Set<number> {
   const pages = new Set<number>()
-  const check = (f: { verification: string; source: { page: number } | null }) => {
-    if (f.verification !== 'verified' && f.source) pages.add(f.source.page)
-  }
-  check(x.bank_name)
-  Object.values(x.holder).forEach(check)
-  for (const a of x.accounts) {
-    ;[a.product_name, a.account_type, a.account_number, a.clabe, a.currency].forEach(check)
-    for (const p of a.periods) {
-      ;[p.period_start, p.period_end, p.statement_date].forEach(check)
-      Object.values(p.summary).forEach(check)
-      for (const t of p.transactions) if (t.verification !== 'verified') pages.add(t.source.page)
-    }
-  }
+  walkExtraction(
+    x,
+    (f) => {
+      if (f.verification !== 'verified' && f.source) pages.add(f.source.page)
+    },
+    (t) => {
+      if (t.verification !== 'verified') pages.add(t.source.page)
+    },
+  )
   for (const i of x.issues) if (i.page && i.severity !== 'info') pages.add(i.page)
   return pages
 }

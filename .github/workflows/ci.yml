@@ -33,7 +33,10 @@ jobs:
         run: docker compose up -d --wait
       - run: pnpm db:migrate
       - run: pnpm typecheck
+      # Los avisos de tamaño y complejidad no pueden crecer (--max-warnings en `lint`); bájalo al arreglar.
       - run: pnpm lint
+      - name: Duplicación entre archivos (jscpd)
+        run: pnpm dup
       # Con Postgres arriba, `pnpm test` incluye RLS y aislamiento entre tenants.
       - run: pnpm test
       - name: Escenarios en modo unitario

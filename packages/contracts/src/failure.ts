@@ -23,17 +23,19 @@ export const PDF_PASSWORD_FAILURE = 'el PDF tiene contraseña'
 /** Prefijo de `extraction.failure_reason` cuando el archivo no se pudo abrir como PDF. */
 export const PDF_UNREADABLE_PREFIX = 'no se pudo leer el PDF'
 
+const NO_DETAIL = 'sin detalle'
+
 export function notBankStatementReason(documentType: DocumentType): string {
   return `el documento no es un estado de cuenta bancario (${documentType})`
 }
 
 export function extractionFailedReason(detail: string | null): string {
-  return `la extracción falló: ${detail ?? 'sin detalle'}`
+  return `la extracción falló: ${detail ?? NO_DETAIL}`
 }
 
 /** PDF sin capa de texto (escaneado o foto) que la lectura por visión no pudo leer (ADR 0049). */
 export function scannedUnreadableReason(detail: string | null): string {
-  return `no se pudo leer el documento escaneado: ${detail ?? 'sin detalle'}`
+  return `no se pudo leer el documento escaneado: ${detail ?? NO_DETAIL}`
 }
 
 /**
@@ -103,10 +105,10 @@ export function describeFailure(reason: string | null): FailureInfo {
   }
   if (MULTIPLE_STATEMENTS.test(text)) return { kind: 'multiple_statements', documentType: null, label: 'El PDF trae más de un estado de cuenta; se necesita cada uno en un archivo aparte.' }
   const scanned = SCANNED_UNREADABLE.exec(text)
-  if (scanned) return { kind: 'scanned_unreadable', documentType: null, label: `El PDF no tiene texto (parece escaneado o una foto) y no se pudo leer (${scanned[1] ?? 'sin detalle'}). Pide el PDF descargado del portal o la app del banco.` }
+  if (scanned) return { kind: 'scanned_unreadable', documentType: null, label: `El PDF no tiene texto (parece escaneado o una foto) y no se pudo leer (${scanned[1] ?? NO_DETAIL}). Pide el PDF descargado del portal o la app del banco.` }
   const extraction = EXTRACTION_FAILED.exec(text)
   if (extraction?.[1] === PDF_PASSWORD_FAILURE) return { kind: 'password_protected', documentType: null, label: 'El PDF tiene contraseña y no se pudo abrir. Pide uno sin contraseña.' }
-  if (extraction) return { kind: 'extraction_failed', documentType: null, label: `No se pudo leer el documento (${extraction[1] ?? 'sin detalle'}).` }
+  if (extraction) return { kind: 'extraction_failed', documentType: null, label: `No se pudo leer el documento (${extraction[1] ?? NO_DETAIL}).` }
   if (text.startsWith(DISCARDED_PREFIX)) return { kind: 'discarded', documentType: null, label: 'Documento descartado por el analista.' }
   return { kind: 'internal', documentType: null, label: text ? `El análisis no terminó: ${text}.` : 'El análisis no terminó por un error interno.' }
 }
