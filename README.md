@@ -1,34 +1,108 @@
-# GOW Credit: extracción y diagnóstico crediticio sobre estados de cuenta
+<div align="center">
 
-Recibe el estado de cuenta bancario de un proveedor en PDF y hace cinco cosas:
+# GOW Credit
 
-1. Extrae encabezado, resumen, movimientos y CFDI, con página y fragmento citados por cada valor.
-2. Verifica la extracción contra la aritmética del propio banco.
-3. Calcula un perfil crediticio.
-4. Aplica la política del prestamista (tenant) y devuelve un veredicto con diagnóstico y
-   contrafactuales.
-5. Pregunta al proveedor cuando un dato dudoso puede cambiar el resultado.
+**Diagnóstico crediticio sobre estados de cuenta bancarios, por WhatsApp.**
 
-Con un solo comando corre sobre una carpeta de PDFs (modo standalone). El modo full agrega
-Postgres, cola, WhatsApp, correo y un backoffice.
+Un proveedor manda su estado de cuenta en PDF y, en minutos, sabe hasta cuánto le pueden adelantar
+del pago de sus facturas. Si un dato dudoso puede cambiar el resultado, el sistema le pregunta antes
+de decidir.
 
-*English summary at the end.*
+[![ci](https://github.com/moydany/gow-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/ci.yml)
 
-## Cómo correrlo en 5 minutos
+| 1,513 / 1,513 | 0 | 9 / 9 | USD 0.20 |
+|:---:|:---:|:---:|:---:|
+| movimientos extraídos | inventados u omitidos | estados de cuenta que cuadran | por documento |
 
-Para pasarlo a otra computadora con tus llaves, los PDFs, el ground truth y la caché, sigue
-[`docs/local-setup.md`](docs/local-setup.md); `pnpm doctor` dice qué falta.
+<sub>Sobre los 9 estados de cuenta de desarrollo, con Gemini 3.8 Flash.</sub>
 
-**Necesitas:**
+</div>
 
-- Node 24 o posterior.
-- pnpm 11: `corepack enable` lo instala con la versión fijada en `package.json`.
-- Una llave de Anthropic. La de Google es opcional, pero abarata la extracción unas 5 veces.
+---
 
-**Instalación:**
+## Contenido
+
+- [Para quien evalúa](#para-quien-evalúa)
+- [Qué hace](#qué-hace)
+- [Requisitos](#requisitos)
+- [Levantarlo con Docker Compose](#levantarlo-con-docker-compose)
+- [Configuración inicial](#configuración-inicial)
+- [Cómo opera la demo](#cómo-opera-la-demo)
+- [Cómo se decide el crédito](#cómo-se-decide-el-crédito)
+- [Qué se puede configurar](#qué-se-puede-configurar)
+- [Arquitectura](#arquitectura)
+- [Precisión y control de errores del modelo](#precisión-y-control-de-errores-del-modelo)
+- [CI/CD y despliegue](#cicd-y-despliegue)
+- [Límites y pendientes](#límites-y-pendientes)
+- [Estructura del repositorio](#estructura-del-repositorio)
+- [English summary](#english-summary)
+
+## Para quien evalúa
+
+| Entregable | Dónde |
+|---|---|
+| Código y cómo correrlo | Este README, [Levantarlo con Docker Compose](#levantarlo-con-docker-compose) |
+| Lo que entendimos, supuestos y alcance | [`docs/00-spec.md`](docs/00-spec.md) |
+| Decisiones de diseño y por qué | [Arquitectura](#arquitectura), [Cómo se decide el crédito](#cómo-se-decide-el-crédito) y el diseño completo en `docs/01` a `docs/09` |
+| Prompts | [`prompts/`](prompts/), versionados, con su [changelog](prompts/CHANGELOG.md) |
+| Contratos de datos | [`docs/schema/`](docs/schema/): JSON Schema generado desde Zod |
+| CI/CD | [`.github/workflows/`](.github/workflows/) y [CI/CD y despliegue](#cicd-y-despliegue) |
+| Plan de despliegue | [`docs/deploy.md`](docs/deploy.md): Cloud Run, Supabase y Vercel |
+
+## Qué hace
+
+```mermaid
+flowchart LR
+    pdf([PDF del estado de cuenta]) --> ext[1 · Extrae]
+    ext --> ver[2 · Verifica]
+    ver --> per[3 · Perfil crediticio]
+    per --> pol[4 · Política del prestamista]
+    pol --> res{¿Un dato dudoso<br/>cambia el resultado?}
+    res -- sí --> ask[5 · Pregunta al proveedor]
+    ask --> per
+    res -- no --> out([Veredicto, línea máxima<br/>y qué lo cambiaría])
+```
+
+1. **Extrae** encabezado, resumen, movimientos y el CFDI que timbra el banco. Cada valor trae la
+   página y el fragmento de donde salió.
+2. **Verifica** la extracción contra la aritmética del propio banco: saldo inicial más abonos menos
+   cargos igual a saldo final, totales y conteos impresos, saldo corrido, CLABE, RFC y fechas. Lo que
+   no cuadra se relee página por página.
+3. **Calcula un perfil**: ingresos operativos, capacidad de pago, servicio de deuda, recurrencia,
+   pagos del comprador, alertas.
+4. **Aplica la política del prestamista** (el tenant) con un motor determinista. Ningún modelo decide.
+5. **Pregunta al proveedor** por WhatsApp cuando un movimiento ambiguo puede cambiar el resultado.
+   Con su respuesta, decide.
+
+Cada solicitud termina en uno de seis estados:
+
+| Estado | Significa |
+|---|---|
+| `qualified` | Califica con la línea completa de su banda |
+| `qualified_with_limit` | Califica con una línea menor o con tope |
+| `not_qualified` | No califica; el diagnóstico dice qué lo cambiaría |
+| `needs_clarification` | Falta una respuesta del proveedor antes de decidir |
+| `human_review` | Un analista confirma antes de responder |
+| `failed` | No se pudo leer el documento; el motivo queda registrado |
+
+## Requisitos
+
+| Necesitas | Para qué |
+|---|---|
+| **Docker** con **Docker Compose v2** (Docker Desktop en Mac o Windows) | Todo corre en contenedores. Compose necesita soportar `--wait` |
+| **Node 24+** y **pnpm** (`corepack enable`) | Solo para lanzar `pnpm stack:up` y generar los secretos locales la primera vez. No hace falta `pnpm install` |
+| Unos **8 GB de disco** libres | Las imágenes de Supabase (unos 6.5 GB) y la imagen de la app |
+| Puertos libres en `127.0.0.1` | `5173` (backoffice), `3000` (API), `54340` a `54343` (Postgres, gateway, Studio, correo) |
+| **`ANTHROPIC_API_KEY`** (obligatoria) | Doble lectura, extracción de emergencia, clasificación de respaldo y redacción de mensajes |
+| **`GEMINI_API_KEY`** (recomendada) | Extracción con Gemini 3.8 Flash. Sin ella extrae Claude Opus 5.5, unas 5 veces más caro |
+| `TYPESAFE_API_KEY` (opcional) | Clasificación con Jev. Sin ella clasifica Claude Haiku 5.5 |
+| `RESEND_API_KEY` y `RESEND_FROM` (opcional) | Correos de acceso al backoffice por Resend. Sin ellas llegan al buzón local |
+| Un **teléfono con WhatsApp** | Para vincular el número del prestamista escaneando un QR. Conviene un número de prueba |
+
+## Levantarlo con Docker Compose
 
 ```bash
-git clone <este repositorio> gow-credit
+git clone https://github.com/moydany/gow-credit.git
 ```
 
 ```bash
@@ -36,450 +110,393 @@ cd gow-credit
 ```
 
 ```bash
-corepack enable
-```
-
-```bash
-pnpm install --frozen-lockfile
-```
-
-```bash
 cp .env.example .env
 ```
 
-En `.env`:
-
-| Variable | ¿Hace falta? | Qué hace |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | sí | Doble lectura, emergencia de extracción, clasificación de respaldo (Haiku) y redacción de preguntas. Sin llave de Google, también extrae (Claude Opus). |
-| `GEMINI_API_KEY` | recomendada | Extracción con Gemini 3.8 Flash (ADR 0011). |
-| `TYPESAFE_API_KEY` | opcional | Clasificación con Jev. Sin ella clasifica Haiku y el reporte lo dice. |
-
-**Correr** sobre una carpeta con los PDFs (o sobre PDFs sueltos):
-
-```bash
-pnpm run evaluate /ruta/a/los/pdfs
-```
-
-Las rutas pueden ser absolutas o relativas a donde escribes el comando. Cada documento se
-evalúa como una solicitud independiente. La consola muestra una línea por documento con su
-estado, sus preguntas, sus llamadas y su costo; **nunca muestra datos del documento**.
-`pnpm run evaluate --help` muestra todas las opciones.
-
-**Dos opciones que conviene conocer:**
-
-- **`--as-of AAAA-MM-DD`**, la fecha de cálculo del perfil, que por defecto es hoy. Contra ella
-  se mide la antigüedad del estado de cuenta (`document_age_days`). La política por defecto no
-  se detiene por esa antigüedad (ADR 0054): un documento viejo se analiza igual y la antigüedad
-  queda en el perfil y en el reporte. Para fijar otra fecha, por ejemplo unos días posterior al
-  corte del documento:
-
-  ```bash
-  pnpm run evaluate /ruta/a/los/pdfs --as-of 2026-04-15
-  ```
-
-  El reporte de cada documento dice qué fecha de cálculo se usó.
-- **`--force`**. Un documento ya evaluado en la carpeta de salida no se repite: aparece como "ya
-  evaluada". Con `--force` se vuelve a evaluar. Las llamadas a modelos que ya se hicieron salen de
-  la caché de respuestas (`data/llm-cache/`), sin costo.
-
-**Política.** Por defecto se usa `policies/examples/standalone-evaluation.v1.json`, y la primera
-línea de la salida lo dice. Es la plantilla base sin la compuerta de antigüedad del estado de
-cuenta: los documentos que se evalúan son de fecha desconocida y un corte de hace más de 90 días
-no debe detenerlos (ADR 0054). Las opciones relacionadas:
-
-- `--policy base` usa la plantilla base tal cual, con la compuerta de 90 días de un prestamista
-  real.
-- `--policy <archivo.json>` usa cualquier otra política.
-
-**Datos de la solicitud.** Sin monto ni comprador, la salida da el perfil, el estado y la
-**línea máxima**: el mayor monto que la política aprobaría. Para evaluar una solicitud concreta:
-
-```bash
-pnpm run evaluate /ruta/a/los/pdfs --request amount=180000,buyer="Cadena Norte"
-```
-
-**Aclaraciones.** Si una solicitud se pausa, sus preguntas quedan en `<id>.md`, en `outbox/` y
-en `answers.template.json`. Para contestarlas:
-
-- desde un archivo: copia la plantilla, elige una respuesta por pregunta y reanuda con
-  `--answers <archivo>`;
-- en la terminal: usa `--interactive`.
-
-### Qué sale
-
-Todo va a `data/out/evaluate/`, o a la carpeta que indiques con `--out`. Por documento `<id>`:
-
-| Archivo | Contenido |
-|---|---|
-| `<id>.extraction.json` | Extracción con el contrato `StatementExtraction` (`docs/schema/`): cuentas, periodos, movimientos y CFDI. Cada valor trae su página, su fragmento, su verificación y su confianza. |
-| `<id>.result.json` | `ApplicationResult`: perfil, veredicto con diagnóstico completo, contrafactuales, aclaración y costo por propósito y modelo. |
-| `<id>.md` | Reporte legible. Lo que no se verificó va marcado. |
-| `<id>.llm.jsonl` | Cada llamada al modelo tal cual, una por línea: system prompt, instrucción, respuesta o salida cruda, error, tokens y costo (ADR 0064). Lleva datos del documento. |
-| `summary.md`, `summary.json` | Una fila por documento: estado, línea máxima, preguntas y costo de la corrida. |
-| `extraction-summary.csv`, `extraction-summary.json` | Resumen plano de la extracción, para contrastarla con una verdad de referencia: una fila por documento (y por cuenta si trae varias) con los campos de encabezado. |
-| `answers.template.json` | Solo si alguna solicitud quedó pausada. |
-
-El resumen plano trae estas columnas, con los nombres en inglés y las rutas de `StatementExtraction`:
-`file, document_type, bank, holder_name, holder_rfc, account_number, clabe, currency, period_start,
-period_end, opening_balance, closing_balance, total_credits, total_debits, credits_count,
-debits_count, transactions_extracted, reconciled, cfdi_uuid, extraction_status`.
-
-- Lo que el banco no imprimió va vacío; no se calcula ni se completa con otra cosa. Los totales y
-  conteos son los impresos por el banco, no la suma de los movimientos extraídos.
-- Con varios periodos en una cuenta (un PDF con varios meses impresos por separado), `period_start`
-  y `period_end` abarcan todos, el saldo inicial es el del primero, el final el del último, y los totales y
-  conteos son la suma de los periodos.
-- `reconciled` es `true` si todos los periodos cuadran contra el banco y `false` si alguno no.
-  `cfdi_uuid` lleva los folios fiscales separados por `;` si el documento trae varios.
-- El CSV lleva encabezado, comas y comillas donde hacen falta, e importes con dos decimales. La
-  consola nunca muestra estos valores.
-
-Los estados son los canónicos de `docs/README.md`: `qualified`, `qualified_with_limit`,
-`not_qualified`, `needs_clarification`, `human_review` y `failed`. Un documento que no se puede
-extraer termina en `failed` con su motivo, y el comando sigue con el siguiente.
-
-### Costo estimado
-
-Las cifras salen de corridas reales sobre los 9 documentos de desarrollo, a
-precio de lista:
-
-| | Por documento (promedio) | 10 documentos de evaluación |
-|---|---|---|
-| Con `GEMINI_API_KEY` (Gemini 3.8 Flash) | USD 0.20 | unos USD 2 |
-| Solo con `ANTHROPIC_API_KEY` (Claude Opus 5.5) | USD 1.02 | unos USD 10 |
-| Clasificación y redacción (Jev o Haiku) | USD 0.002 | USD 0.02 |
-
-- El costo varía con el número de páginas y de movimientos. El documento más caro fue Nu
-  (332 movimientos): USD 0.32 con Gemini.
-- **Gemini sube de precio el 2027-01-01**: entrada y salida al doble, de 0.75 / 3.75 a
-  1.50 / 7.50 USD por millón de tokens. Las cifras de Gemini de arriba se duplican desde esa
-  fecha. Los precios están en `packages/llm/src/models.ts`, verificados en la página oficial.
-- Cada corrida imprime su costo real, y `<id>.result.json` lo desglosa.
-- Repetir con la caché de respuestas cuesta cero. Con `--cache read` el comando no hace ninguna
-  llamada nueva: si falta una respuesta, falla en lugar de pagar.
-
-### Privacidad del dataset
-
-- **Los PDFs salen de tu máquina hacia tres proveedores:**
-
-  | Proveedor | Cuándo | Qué recibe |
-  |---|---|---|
-  | Google (Gemini API de pago) | con `GEMINI_API_KEY` | el PDF completo, para extraer |
-  | Anthropic | siempre | el PDF en la doble lectura, en la emergencia de extracción y, sin llave de Google, en la extracción; el texto de las primeras páginas y las descripciones de los movimientos cuando clasifica Haiku |
-  | TypeSafe AI (Jev) | con `TYPESAFE_API_KEY` | el texto de las primeras páginas y las descripciones de los movimientos |
-
-  Las condiciones de uso de datos de cada uno están en
-  [`docs/05-seguridad.md`](docs/05-seguridad.md), en la sección "Cambios durante la
-  implementación".
-- **Nada de esto se versiona.** `data/` está en `.gitignore`: PDFs, extracciones, ground truth,
-  caché de respuestas y salidas. Lo único que se versiona son PDFs adversarios sintéticos y sus
-  respuestas, para la eval de inyección.
-- **Los logs y la consola no llevan datos personales.** Muestran estados, conteos, costos y
-  nombres de campo.
-
-### Qué reproducibilidad se promete
-
-- **Mismo PDF y misma caché: la misma salida.** La caché de respuestas usa como llave el hash del
-  modelo, el prompt, el esquema y el documento, así que una repetición devuelve exactamente lo
-  mismo y cuesta cero. El perfil y el veredicto salen de un motor puro: la misma extracción, la
-  misma política y la misma fecha de cálculo dan el mismo veredicto.
-- **Una llamada nueva al modelo no es determinista.** Lo que sí se garantiza es que toda
-  extracción pase por el contrato, los validadores y el cuadre contra los saldos impresos. Una
-  diferencia entre dos lecturas aparece como bandera o pregunta, nunca en silencio.
-- **Versiones fijadas**: modelos en `packages/llm/src/models.ts`, prompts versionados en
-  `prompts/` con su [changelog](prompts/CHANGELOG.md), y dependencias en `pnpm-lock.yaml`. En modo
-  full los prompts también viven en la base: la página Prompts del backoffice crea versiones y elige
-  la activa, sin evals hasta que pasan a `prompts/` (ADR 0065). `pnpm run evaluate` y las evals
-  leen siempre los archivos.
-
-## Modo full
-
-Es el mismo workflow con persistencia y canales.
-
-### Todo con un comando (recomendado)
-
-Levanta Supabase, las migraciones, la API, el worker, WhatsApp y el backoffice con docker compose
-(ADR 0061). Necesitas Docker y Node; la primera vez construye la imagen y descarga las de Supabase:
+Abre `.env` y pon al menos `ANTHROPIC_API_KEY` y `GEMINI_API_KEY`. Después:
 
 ```bash
 pnpm stack:up
 ```
 
-Abre `http://127.0.0.1:5173`: el wizard del primer inicio crea al prestamista y a su administrador
-(ADR 0060) y termina con el QR para vincular WhatsApp. No hay nada más que configurar. Para que el
-worker extraiga documentos nuevos pon tus llaves en el `.env` de la raíz (`cp .env.example .env`); sin
-ellas solo corre lo que esté en caché. Los enlaces de acceso de Supabase Auth llegan por Resend si el
-`.env` trae `RESEND_API_KEY` (ADR 0063); si no, se leen en Inbucket, `http://127.0.0.1:54343`.
-
-| Comando | Qué hace |
-|---|---|
-| `pnpm stack:up` | Genera los secretos de desarrollo si faltan, construye y levanta todo |
-| `pnpm stack:ps` | Estado de los servicios |
-| `pnpm stack:logs` | Registros de la API, el worker y WhatsApp |
-| `pnpm stack:down` | Detiene; los datos se conservan |
-| `pnpm stack:reset` | Detiene y borra base, sesión de WhatsApp y documentos |
-
-### Procesos a mano
-
-Lo mismo, cada proceso en su terminal (para desarrollar). Corre en local con Docker:
-
-```bash
-docker compose up -d
-```
-
-```bash
-pnpm db:migrate
-```
-
-```bash
-pnpm api
-```
-
-En un sistema vacío, abre el backoffice (`pnpm web`, `http://127.0.0.1:5173`): el wizard del primer inicio crea al prestamista y a su administrador y te deja vincular WhatsApp (ADR 0060). Por terminal también se puede: `pnpm tenant create --name "Prestamista demo"`, que además imprime la llave de API; con el wizard, la llave (la que pide `pnpm demo:load --key`) se crea en Configuración.
-
-```bash
-LLM_CACHE_MODE=read pnpm worker
-```
-
-| Comando | Qué hace |
-|---|---|
-| `docker compose up -d` | Postgres 17 con los roles de `docs/05` §2 |
-| `pnpm db:migrate` | Tablas con RLS forzada por tenant |
-| `pnpm tenant create --name ...` | Imprime la llave de API del tenant |
-| `pnpm api` | API: subida por URL firmada, solicitudes, aclaraciones, políticas y outcomes |
-| `pnpm worker` | pg-boss y el workflow de Mastra. Con `LLM_CACHE_MODE=read` solo usa respuestas guardadas: costo cero, y si falta una, falla |
-| `pnpm whatsapp` | Canal de WhatsApp (Baileys). Descubre solo al tenant (el único que exista, y espera a que el wizard lo cree); `WHATSAPP_TENANT_ID` solo con varios tenants o en producción. El número se vincula escaneando el QR en el backoffice (Configuración); en una terminal interactiva también lo imprime |
-
-**Backoffice:**
-
-```bash
-pnpm tenant user add --tenant <id> --email <correo>
-```
-
-```bash
-pnpm demo:load --key <llave>
-```
-
-```bash
-pnpm web
-```
-
-El primero imprime el enlace de acceso y el segundo carga `data/dev` por la API. Para vincular
-WhatsApp, con `pnpm whatsapp` corriendo (sin variables: encuentra solo al tenant), se escanea el QR en
-Configuración → Canales; ahí mismo se desvincula o se cambia de número (ADR 0033). Sin WhatsApp
-vinculado, las aclaraciones se responden a mano desde el backoffice.
-
-La página Prompts muestra los prompts de los modelos con sus versiones (ADR 0065). Son globales: crear y
-activar versiones lo pueden los correos de `BACKOFFICE_PROMPT_EDITORS` (o `*`) y, sin esa variable,
-cualquier usuario mientras haya una sola institución crediticia. El worker toma la versión activa en
-unos 15 segundos.
-
-### Modo full con Supabase local
-
-El mismo modo full contra un Supabase autohospedado y recortado (ADR 0034). Incluye Postgres,
-Auth, PostgREST, Storage, Studio, el gateway Envoy e Inbucket para los correos. Ahí `postgres` no
-es superusuario, igual que en un proyecto de Supabase. Convive con `docker-compose.yml`: usa otros
-puertos y otros volúmenes.
-
-1. Genera los secretos de desarrollo. Escribe `infra/supabase/.env` y `infra/supabase/app.env`,
-   ignorados por git; si `.env` ya existe, lo conserva:
-
-   ```bash
-   pnpm supabase:env
-   ```
-
-2. Levanta el stack y espera a que todo esté sano (la primera vez descarga unos 6.5 GB):
-
-   ```bash
-   pnpm supabase:up
-   ```
-
-3. Carga el entorno de la app en tu shell. Gana sobre el `.env` de la raíz, que no se toca:
-
-   ```bash
-   set -a; . infra/supabase/app.env; set +a
-   ```
-
-4. Desde esa misma shell, migra, prueba y corre lo que necesites:
-
-   ```bash
-   pnpm db:migrate
-   ```
-
-   ```bash
-   pnpm test
-   ```
-
-   ```bash
-   pnpm scenario run --all --mode full
-   ```
-
-   ```bash
-   pnpm tenant create --name "Prestamista Supabase"
-   ```
-
-   ```bash
-   pnpm api
-   ```
-
-   ```bash
-   pnpm worker
-   ```
-
-   `app.env` trae `LLM_CACHE_MODE=read`, así que el worker no gasta en modelos. Para `pnpm web`
-   no hace falta el entorno: Vite manda `/bo` a la API en `127.0.0.1:3000`.
+La primera vez genera los secretos de desarrollo, descarga Supabase y construye la imagen de la app;
+tarda varios minutos. Termina cuando todos los servicios están sanos e imprime las direcciones:
 
 | Dirección | Qué es |
 |---|---|
-| `127.0.0.1:54340` | Postgres. Migraciones con `postgres`, procesos con `gow_*` |
-| `http://127.0.0.1:54341` | Gateway (`SUPABASE_URL`): `/auth/v1`, `/rest/v1`, `/storage/v1`, con `apikey` |
-| `http://127.0.0.1:54342` | Studio, sin contraseña porque solo escucha en local |
-| `http://127.0.0.1:54343` | Inbucket: los correos de Auth, como los magic links |
+| http://127.0.0.1:5173 | **Backoffice**. La primera vez abre el asistente de configuración |
+| http://127.0.0.1:3000 | API |
+| http://127.0.0.1:54342 | Supabase Studio, para ver la base |
+| http://127.0.0.1:54343 | Buzón local con los correos de acceso |
 
-#### Entrar al backoffice con tu correo
+| Comando | Qué hace |
+|---|---|
+| `pnpm stack:up` | Genera los secretos si faltan, construye y levanta todo |
+| `pnpm stack:ps` | Estado de cada servicio |
+| `pnpm stack:logs` | Registros de la API, el worker y WhatsApp |
+| `pnpm stack:down` | Detiene todo y conserva los datos |
+| `pnpm stack:reset` | Detiene y borra la base, la sesión de WhatsApp y los documentos |
 
-Con `app.env` cargado, el backoffice entra con Supabase Auth (ADR 0035). Un hook de la migración
-0008 agrega `tenant_id` al token de quien es miembro de un tenant; por eso `pnpm db:migrate` va
-antes. Sin registro público: la cuenta se crea al dar de alta al usuario.
+> [!TIP]
+> Si los puertos 5173 o 3000 están ocupados: `GOW_WEB_PORT=8080 GOW_API_PORT=3100 pnpm stack:up`.
 
-1. Desde la shell con `app.env`, da de alta tu correo en el tenant. Crea la pertenencia y la
-   cuenta de Auth con el mismo id (también imprime el enlace de desarrollo, que sigue sirviendo):
+> [!NOTE]
+> Todo escucha solo en `127.0.0.1`. Los secretos que genera `pnpm stack:up` son de desarrollo y
+> viven en `infra/supabase/.env`, fuera de git.
 
-   ```bash
-   pnpm tenant user add --tenant <id del tenant> --email tu@correo.mx
-   ```
+## Configuración inicial
 
-2. Arranca `pnpm api` en esa shell y `pnpm web` en otra.
-3. Abre `http://127.0.0.1:5173/entrar`, escribe tu correo y pulsa "Mandar enlace".
-4. El correo llega a Inbucket, en `http://127.0.0.1:54343`, buzón con la parte de tu correo antes
-   de la `@`. Abre "Sign in" en el mismo navegador: GoTrue te regresa a `/entrar` y entras.
+Con el sistema vacío, el backoffice abre un asistente de dos pasos. No hace falta la terminal.
 
-Notas:
+1. **Cuenta.** Escribe el nombre del prestamista y el correo del administrador. Se crean el
+   prestamista, su política base activa y el administrador, y entras directo con una sesión de 8 h.
+2. **WhatsApp.** Aparece un QR. En el teléfono: *WhatsApp → Dispositivos vinculados → Vincular un
+   dispositivo* y escanéalo. En unos segundos el backoffice muestra el número vinculado. Puedes
+   *Omitir por ahora* y vincularlo después en **Configuración → General → Canales**; mientras tanto, las
+   aclaraciones se responden a mano desde el backoffice.
 
-- La sesión se renueva sola (ADR 0036) mientras uses el backoffice: hasta 12 h desde que
-  entraste (`BACKOFFICE_SESSION_MAX_HOURS`) o hasta 8 h sin usarlo
-  (`BACKOFFICE_SESSION_IDLE_HOURS`). Después vuelves a pedir el enlace. Salir cierra también la
-  sesión de Supabase Auth.
-- GoTrue manda un correo por dirección cada 60 s; uno pedido antes no llega.
-- Un correo sin cuenta recibe la misma respuesta y ningún correo.
-- Desde Configuración, invitar a alguien crea su cuenta y le manda el enlace.
-- El enlace de Inbucket regresa a `http://127.0.0.1:5173`. Si la web corre en otro puerto,
-  agrégalo a `ADDITIONAL_REDIRECT_URLS` en `infra/supabase/.env` y cambia `BACKOFFICE_URL` en
-  `app.env`.
+Después, desde **Configuración**:
 
-`BACKOFFICE_JWT_SECRET` es el JWT secret del proyecto, así que el enlace de `pnpm tenant user
-add` y los tokens de Supabase Auth los firma la misma llave. Falta por conectar el adaptador de
-Supabase Storage: Storage corre, pero los documentos siguen en disco, en `data/storage-supabase`.
+- **Usuarios**: invitar a más personas. Les llega un enlace de acceso por correo (al buzón local en
+  `:54343` si no configuraste Resend).
+- **Volver a entrar**: en `/entrar`, escribe tu correo y abre el enlace que llega.
 
-`pnpm supabase:down` detiene el stack y conserva los datos. Para empezar de cero:
+## Cómo opera la demo
 
-```bash
-docker compose -f docker-compose.supabase.yml --env-file infra/supabase/.env down -v
+El prestamista vincula su número; los proveedores le escriben a ese número. Cualquier número
+desconocido puede registrarse mandando su estado de cuenta (se apaga con
+`WHATSAPP_SELF_REGISTRATION=false`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P as Proveedor
+    participant W as WhatsApp del prestamista
+    participant S as GOW Credit
+    actor A as Analista (backoffice)
+
+    P->>W: Hola
+    W-->>P: Te escribe el asistente de… Mándame tu estado de cuenta en PDF
+    P->>W: estado-de-cuenta.pdf
+    W-->>P: Recibí tu estado de cuenta y lo estoy leyendo
+    S->>S: Extrae, verifica, calcula el perfil
+    W-->>P: Está a nombre de X, con RFC Y. ¿Son correctos?
+    P->>W: sí
+    opt Un movimiento dudoso puede cambiar el resultado
+        W-->>P: Pregunta 1 de 2. Abono de $150,000 del 15 de septiembre… 1) Pago de un cliente 2) Préstamo 3) Traspaso entre mis cuentas…
+        P->>W: 1, 3
+        W-->>P: Esto es lo que entendí… ¿Es correcto?
+        P->>W: sí
+        S->>S: Decide con las respuestas
+    end
+    alt Califica
+        W-->>P: Buenas noticias: calificas hasta por $X. ¿Cuánto quieres adelantar?
+        P->>W: 180 mil
+        S->>S: Vuelve a decidir con el monto, sin llamar a modelos
+        W-->>P: Revisamos tu solicitud de adelanto de $180,000…
+    else No califica
+        W-->>P: Por ahora no calificas, porque… Si tu situación cambia, mándanos uno más reciente
+    else Necesita revisión
+        W-->>P: Un analista necesita confirmar algunos datos. Te avisaremos por aquí
+        A->>S: Revisa, corrige o responde y reevalúa
+        W-->>P: Resultado final
+    end
 ```
 
-```bash
-pnpm supabase:env --force
+**Lo que hace el bot en cada paso:**
+
+- **Registro.** Lee el titular y el RFC del estado de cuenta y pide confirmarlos. Si no son
+  correctos, pide nombre y RFC; si el RFC es de persona moral, también el representante legal. El RFC
+  que escribe tiene que empezar como la raíz impresa.
+- **Documentos que no sirven.** Un PDF con contraseña, un escaneo ilegible, algo que no es estado de
+  cuenta o varios estados de cuenta en un PDF reciben una respuesta concreta, y el bot vuelve a
+  esperar un PDF.
+- **Preguntas.** Una a la vez, con opciones numeradas. Acepta varias respuestas en un mensaje
+  (`1, 3`), correcciones libres ("me equivoqué, la 2 era préstamo") y "no sé". Antes de evaluar
+  muestra un resumen para confirmar. Lo que no entiende con reglas lo interpreta Claude Haiku, pero
+  solo eligiendo entre las opciones; nunca inventa una respuesta.
+- **Monto.** Primero ofrece la línea máxima y luego pregunta cuánto quiere adelantar ("180000",
+  "180 mil", "1.2 millones" u "omitir"). Más que la línea se repregunta.
+- **Lo que nunca sale por el chat:** saldos, CLABE, ni los motivos internos del motor.
+
+**En el backoffice** (http://127.0.0.1:5173):
+
+| Pantalla | Para qué |
+|---|---|
+| Solicitudes | Cada solicitud con su estado, línea y alertas |
+| Detalle | El PDF junto a la extracción: un clic en un valor salta a su página y fragmento. Perfil, veredicto con diagnóstico completo y contrafactuales |
+| Recorrido | La solicitud paso a paso en 3D: mensajes, lecturas, llamadas a modelos y decisiones |
+| Aclaraciones | Preguntas pendientes; se responden a mano si el proveedor no tiene WhatsApp |
+| Revisión | Correcciones del analista sobre la extracción; se guardan como pares inmutables y reevalúan |
+| Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo |
+| Outcomes | Si cada crédito se pagó o cayó en mora, para medir la política |
+| Bitácora | Quién hizo qué, y cada llamada a un modelo con su costo |
+| Configuración | General (antigüedad del estado de cuenta, WhatsApp, usuarios), Políticas y Prompts |
+
+## Cómo se decide el crédito
+
+GOW Credit no presta: da la infraestructura para que cada prestamista aplique **su** política. Por
+eso la decisión está separada en tres capas.
+
+```mermaid
+flowchart LR
+    subgraph GOW["Lo controla GOW"]
+        F["Perfil<br/>catálogo fijo de features,<br/>mismas reglas para todos"]
+    end
+    subgraph T["Lo controla cada prestamista"]
+        P["Política JSON<br/>compuertas, puntaje,<br/>bandas, topes"]
+    end
+    F --> M["Motor determinista<br/>sin modelos"] --> D["Veredicto + diagnóstico<br/>+ qué lo cambiaría"]
+    P --> M
 ```
 
-Para producción, el plan está en [`docs/deploy.md`](docs/deploy.md): Cloud Run, Supabase y Vercel.
+**¿Por qué así?** Un "no" sin explicación no le sirve al proveedor ni al prestamista. El motor da
+el resultado, cada razón y los **contrafactuales**: el cambio mínimo que movería el estado o la línea
+("con dos pagos más del comprador pasarías a `qualified`"). Es el "motor de segunda oportunidad": un
+rechazo se convierte en un camino. Y como el motor es puro, la misma extracción, la misma política y
+la misma fecha dan siempre el mismo veredicto.
 
-## Otros comandos
+### 1. Compuertas: lo que detiene antes de puntuar
 
-| Comando | Qué hace | Costo |
+| Compuerta | Pasa si | Si no pasa | Por qué |
+|---|---|---|---|
+| Documento reciente | El corte tiene 90 días o menos | Pide uno reciente | Un estado de cuenta viejo no describe el flujo actual. En el backoffice se cambia por una alerta que no bloquea |
+| Páginas completas | Trae todas las páginas que imprime su paginación | Pide las que faltan | Una página omitida puede esconder cargos |
+| Integridad | Cuadra contra los saldos y totales del banco | `human_review` | Si no cuadra, la extracción o el documento tienen un problema |
+| Sin alertas | No hay sobregiro, cheque devuelto, embargo, orden judicial ni requerimiento fiscal | `human_review` | Son señales de riesgo que un analista debe ver |
+| Sin manipulación | Ningún texto dirigido al sistema, cadena fiscal coherente, sin páginas repetidas | `human_review` | Protege contra documentos alterados o instrucciones escondidas |
+| Sin atraso | Sin días de atraso en créditos vigentes con este prestamista | `not_qualified` | Un atraso actual pesa más que cualquier puntaje |
+
+### 2. Puntaje: cinco dimensiones, de 0 a 100
+
+| Dimensión | Peso | Qué mide | 0 puntos | Completo |
+|---|---:|---|---|---|
+| Capacidad | 35 | Ingreso operativo mensual frente al monto pedido | 0.5× el monto | 3× el monto |
+| Comprador | 25 | Pagos identificados del comprador (la cadena) | 0 pagos | 2 pagos |
+| Estabilidad | 15 | Capacidad de pago: flujo libre / ingresos | 10 % | 50 % |
+| Deuda | 15 | Servicio de deuda / ingresos (menos es mejor) | 40 % | 10 % |
+| Recurrencia | 10 | Parte de los ingresos que se repite | 20 % | 60 % |
+
+**¿Por qué estos pesos?** El pronto pago se paga con el flujo del propio proveedor y, sobre todo,
+con la factura que le debe la cadena. Por eso capacidad y comprador suman 60. Los "ingresos
+operativos" excluyen traspasos entre cuentas propias, préstamos recibidos y abonos dudosos: inflar
+ingresos con dinero propio es el engaño más común en un estado de cuenta. Un dato con confianza
+menor a 0.7 no cuenta para el puntaje.
+
+### 3. Bandas, topes y línea
+
+| Puntaje | Estado | Línea de la banda |
 |---|---|---|
-| `pnpm doctor` | Revisa herramientas, llaves de `.env` (sin mostrarlas) y datos de esta máquina | 0 |
-| `pnpm typecheck` | TypeScript estricto en todo el monorepo | 0 |
-| `pnpm lint` | ESLint con reglas estrictas con tipos | 0 |
-| `pnpm test` | Pruebas unitarias. Las de Postgres se saltan si no está arriba | 0 |
-| `pnpm eval` | Evals de extracción contra el ground truth y umbral por banco; inyección y clasificador. Necesita `data/` y su caché, que no se versionan | 0 desde caché |
-| `pnpm scenario run --all` | Escenarios de punta a punta de `docs/06` en modo unitario. Con `--mode full`, con Postgres | 0 |
-| `pnpm extract <pdf\|carpeta>` | Solo la extracción, con tokens y costo por documento | pagado |
-| `pnpm decide <extracción.json>` | Perfil y veredicto sobre una extracción ya hecha | 0 |
-| `pnpm simulate --policy <json>` | Política borrador contra la vigente sobre un conjunto de perfiles | 0 |
-| `pnpm corrections:export --tenant <id>` | Correcciones del analista a `data/corrections/`; `pnpm -F @gow/evals corrections` las mide contra el modelo actual | 0 |
-| `pnpm -F @gow/evals gt:review sample` | Muestra del ground truth para revisar a mano contra el PDF; `record --reviewer <iniciales>` guarda el resultado sin valores | 0 |
-| `pnpm data:pack` / `pnpm data:unpack` | Paquete cifrado con `data/dev`, el ground truth y la caché, para pasarlos a otra máquina (`EVAL_BUNDLE_KEY`) | 0 |
+| 70 o más | `qualified` | 50 % del ingreso operativo mensual |
+| 50 a 69 | `qualified_with_limit` | 25 % del ingreso operativo mensual |
+| Menos de 50 | `not_qualified` | — |
 
-Los 9 PDFs de desarrollo no están en el repositorio. Con el enlace compartido, se descargan y se
-verifican contra su manifiesto de hashes:
+- **Topes**: con menos de 3 meses de historia, o sin ningún pago del comprador, lo máximo es
+  `qualified_with_limit`. Poca historia no alcanza para la línea completa.
+- **Línea final** = el menor entre la línea de la banda, la capacidad de endeudamiento menos lo que ya
+  debe con este prestamista, y el cupo disponible del programa del comprador.
+- **Aclaraciones**: hasta 2 rondas de preguntas. Solo se pregunta por abonos dudosos mayores al 30 %
+  de los ingresos del periodo y que puedan cambiar el estado o la línea.
 
-```bash
-scripts/download-dev-data.sh
+## Qué se puede configurar
+
+| Dónde | Qué | Valores |
+|---|---|---|
+| Backoffice → Configuración → General | Antigüedad máxima del estado de cuenta | 1, 2, 3 (por defecto), 6 o 12 meses, o sin límite. Fuera del límite queda una alerta, no se bloquea |
+| Backoffice → Configuración → General | Número de WhatsApp | Vincular, desvincular o cambiar escaneando un QR |
+| Backoffice → Configuración → General | Usuarios | Invitar o quitar personas; todas ven y operan las solicitudes del prestamista |
+| Backoffice → Configuración → Políticas | **La política completa** | Un borrador JSON validado con el mismo esquema que el motor. Antes de activarlo, se **simula** contra las solicitudes reales: cuántas mejoran, empeoran o cambian de línea, y la mora observada. Cada versión queda guardada |
+| Backoffice → Configuración → Prompts | Los prompts de los modelos | Editar crea una versión nueva y activarla es otro paso; se comparan versiones. Son los mismos para todos los prestamistas |
+| `.env` | Llaves de modelos y correo | Ver [Requisitos](#requisitos) |
+| `.env` | `LLM_CACHE_MODE` | `readwrite` (por defecto) o `read`: con `read` nunca llama a un modelo y una repetición cuesta cero |
+| `.env` | `WORKER_MODEL_CONCURRENCY` | Llamadas a modelos en paralelo (por defecto 3) |
+| `.env` | `WHATSAPP_SELF_REGISTRATION` | `true` (por defecto) o `false` |
+| `.env` | `GOW_TIME_ZONE` | Zona del calendario de negocio (por defecto `America/Mexico_City`) |
+| Al levantar | `GOW_WEB_PORT`, `GOW_API_PORT` | Puertos del backoffice y la API |
+
+<details>
+<summary><b>Qué trae una política</b></summary>
+
+La plantilla base está en [`policies/gow-base.v1.json`](policies/gow-base.v1.json) y su esquema en
+[`docs/schema/policy.schema.json`](docs/schema/policy.schema.json).
+
+| Campo | Qué define |
+|---|---|
+| `gates[]` | Compuertas: `feature`, operador, valor, qué pasa si falla (`onFail`) y si el dato falta (`onUnknown`) |
+| `score.dimensions[]` | Dimensiones con `weight`, `zeroAt`, `fullAt`, `relativeTo` e `inverse` |
+| `score.minConfidence` | Confianza mínima del perfil para decidir solo |
+| `decision.bands[]` | Puntaje mínimo, estado y línea (`pctOf` de una feature) |
+| `decision.caps[]` | Condiciones que limitan el estado máximo |
+| `decision.limitFormula` | Cómo se combina la línea final |
+| `clarification` | Rondas máximas y desde qué monto se pregunta |
+
+Solo se pueden usar features del catálogo cerrado; una política con una feature que no existe no
+valida.
+
+</details>
+
+## Arquitectura
+
+```mermaid
+flowchart TB
+    prov([Proveedor]) <-->|WhatsApp| wa
+    analista([Analista]) --> web
+
+    subgraph docker["docker compose · pnpm stack:up"]
+        web["web<br/>backoffice React + Vite<br/>(nginx)"] -->|/bo/v1| api["api<br/>Express 5 + Zod"]
+        wa["whatsapp<br/>Baileys"]
+        worker["worker<br/>pg-boss + workflow Mastra"]
+        subgraph supa["Supabase"]
+            db[("Postgres 17<br/>RLS por prestamista")]
+            auth["Auth<br/>enlaces de acceso"]
+            studio["Studio"]
+        end
+        api --> db
+        wa --> db
+        worker --> db
+        api --> auth
+    end
+
+    worker --> gemini["Gemini 3.8 Flash<br/>extracción"]
+    worker --> claude["Claude Opus 5.5 / Haiku 5.5<br/>doble lectura, emergencia, mensajes"]
+    worker --> jev["Jev<br/>clasificación"]
 ```
 
-## Resultados sobre los documentos de desarrollo
+Una sola imagen corre la API, el worker y WhatsApp; cambia la variable `APP`. Los procesos no se
+llaman entre sí: se coordinan por la base (cola, buzón de salida y estados), así que cualquiera puede
+reiniciarse sin perder trabajo.
 
-Los resultados vienen del ground truth de 9 documentos, con 1,513 movimientos; su procedencia
-está en la ADR 0001.
+**El recorrido de un PDF:** WhatsApp lo guarda y abre una solicitud → la cola entrega el trabajo al
+worker → el workflow extrae, verifica, calcula el perfil y decide → si hay preguntas, el workflow se
+**suspende** y la pregunta sale por el buzón → la respuesta del proveedor **reanuda** el workflow,
+que decide → el veredicto sale por WhatsApp.
 
-| | Gemini 3.8 Flash | Claude Opus 5.5 |
+### Por qué cada pieza
+
+| Pieza | Para qué | Por qué esta y no otra |
+|---|---|---|
+| **Gemini 3.8 Flash** | Extraer el estado de cuenta | En los 9 documentos de desarrollo extrajo igual que Claude Opus (1,513 de 1,513 movimientos, 9 de 9 cuadran) a una quinta parte del costo: USD 1.80 contra 9.16. Recibe el PDF completo y el esquema de salida, con caché implícita |
+| **Claude Opus 5.5** | Emergencia y relecturas | Si Google falla, Opus rehace el documento. Si un bloque no cuadra, Opus lo relee. La doble lectura del encabezado usa la otra familia de modelos, para que dos errores iguales sean improbables |
+| **Claude Haiku 5.5** | Mensajes y respuestas del proveedor | Redacta las preguntas en lenguaje simple y lee las respuestas que las reglas no entienden, siempre eligiendo entre opciones cerradas. Es rápido y barato para textos cortos |
+| **Jev** (TypeSafe AI) | Clasificar documentos y movimientos ambiguos | Da probabilidades calibradas por pregunta, no solo una etiqueta: sirve para decidir cuándo preguntar. 32 de 33 en la eval del clasificador, unos USD 0.015 por cada 1,000 movimientos. Las reglas van primero y Jev solo ve lo que ellas no resuelven; sin llave, Haiku lo reemplaza solo |
+| **Mastra** | Orquestar el workflow | El problema es un pipeline con una pausa que puede durar días: esperar al proveedor. Mastra da `suspend()` y `resume()` persistidos en Postgres, salida estructurada y trazas. Hacerlo a mano era escribir una máquina de estados. Donde Mastra oculta algo que hay que medir, se usa el SDK directo |
+| **Supabase** | Base, acceso y archivos | Postgres con **RLS forzada** por prestamista (un error de aislamiento entre prestamistas es el peor incidente posible), Auth para los enlaces de acceso y Storage, en un solo servicio. En local corre autohospedado con los mismos roles que en producción |
+| **pg-boss** | Cola de trabajos | Extraer un PDF largo toma minutos. pg-boss vive en el mismo Postgres (sin otro broker), con reintentos, cola de fallidos y llave de idempotencia por hash del documento: un PDF repetido no se paga dos veces |
+| **Baileys** | WhatsApp | Vincula un número normal con un QR, sin aprobar plantillas con Meta. Suficiente para una demo; producción usaría la API oficial detrás de la misma interfaz |
+| **Zod** | Contratos | Una sola fuente de verdad: los tipos, la validación en la API y el JSON Schema de `docs/schema/` salen del mismo esquema |
+| **Drizzle** | Acceso a datos | SQL primero, con las políticas RLS en el esquema y migraciones versionadas |
+| **React + Vite** | Backoffice | Una app estática que solo habla con `/bo/v1`; en producción va a un CDN |
+
+## Precisión y control de errores del modelo
+
+La extracción es la métrica que más importa, y un modelo puede inventar. Por eso el sistema no le
+cree al modelo: lo **verifica**.
+
+| Resultado en los 9 documentos de desarrollo | Gemini 3.8 Flash | Claude Opus 5.5 |
 |---|---|---|
 | Movimientos extraídos | 1,513 / 1,513 | 1,513 / 1,513 |
-| Movimientos inventados y omitidos | 0 y 0 | 0 y 0 |
+| Inventados / omitidos | 0 / 0 | 0 / 0 |
 | Encabezado y resumen | 120 / 120 campos | 120 / 120 campos |
 | CFDI | 104 / 107 campos | 106 / 107 campos |
-| Cuadran | 9 / 9 | 9 / 9 |
+| Estados de cuenta que cuadran | 9 / 9 | 9 / 9 |
 | Costo de los 9 | USD 1.80 | USD 9.16 |
 
-El detalle por banco está en
-[`docs/experiments/2026-11-04-phase3-ground-truth-eval.md`](docs/experiments/2026-11-04-phase3-ground-truth-eval.md).
+El ground truth sale de un parser determinista por banco sobre la capa de texto del PDF, arbitrado por
+la aritmética del banco, y nunca del modelo que se mide.
 
-## Estructura
+**Qué protege en documentos que el sistema nunca vio:**
+
+- **Citas.** Cada valor trae página y fragmento. Un valor sin cita queda como no verificado.
+- **La aritmética del banco como ancla.** Saldo inicial + abonos − cargos = saldo final, totales y
+  conteos impresos, saldo corrido movimiento por movimiento. Un error del modelo casi siempre rompe
+  una de estas sumas.
+- **Relectura dirigida.** Lo que no cuadra se relee solo en su página; si sigue sin cuadrar, se marca
+  y el motor lo ve.
+- **Doble lectura** del encabezado con la otra familia de modelos. Si no coinciden, se pregunta.
+- **Validadores**: dígito de control de la CLABE, estructura del RFC, fechas dentro del periodo,
+  cruces con el CFDI.
+- **Inyección de instrucciones.** El texto del PDF es dato, nunca instrucción. Una eval con PDFs
+  adversarios corre en CI y tiene que pasar al 100 %.
+- **Lo que no se puede verificar va marcado**, y si cambia el resultado, se pregunta.
+
+**Reproducibilidad.** Cada respuesta de un modelo se guarda con una llave que incluye el modelo, el
+prompt, el esquema y el hash del documento: repetir con `LLM_CACHE_MODE=read` da exactamente la misma
+salida y cuesta cero. Los modelos, los prompts y las dependencias están fijados. Una llamada nueva a un
+modelo no es determinista, pero toda extracción pasa por el mismo contrato, los mismos validadores y
+el mismo cuadre; una diferencia entre dos lecturas aparece como alerta o pregunta, nunca en silencio.
+
+## CI/CD y despliegue
+
+| Workflow | Cuándo corre | Qué hace |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | Cada push a `main` y cada PR | Typecheck estricto, lint (incluye tamaño, complejidad y duplicados), pruebas unitarias, escenarios de punta a punta con Postgres 17, eval de inyección y del clasificador sin llaves, build del backoffice, imágenes de la API y el worker, gitleaks y osv-scanner |
+| [`eval-extraction.yml`](.github/workflows/eval-extraction.yml) | PRs que tocan prompts, extracción, modelos o contratos | Extracción contra el ground truth con umbral por banco. Restaura los datos privados desde un paquete cifrado y falla si una métrica baja del umbral |
+| [`deploy.yml`](.github/workflows/deploy.yml) | Solo a mano, por entorno (`staging` o `production`) | Imágenes → migración → servicios en Cloud Run, y el backoffice en Vercel. Sin llaves JSON: identidad federada de GitHub a Google, y `production` pide aprobación |
+
+```mermaid
+flowchart LR
+    gh["GitHub Actions"] -->|OIDC| gcp
+    subgraph gcp["Google Cloud"]
+        api2["api · Cloud Run<br/>escala a cero"]
+        worker2["worker · Cloud Run<br/>CPU siempre asignada"]
+        wa2["whatsapp · Cloud Run<br/>1 instancia"]
+        sm["Secret Manager"]
+    end
+    gh --> vercel["Vercel<br/>backoffice estático"]
+    vercel -->|/bo/*| api2
+    api2 & worker2 & wa2 --> supa2[("Supabase gestionado<br/>Postgres · Auth · Storage")]
+```
+
+El plan completo, con regiones, parámetros, secretos, costos de operación y lo que falta crear, está
+en [`docs/deploy.md`](docs/deploy.md).
+
+> [!IMPORTANT]
+> El despliegue está preparado pero no se ejecutó: no se crearon cuentas en la nube.
+
+## Límites y pendientes
+
+- **No desplegado.** El pipeline existe; las cuentas no.
+- **WhatsApp por Baileys**, no por la API oficial de Meta: sirve para la demo, no para producción.
+- **Sin SAT ni buró.** El perfil está diseñado para recibirlos como señales nuevas sin cambiar el
+  motor, pero no están conectados.
+- **Documentos en disco.** Supabase Storage corre, pero el adaptador no está conectado; los PDFs se
+  guardan en un volumen de Docker.
+- **Datos de desarrollo fuera del repositorio.** Los estados de cuenta, el ground truth y la caché
+  nunca se versionan.
+
+## Estructura del repositorio
 
 | Carpeta | Qué hay |
 |---|---|
-| `packages/contracts` | Contratos Zod: extracción, perfil, política, veredicto, solicitud. JSON Schema en `docs/schema/` |
-| `packages/extraction` | Extracción: router de modelos, pasadas, validadores, cuadre, bloque fiscal |
-| `packages/llm` | Modelos y precios, cliente estructurado (Mastra + AI SDK), caché de respuestas, clasificadores |
-| `packages/decision` | Perfil, motor de políticas puro, contrafactuales y simulación |
-| `packages/mastra` | Workflow `processApplication` y el comando `evaluate` |
-| `packages/db`, `packages/platform`, `packages/channels` | Modo full: Drizzle y RLS, pg-boss, correo y WhatsApp |
-| `apps/api`, `apps/worker`, `apps/whatsapp`, `apps/web` | Procesos del modo full y el backoffice |
-| `evals/`, `scenarios/` | Evals con Evalite y escenarios de `docs/06` |
-| `prompts/` | Prompts versionados con su changelog; se siembran en la base en cada `pnpm db:migrate` |
-| `docs/` | Diseño (`00` a `09`), [spec de una página](docs/00-spec.md), [ADRs](docs/adr/README.md), [cómo se construyó](docs/harness.md), [otra máquina](docs/local-setup.md), [despliegue](docs/deploy.md), spikes y experimentos |
+| `apps/api` | API HTTP: backoffice, solicitudes, aclaraciones, políticas, asistente inicial |
+| `apps/worker` | Cola y workflow: extracción, decisión, mensajes salientes |
+| `apps/whatsapp` | Canal de WhatsApp (Baileys) |
+| `apps/web` | Backoffice (React 19 + Vite) |
+| `packages/contracts` | Contratos Zod: extracción, perfil, política, veredicto, solicitud |
+| `packages/extraction` | Router de modelos, pasadas, validadores, cuadre, bloque fiscal |
+| `packages/llm` | Modelos y precios, cliente estructurado, caché de respuestas, clasificadores |
+| `packages/decision` | Perfil, motor de políticas, contrafactuales y simulación |
+| `packages/mastra` | Workflow `processApplication` |
+| `packages/db`, `packages/platform`, `packages/channels` | Base con RLS, cola y almacenamiento, conversación de WhatsApp |
+| `policies/` | Plantilla base de política |
+| `prompts/` | Prompts versionados y su changelog |
+| `evals/`, `scenarios/` | Evals de extracción e inyección; escenarios de punta a punta |
+| `infra/`, `scripts/` | Supabase local, nginx del backoffice, `stack.sh` |
+| `docs/` | Diseño (`00` a `09`), esquemas, despliegue |
 
 ## English summary
 
-GOW Credit takes a supplier's Mexican bank statement (PDF) and:
+GOW Credit reads a supplier's Mexican bank statement (PDF) sent over WhatsApp, extracts every
+transaction with a cited page and snippet, checks it against the bank's own arithmetic, builds a
+credit profile and applies the lender's JSON policy with a deterministic engine. The verdict comes
+with full diagnostics and counterfactuals ("what would change it"). When an ambiguous value could
+change the outcome, it asks the supplier first.
 
-1. extracts header, summary, transactions and the bank's own CFDI (tax receipt), citing a page
-   and a snippet for every value;
-2. checks the extraction against the bank's own arithmetic (balances, totals, running
-   balance);
-3. computes a credit profile;
-4. applies the lender's (tenant's) JSON policy, returning a verdict with full diagnostics and
-   counterfactual next steps;
-5. asks the supplier for clarification when a doubtful value could change the outcome.
+**Run it.** You need Docker with Compose v2, Node 24 with pnpm, an `ANTHROPIC_API_KEY` and
+(recommended) a `GEMINI_API_KEY`. Then `cp .env.example .env`, fill the keys, run `pnpm stack:up`
+and open http://127.0.0.1:5173. A two-step wizard creates the lender and its admin and shows a QR to
+link WhatsApp.
 
-**Quick start.**
-
-1. Use Node 24+ and run `corepack enable`, then `pnpm install --frozen-lockfile`.
-2. Put `ANTHROPIC_API_KEY` in `.env`. `GEMINI_API_KEY` is optional but recommended.
-3. Run `pnpm run evaluate <folder>`.
-4. Optionally add `--as-of YYYY-MM-DD` to set the calculation date. Statement age does not
-   block a decision by default (ADR 0054).
-
-Output goes to `data/out/evaluate/` as an extraction JSON, a result JSON and a Markdown report
-per document, plus `extraction-summary.csv` and `.json`: one flat row per document (and per
-account) with the header fields, to compare against a reference truth. `--help` lists every
-option.
-
-**Cost and privacy.**
-
-- Extraction costs about USD 0.20 per document with Gemini 3.8 Flash and about USD 1.02 with
-  Claude Opus 5.5. Gemini prices double on 2027-01-01.
-- PDFs are sent to Google (extraction), to Anthropic (double read, fallback, classification)
-  and, with a TypeSafe key, page text goes to Jev.
-- Nothing under `data/` is ever committed, and logs carry no personal data.
-
-**Accuracy.** On the 9 development statements (1,513 transactions), both models extract every
-transaction with none invented or missed, and all 9 reconcile.
-
-**Where to read more.**
-
-- Design and decisions: `docs/00-spec.md`, which links to the ADRs.
-- How it was built with a coding agent: `docs/harness.md`.
-- Deployment plan: `docs/deploy.md`.
-- Setting it up on another machine: `docs/local-setup.md`.
+**Accuracy.** On the 9 development statements (1,513 transactions), Gemini 3.8 Flash and Claude Opus
+5.5 both extract every transaction with none invented or missed, and all 9 reconcile. Gemini costs
+about USD 0.20 per document, a fifth of Opus.
