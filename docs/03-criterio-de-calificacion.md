@@ -381,3 +381,6 @@ sigue calculando y se informa, pero no cambia el estado ni se pregunta al provee
   impreso negativo o por `SOBREGIRO` en la descripción no cambia.
 - **Escenarios.** El 19 (PDF con instrucciones ocultas) espera `human_review`; el 28 (`pagina-faltante`, modo
   unit) espera `needs_clarification` con `missing_pages`.
+- **Catálogo 1.3.0 (ADR 0066).** `holder_address_present` (bool): algún estado de cuenta trae el domicilio del
+  titular. La plantilla base no la usa; una política que la exija pide `statement_with_address`, un PDF que
+  traiga el domicilio. El domicilio queda en `suppliers.address`, nunca en el perfil.
