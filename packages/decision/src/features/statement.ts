@@ -519,11 +519,13 @@ export function regimeCode(raw: string): (typeof FISCAL_REGIMES)[number] | null 
 
 /** El RFC receptor genérico (público en general o extranjero): el CFDI no es del titular (ADR 0056). */
 const GENERIC_RECEIVER_NOTE = 'el CFDI va al RFC genérico; el régimen impreso no es del titular'
+/** Sin RFC receptor impreso, el régimen no se puede atribuir al titular (el BBVA imprime 616 sin RFC). */
+const NO_RECEIVER_NOTE = 'el CFDI no trae RFC receptor; el régimen impreso no se puede atribuir al titular'
 
 function fiscalRegime(ctx: StatementContext): Entry {
   // El documento más reciente manda; si dos documentos dicen regímenes distintos, es conflicto.
   const found: { code: string; verification: Verification; where: string; end: number }[] = []
-  let genericReceiver = false
+  let skippedNote: string | null = null
   for (const doc of ctx.ledger.documents) {
     const end = Math.max(...ctx.ledger.periods.filter((p) => p.doc === doc).map((p) => p.end ?? 0))
     const fiscal = [...doc.statement.fiscal_documents].sort((a, b) => (a.kind === 'income' ? 0 : 1) - (b.kind === 'income' ? 0 : 1))
@@ -533,15 +535,20 @@ function fiscalRegime(ctx: StatementContext): Entry {
       if (code === null) continue
       // Un CFDI a XAXX010101000 / XEXX010101000 imprime el régimen que se le pone a "público en general"
       // (616 en el BBVA), no el del titular: no sirve para el perfil.
-      if (checkRfc(f.receiver.rfc.value).kind === 'generic') {
-        genericReceiver = true
+      const rfc = f.receiver.rfc.value
+      if (rfc === null || rfc.trim() === '') {
+        skippedNote ??= NO_RECEIVER_NOTE
+        continue
+      }
+      if (checkRfc(rfc).kind === 'generic') {
+        skippedNote = GENERIC_RECEIVER_NOTE
         continue
       }
       found.push({ code, verification: f.receiver.tax_regime.verification, where: `${doc.tag}:${f.id}.receiver.tax_regime`, end })
       break
     }
   }
-  if (found.length === 0) return unknown(genericReceiver ? GENERIC_RECEIVER_NOTE : 'sin CFDI o el CFDI no imprime el régimen del receptor')
+  if (found.length === 0) return unknown(skippedNote ?? 'sin CFDI o el CFDI no imprime el régimen del receptor')
   found.sort((a, b) => b.end - a.end)
   const latest = found[0]
   if (!latest) return unknown('sin régimen')
