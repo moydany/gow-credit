@@ -223,14 +223,17 @@ function resolvePeriod(row: TransactionOut, summary: AssembledSummary, date: str
 
 /**
  * Convierte las filas de un bloque. Descarta las que caen fuera de las páginas del bloque
- * (las extrae otro bloque) y los duplicados exactos con saldo, que no pueden ser legítimos.
+ * (las extrae otro bloque), las de una página repetida (`skipPages`, ADR 0057: ya se avisó una vez
+ * de la repetida y sus filas no deben contar dos veces antes de cuadrar) y los duplicados exactos
+ * con saldo, que no pueden ser legítimos.
  */
-export function placeRows(rows: readonly TransactionOut[], blockPages: readonly number[], summary: AssembledSummary, orderBase: number, issues: IssueSink): PlacedRow[] {
+export function placeRows(rows: readonly TransactionOut[], blockPages: readonly number[], summary: AssembledSummary, orderBase: number, issues: IssueSink, skipPages: ReadonlySet<number> = new Set()): PlacedRow[] {
   const allowed = new Set(blockPages)
   const seen = new Set<string>()
   const placed: PlacedRow[] = []
   let outside = 0
   rows.forEach((r, i) => {
+    if (skipPages.has(r.page)) return
     if (!allowed.has(r.page)) {
       outside += 1
       return
