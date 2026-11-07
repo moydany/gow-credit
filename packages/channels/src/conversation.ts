@@ -27,6 +27,14 @@ export const DOCUMENT_REPLIES = {
   password_protected: 'Tu PDF tiene contraseña y no lo puedo abrir. Descárgalo de nuevo desde tu banco sin contraseña (o quítasela) y mándamelo por aquí.',
   ambiguous: 'Este número está registrado con más de una empresa, así que no sabemos a cuál corresponde el documento. Pide a quien te contactó que lo suba por su sistema.',
   no_link: 'Hola. Este número no está registrado para recibir documentos. Si crees que es un error, contacta a quien te pidió la información.',
+  /** El PDF contesta la pregunta de páginas faltantes (`isDocumentRequest`): la solicitud sigue con él. */
+  answer_received: 'Recibimos tu estado de cuenta completo. Lo estoy revisando y en unos minutos te aviso el resultado por aquí.',
+  /** Igual, pero a la aclaración le quedan preguntas que solo contesta un analista. */
+  answer_for_review: 'Recibimos tu estado de cuenta completo. Un analista revisará tu solicitud y te avisaremos el resultado por este chat.',
+  /** Mandó otra vez el mismo archivo al que le faltan páginas. */
+  answer_same_file: 'Este es el mismo archivo que ya recibimos y le faltan páginas. Descarga el estado de cuenta completo desde tu banco y mándalo por aquí.',
+  /** Escribió un texto cuando se espera el PDF. */
+  send_pdf: 'Para continuar necesito el PDF completo de tu estado de cuenta. Mándalo por este chat, tal como lo descargaste de tu banco.',
 } as const
 
 /**
@@ -117,6 +125,20 @@ export function parseRfc(text: string): string | null {
 /** Preguntas que se hacen por un canal conversacional. */
 export function isConversational(q: Question): boolean {
   return q.kind === 'deposit' || q.kind === 'charge' || q.kind === 'buyer' || q.kind === 'account_use'
+}
+
+/**
+ * Pregunta de documentos que el proveedor contesta mandando el PDF nuevo por el mismo chat (robustez
+ * documental, sección W): hoy solo las páginas faltantes. Las demás preguntas de documentos siguen por
+ * la API o el backoffice (ADR 0037). No es conversacional: el texto no la contesta, el PDF sí.
+ */
+export function isDocumentRequest(q: Question): boolean {
+  return q.kind === 'documents' && q.topic === 'missing_pages'
+}
+
+/** La pregunta de `isDocumentRequest` tal como sale por el chat: el texto y cómo contestarla. */
+export function renderDocumentRequest(q: Question): string {
+  return `${q.text}\n\nMándalo por este chat como PDF, tal como lo descargaste de tu banco.`
 }
 
 export function renderQuestion(q: Question, position: number, total: number): string {

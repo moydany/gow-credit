@@ -1,6 +1,6 @@
 import { describeFailure, multipleStatementsReason, type Question } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
-import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, failureNotice, isConversational, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderVerdict } from './conversation.ts'
+import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderVerdict } from './conversation.ts'
 import { signSvix, verifySvix } from './svix.ts'
 import { ResendEmailTransport } from './transports.ts'
 
@@ -296,6 +296,24 @@ describe('varios estados de cuenta en un PDF, dicho al proveedor (robustez docum
     expect(failureNotice({ kind: 'multiple_statements', documentType: null })).toBe(notice)
     expect(failureNotice(describeFailure(multipleStatementsReason(3)))).toBe(notice)
     expect(renderVerdict({ status: 'failed', limit: null, request: null, tenantName: 'X', failure: { kind: 'multiple_statements', documentType: null } })).toBe(notice)
+  })
+})
+
+describe('pedido del PDF completo por páginas faltantes (robustez documental, sección W)', () => {
+  const missingPages: Question = { id: 'q1', topic: 'missing_pages', kind: 'documents', transaction: null, facts: [], options: [], text: 'Al estado de cuenta que mandaste le faltan páginas (por ejemplo la 2 de 3). ¿Nos mandas el PDF completo?', text_source: 'template' }
+
+  it('solo las páginas faltantes se contestan con un PDF por el chat; las demás preguntas de documentos siguen fuera', () => {
+    expect(isDocumentRequest(missingPages)).toBe(true)
+    expect(isDocumentRequest({ ...missingPages, topic: 'recent_statement' })).toBe(false)
+    expect(isDocumentRequest({ ...missingPages, topic: 'reconciliation_gap' })).toBe(false)
+    expect(isDocumentRequest(deposit)).toBe(false)
+    // No es conversacional: un texto no la contesta ni se numera entre las del chat.
+    expect(isConversational(missingPages)).toBe(false)
+    expect(parseReply('ya te lo mandé', missingPages)).toBeNull()
+  })
+
+  it('sale por el chat con el texto de la pregunta y cómo contestarla', () => {
+    expect(renderDocumentRequest(missingPages)).toBe(`${missingPages.text}\n\nMándalo por este chat como PDF, tal como lo descargaste de tu banco.`)
   })
 })
 
