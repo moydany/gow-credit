@@ -1,0 +1,465 @@
+# Despliegue del modo full (docs/deploy.md "Pipeline de despliegue", ADR 0055). Solo se dispara
+# a mano: Actions > deploy > Run workflow, o `gh workflow run deploy.yml -f environment=staging`.
+# No hay despliegue automático en push: la migración de la base y la publicación de servicios con
+# datos de clientes no salen sin que alguien las pida y, en production, las apruebe.
+#
+# Identidad: Workload Identity Federation. El job pide un token OIDC a GitHub y Google lo cambia por
+# credenciales de corta vida de la cuenta de servicio del despliegue; no hay llaves JSON en ningún
+# secreto. Los secretos y las variables viven en el *environment* de GitHub que se elige (tabla en
+# docs/deploy.md); los secretos de los servicios viven en Secret Manager y Cloud Run los monta.
+#
+# Orden: plan > imágenes (todas, antes de tocar nada) > migración (solo con el worker) > servicios
+# de Cloud Run. El backoffice (Vercel) corre en paralelo: solo depende del plan.
+#
+# Este workflow no se ha ejecutado: el worksample no crea cuentas. Las acciones van fijadas por SHA;
+# el comentario dice la versión.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Entorno de GitHub al que se despliega
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+        required: true
+      services:
+        description: Servicios a desplegar, separados por coma (api, worker, whatsapp, web)
+        type: string
+        default: api,worker,whatsapp,web
+        required: true
+
+permissions:
+  contents: read
+
+# Un despliegue por entorno a la vez; el segundo espera en vez de cancelar al primero, para no
+# dejar una migración a medias.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  # CLI de Vercel fijada (publicada hace más de 3 días, como pide minimumReleaseAge del repositorio).
+  VERCEL_CLI_VERSION: 65.10.0
+
+jobs:
+  plan:
+    name: qué se despliega
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # No toca el repositorio ni la nube: solo lee el input.
+    permissions: {}
+    outputs:
+      api: ${{ steps.parse.outputs.api }}
+      worker: ${{ steps.parse.outputs.worker }}
+      whatsapp: ${{ steps.parse.outputs.whatsapp }}
+      web: ${{ steps.parse.outputs.web }}
+      # Imágenes a construir, como arreglo JSON para la matriz del job `images`.
+      images: ${{ steps.parse.outputs.images }}
+    steps:
+      - id: parse
+        env:
+          SERVICES: ${{ inputs.services }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          api=false
+          worker=false
+          whatsapp=false
+          web=false
+          IFS=',' read -r -a requested <<< "$SERVICES"
+          for raw in "${requested[@]-}"; do
+            name="${raw//[[:space:]]/}"
+            case "$name" in
+              api) api=true ;;
+              worker) worker=true ;;
+              whatsapp) whatsapp=true ;;
+              web) web=true ;;
+              '') ;;
+              *)
+                echo "::error::Servicio desconocido: '${name}'. Los válidos son api, worker, whatsapp y web."
+                exit 1
+                ;;
+            esac
+          done
+          if [ "$api" = false ] && [ "$worker" = false ] && [ "$whatsapp" = false ] && [ "$web" = false ]; then
+            echo "::error::El input services no nombra ningún servicio."
+            exit 1
+          fi
+          images=()
+          if [ "$api" = true ]; then images+=('"api"'); fi
+          if [ "$worker" = true ]; then images+=('"worker"'); fi
+          if [ "$whatsapp" = true ]; then images+=('"whatsapp"'); fi
+          images_json="[$(IFS=,; echo "${images[*]-}")]"
+          {
+            echo "api=${api}"
+            echo "worker=${worker}"
+            echo "whatsapp=${whatsapp}"
+            echo "web=${web}"
+            echo "images=${images_json}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Despliegue a ${ENVIRONMENT}"
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Servicios: api=${api}, worker=${worker}, whatsapp=${whatsapp}, web=${web}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Se construyen y publican todas las imágenes antes de migrar o desplegar nada: si una falla, no
+  # se despliega ninguna. La etiqueta es el SHA del commit, así que volver atrás es redesplegar un
+  # SHA anterior.
+  images:
+    name: imagen ${{ matrix.app }}
+    needs: plan
+    if: ${{ needs.plan.outputs.images != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - name: Verificar la configuración del entorno
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+        run: |
+          missing=0
+          for name in GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER GCP_DEPLOYER_SERVICE_ACCOUNT ARTIFACT_REGISTRY_REPOSITORY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta la variable ${name} en el entorno ${ENVIRONMENT} (docs/deploy.md, Pipeline de despliegue)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          token_format: access_token
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ vars.GCP_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: APP=${{ matrix.app }}
+          push: true
+          tags: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-${{ matrix.app }}:${{ github.sha }}
+          # Mismo alcance de caché que ci.yml: la imagen de CI y la de despliegue comparten capas.
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  # Solo con el worker en `services`. Corre con el rol de migraciones (DATABASE_ADMIN_URL del
+  # environment), nunca con el de un proceso. Las migraciones de drizzle no tienen marcha atrás:
+  # deben ser compatibles con la versión anterior del código (ADR 0055).
+  migrate:
+    name: migraciones de la base
+    needs: [plan, images]
+    if: ${{ needs.plan.outputs.worker == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Verificar la configuración del entorno
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: |
+          if [ -z "$DATABASE_ADMIN_URL" ]; then
+            echo "::error::Falta el secreto DATABASE_ADMIN_URL en el entorno ${ENVIRONMENT}; sin él db:migrate usaría el Postgres local."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (versión de packageManager)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.17.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm db:migrate
+        env:
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: pnpm db:migrate
+
+  # api: público (su autenticación es la llave del tenant y la cookie del backoffice), escala de 0 a N.
+  deploy-api:
+    name: api en Cloud Run
+    needs: [plan, images, migrate]
+    # `migrate` se salta cuando no va el worker; `!failure()` deja pasar un salto pero no un fallo.
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.api == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    # Sin checkout: solo el token OIDC.
+    permissions:
+      id-token: write
+    steps:
+      - name: Verificar la configuración del entorno
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+          API_SERVICE_ACCOUNT: ${{ vars.API_SERVICE_ACCOUNT }}
+          API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+          BACKOFFICE_URL: ${{ vars.BACKOFFICE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+        run: |
+          missing=0
+          for name in GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER GCP_DEPLOYER_SERVICE_ACCOUNT ARTIFACT_REGISTRY_REPOSITORY API_SERVICE_ACCOUNT API_PUBLIC_URL BACKOFFICE_URL SUPABASE_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta la variable ${name} en el entorno ${ENVIRONMENT} (docs/deploy.md, Pipeline de despliegue)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      - id: deploy
+        uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v3.0.1
+        with:
+          service: gow-api-${{ inputs.environment }}
+          image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-api:${{ github.sha }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          region: ${{ vars.GCP_REGION }}
+          env_vars: |-
+            API_PUBLIC_URL=${{ vars.API_PUBLIC_URL }}
+            BACKOFFICE_URL=${{ vars.BACKOFFICE_URL }}
+            SUPABASE_URL=${{ vars.SUPABASE_URL }}
+          # Solo lo del api: ni llaves de modelos ni la URL de WhatsApp (docs/05 §2b).
+          secrets: |-
+            DATABASE_URL_API=gow-${{ inputs.environment }}-database-url-api:latest
+            DATABASE_URL_QUEUE=gow-${{ inputs.environment }}-database-url-queue:latest
+            STORAGE_SIGNING_SECRET=gow-${{ inputs.environment }}-storage-signing-secret:latest
+            BACKOFFICE_JWT_SECRET=gow-${{ inputs.environment }}-backoffice-jwt-secret:latest
+            SUPABASE_SERVICE_ROLE_KEY=gow-${{ inputs.environment }}-supabase-service-role-key:latest
+            SUPABASE_ANON_KEY=gow-${{ inputs.environment }}-supabase-anon-key:latest
+            RESEND_WEBHOOK_SECRET=gow-${{ inputs.environment }}-resend-webhook-secret:latest
+          flags: >-
+            --service-account=${{ vars.API_SERVICE_ACCOUNT }}
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=10
+            --concurrency=80
+            --cpu=1
+            --memory=1Gi
+      - name: URL del servicio
+        env:
+          SERVICE_URL: ${{ steps.deploy.outputs.url }}
+        run: echo "api (${GITHUB_SHA}) en ${SERVICE_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+  # worker: sin tráfico entrante. Necesita CPU siempre asignada (consume la cola y corre Mastra
+  # fuera de cualquier petición) y al menos una instancia. El semáforo de modelos es por proceso:
+  # el máximo acota las llamadas simultáneas a Anthropic y Google.
+  deploy-worker:
+    name: worker en Cloud Run
+    needs: [plan, images, migrate]
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.worker == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+    steps:
+      - name: Verificar la configuración del entorno
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+          WORKER_SERVICE_ACCOUNT: ${{ vars.WORKER_SERVICE_ACCOUNT }}
+          API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+        run: |
+          missing=0
+          for name in GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER GCP_DEPLOYER_SERVICE_ACCOUNT ARTIFACT_REGISTRY_REPOSITORY WORKER_SERVICE_ACCOUNT API_PUBLIC_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta la variable ${name} en el entorno ${ENVIRONMENT} (docs/deploy.md, Pipeline de despliegue)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v3.0.1
+        with:
+          service: gow-worker-${{ inputs.environment }}
+          image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-worker:${{ github.sha }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          region: ${{ vars.GCP_REGION }}
+          # LLM_CACHE_MODE=off: el disco del contenedor se pierde y las respuestas de modelos
+          # llevan datos del cliente; en la nube no se guardan en disco.
+          env_vars: |-
+            API_PUBLIC_URL=${{ vars.API_PUBLIC_URL }}
+            RESEND_FROM="${{ vars.RESEND_FROM }}"
+            LLM_CACHE_MODE=off
+          secrets: |-
+            DATABASE_URL_WORKER=gow-${{ inputs.environment }}-database-url-worker:latest
+            DATABASE_URL_QUEUE=gow-${{ inputs.environment }}-database-url-queue:latest
+            DATABASE_URL_MASTRA=gow-${{ inputs.environment }}-database-url-mastra:latest
+            STORAGE_SIGNING_SECRET=gow-${{ inputs.environment }}-storage-signing-secret:latest
+            ANTHROPIC_API_KEY=gow-${{ inputs.environment }}-anthropic-api-key:latest
+            GEMINI_API_KEY=gow-${{ inputs.environment }}-gemini-api-key:latest
+            TYPESAFE_API_KEY=gow-${{ inputs.environment }}-typesafe-api-key:latest
+            RESEND_API_KEY=gow-${{ inputs.environment }}-resend-api-key:latest
+          flags: >-
+            --service-account=${{ vars.WORKER_SERVICE_ACCOUNT }}
+            --no-allow-unauthenticated
+            --no-cpu-throttling
+            --min-instances=1
+            --max-instances=3
+            --cpu=1
+            --memory=1Gi
+
+  # whatsapp: exactamente una instancia por número (dos sesiones de Baileys del mismo número se
+  # expulsan entre sí). CPU siempre asignada: el socket y sus latidos corren fuera de peticiones.
+  deploy-whatsapp:
+    name: whatsapp en Cloud Run
+    needs: [plan, images, migrate]
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.whatsapp == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+    steps:
+      - name: Verificar la configuración del entorno
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+          ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+          WHATSAPP_SERVICE_ACCOUNT: ${{ vars.WHATSAPP_SERVICE_ACCOUNT }}
+          WHATSAPP_TENANT_ID: ${{ vars.WHATSAPP_TENANT_ID }}
+        run: |
+          missing=0
+          for name in GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER GCP_DEPLOYER_SERVICE_ACCOUNT ARTIFACT_REGISTRY_REPOSITORY WHATSAPP_SERVICE_ACCOUNT WHATSAPP_TENANT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta la variable ${name} en el entorno ${ENVIRONMENT} (docs/deploy.md, Pipeline de despliegue)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v3.0.1
+        with:
+          service: gow-whatsapp-${{ inputs.environment }}
+          image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-whatsapp:${{ github.sha }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          region: ${{ vars.GCP_REGION }}
+          # WHATSAPP_AUTH_DIR en /tmp: la sesión se pierde en cada reinicio y hay que volver a
+          # escanear el QR; es el hueco "Sesión de Baileys persistente" de docs/deploy.md.
+          env_vars: |-
+            WHATSAPP_TENANT_ID=${{ vars.WHATSAPP_TENANT_ID }}
+            WHATSAPP_AUTH_DIR=/tmp/whatsapp-auth
+          # Solo su rol de base: no ve documentos, extracciones ni decisiones (docs/05 §2b).
+          secrets: |-
+            DATABASE_URL_WHATSAPP=gow-${{ inputs.environment }}-database-url-whatsapp:latest
+          flags: >-
+            --service-account=${{ vars.WHATSAPP_SERVICE_ACCOUNT }}
+            --no-allow-unauthenticated
+            --no-cpu-throttling
+            --min-instances=1
+            --max-instances=1
+            --cpu=1
+            --memory=1Gi
+
+  # Backoffice estático. Se construye aquí con el mismo pnpm y Node que CI (`vercel build`) y se
+  # sube ya hecho (`--prebuilt`). `--prod` solo en production; en staging queda como preview.
+  web:
+    name: backoffice en Vercel
+    needs: plan
+    if: ${{ needs.plan.outputs.web == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+    steps:
+      - name: Verificar la configuración del entorno
+        run: |
+          missing=0
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID API_PUBLIC_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta ${name} en el entorno ${ENVIRONMENT} (docs/deploy.md, Pipeline de despliegue)."
+              missing=1
+            fi
+          done
+          case "$API_PUBLIC_URL" in
+            https://*) ;;
+            *)
+              echo "::error::API_PUBLIC_URL debe ser una URL https: el rewrite /bo/* del backoffice apunta ahí."
+              missing=1
+              ;;
+          esac
+          exit "$missing"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (versión de packageManager)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.17.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Instalar la CLI de Vercel
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+      # La cookie de sesión es SameSite=Strict y Path=/bo: el navegador debe hablar con su propio
+      # origen. Cada entorno tiene su API, así que el destino del rewrite se escribe aquí y no en el
+      # vercel.json versionado, que no cambia.
+      - name: Rewrite de /bo/* hacia la API del entorno
+        run: |
+          set -euo pipefail
+          jq --arg destination "${API_PUBLIC_URL%/}/bo/:path*" \
+            '.rewrites = [{ source: "/bo/:path*", destination: $destination }] + .rewrites' \
+            apps/web/vercel.json > "$RUNNER_TEMP/vercel.json"
+          mv "$RUNNER_TEMP/vercel.json" apps/web/vercel.json
+      - name: vercel pull, build y deploy
+        run: |
+          set -euo pipefail
+          if [ "$ENVIRONMENT" = production ]; then
+            target=production
+            prod_flag=(--prod)
+          else
+            target=preview
+            prod_flag=()
+          fi
+          vercel pull --yes --environment="$target" --token "$VERCEL_TOKEN"
+          vercel build "${prod_flag[@]}" --token "$VERCEL_TOKEN"
+          url="$(vercel deploy --prebuilt "${prod_flag[@]}" --meta githubCommitSha="$GITHUB_SHA" --token "$VERCEL_TOKEN")"
+          echo "web (${GITHUB_SHA}) en ${url}" >> "$GITHUB_STEP_SUMMARY"
