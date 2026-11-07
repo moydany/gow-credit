@@ -1,9 +1,12 @@
 /**
  * Registration with the bank statement first (demo only, with `WHATSAPP_SELF_REGISTRATION`).
  *
- * 1. An unlinked number greets: it is asked for the bank statement.
+ * 1. An unlinked number greets: it is asked how they are called (`contact_name`) and how much they
+ *    want to advance (`amount`, may be skipped), then for the bank statement. A PDF sent before
+ *    that is kept (`pending_document_id`) and read once both are given.
  * 2. The PDF arrives: a supplier with no identity (`legal_name` null) is created with the contact
- *    verified by possession of the number, and the request is analyzed immediately.
+ *    verified by possession of the number, and the request is opened with the amount (no buyer or
+ *    due date) and analyzed immediately. Without an amount it decides with the maximum line.
  * 3. Analysis ends: the result is not sent. The same number is shown the holder and RFC read so it
  *    can confirm or correct them (`startConfirmation`), and asked for what is missing: the full
  *    RFC if it came without homoclave, the legal representative for a persona moral.
@@ -13,10 +16,10 @@
  */
 import { failureNotice, isComplete, isDocumentRequest, nextConversational, notQualifiedReasons, parseLegalName, parseRfc, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestionAt, renderVerdict } from '@gow/channels'
 import { ApplicationRequest, Decision, describeFailure, OwnerAnswer, Question, rfcRoot } from '@gow/contracts'
-import { applications, auditLog, clarifications, decisions, outboundMessages, supplierRegistrations, suppliers, tenants, type Tx } from '@gow/db'
+import { applications, auditLog, clarifications, decisions, documents, type inboundMessages, outboundMessages, supplierContacts, supplierRegistrations, suppliers, tenants, type Tx } from '@gow/db'
 import type { AppState } from '@gow/mastra'
 import type { ResumeJob } from '@gow/platform'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { offerAmount } from './offer.ts'
 import type { AppContext } from './store.ts'
@@ -73,12 +76,51 @@ export async function startConfirmation(tx: Tx, ctx: AppContext, state: AppState
  * to a photo or voice note. The step is set by the registration block in inbound.ts.
  */
 export function registrationPrompt(reg: Registration | undefined): string {
-  if (!reg || reg.step === 'done' || reg.step === 'statement' || reg.step === 'legal_name' || (reg.step === 'rfc' && !reg.applicationId)) return REGISTRATION_REPLIES.ask_statement
-  if (reg.step === 'reading') return REGISTRATION_REPLIES.still_reading
+  if (!reg || waitsForStatement(reg)) return REGISTRATION_REPLIES.ask_statement
+  const fixed: Record<string, string> = { contact_name: REGISTRATION_REPLIES.ask_contact_name, amount: REGISTRATION_REPLIES.ask_amount(null), reading: REGISTRATION_REPLIES.still_reading, representative: REGISTRATION_REPLIES.ask_representative }
+  const text = fixed[reg.step]
+  if (text) return text
   if (reg.step === 'confirm') return REGISTRATION_REPLIES.confirm(reg.holderName ?? '', completeRfc(reg.holderRfc))
   if (reg.step === 'rfc') return REGISTRATION_REPLIES.ask_rfc(rfcAskReason(reg))
-  if (reg.step === 'representative') return REGISTRATION_REPLIES.ask_representative
   return reg.corrected ? REGISTRATION_REPLIES.ask_name_corrected : REGISTRATION_REPLIES.ask_name
+}
+
+/** Waiting for the PDF: the step itself, a finished registration, or one left by the previous flow. */
+function waitsForStatement(reg: Registration): boolean {
+  return reg.step === 'done' || reg.step === 'statement' || reg.step === 'legal_name' || (reg.step === 'rfc' && !reg.applicationId)
+}
+
+/**
+ * The registering number's supplier, with no identity until they confirm their data; created with
+ * the first valid PDF. Verified by possession: the message came from that number. Not equivalent to KYC.
+ */
+export async function registrationSupplier(tx: Tx, row: Registration, msg: Pick<typeof inboundMessages.$inferSelect, 'id' | 'tenantId' | 'channel' | 'fromAddress'>): Promise<string> {
+  if (row.supplierId) return row.supplierId
+  const tenantId = msg.tenantId
+  const [created] = await tx.insert(suppliers).values({ tenantId, legalName: null, rfc: null }).returning({ id: suppliers.id })
+  if (!created) throw new Error('no se creó el proveedor del registro')
+  await tx.insert(supplierContacts).values({ tenantId, supplierId: created.id, channel: msg.channel, address: msg.fromAddress, verifiedAt: new Date(), verificationMethod: 'whatsapp_self_registration' })
+  await tx.insert(auditLog).values({ tenantId, actor: `inbound:${msg.channel}`, action: 'supplier.created', subject: created.id, details: { source: 'whatsapp_statement_first', inbound_message_id: msg.id } })
+  await tx.update(supplierRegistrations).set({ supplierId: created.id }).where(eq(supplierRegistrations.id, row.id))
+  row.supplierId = created.id
+  return created.id
+}
+
+/**
+ * The PDF kept before the name and amount (`pending_document_id`) and the message that brought it,
+ * so the request is tied to that message in the timeline. Undefined if there is none.
+ */
+export async function pendingStatement(tx: Tx, reg: Registration): Promise<{ documentId: string; sha256: string; inboundId: string | undefined } | undefined> {
+  if (!reg.pendingDocumentId) return undefined
+  const [doc] = await tx.select({ documentId: documents.id, sha256: documents.sha256 }).from(documents).where(eq(documents.id, reg.pendingDocumentId))
+  if (!doc) return undefined
+  const [keptBy] = await tx
+    .select({ subject: auditLog.subject })
+    .from(auditLog)
+    .where(and(inArray(auditLog.action, ['inbound.registration_started', 'inbound.registration_document_kept']), sql`${auditLog.details} ->> 'document_id' = ${reg.pendingDocumentId}`))
+    .orderBy(desc(auditLog.at))
+    .limit(1)
+  return { ...doc, inboundId: keptBy?.subject ?? undefined }
 }
 
 /** Text of a request's stored verdict, with the same template as the worker's notice. */

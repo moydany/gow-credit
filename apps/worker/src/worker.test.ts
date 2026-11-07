@@ -325,10 +325,10 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const opts = { storage: services.storage, selfRegistration: true }
       expect((await resolveInbound(worker.db, tenant, await inbound(NEW, 'Hola'), opts)).resolution).toBe('registration_started')
       expect((await resolveInbound(worker.db, tenant, await inboundMedia(NEW, 'sticker'), opts)).resolution).toBe('media_unsupported')
-      expect((await lastTo(NEW))?.body).toMatch(/^Solo puedo leer el estado de cuenta en PDF[^\n]*\n\nPara empezar, mándame por este chat tu estado de cuenta/)
-      // Registration is still waiting for the PDF; nothing changed.
+      expect((await lastTo(NEW))?.body).toMatch(/^Solo puedo leer el estado de cuenta en PDF[^\n]*\n\nPara empezar, ¿cómo te llamas\?$/)
+      // Registration is still waiting for the name; nothing changed.
       const reg = await admin.query<{ step: string }>('SELECT step FROM app.supplier_registrations WHERE address = $1', [NEW])
-      expect(reg.rows).toEqual([{ step: 'statement' }])
+      expect(reg.rows).toEqual([{ step: 'contact_name' }])
     })
   })
 
@@ -453,12 +453,17 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
   })
 
   /**
-   * Sends the greeting and the PDF from `phone` and analyzes the request with a synthetic bank
-   * statement in `holder`'s name instead of the PDF (the worker does not extract in these tests).
+   * Sends the greeting, the name, the amount (`omitir` by default) and the PDF from `phone`, and
+   * analyzes the request with a synthetic bank statement in `holder`'s name instead of the PDF
+   * (the worker does not extract in these tests).
    */
-  async function registerWithStatement(phone: string, holder: SyntheticDocument['holder'], seed: string, opts: Parameters<typeof resolveInbound>[3]) {
-    // A number that already greeted gets the PDF request again.
-    expect(['registration_started', 'registration_waiting']).toContain((await resolveInbound(worker.db, tenant, await inbound(phone, 'Hola'), opts)).resolution)
+  async function registerWithStatement(phone: string, holder: SyntheticDocument['holder'], seed: string, opts: Parameters<typeof resolveInbound>[3], amount = 'omitir') {
+    const stepOf = async () => (await admin.query<{ step: string }>('SELECT step FROM app.supplier_registrations WHERE address = $1', [phone])).rows[0]?.step
+    // A number that already greeted and answered gets the PDF request again.
+    expect(['registration_started', 'registration_waiting', 'registration_invalid']).toContain((await resolveInbound(worker.db, tenant, await inbound(phone, 'Hola'), opts)).resolution)
+    if ((await stepOf()) === 'contact_name') expect((await resolveInbound(worker.db, tenant, await inbound(phone, 'Me llamo Ana'), opts)).resolution).toBe('registration_step')
+    if ((await stepOf()) === 'amount') expect((await resolveInbound(worker.db, tenant, await inbound(phone, amount), opts)).resolution).toBe('registration_step')
+    expect(await stepOf()).toBe('statement')
     const r = await resolveInbound(worker.db, tenant, await inbound(phone, '', Buffer.from(`%PDF-1.7\n% ${seed}\n%%EOF\n`)), opts)
     expect(r.resolution).toBe('document_received')
     const appId = r.process?.job.application_id ?? ''
@@ -485,13 +490,25 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await resolveInbound(worker.db, tenant, id, { storage: services.storage })).resolution).toBe('no_link')
     })
 
-    it('saludar pide el estado de cuenta; un texto lo vuelve a pedir', async () => {
-      expect((await step('Hola')).resolution).toBe('registration_started')
-      expect((await lastReply()).body).toMatch(/asistente de Fintech Demo[\s\S]*estado de cuenta bancario más reciente en PDF/)
-      expect((await step('¿qué necesito?')).resolution).toBe('registration_waiting')
-      expect((await lastReply()).body).toMatch(/^Para empezar, mándame por este chat tu estado de cuenta/)
+    it('saludar pide el nombre y el monto, después el estado de cuenta; un texto lo vuelve a pedir', async () => {
+      const PHONE = '+5215577770097'
+      expect((await step('Hola', null, PHONE)).resolution).toBe('registration_started')
+      expect((await lastReply(PHONE)).body).toMatch(/^Hola, te escribe el asistente de Fintech Demo\.[\s\S]*dos datos\.\n\nPara empezar, ¿cómo te llamas\?$/)
+      // A greeting is not a name.
+      expect((await step('hola', null, PHONE)).resolution).toBe('registration_invalid')
+      expect((await lastReply(PHONE)).body).toMatch(/No pude leer tu nombre/)
+      expect((await step('Me llamo Ana López', null, PHONE)).resolution).toBe('registration_step')
+      expect((await lastReply(PHONE)).body).toMatch(/^Mucho gusto, Ana López\. ¿Cuánto quieres adelantar\?/)
+      expect((await step('mucho', null, PHONE)).resolution).toBe('registration_invalid')
+      expect((await lastReply(PHONE)).body).toMatch(/No pude leer el monto/)
+      expect((await step('150 mil', null, PHONE)).resolution).toBe('registration_step')
+      expect((await lastReply(PHONE)).body).toMatch(/^Perfecto, reviso tu solicitud de adelanto de \$150,000\.00 pesos\. Ahora mándame por este chat tu estado de cuenta/)
+      const reg = await admin.query<{ step: string; contact_name: string; requested_amount: string }>('SELECT step, contact_name, requested_amount FROM app.supplier_registrations WHERE address = $1', [PHONE])
+      expect(reg.rows).toEqual([{ step: 'statement', contact_name: 'Ana López', requested_amount: '150000.00' }])
+      expect((await step('¿qué necesito?', null, PHONE)).resolution).toBe('registration_waiting')
+      expect((await lastReply(PHONE)).body).toMatch(/^Mándame por este chat tu estado de cuenta/)
       // Anything that is not a PDF is rejected and creates no request.
-      expect((await step('foto', Buffer.from('\x89PNG\r\n'))).resolution).toBe('document_rejected')
+      expect((await step('foto', Buffer.from('\x89PNG\r\n'), PHONE)).resolution).toBe('document_rejected')
     })
 
     it('persona moral: el PDF se analiza al llegar, el resultado espera a que confirme sus datos y al representante legal', async () => {
@@ -526,7 +543,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       // The previous notice may have asked how much they want to advance: "omitir" closes that question.
       expect(['offer_skipped', 'registered_idle']).toContain((await step('omitir')).resolution)
       expect((await step('hola de nuevo')).resolution).toBe('registered_idle')
-      expect((await lastReply()).body).toMatch(/Ya tienes registrada a Comercializadora Nueva SA de CV/)
+      expect((await lastReply()).body).toMatch(/^Hola, Ana\. Ya tienes registrada a Comercializadora Nueva SA de CV/)
       const r = await step('', Buffer.from('%PDF-1.7\n% otro estado de cuenta\n%%EOF\n'))
       expect(r.resolution).toBe('document_received')
       const owner = await admin.query<{ legal_name: string }>('SELECT s.legal_name FROM app.applications a JOIN app.suppliers s ON s.id = a.supplier_id WHERE a.id = $1', [r.process?.job.application_id])
@@ -618,6 +635,69 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await lastReply(PHONE)).body).toMatch(/^Ahora escribe el RFC del titular/)
       expect((await step('GORL800101H2A', null, PHONE)).resolution).toBe('registration_completed')
       expect(await supplierOf(PHONE)).toEqual([{ legal_name: 'Luis Gómez Ruiz', rfc: 'GORL800101H2A', representative_name: null, verified: true, method: 'whatsapp_self_registration' }])
+    })
+
+    it('con el monto pedido al saludar, se decide con ese monto y no se ofrece la línea; si el cliente principal mueve el resultado, se pregunta al terminar el registro', async () => {
+      const PHONE = '+5215577770107'
+      const { appId, status } = await registerWithStatement(PHONE, { name: 'Comercializadora Monto SA de CV', rfc: 'CMO150304AB1', clabe: null }, 'reg-monto', opts(), '150 mil')
+      // The amount given before the PDF is the request's amount, with no buyer or due date.
+      expect((await admin.query<{ request: unknown }>('SELECT request FROM app.applications WHERE id = $1', [appId])).rows[0]?.request).toEqual({ amount: 150000, maturity: null, buyer: null })
+      // With an amount and no buyer, the engine asks for the main client when finding their payments would move the band.
+      expect(status).toBe('needs_clarification')
+      expect(await kinds(PHONE)).not.toContain('question')
+      expect((await step('si', null, PHONE)).resolution).toBe('registration_step')
+      const done = await step('Ana María López Pérez', null, PHONE)
+      expect(done.resolution).toBe('registration_completed')
+      const question = await lastReply(PHONE)
+      expect(question.kind).toBe('question')
+      expect(question.body).toMatch(/^Gracias, quedaron registrados los datos de Comercializadora Monto SA de CV\.\n\n[\s\S]*cliente principal/)
+      expect((await step('Cadena Norte SA de CV', null, PHONE)).resolution).toBe('summary')
+      const confirmed = await step('sí', null, PHONE)
+      expect(confirmed.resolution).toBe('completed')
+      const final = await handleResume(services, confirmed.resume ?? { tenant_id: tenant, application_id: appId, clarification_id: randomUUID() })
+      expect(['qualified', 'qualified_with_limit', 'not_qualified']).toContain(final)
+      const verdict = await lastReply(PHONE)
+      expect(verdict.kind).toBe('verdict')
+      expect(verdict.body).toMatch(/(Buenas noticias: |Revisamos )tu solicitud de adelanto de \$150,000\.00 pesos/)
+      // With the amount already given, the line is not offered.
+      expect(verdict.body).not.toMatch(/¿Cuánto quieres adelantar/)
+      expect((await step('hola', null, PHONE)).resolution).toBe('registered_idle')
+    })
+
+    it('un PDF antes del nombre y el monto se guarda y se lee al tener los dos', async () => {
+      const PHONE = '+5215577770077'
+      const first = await inbound(PHONE, '', Buffer.from('%PDF-1.7\n% primero el pdf\n%%EOF\n'))
+      expect((await resolveInbound(worker.db, tenant, first, opts())).resolution).toBe('registration_started')
+      expect((await lastReply(PHONE)).body).toMatch(/Ya recibí tu estado de cuenta; antes de revisarlo necesito dos datos\.\n\nPara empezar, ¿cómo te llamas\?$/)
+      // Nothing is analyzed yet; the supplier with no identity already exists.
+      expect((await admin.query("SELECT 1 FROM app.applications a JOIN app.supplier_contacts c ON c.supplier_id = a.supplier_id WHERE c.address = $1", [PHONE])).rowCount).toBe(0)
+      expect((await step('Luis', null, PHONE)).resolution).toBe('registration_step')
+      // Another PDF while the amount is awaited replaces the kept one.
+      const second = await inbound(PHONE, '', Buffer.from('%PDF-1.7\n% el bueno\n%%EOF\n'))
+      expect((await resolveInbound(worker.db, tenant, second, opts())).resolution).toBe('registration_document_kept')
+      expect((await lastReply(PHONE)).body).toMatch(/^Ya tengo tu estado de cuenta; lo reviso en cuanto me des este dato\.\n\n¿Cuánto quieres adelantar\?/)
+      const r = await step('$80,000', null, PHONE)
+      expect(r.resolution).toBe('document_received')
+      expect((await lastReply(PHONE)).body).toMatch(/^Recibí tu estado de cuenta y lo estoy leyendo/)
+      const appId = r.process?.job.application_id ?? ''
+      const app = await admin.query<{ request: unknown; sha256: string }>('SELECT a.request, d.sha256 FROM app.applications a JOIN app.application_documents ad ON ad.application_id = a.id JOIN app.documents d ON d.id = ad.document_id WHERE a.id = $1', [appId])
+      expect(app.rows).toEqual([{ request: { amount: 80000, maturity: null, buyer: null }, sha256: createHash('sha256').update(Buffer.from('%PDF-1.7\n% el bueno\n%%EOF\n')).digest('hex') }])
+      expect(r.process?.sha256).toBe(app.rows[0]?.sha256)
+      const reg = await admin.query<{ step: string; pending_document_id: string | null; application_id: string }>('SELECT step, pending_document_id, application_id FROM app.supplier_registrations WHERE address = $1', [PHONE])
+      expect(reg.rows).toEqual([{ step: 'reading', pending_document_id: null, application_id: appId }])
+      // The request is tied to the message that brought the PDF, for the timeline.
+      const received = await admin.query<{ details: Record<string, unknown> }>("SELECT details FROM app.audit_log WHERE subject = $1 AND action = 'application.received'", [appId])
+      expect(received.rows[0]?.details.inbound_message_id).toBe(second)
+    })
+
+    it('un PDF que no sirve en el saludo no crea proveedor y se sigue con el nombre', async () => {
+      const PHONE = '+5215577770087'
+      expect((await resolveInbound(worker.db, tenant, await inbound(PHONE, '', Buffer.from('\x89PNG\r\n')), opts())).resolution).toBe('registration_started')
+      expect((await lastReply(PHONE)).body).toMatch(/dos datos\.\n\nNo pudimos recibir el documento[^\n]*\n\nPara empezar, ¿cómo te llamas\?$/)
+      expect((await admin.query('SELECT 1 FROM app.supplier_contacts WHERE address = $1', [PHONE])).rowCount).toBe(0)
+      expect((await step('Marta', null, PHONE)).resolution).toBe('registration_step')
+      expect((await step('omitir', null, PHONE)).resolution).toBe('registration_step')
+      expect((await lastReply(PHONE)).body).toMatch(/^Va, entonces te digo hasta cuánto te podemos adelantar\. Ahora mándame/)
     })
 
     it('si el estado de cuenta falla, se avisa por qué y se espera otro PDF', async () => {

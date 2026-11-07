@@ -52,11 +52,6 @@ export function documentRequestReplies(q: Question): { received: string; forRevi
 }
 
 /**
- * First-time supplier registration (demo only, `WHATSAPP_SELF_REGISTRATION`). Statement first; once
- * read, the holder and RFC found are shown to the sender to confirm or correct, then anything
- * missing is asked. The result goes out when registration finishes.
- */
-/**
  * The case is left to an analyst: the clarification only has questions that are not asked over
  * chat, rounds ran out, or identity could not be confirmed. The supplier always gets a reply.
  */
@@ -65,15 +60,34 @@ export const ANALYST_NOTICE = 'Un analista revisará tu estado de cuenta y te av
 /** Reply to a photo, voice note, video or sticker: only the PDF is read. */
 export const MEDIA_UNSUPPORTED = 'Solo puedo leer el estado de cuenta en PDF, tal como lo descargas de tu banco.'
 
-const ASK_STATEMENT = 'Para empezar, mándame por este chat tu estado de cuenta bancario más reciente en PDF, tal como lo descargaste de tu banco.'
+const ASK_STATEMENT = 'Mándame por este chat tu estado de cuenta bancario más reciente en PDF, tal como lo descargaste de tu banco.'
+const ASK_CONTACT_NAME = 'Para empezar, ¿cómo te llamas?'
+const ASK_AMOUNT = '¿Cuánto quieres adelantar? Escribe el monto en pesos, por ejemplo: 150000 o 150 mil. Si todavía no lo sabes, escribe omitir y te digo hasta cuánto te podemos adelantar.'
 const YES_NO = 'Responde sí o no.'
 
 /** Why the RFC is asked: no homoclave, incomplete, or the supplier corrected the data. */
 export type RfcAskReason = { kind: 'root'; root: string } | { kind: 'missing' } | { kind: 'corrected' }
 
+/**
+ * First-time supplier registration (demo only, `WHATSAPP_SELF_REGISTRATION`). On greeting, the
+ * contact's name and the amount they want; then the statement. Once read, the holder and RFC found
+ * are shown to the sender to confirm or correct, then anything missing is asked. The result goes
+ * out when registration finishes.
+ */
 export const REGISTRATION_REPLIES = {
-  welcome: (tenantName: string) => `Hola, te escribe el asistente de ${tenantName}. Reviso tu estado de cuenta para decirte hasta cuánto te podemos adelantar del pago de tus facturas.\n\n${ASK_STATEMENT}`,
+  /** `received`: a PDF came with the first message and waits for the name and amount. */
+  welcome: (tenantName: string, received = false, note: string | null = null) =>
+    `Hola, te escribe el asistente de ${tenantName}. ${received ? 'Ya recibí tu estado de cuenta; antes de revisarlo necesito dos datos.' : 'Reviso tu estado de cuenta para decirte cuánto te podemos adelantar del pago de tus facturas. Antes necesito dos datos.'}\n\n${note ? `${note}\n\n` : ''}${ASK_CONTACT_NAME}`,
+  ask_contact_name: ASK_CONTACT_NAME,
+  invalid_contact_name: 'No pude leer tu nombre. Escríbelo, por ejemplo: Ana López.',
+  ask_amount: (contactName: string | null) => (contactName ? `Mucho gusto, ${contactName}. ${ASK_AMOUNT}` : ASK_AMOUNT),
+  invalid_amount: 'No pude leer el monto. Escríbelo en pesos, solo con números, por ejemplo: 150000 o 150 mil. O escribe omitir.',
+  /** Asked once the name and amount are in, with or without an amount. */
+  ask_statement_for: (amount: number | null) =>
+    `${amount === null ? 'Va, entonces te digo hasta cuánto te podemos adelantar.' : `Perfecto, reviso tu solicitud de adelanto de ${formatPesos(amount)}.`} Ahora ${ASK_STATEMENT.charAt(0).toLowerCase()}${ASK_STATEMENT.slice(1)}`,
   ask_statement: ASK_STATEMENT,
+  /** A PDF while the name or amount is awaited: it is kept and read once both are given. */
+  statement_kept: 'Ya tengo tu estado de cuenta; lo reviso en cuanto me des este dato.',
   reading: 'Recibí tu estado de cuenta y lo estoy leyendo. En un momento te pido que confirmes tus datos.',
   still_reading: 'Sigo leyendo tu estado de cuenta. En un momento te pido que confirmes tus datos; no hace falta mandarlo de nuevo.',
   /** The holder as read, with or without a full RFC. An RFC without homoclave is asked separately later. */
@@ -99,7 +113,7 @@ export const REGISTRATION_REPLIES = {
   thanks: (name: string) => `Gracias, quedaron registrados los datos de ${name}.`,
   finishing: 'Estoy terminando la revisión; en un momento te mando el resultado.',
   analyst: ANALYST_NOTICE,
-  idle: (legalName: string) => `Hola. Ya tienes registrada a ${legalName}. Si quieres que revisemos un estado de cuenta, mándalo en PDF por este chat.`,
+  idle: (legalName: string, contactName: string | null = null) => `Hola${contactName ? `, ${contactName}` : ''}. Ya tienes registrada a ${legalName}. Si quieres que revisemos un estado de cuenta, mándalo en PDF por este chat.`,
 } as const
 
 /** "sí" / "no" and common variants; anything else is null. */
@@ -115,6 +129,24 @@ export function parseYesNo(text: string): boolean | null {
   if (/^(si|sip|sii+|claro|correcto|correctos|es correcto|son correctos|asi es|exacto|ok|okay|va|de acuerdo|afirmativo|1)( (gracias|son|es|correcto|correctos))*$/.test(t)) return true
   if (/^(no|nop|nel|incorrecto|incorrectos|no es correcto|no son correctos|no son|no es|negativo|2)( .*)?$/.test(t)) return false
   return null
+}
+
+/**
+ * A person's name as they write it ("Ana", "me llamo Ana López", "soy Ana"): without the lead-in,
+ * 2 to 80 chars, letters only. A greeting, a yes/no or "omitir" is not a name.
+ */
+export function parseContactName(text: string): string | null {
+  const name = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches)[,.!\s]+/i, '')
+    .replace(/^(me llamo|mi nombre es|soy|habla|le habla|te habla)\s+/i, '')
+    .replace(/[.!,;]+$/, '')
+    .trim()
+  if (name.length < 2 || name.length > 80 || !/^[\p{L}][\p{L}\p{M}' .-]*$/u.test(name)) return null
+  const plain = name.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+  if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches|que tal|hey|hi|hello|si|no|ok|okay|gracias|omitir|ayuda|info|informacion)$/.test(plain)) return null
+  return name
 }
 
 /** Persona moral (12 chars) or física (13), by RFC length. */

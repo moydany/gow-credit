@@ -54,6 +54,7 @@ export const INBOUND_ES: Record<string, string> = {
   registration_invalid: 'Dato del registro que no se entendió',
   registration_completed: 'Registro completado',
   registration_waiting: 'Mensaje mientras se espera el registro',
+  registration_document_kept: 'Estado de cuenta guardado hasta tener nombre y monto',
   registered_idle: 'Mensaje de un proveedor ya registrado',
   intake_step: 'Dato de la factura',
   intake_invalid: 'Dato de la factura que no se entendió',

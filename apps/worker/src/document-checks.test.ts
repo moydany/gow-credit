@@ -113,6 +113,8 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
     it('en el registro por WhatsApp, también; se sigue esperando el estado de cuenta', async () => {
       const opts = { storage: services.storage, selfRegistration: true }
       expect((await resolveInbound(worker.db, tenant, await inbound(NEWCOMER, 'Hola'), opts)).resolution).toBe('registration_started')
+      expect((await resolveInbound(worker.db, tenant, await inbound(NEWCOMER, 'Ana'), opts)).resolution).toBe('registration_step')
+      expect((await resolveInbound(worker.db, tenant, await inbound(NEWCOMER, 'omitir'), opts)).resolution).toBe('registration_step')
       expect((await resolveInbound(worker.db, tenant, await inbound(NEWCOMER, '', locked), opts)).resolution).toBe('document_rejected')
       expect(await lastReply(NEWCOMER)).toBe(DOCUMENT_REPLIES.password_protected)
       const reg = await admin.query<{ step: string; application_id: string | null }>('SELECT step, application_id FROM app.supplier_registrations WHERE address = $1', [NEWCOMER])

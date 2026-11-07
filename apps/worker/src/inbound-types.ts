@@ -21,6 +21,8 @@ export type Resolution =
   | 'registration_invalid'
   | 'registration_completed'
   | 'registration_waiting'
+  // A PDF that arrived before the name and amount: kept until both are given.
+  | 'registration_document_kept'
   | 'registered_idle'
   | 'intake_step'
   | 'intake_invalid'

@@ -1,6 +1,6 @@
 import { describeFailure, multipleStatementsReason, type Question } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
-import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, documentRequestReplies, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderDiscardNotice, renderVerdict } from './conversation.ts'
+import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, documentRequestReplies, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseContactName, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderDiscardNotice, renderVerdict } from './conversation.ts'
 import { signSvix, verifySvix } from './svix.ts'
 import { ResendEmailTransport } from './transports.ts'
 
@@ -205,8 +205,24 @@ describe('registro de proveedores por WhatsApp', () => {
     expect(parseRfc('hola')).toBeNull()
   })
 
+  it('lee el nombre de quien escribe sin el saludo ni el "me llamo"; un saludo o un sí no son un nombre', () => {
+    expect(parseContactName('Ana')).toBe('Ana')
+    expect(parseContactName('me llamo Ana López.')).toBe('Ana López')
+    expect(parseContactName('Hola, soy José María')).toBe('José María')
+    expect(parseContactName('Mi nombre es Luis O\'Neill')).toBe("Luis O'Neill")
+    for (const t of ['hola', 'Buenos días', 'sí', 'ok', 'omitir', '150000', 'a', 'ana@correo.com']) expect(parseContactName(t)).toBeNull()
+  })
+
+  it('el saludo pide el nombre; con el PDF ya recibido lo dice; el monto se puede omitir', () => {
+    expect(REGISTRATION_REPLIES.welcome('Prestamista')).toMatch(/^Hola, te escribe el asistente de Prestamista\.[\s\S]*\n\nPara empezar, ¿cómo te llamas\?$/)
+    expect(REGISTRATION_REPLIES.welcome('Prestamista', true, 'Nota')).toMatch(/Ya recibí tu estado de cuenta[\s\S]*\n\nNota\n\nPara empezar, ¿cómo te llamas\?$/)
+    expect(REGISTRATION_REPLIES.ask_amount('Ana')).toMatch(/^Mucho gusto, Ana\. ¿Cuánto quieres adelantar\?[\s\S]*omitir/)
+    expect(REGISTRATION_REPLIES.ask_statement_for(150000)).toBe('Perfecto, reviso tu solicitud de adelanto de $150,000.00 pesos. Ahora mándame por este chat tu estado de cuenta bancario más reciente en PDF, tal como lo descargaste de tu banco.')
+    expect(REGISTRATION_REPLIES.ask_statement_for(null)).toMatch(/^Va, entonces te digo hasta cuánto/)
+  })
+
   it('el RFC solo aparece en la confirmación de lo leído, al mismo número que mandó el estado de cuenta', () => {
-    const texts = [REGISTRATION_REPLIES.welcome('Prestamista'), REGISTRATION_REPLIES.ask_rfc({ kind: 'missing' }), REGISTRATION_REPLIES.ask_rfc({ kind: 'corrected' }), REGISTRATION_REPLIES.thanks('Distribuidora'), REGISTRATION_REPLIES.idle('Distribuidora')]
+    const texts = [REGISTRATION_REPLIES.welcome('Prestamista'), REGISTRATION_REPLIES.ask_rfc({ kind: 'missing' }), REGISTRATION_REPLIES.ask_rfc({ kind: 'corrected' }), REGISTRATION_REPLIES.thanks('Distribuidora'), REGISTRATION_REPLIES.idle('Distribuidora'), REGISTRATION_REPLIES.idle('Distribuidora', 'Ana'), REGISTRATION_REPLIES.ask_amount('Ana')]
     for (const t of texts) expect(t).not.toMatch(/[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}/)
     expect(REGISTRATION_REPLIES.confirm('Distribuidora SA de CV', 'DNO150304AB1')).toMatch(/a nombre de Distribuidora SA de CV, con RFC DNO150304AB1\.\n\n¿Son correctos\? Responde sí o no\./)
     expect(REGISTRATION_REPLIES.confirm('Ana López', null)).toMatch(/a nombre de Ana López\.\n\n¿Es correcto\?/)

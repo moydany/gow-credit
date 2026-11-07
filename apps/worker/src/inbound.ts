@@ -23,7 +23,8 @@
  * column is emptied. The sender only gets a fixed text reply.
  *
  * With `selfRegistration` (demo only), an unlinked WhatsApp number does not get the fixed reply:
- * it is asked for its bank statement, which is analyzed immediately; once read, it confirms or
+ * it is asked its name and the amount it wants, then its bank statement, which is analyzed
+ * immediately with that amount; once read, it confirms or
  * corrects the holder and RFC, fills in what is missing and, for a persona moral, gives its legal
  * representative. Then it becomes a supplier with its identity and the result goes out
  * (registration.ts).
@@ -38,7 +39,6 @@ import {
   describeInvoice,
   DOCUMENT_REPLIES,
   documentRequestReplies,
-  failureNotice,
   GENERIC_NO_PENDING,
   INVOICE_REPLIES,
   isComplete,
@@ -48,6 +48,7 @@ import {
   MEDIA_UNSUPPORTED,
   parseAmount,
   parseConfirmation,
+  parseContactName,
   parseLegalName,
   parseMaturity,
   parseMultipleReplies,
@@ -56,13 +57,12 @@ import {
   parseYesNo,
   personTypeOf,
   REGISTRATION_REPLIES,
-  renderDocumentRequest,
   renderQuestionAt,
   renderReask,
   renderSummary,
 } from '@gow/channels'
-import { ApplicationRequest, calendarToday, describeFailure, OwnerAnswer, Question, type ApplicationRequest as ApplicationRequestT, type FailureInfo, type OwnerAnswer as OwnerAnswerT, type Question as QuestionT } from '@gow/contracts'
-import { applicationDocuments, applications, auditLog, clarifications, decisions, documents, inboundMessages, invoiceIntakes, outboundMessages, supplierContacts, supplierRegistrations, suppliers, tenants, withTenant, type Db, type Tx } from '@gow/db'
+import { ApplicationRequest, calendarToday, describeFailure, OwnerAnswer, Question, type ApplicationRequest as ApplicationRequestT, type OwnerAnswer as OwnerAnswerT, type Question as QuestionT } from '@gow/contracts'
+import { applicationDocuments, applications, auditLog, clarifications, documents, inboundMessages, invoiceIntakes, outboundMessages, supplierContacts, supplierRegistrations, suppliers, tenants, withTenant, type Db } from '@gow/db'
 import { pdfProtection } from '@gow/extraction'
 import { isPdf, MAX_DOCUMENT_BYTES, type ResumeJob } from '@gow/platform'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
@@ -70,8 +70,9 @@ import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import type { ExpectedField } from './interpret.ts'
 import type { InboundOptions, InboundResult, Resolution } from './inbound-types.ts'
-import { OFFER_STEP, offerAmount } from './offer.ts'
-import { completeRegistration, completeRfc, registrationPrompt, rfcAskReason, verdictText } from './registration.ts'
+import { OFFER_STEP } from './offer.ts'
+import { documentRequestOf, duplicateReply, pendingChatPrompt } from './inbound-replies.ts'
+import { completeRegistration, completeRfc, pendingStatement, registrationPrompt, registrationSupplier, rfcAskReason } from './registration.ts'
 
 /** What came out of reading a value: the value, that they will not give it, or why it was not understood. */
 type FieldRead<T> = { value: T } | { skip: true } | { invalid: 'not_understood' | 'off_topic' | null }
@@ -79,6 +80,7 @@ type FieldRead<T> = { value: T } | { skip: true } | { invalid: 'not_understood' 
 const Questions = z.array(Question)
 const Answers = z.array(OwnerAnswer)
 const OfferDraft = z.object({ max: z.number().positive() })
+type Registration = typeof supplierRegistrations.$inferSelect
 const InvoiceDraft = z.object({ amount: z.number().nullable().optional(), buyer: z.string().nullable().optional() })
 
 export type { InboundOptions, InboundResult, Resolution }
@@ -131,11 +133,13 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     /**
      * Validates and stores the message's PDF in the tenant's storage. A PDF already stored in the
      * tenant is reused. `rejected`: `password` if it needs a password to open, answered with its
-     * own message; `invalid` otherwise.
+     * own message; `invalid` otherwise. `supplier` may be a function: it is called only once the PDF
+     * is valid (registration creates the supplier then, not for a rejected file).
      */
-    const storeDocument = async (supplierId: string, bytes: Buffer): Promise<{ documentId: string; storagePath: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
+    const storeDocument = async (supplier: string | (() => Promise<string>), bytes: Buffer): Promise<{ documentId: string; storagePath: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
       if (!storage || bytes.length === 0 || bytes.length > MAX_DOCUMENT_BYTES || !isPdf(bytes)) return { rejected: 'invalid' }
       if ((await pdfProtection(bytes)) === 'password') return { rejected: 'password' }
+      const supplierId = typeof supplier === 'string' ? supplier : await supplier()
       const sha256 = createHash('sha256').update(bytes).digest('hex')
       const [existing] = await tx.select({ id: documents.id, storagePath: documents.storagePath }).from(documents).where(eq(documents.sha256, sha256))
       if (existing) return { documentId: existing.id, storagePath: existing.storagePath, sha256 }
@@ -155,11 +159,16 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     const openApplication = async (supplierId: string, bytes: Buffer): Promise<{ applicationId: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
       const stored = await storeDocument(supplierId, bytes)
       if ('rejected' in stored) return stored
-      const [created] = await tx.insert(applications).values({ tenantId, supplierId, request: null, asOf: null }).returning({ id: applications.id })
+      return openWithDocument(supplierId, stored)
+    }
+
+    /** Opens a request with a document already stored. `inboundId`: the message that brought the PDF, if not this one. */
+    const openWithDocument = async (supplierId: string, doc: { documentId: string; sha256: string }, request: ApplicationRequestT | null = null, inboundId = msg.id): Promise<{ applicationId: string; sha256: string }> => {
+      const [created] = await tx.insert(applications).values({ tenantId, supplierId, request, asOf: null }).returning({ id: applications.id })
       if (!created) throw new Error('no se creó la solicitud del documento recibido')
-      await tx.insert(applicationDocuments).values({ tenantId, applicationId: created.id, documentId: stored.documentId })
-      await tx.insert(auditLog).values({ tenantId, actor: `inbound:${msg.channel}`, action: 'application.received', subject: created.id, details: { inbound_message_id: msg.id } })
-      return { applicationId: created.id, sha256: stored.sha256 }
+      await tx.insert(applicationDocuments).values({ tenantId, applicationId: created.id, documentId: doc.documentId })
+      await tx.insert(auditLog).values({ tenantId, actor: `inbound:${msg.channel}`, action: 'application.received', subject: created.id, details: { inbound_message_id: inboundId } })
+      return { applicationId: created.id, sha256: doc.sha256 }
     }
 
     const links = await tx
@@ -195,22 +204,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       let pendingText: string | null = null
       let clarificationId: string | null = null
       if (selfRegistration && msg.channel === 'whatsapp' && (links.length === 0 || (reg && reg.step !== 'done'))) pendingText = registrationPrompt(reg)
-      else if (links.length > 0) {
-        const [intake] = await tx
-          .select({ step: invoiceIntakes.step, draft: invoiceIntakes.draft })
-          .from(invoiceIntakes)
-          .where(and(eq(invoiceIntakes.channel, msg.channel), eq(invoiceIntakes.address, msg.fromAddress), ne(invoiceIntakes.step, 'done')))
-          .orderBy(desc(invoiceIntakes.createdAt))
-          .limit(1)
-        const open = intake ? undefined : await openClarification()
-        const offerMax = intake?.step === OFFER_STEP ? OfferDraft.safeParse(intake.draft) : null
-        if (offerMax?.success) pendingText = AMOUNT_OFFER.ask(offerMax.data.max)
-        else if (intake) pendingText = intake.step === 'buyer' ? INVOICE_REPLIES.ask_buyer : intake.step === 'maturity' ? INVOICE_REPLIES.ask_maturity : INVOICE_REPLIES.ask_amount
-        else if (open) {
-          clarificationId = open.id
-          pendingText = clarificationPrompt(open)
-        }
-      }
+      else if (links.length > 0) ({ text: pendingText, clarificationId } = await pendingChatPrompt(tx, msg, openClarification))
       await finish('media_unsupported', clarificationId, { body: pendingText ? `${MEDIA_UNSUPPORTED}\n\n${pendingText}` : MEDIA_UNSUPPORTED, kind: 'media' }, { media_kind: msg.mediaKind })
       return { resolution: 'media_unsupported', resume: null }
     }
@@ -221,15 +215,48 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         await finish(resolution, null, say(body))
         return done({ resolution, resume: null })
       }
+      const rejectedText = (why: 'password' | 'invalid') => (why === 'password' ? DOCUMENT_REPLIES.password_protected : DOCUMENT_REPLIES.rejected)
+      // Supplier with no identity until they confirm their data, created with the first valid PDF.
+      // Verified by possession: the message came from that number. Not equivalent to KYC.
+      const supplierFor = (row: Registration) => () => registrationSupplier(tx, row, msg)
+      /** A PDF before the name and amount: stored and left waiting until both are given. */
+      const keepStatement = async (row: Registration, bytes: Buffer): Promise<{ rejected: 'password' | 'invalid' } | { documentId: string }> => {
+        const stored = await storeDocument(supplierFor(row), bytes)
+        if ('rejected' in stored) return stored
+        await tx.update(supplierRegistrations).set({ pendingDocumentId: stored.documentId, updatedAt: new Date() }).where(eq(supplierRegistrations.id, row.id))
+        return { documentId: stored.documentId }
+      }
+
       if (!reg || reg.step === 'done') {
-        // No registration, or a finished one whose contact is no longer verified: start over.
+        // No registration, or a finished one whose contact is no longer verified: start over, asking
+        // the name and the amount before the statement.
         const [tenant] = await tx.select({ name: tenants.name }).from(tenants)
-        const fresh = { step: 'statement', legalName: null, rfc: null, holderName: null, holderRfc: null, corrected: false, supplierId: null, applicationId: null, updatedAt: new Date() }
-        if (reg) await tx.update(supplierRegistrations).set(fresh).where(eq(supplierRegistrations.id, reg.id))
-        else await tx.insert(supplierRegistrations).values({ tenantId, channel: msg.channel, address: msg.fromAddress, ...fresh })
-        return reply('registration_started', REGISTRATION_REPLIES.welcome(tenant?.name ?? 'GOW Credit'))
+        const fresh = { step: 'contact_name', contactName: null, requestedAmount: null, pendingDocumentId: null, legalName: null, rfc: null, holderName: null, holderRfc: null, corrected: false, supplierId: null, applicationId: null, updatedAt: new Date() }
+        const [row] = reg
+          ? await tx.update(supplierRegistrations).set(fresh).where(eq(supplierRegistrations.id, reg.id)).returning()
+          : await tx.insert(supplierRegistrations).values({ tenantId, channel: msg.channel, address: msg.fromAddress, ...fresh }).returning()
+        if (!row) throw new Error('no se guardó el registro')
+        const tenantName = tenant?.name ?? 'GOW Credit'
+        if (msg.attachment === null) return reply('registration_started', REGISTRATION_REPLIES.welcome(tenantName))
+        const kept = await keepStatement(row, msg.attachment)
+        if ('rejected' in kept) {
+          await finish('registration_started', null, say(REGISTRATION_REPLIES.welcome(tenantName, false, rejectedText(kept.rejected))), { reason: kept.rejected })
+          return done({ resolution: 'registration_started', resume: null })
+        }
+        await finish('registration_started', null, say(REGISTRATION_REPLIES.welcome(tenantName, true)), { document_id: kept.documentId })
+        return done({ resolution: 'registration_started', resume: null })
       }
       const save = (set: Partial<typeof supplierRegistrations.$inferInsert>) => tx.update(supplierRegistrations).set({ ...set, updatedAt: new Date() }).where(eq(supplierRegistrations.id, reg.id))
+      /** The amount they asked for, as the request's amount (no buyer or due date); null without one. */
+      const requestOf = (amount: number | null) => (amount === null ? null : ApplicationRequest.parse({ amount, maturity: null, buyer: null }))
+
+      /** Opens the request with the statement and analyzes it now; the result waits for registration. */
+      const startReading = async (supplierId: string, doc: { documentId: string; sha256: string }, amount: number | null, inboundId?: string) => {
+        const opened = await openWithDocument(supplierId, doc, requestOf(amount), inboundId)
+        await save({ step: 'reading', supplierId, applicationId: opened.applicationId, pendingDocumentId: null })
+        await finish('document_received', null, say(REGISTRATION_REPLIES.reading), { application_id: opened.applicationId })
+        return done({ resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: opened.applicationId }, sha256: opened.sha256 } })
+      }
 
       // What follows with the name and RFC we have; with everything, registration ends and the result goes out.
       const advance = async (data: { legalName: string | null; rfc: string | null; representative?: string }) => {
@@ -252,27 +279,43 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
 
       // A registration left half-done by the previous flow (legal name and RFC first) goes back to the start.
       const step = reg.step === 'legal_name' || (reg.step === 'rfc' && !reg.applicationId) ? 'statement' : reg.step
+      if (step === 'contact_name' || step === 'amount') {
+        const current = step === 'contact_name' ? REGISTRATION_REPLIES.ask_contact_name : REGISTRATION_REPLIES.ask_amount(null)
+        if (msg.attachment !== null) {
+          // The PDF is kept (the latest one wins) and read once the name and amount are in.
+          const kept = await keepStatement(reg, msg.attachment)
+          if ('rejected' in kept) {
+            await finish('document_rejected', null, { body: `${rejectedText(kept.rejected)}\n\n${current}`, kind: 'document' }, { reason: kept.rejected })
+            return done({ resolution: 'document_rejected', resume: null })
+          }
+          await finish('registration_document_kept', null, say(`${REGISTRATION_REPLIES.statement_kept}\n\n${current}`), { document_id: kept.documentId })
+          return done({ resolution: 'registration_document_kept', resume: null })
+        }
+        if (step === 'contact_name') {
+          const read = await readField('legal_name', current, parseContactName, { free: true })
+          if (!('value' in read)) return reply('registration_invalid', reask('invalid' in read ? read.invalid : null, current, REGISTRATION_REPLIES.invalid_contact_name))
+          await save({ step: 'amount', contactName: read.value })
+          return reply('registration_step', REGISTRATION_REPLIES.ask_amount(read.value))
+        }
+        const read = await readField('amount', current, parseAmount, { allowSkip: true })
+        if ('invalid' in read) return reply('registration_invalid', reask(read.invalid, current, REGISTRATION_REPLIES.invalid_amount))
+        const amount = 'value' in read ? read.value : null
+        const kept = reg.supplierId ? await pendingStatement(tx, reg) : undefined
+        if (kept && reg.supplierId) {
+          await save({ requestedAmount: amount })
+          return startReading(reg.supplierId, kept, amount, kept.inboundId)
+        }
+        await save({ step: 'statement', requestedAmount: amount, pendingDocumentId: null })
+        return reply('registration_step', REGISTRATION_REPLIES.ask_statement_for(amount))
+      }
       if (step === 'statement') {
         if (msg.attachment === null) return reply('registration_waiting', REGISTRATION_REPLIES.ask_statement)
-        let supplierId = reg.supplierId
-        if (!supplierId) {
-          // Supplier with no identity until they confirm their data. Verified by possession: the message
-          // came from that number. Not equivalent to KYC.
-          const [created] = await tx.insert(suppliers).values({ tenantId, legalName: null, rfc: null }).returning({ id: suppliers.id })
-          if (!created) throw new Error('no se creó el proveedor del registro')
-          supplierId = created.id
-          await tx.insert(supplierContacts).values({ tenantId, supplierId, channel: msg.channel, address: msg.fromAddress, verifiedAt: new Date(), verificationMethod: 'whatsapp_self_registration' })
-          await tx.insert(auditLog).values({ tenantId, actor: `inbound:${msg.channel}`, action: 'supplier.created', subject: supplierId, details: { source: 'whatsapp_statement_first', inbound_message_id: msg.id } })
-        }
-        const opened = await openApplication(supplierId, msg.attachment)
-        if ('rejected' in opened) {
-          await save({ supplierId })
-          await finish('document_rejected', null, { body: opened.rejected === 'password' ? DOCUMENT_REPLIES.password_protected : DOCUMENT_REPLIES.rejected, kind: 'document' }, { reason: opened.rejected })
+        const stored = await storeDocument(supplierFor(reg), msg.attachment)
+        if ('rejected' in stored) {
+          await finish('document_rejected', null, { body: rejectedText(stored.rejected), kind: 'document' }, { reason: stored.rejected })
           return { resolution: 'document_rejected', resume: null }
         }
-        await save({ step: 'reading', supplierId, applicationId: opened.applicationId })
-        await finish('document_received', null, say(REGISTRATION_REPLIES.reading), { application_id: opened.applicationId })
-        return { resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: opened.applicationId }, sha256: opened.sha256 } }
+        return startReading(await supplierFor(reg)(), stored, reg.requestedAmount)
       }
       if (step === 'reading') return reply('registration_waiting', REGISTRATION_REPLIES.still_reading)
 
@@ -484,7 +527,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       if (selfRegistration && msg.channel === 'whatsapp') {
         // In the demo, a registered supplier who greets is told what to do, not the generic reply.
         const [s] = await tx.select({ legalName: suppliers.legalName }).from(suppliers).where(inArray(suppliers.id, links.map((l) => l.supplierId))).limit(1)
-        await finish('registered_idle', null, { body: REGISTRATION_REPLIES.idle(s?.legalName ?? 'tu empresa'), kind: 'registration' })
+        await finish('registered_idle', null, { body: REGISTRATION_REPLIES.idle(s?.legalName ?? 'tu empresa', reg?.contactName ?? null), kind: 'registration' })
         return { resolution: 'registered_idle', resume: null }
       }
       await finish('no_open_clarification', null, { body: GENERIC_NO_PENDING, kind: 'generic' })
@@ -569,42 +612,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
   })
 }
 
-/** What the clarification is waiting for: the current question, the summary or, once confirmed, the analyst notice. */
-function clarificationPrompt(open: typeof clarifications.$inferSelect): string {
-  const questions = Questions.parse(open.questions)
-  if (open.step === 'confirming') return renderSummary(questions, Answers.parse(open.answers))
-  const q = questions[open.currentQuestion]
-  if (open.step !== 'confirmed' && q && isDocumentRequest(q)) return renderDocumentRequest(q)
-  return open.step !== 'confirmed' && q && isConversational(q) ? renderQuestionAt(questions, open.currentQuestion) : ANALYST_NOTICE
-}
-
-/**
- * The missing-pages question that the clarification is waiting on (`isDocumentRequest`) and that
- * the supplier's PDF answers: the one that was asked (`currentQuestion`) and is still unanswered.
- */
-function documentRequestOf(open: typeof clarifications.$inferSelect): QuestionT | undefined {
-  if (open.step === 'confirmed') return undefined
-  const q = Questions.parse(open.questions)[open.currentQuestion]
-  return q && isDocumentRequest(q) && !Answers.parse(open.answers).some((a) => a.question_id === q.id) ? q : undefined
-}
-
 /** Unprocessed inbound messages from all tenants (reviewed function, ids only). */
 export async function pendingInbound(db: Db, limit = 50): Promise<{ id: string; tenant_id: string }[]> {
   const res = await db.execute<{ id: string; tenant_id: string }>(sql`select id, tenant_id from app.pending_inbound(${limit})`)
   return res.rows
-}
-
-/**
- * What to reply to a PDF that was already sent: if still being analyzed, that there is no need to
- * send it again; if it failed, the same reason; if it has a verdict, the same notice. Never
- * "under review" for something that already finished.
- */
-async function duplicateReply(tx: Tx, prev: { id: string; status: string; request: unknown }, failure: FailureInfo | null, whatsapp: { tenantId: string; address: string } | null): Promise<string> {
-  if (failure) return failureNotice(failure)
-  const verdict = await verdictText(tx, prev)
-  if (!verdict) return DOCUMENT_REPLIES.duplicate
-  // If they have not yet said how much they want to advance, ask again.
-  const [d] = whatsapp ? await tx.select({ limit: decisions.limitAmount }).from(decisions).where(and(eq(decisions.applicationId, prev.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1) : []
-  const offer = whatsapp ? await offerAmount(tx, { tenantId: whatsapp.tenantId, applicationId: prev.id, status: prev.status, limit: d?.limit == null ? null : Number(d.limit), request: prev.request, channel: 'whatsapp', address: whatsapp.address }) : null
-  return `Ya habíamos revisado este estado de cuenta. ${verdict}${offer ? `\n\n${offer}` : ''}`
 }
