@@ -648,6 +648,36 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await a('GET', '/me')).json).toMatchObject({ tenant: { whatsapp_linked_number: null } })
   })
 
+  it('trabajos: cada tenant ve solo los suyos, con estado, intentos y el error, sin el contenido del trabajo', async () => {
+    const a = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const app = randomUUID()
+    const okId = await boss.send(QUEUES.redecide, { tenant_id: tenantA, application_id: app, correction_batch: randomUUID() })
+    const badId = await boss.send(QUEUES.process, { tenant_id: tenantA, application_id: randomUUID() }, { retryLimit: 0 })
+    const purgeId = await boss.send(QUEUES.purge, { tenant_id: tenantA, supplier_id: randomUUID(), application_ids: [], run_ids: [], storage_paths: [`${tenantA}/secreto.pdf`] })
+    await boss.send(QUEUES.process, { tenant_id: tenantB, application_id: randomUUID() })
+    await boss.fail(QUEUES.process, badId ?? '', { message: `el workflow terminó sin veredicto ${'x'.repeat(400)}`, stack: 'Error: at secreto.ts:1' })
+
+    const all = await call('GET', '/jobs', { bearer: a })
+    expect(all.status).toBe(200)
+    const list = all.json as unknown as { id: string; queue: string; state: string; application_id: string | null; supplier_id: string | null; error: string | null; max_attempts: number }[]
+    // Earlier tests also left jobs for this tenant: only these three are checked.
+    expect(list.map((j) => j.id)).toEqual(expect.arrayContaining([okId, badId, purgeId]))
+    expect(JSON.stringify(list)).not.toContain('secreto')
+    expect(list.find((j) => j.id === okId)).toMatchObject({ queue: QUEUES.redecide, state: 'created', application_id: app, error: null })
+    const bad = list.find((j) => j.id === badId)
+    expect(bad).toMatchObject({ state: 'failed', max_attempts: 1 })
+    expect(bad?.error?.startsWith('el workflow terminó sin veredicto')).toBe(true)
+    expect(bad?.error?.length).toBeLessThanOrEqual(301)
+    expect(list.find((j) => j.id === purgeId)?.supplier_id).not.toBeNull()
+
+    expect(((await call('GET', '/jobs?state=failed', { bearer: a })).json as unknown as { id: string }[]).map((j) => j.id)).toContain(badId)
+    expect(((await call('GET', '/jobs?state=running', { bearer: a })).json as unknown as { id: string }[]).map((j) => j.id)).not.toContain(badId)
+    expect(((await call('GET', `/jobs?application_id=${app}`, { bearer: a })).json as unknown as { id: string }[]).map((j) => j.id)).toEqual([okId])
+    expect((await call('GET', '/jobs?state=nope', { bearer: a })).status).toBe(400)
+    const b = tokenFor(userB, tenantB, 'b@prestamista.test')
+    expect(((await call('GET', '/jobs', { bearer: b })).json as unknown as { id: string }[]).every((j) => j.id !== okId && j.id !== badId)).toBe(true)
+  })
+
   it('el esquema de tenant_users está en el catálogo de tablas con RLS', () => {
     expect(tenantUsers).toBeDefined()
   })

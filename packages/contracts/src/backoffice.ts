@@ -204,6 +204,37 @@ export const SupplierStatementStatus = z.strictObject({
 })
 export type SupplierStatementStatus = z.infer<typeof SupplierStatementStatus>
 
+// ---------- Queue jobs
+
+export const JobState = z.enum(['created', 'retry', 'active', 'completed', 'cancelled', 'failed'])
+export type JobState = z.infer<typeof JobState>
+
+/**
+ * A pg-boss job of the tenant (its payload carries `tenant_id`), for the "Trabajos" tab of the audit
+ * log. Only ids from the payload and the error message, never the payload itself or the stack.
+ */
+export const JobItem = z.strictObject({
+  id: z.uuid(),
+  queue: z.string(),
+  state: JobState,
+  attempts: z.int().nonnegative().describe('Intentos hechos (reintentos + el primero, si ya arrancó)'),
+  max_attempts: z.int().positive(),
+  application_id: z.uuid().nullable(),
+  supplier_id: z.uuid().nullable(),
+  created_at: z.string(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  error: z.string().nullable().describe('Mensaje del error del último intento, recortado'),
+  dead_letter_from: z.string().nullable().describe('Cola de la que vino, si llegó a application.dead'),
+})
+export type JobItem = z.infer<typeof JobItem>
+
+export const JobListQuery = z.strictObject({
+  state: z.enum(['failed', 'running']).optional().describe('failed: falló o se canceló; running: en cola, en curso o por reintentar'),
+  application_id: z.uuid().optional(),
+})
+export type JobListQuery = z.infer<typeof JobListQuery>
+
 // ---------- Settings: users, API keys and channels
 
 export const TenantUserItem = z.strictObject({ id: z.uuid(), email: z.string(), created_at: z.string(), invited_by: z.string().nullable().describe('Correo de quien lo invitó, si sigue en el tenant'), is_me: z.boolean() })
