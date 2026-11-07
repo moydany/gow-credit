@@ -16,6 +16,7 @@
   "dependencies": {
     "@gow/contracts": "workspace:*",
     "@gow/llm": "workspace:*",
+    "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.4.299",
     "zod": "4.6.7"
   }
