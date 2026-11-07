@@ -69,7 +69,7 @@ export function ApplicationsPage() {
             </div>
             <SegmentBar
               segments={[
-                { value: stats.qualified, className: 'bg-lime', label: 'Calificadas' },
+                { value: stats.qualified, className: 'bg-accent', label: 'Calificadas' },
                 { value: stats.clarification, className: 'bg-indigo', label: 'Aclaración' },
                 { value: stats.review, className: 'bg-amber', label: 'Revisión' },
                 { value: stats.rejected, className: 'bg-ink', label: 'No calificadas o fallidas' },

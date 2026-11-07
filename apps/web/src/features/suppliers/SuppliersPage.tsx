@@ -21,7 +21,7 @@ export function SuppliersPage() {
   return (
     <div>
       <PageTitle title="Proveedores" muted={data ? `${String(data.length)} en total` : undefined}>
-        <Button variant="lime" onClick={() => { setCreating(true) }}>
+        <Button variant="accent" onClick={() => { setCreating(true) }}>
           <Icon name="plus" size={16} /> Dar de alta
         </Button>
       </PageTitle>

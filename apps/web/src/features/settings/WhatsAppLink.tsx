@@ -45,7 +45,7 @@ function StatusChip({ s }: { s: WhatsAppLinkState }) {
   if (s.unlink_pending) return <Chip tone="indigo" dot>Desvinculando…</Chip>
   switch (s.status) {
     case 'open':
-      return <Chip tone="lime" dot>{s.linked_number ?? 'Vinculado'}</Chip>
+      return <Chip tone="accent" dot>{s.linked_number ?? 'Vinculado'}</Chip>
     case 'waiting_qr':
       return <Chip tone="indigo" dot>Esperando escaneo</Chip>
     case 'closed':
@@ -140,7 +140,7 @@ export function WhatsAppLink({ settings }: { settings: TenantSettings }) {
       ) : data.status === 'logged_out' ? (
         <div className="mt-2.5 space-y-3 text-[13px] leading-relaxed text-muted">
           <p>La sesión se cerró desde el teléfono o WhatsApp la dio de baja. Genera un código nuevo para vincular este u otro número; los mensajes pendientes esperan en el buzón.</p>
-          <Button size="sm" variant="lime" disabled={unlink.isPending} onClick={() => { unlink.mutate() }}>
+          <Button size="sm" variant="accent" disabled={unlink.isPending} onClick={() => { unlink.mutate() }}>
             Generar código nuevo
           </Button>
         </div>

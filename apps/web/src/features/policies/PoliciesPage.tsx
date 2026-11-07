@@ -11,8 +11,8 @@ import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, SegmentB
 import { useToast } from '../../ui/toast'
 import { PageTitle } from '../applications/ApplicationsPage'
 
-const STATUS_CHIP = { draft: ['Borrador', 'plain'], shadow: ['En sombra', 'indigo'], active: ['Activa', 'lime'], archived: ['Archivada', 'hatch'] } as const
-const SEG: Record<DecisionStatus, string> = { qualified: 'bg-lime', qualified_with_limit: 'bg-lime-ink', not_qualified: 'bg-ink', needs_clarification: 'bg-indigo', human_review: 'bg-amber' }
+const STATUS_CHIP = { draft: ['Borrador', 'plain'], shadow: ['En sombra', 'indigo'], active: ['Activa', 'accent'], archived: ['Archivada', 'hatch'] } as const
+const SEG: Record<DecisionStatus, string> = { qualified: 'bg-accent', qualified_with_limit: 'bg-accent-ink', not_qualified: 'bg-ink', needs_clarification: 'bg-indigo', human_review: 'bg-amber' }
 const ORDER: DecisionStatus[] = ['qualified', 'qualified_with_limit', 'not_qualified', 'needs_clarification', 'human_review']
 
 export function PoliciesPage() {
@@ -111,7 +111,7 @@ export function PoliciesPage() {
                 <textarea id="policy-json" spellCheck={false} value={text} onChange={(e) => { setText(e.target.value) }} className="input scroll-thin h-80 resize-y font-mono text-[12.5px] leading-relaxed" aria-invalid={!check.ok} aria-describedby="policy-status" />
                 <div id="policy-status" className="mt-3" role="status">
                   {check.ok ? (
-                    <p className="flex items-center gap-2 text-[13px] font-medium text-lime-ink">
+                    <p className="flex items-center gap-2 text-[13px] font-medium text-accent-ink">
                       <Icon name="check" size={15} /> Política válida{dirty ? ' · con cambios sin guardar' : ''}
                     </p>
                   ) : (
@@ -134,7 +134,7 @@ export function PoliciesPage() {
                   <Button size="sm" variant="ghost" disabled={selected.status === 'shadow' || selected.status === 'archived' || selected.status === 'active' || shadow.isPending} onClick={() => { shadow.mutate(selected.id) }}>
                     Activar en sombra
                   </Button>
-                  <Button size="sm" variant="lime" disabled={selected.status === 'active' || selected.status === 'archived'} onClick={() => { setConfirm('activate') }}>
+                  <Button size="sm" variant="accent" disabled={selected.status === 'active' || selected.status === 'archived'} onClick={() => { setConfirm('activate') }}>
                     Promover a activa
                   </Button>
                   <p className="ml-auto text-[12px] text-muted">{selected.status === 'draft' ? 'Simula antes de promover.' : ''}</p>
@@ -155,7 +155,7 @@ export function PoliciesPage() {
           <Button variant="ghost" onClick={() => { setConfirm(null) }}>
             Cancelar
           </Button>
-          <Button variant="lime" disabled={activate.isPending} onClick={() => { if (selected) activate.mutate(selected.id) }}>
+          <Button variant="accent" disabled={activate.isPending} onClick={() => { if (selected) activate.mutate(selected.id) }}>
             {activate.isPending ? 'Activando…' : 'Promover'}
           </Button>
         </div>
@@ -186,7 +186,7 @@ function SimulationView({ report }: { report: NonNullable<PolicyVersionItem['sim
       <div className="space-y-6 px-6 pt-5">
         {t ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Tile label="Mejoran" value={t.upgraded} tone="lime" />
+            <Tile label="Mejoran" value={t.upgraded} tone="accent" />
             <Tile label="Empeoran" value={t.downgraded} tone="coral" />
             <Tile label="Sin cambio" value={t.unchanged} tone="plain" />
             <Tile label="Línea cambia" value={t.limit_increased + t.limit_decreased} tone="indigo" hint={`${String(t.limit_increased)} sube · ${String(t.limit_decreased)} baja`} />
@@ -248,9 +248,9 @@ function countBase(r: SimulationReport): Record<DecisionStatus, number> | null {
   return out
 }
 
-function Tile({ label, value, tone, hint }: { label: string; value: number; tone: 'lime' | 'coral' | 'plain' | 'indigo'; hint?: string }) {
+function Tile({ label, value, tone, hint }: { label: string; value: number; tone: 'accent' | 'coral' | 'plain' | 'indigo'; hint?: string }) {
   return (
-    <div className={clsx('rounded-[22px] p-4', tone === 'lime' && 'bg-lime-soft', tone === 'coral' && 'bg-coral-soft', tone === 'plain' && 'bg-sunken', tone === 'indigo' && 'bg-indigo-soft')}>
+    <div className={clsx('rounded-[22px] p-4', tone === 'accent' && 'bg-accent-soft', tone === 'coral' && 'bg-coral-soft', tone === 'plain' && 'bg-sunken', tone === 'indigo' && 'bg-indigo-soft')}>
       <p className="text-[12.5px] text-ink-2">{label}</p>
       <p className="display tnum mt-2 text-[34px]">{value}</p>
       {hint ? <p className="mt-1 text-[11.5px] text-ink-2">{hint}</p> : null}

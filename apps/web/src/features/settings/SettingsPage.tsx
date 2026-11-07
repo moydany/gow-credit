@@ -45,7 +45,7 @@ function ShowOnce({ open, onClose, title, value, children }: { open: boolean; on
           <code className="min-w-0 flex-1 break-all py-2 font-mono text-[12.5px] leading-relaxed">{value}</code>
           <Button
             size="sm"
-            variant="lime"
+            variant="accent"
             onClick={() => {
               void navigator.clipboard.writeText(value).then(
                 () => { toast.ok('Copiado') },
@@ -146,7 +146,7 @@ function UsersCard() {
             </span>
           ) : null}
         </label>
-        <Button type="submit" variant="lime" disabled={invite.isPending}>
+        <Button type="submit" variant="accent" disabled={invite.isPending}>
           <Icon name="plus" size={16} /> Invitar
         </Button>
       </form>
@@ -158,7 +158,7 @@ function UsersCard() {
         <ul className="mt-3 px-3" aria-label="Usuarios del tenant">
           {data.map((u) => (
             <li key={u.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line/70 px-3 py-3.5 first:border-0">
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ink text-[12px] font-semibold uppercase text-lime">{u.email.slice(0, 2)}</span>
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-[12px] font-semibold uppercase text-white">{u.email.slice(0, 2)}</span>
               <div className="min-w-0 flex-1 basis-48">
                 <p className="truncate text-[14.5px] font-medium">
                   {u.email} {u.is_me ? <Chip className="ml-1.5 align-middle">Tú</Chip> : null}

@@ -56,7 +56,7 @@ export function Shell() {
               >
                 {n.label}
                 {counts[n.badge] > 0 ? (
-                  <span className="grid min-w-5 place-items-center rounded-full bg-lime px-1.5 py-0.5 text-[11px] font-semibold leading-none tabular-nums text-ink">{counts[n.badge]}</span>
+                  <span className="grid min-w-5 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-semibold leading-none tabular-nums text-white">{counts[n.badge]}</span>
                 ) : null}
               </Link>
             ))}
@@ -66,7 +66,7 @@ export function Shell() {
             {me.data ? (
               <details className="group relative">
                 <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-full bg-card py-1 pl-1 pr-3 shadow-[0_1px_2px_rgb(20_23_31/0.06)] [&::-webkit-details-marker]:hidden">
-                  <span className="grid size-9 place-items-center rounded-full bg-ink text-[13px] font-semibold uppercase text-lime">{me.data.user.email.slice(0, 2)}</span>
+                  <span className="grid size-9 place-items-center rounded-full bg-accent text-[13px] font-semibold uppercase text-white">{me.data.user.email.slice(0, 2)}</span>
                   <Icon name="down" size={14} className="text-muted transition-transform group-open:rotate-180" />
                 </summary>
                 <div className="animate-fade absolute right-0 top-14 z-40 w-72 rounded-3xl bg-card p-2 shadow-pop">
@@ -74,7 +74,7 @@ export function Shell() {
                     <p className="truncate text-[14px] font-medium">{me.data.user.email}</p>
                     <p className="mt-0.5 truncate text-[13px] text-muted">{me.data.tenant.name}</p>
                     <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted">
-                      <span className={clsx('size-1.5 rounded-full', me.data.tenant.whatsapp_linked_number ? 'bg-lime-ink' : 'bg-amber')} />
+                      <span className={clsx('size-1.5 rounded-full', me.data.tenant.whatsapp_linked_number ? 'bg-accent-ink' : 'bg-amber')} />
                       {me.data.tenant.whatsapp_linked_number ? `WhatsApp ${me.data.tenant.whatsapp_linked_number}` : 'WhatsApp sin vincular: respondes tú'}
                     </p>
                   </div>

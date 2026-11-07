@@ -112,7 +112,7 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Chip tone={open ? 'indigo' : item.status === 'answered' ? 'lime' : 'hatch'} dot>
+          <Chip tone={open ? 'indigo' : item.status === 'answered' ? 'accent' : 'hatch'} dot>
             {open ? 'Abierta' : item.status === 'answered' ? 'Respondida' : item.status === 'expired' ? 'Vencida' : 'Rechazada'}
           </Chip>
           <Link to="/solicitudes/$id" params={{ id: item.application_id }} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium hover:bg-sunken">
@@ -135,7 +135,7 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
           return (
             <li key={q.id} className="rounded-[22px] border border-line p-5">
               <div className="flex gap-3">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink text-[12px] font-semibold text-lime">{i + 1}</span>
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[12px] font-semibold text-white">{i + 1}</span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[12px] font-medium uppercase tracking-wide text-muted">{TOPIC[q.topic] ?? q.topic}</p>
                   <p className="mt-1 text-[14.5px] leading-relaxed">{q.text}</p>
@@ -218,7 +218,7 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
             >
               Declinar todo y seguir
             </Button>
-            <Button variant="lime" size="sm" disabled={!ready || send.isPending} onClick={() => { send.mutate(answers.filter((a): a is OwnerAnswer => a !== null)) }}>
+            <Button variant="accent" size="sm" disabled={!ready || send.isPending} onClick={() => { send.mutate(answers.filter((a): a is OwnerAnswer => a !== null)) }}>
               {send.isPending ? 'Enviando…' : 'Responder a nombre del proveedor'}
             </Button>
           </div>
@@ -300,7 +300,7 @@ function Given({ a }: { a: OwnerAnswer | undefined }) {
               ? `Sin respuesta${a.note ? `: ${a.note}` : ''}`
               : 'Documentos enviados'
   return (
-    <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-2xl bg-lime-soft px-3.5 py-2 text-[13.5px] font-medium text-lime-ink">
+    <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-2xl bg-accent-soft px-3.5 py-2 text-[13.5px] font-medium text-accent-ink">
       <Icon name="check" size={15} className="shrink-0" />
       <span className="truncate">{text}</span>
     </p>

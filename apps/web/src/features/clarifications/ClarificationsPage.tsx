@@ -60,7 +60,7 @@ export function ClarificationsPage() {
                       <span className="shrink-0 text-[12px] text-muted">{ago(c.created_at)}</span>
                     </span>
                     <span className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted">
-                      <Chip tone={c.status === 'open' ? 'indigo' : 'lime'} dot>
+                      <Chip tone={c.status === 'open' ? 'indigo' : 'accent'} dot>
                         {c.status === 'open' ? 'Abierta' : 'Respondida'}
                       </Chip>
                       {c.questions.length === 1 ? '1 pregunta' : `${String(c.questions.length)} preguntas`}

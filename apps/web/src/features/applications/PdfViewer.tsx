@@ -143,7 +143,7 @@ export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentI
   }, [boxes])
 
   const pages = useMemo(() => Array.from({ length: pageCount }, (_, i) => i + 1), [pageCount])
-  const toneClass = { verified: 'bg-lime/55 outline-lime-ink/40', unverified: 'hatch-amber outline-amber/80', conflict: 'hatch-coral outline-coral/80' }[focus.tone]
+  const toneClass = { verified: 'bg-accent/25 outline-accent-ink/40', unverified: 'hatch-amber outline-amber/80', conflict: 'hatch-coral outline-coral/80' }[focus.tone]
 
   return (
     <div className="flex h-full min-h-0 flex-col">

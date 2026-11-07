@@ -83,7 +83,7 @@ export function ExtractionPanel({ x, tab, onTab }: { x: StatementExtraction; tab
               {unverifiedCount(x)} sin verificar
             </Chip>
           ) : (
-            <Chip tone="lime" icon="check">
+            <Chip tone="accent" icon="check">
               Todo verificado
             </Chip>
           )}
@@ -224,8 +224,8 @@ function PeriodBlock({ p }: { p: Period }) {
   )
 }
 
-const RECON: Record<string, { label: string; tone: 'lime' | 'amber' | 'coral' | 'hatch' }> = {
-  reconciled: { label: 'Cuadra', tone: 'lime' },
+const RECON: Record<string, { label: string; tone: 'accent' | 'amber' | 'coral' | 'hatch' }> = {
+  reconciled: { label: 'Cuadra', tone: 'accent' },
   partially_reconciled: { label: 'Cuadra en parte', tone: 'amber' },
   not_reconciled: { label: 'No cuadra', tone: 'coral' },
   not_checkable: { label: 'No se puede comprobar', tone: 'hatch' },
@@ -311,7 +311,7 @@ function Transactions({ txs, bad }: { txs: FlatTx[]; bad: number }) {
                   className={clsx('grid min-w-0 flex-1 grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 rounded-2xl px-2.5 py-2.5 text-left transition-colors hover:bg-sunken', tx.verification === 'unverified' && 'hatch-amber', tx.verification === 'conflict' && 'hatch-coral')}
                 >
                   <span className="min-w-0 truncate text-[13.5px] font-medium">{tx.description}</span>
-                  <span className={clsx('tnum text-[13.5px] font-medium', tx.type === 'credit' && tx.verification === 'verified' && 'text-lime-ink')}>
+                  <span className={clsx('tnum text-[13.5px] font-medium', tx.type === 'credit' && tx.verification === 'verified' && 'text-accent-ink')}>
                     {tx.type === 'credit' ? '+' : '−'}
                     {money(tx.amount)}
                   </span>
@@ -381,7 +381,7 @@ function Fiscal({ x }: { x: StatementExtraction }) {
             </Row>
           </dl>
           <p className="mt-2 flex flex-wrap gap-1.5 pb-1">
-            <Chip tone={f.seals.issuer_present && f.seals.sat_present ? 'lime' : 'amber'} icon={f.seals.issuer_present && f.seals.sat_present ? 'check' : 'alert'}>
+            <Chip tone={f.seals.issuer_present && f.seals.sat_present ? 'accent' : 'amber'} icon={f.seals.issuer_present && f.seals.sat_present ? 'check' : 'alert'}>
               Sellos {f.seals.issuer_present && f.seals.sat_present ? 'presentes' : 'incompletos'}
             </Chip>
             {f.seals.looks_truncated ? <Chip tone="amber">Se ven cortados</Chip> : null}

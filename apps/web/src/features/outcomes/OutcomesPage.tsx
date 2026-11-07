@@ -50,7 +50,7 @@ export function OutcomesPage() {
           <SegmentBar
             className="mt-5"
             segments={[
-              { value: count('paid'), className: 'bg-lime', label: OUTCOME_LABEL.paid },
+              { value: count('paid'), className: 'bg-accent', label: OUTCOME_LABEL.paid },
               { value: count('late'), className: 'bg-amber', label: OUTCOME_LABEL.late },
               { value: count('default'), className: 'bg-coral', label: OUTCOME_LABEL.default },
               { value: count('fraud'), className: 'bg-ink', label: OUTCOME_LABEL.fraud },
@@ -84,7 +84,7 @@ function OutcomeRow({ a }: { a: ApplicationRow }) {
         <p className="tnum mt-0.5 text-[13px] text-muted">Línea {money(a.decision?.limit)} · calificada {date(a.updated_at)}</p>
       </div>
       {a.outcome ? (
-        <Chip tone={a.outcome === 'paid' ? 'lime' : a.outcome === 'late' ? 'amber' : 'coral'} dot>
+        <Chip tone={a.outcome === 'paid' ? 'accent' : a.outcome === 'late' ? 'amber' : 'coral'} dot>
           {OUTCOME_LABEL[a.outcome]}
         </Chip>
       ) : (
@@ -109,7 +109,7 @@ function OutcomeRow({ a }: { a: ApplicationRow }) {
             <span className="sr-only">Fecha observada</span>
             <input type="date" value={day} max={localToday()} onChange={(e) => { setDay(e.target.value) }} className="input h-10 w-auto" />
           </label>
-          <Button size="sm" variant="lime" type="submit" disabled={save.isPending || !day}>
+          <Button size="sm" variant="accent" type="submit" disabled={save.isPending || !day}>
             Registrar
           </Button>
         </form>

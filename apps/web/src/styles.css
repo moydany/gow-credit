@@ -1,5 +1,5 @@
 /* Sistema visual del backoffice. Referencia: lienzo gris suave, tarjetas bento muy redondeadas,
-   nav en píldoras con la activa en negro, lima + periwinkle como acentos y rayado diagonal para lo
+   nav en píldoras con la activa en negro, morado + periwinkle como acentos y rayado diagonal para lo
    que está pendiente. El rayado además tiene significado en el producto: "aún no verificado". */
 @import 'tailwindcss';
 
@@ -16,9 +16,9 @@
   --color-ink-2: #3b404b;
   --color-muted: #5f6570;
 
-  --color-lime: #a6f23b;
-  --color-lime-soft: #e9fbc9;
-  --color-lime-ink: #2f5a00;
+  --color-accent: #9333ea;
+  --color-accent-soft: #f3e8ff;
+  --color-accent-ink: #6b21a8;
   --color-indigo: #6574ff;
   --color-indigo-soft: #e6e9ff;
   --color-indigo-ink: #3a47d1;
@@ -64,7 +64,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-::selection { background: var(--color-lime); color: var(--color-ink); }
+::selection { background: var(--color-accent); color: #fff; }
 .tnum { font-variant-numeric: tabular-nums; }
 .display { letter-spacing: -0.035em; font-weight: 500; line-height: 1; }
 

@@ -132,7 +132,7 @@ export function CorrectionModal({ spec, onClose, onAdd }: { spec: EditSpec | nul
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit" variant="lime" disabled={!ready}>
+          <Button type="submit" variant="accent" disabled={!ready}>
             Agregar a las correcciones
           </Button>
         </div>

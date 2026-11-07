@@ -116,7 +116,7 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit" variant="lime" disabled={save.isPending || nothing}>
+          <Button type="submit" variant="accent" disabled={save.isPending || nothing}>
             {editing ? 'Guardar cambios' : 'Dar de alta'}
           </Button>
         </div>

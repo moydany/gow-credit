@@ -34,7 +34,7 @@ function tokens(x: LlmExchangeRow): string {
 function Outcome({ x }: { x: LlmExchangeRow }) {
   if (x.outcome === 'error') return <Chip tone="coral" dot>{x.error_code ?? 'error'}</Chip>
   if (x.response_cache_hit) return <Chip tone="plain" dot>De caché</Chip>
-  return <Chip tone="lime" dot>Bien</Chip>
+  return <Chip tone="accent" dot>Bien</Chip>
 }
 
 type Search = { tab?: string; solicitud?: string; resultado?: string; ver?: string }

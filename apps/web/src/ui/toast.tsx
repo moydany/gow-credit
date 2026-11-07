@@ -25,7 +25,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex flex-col items-center gap-2 px-4" role="status" aria-live="polite">
         {items.map((t) => (
           <div key={t.id} className={clsx('animate-rise pointer-events-auto flex max-w-md items-center gap-3 rounded-full py-2.5 pl-3 pr-5 text-[14px] font-medium shadow-pop', t.kind === 'ok' ? 'bg-ink text-white' : 'bg-coral-soft text-coral-ink')}>
-            <span className={clsx('grid size-6 place-items-center rounded-full', t.kind === 'ok' ? 'bg-lime text-ink' : 'bg-coral text-white')}>
+            <span className={clsx('grid size-6 place-items-center rounded-full', t.kind === 'ok' ? 'bg-accent text-white' : 'bg-coral text-white')}>
               <Icon name={t.kind === 'ok' ? 'check' : 'alert'} size={14} />
             </span>
             {t.text}

@@ -24,9 +24,9 @@ export function CardHeader({ title, subtitle, action }: { title: ReactNode; subt
   )
 }
 
-type Tone = 'lime' | 'indigo' | 'amber' | 'coral' | 'ink' | 'hatch' | 'plain'
+type Tone = 'accent' | 'indigo' | 'amber' | 'coral' | 'ink' | 'hatch' | 'plain'
 const TONE: Record<Tone, string> = {
-  lime: 'bg-lime text-ink',
+  accent: 'bg-accent text-white',
   indigo: 'bg-indigo-soft text-indigo-ink',
   amber: 'bg-amber-soft text-amber-ink',
   coral: 'bg-coral-soft text-coral-ink',
@@ -34,7 +34,7 @@ const TONE: Record<Tone, string> = {
   hatch: 'hatch text-ink-2',
   plain: 'bg-sunken text-ink-2',
 }
-const DOT: Record<Tone, string> = { lime: 'bg-lime-ink', indigo: 'bg-indigo', amber: 'bg-amber', coral: 'bg-coral', ink: 'bg-lime', hatch: 'bg-muted', plain: 'bg-muted' }
+const DOT: Record<Tone, string> = { accent: 'bg-accent-ink', indigo: 'bg-indigo', amber: 'bg-amber', coral: 'bg-coral', ink: 'bg-accent', hatch: 'bg-muted', plain: 'bg-muted' }
 
 export function Chip({ tone = 'plain', dot, icon, children, className }: { tone?: Tone; dot?: boolean; icon?: IconName; children: ReactNode; className?: string }) {
   return (
@@ -53,8 +53,8 @@ const STATUS_TONE: Record<ApplicationStatus | DecisionStatus, Tone> = {
   deciding: 'hatch',
   needs_clarification: 'indigo',
   human_review: 'amber',
-  qualified: 'lime',
-  qualified_with_limit: 'lime',
+  qualified: 'accent',
+  qualified_with_limit: 'accent',
   not_qualified: 'coral',
   failed: 'ink',
 }
@@ -71,7 +71,7 @@ export function StatusChip({ status, decision }: { status: ApplicationStatus | D
   )
 }
 
-export function Button({ variant = 'primary', size = 'md', className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'lime' | 'ghost' | 'quiet' | 'danger'; size?: 'sm' | 'md' }) {
+export function Button({ variant = 'primary', size = 'md', className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'accent' | 'ghost' | 'quiet' | 'danger'; size?: 'sm' | 'md' }) {
   return (
     <button
       type="button"
@@ -80,7 +80,7 @@ export function Button({ variant = 'primary', size = 'md', className, ...rest }:
         'inline-flex shrink-0 items-center justify-center gap-2 rounded-full font-medium transition-[transform,background-color,box-shadow] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45',
         size === 'md' ? 'h-11 px-5 text-[14px]' : 'h-9 px-4 text-[13px]',
         variant === 'primary' && 'bg-ink text-white hover:bg-ink-2',
-        variant === 'lime' && 'bg-lime text-ink hover:brightness-95',
+        variant === 'accent' && 'bg-accent text-white hover:brightness-95',
         variant === 'ghost' && 'border border-line bg-card text-ink hover:bg-sunken',
         variant === 'quiet' && 'text-ink-2 hover:bg-sunken',
         variant === 'danger' && 'bg-coral-soft text-coral-ink hover:brightness-95',
@@ -157,11 +157,11 @@ export function SegmentBar({ segments, className }: { segments: { value: number;
   )
 }
 
-export function Meter({ value, max = 100, tone = 'lime', hatch = false }: { value: number; max?: number; tone?: 'lime' | 'indigo'; hatch?: boolean }) {
+export function Meter({ value, max = 100, tone = 'accent', hatch = false }: { value: number; max?: number; tone?: 'accent' | 'indigo'; hatch?: boolean }) {
   const w = Math.max(0, Math.min(1, max === 0 ? 0 : value / max))
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-sunken" role="meter" aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
-      <div className={clsx('h-full rounded-full', hatch ? 'hatch' : tone === 'lime' ? 'bg-lime' : 'bg-indigo')} style={{ width: `${String(w * 100)}%` }} />
+      <div className={clsx('h-full rounded-full', hatch ? 'hatch' : tone === 'accent' ? 'bg-accent' : 'bg-indigo')} style={{ width: `${String(w * 100)}%` }} />
     </div>
   )
 }

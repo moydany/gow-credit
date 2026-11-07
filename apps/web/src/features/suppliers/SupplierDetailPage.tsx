@@ -10,7 +10,7 @@ import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, SegmentB
 import { useToast } from '../../ui/toast'
 import { SupplierFormModal } from './SupplierForm'
 
-const OUTCOME_TONE = { paid: 'lime', late: 'amber', default: 'coral', fraud: 'coral' } as const
+const OUTCOME_TONE = { paid: 'accent', late: 'amber', default: 'coral', fraud: 'coral' } as const
 
 /** Un proveedor (docs/08 §2): sus datos, sus contactos verificados y todo lo que ha pedido. Abrirlo queda en la bitácora. */
 export function SupplierDetailPage() {
@@ -111,7 +111,7 @@ export function SupplierDetailPage() {
             <SegmentBar
               className="mt-5"
               segments={[
-                { value: outcomes.filter((o) => o.outcome === 'paid').length, className: 'bg-lime', label: OUTCOME_LABEL.paid },
+                { value: outcomes.filter((o) => o.outcome === 'paid').length, className: 'bg-accent', label: OUTCOME_LABEL.paid },
                 { value: outcomes.filter((o) => o.outcome === 'late').length, className: 'bg-amber', label: OUTCOME_LABEL.late },
                 { value: outcomes.filter((o) => o.outcome === 'default').length, className: 'bg-coral', label: OUTCOME_LABEL.default },
                 { value: outcomes.filter((o) => o.outcome === 'fraud').length, className: 'bg-ink', label: OUTCOME_LABEL.fraud },
@@ -216,7 +216,7 @@ function Contact({ c }: { c: SupplierContactItem }) {
         <p className="mt-0.5 text-[12.5px] text-muted">{CHANNEL_LABEL[c.channel]}</p>
       </div>
       {c.verified_at ? (
-        <Chip tone="lime" dot>
+        <Chip tone="accent" dot>
           Verificado{c.verification_method === 'kyc' ? ' por KYC' : ''} · {date(c.verified_at)}
         </Chip>
       ) : (

@@ -105,7 +105,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
                   <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
                     <Chip tone="plain">{DECISION_LABEL[s.from.status]}</Chip>
                     <Icon name="right" size={12} />
-                    <Chip tone={s.to.status === 'not_qualified' ? 'coral' : 'lime'}>{DECISION_LABEL[s.to.status]}</Chip>
+                    <Chip tone={s.to.status === 'not_qualified' ? 'coral' : 'accent'}>{DECISION_LABEL[s.to.status]}</Chip>
                   </p>
                   {line ? (
                     <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted">
@@ -126,7 +126,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
         <ul className="space-y-1.5">
           {d.evaluation.gates.map((g) => (
             <li key={g.id} className="flex items-start gap-3 rounded-2xl px-1 py-1.5">
-              <span className={clsx('mt-0.5 grid size-6 shrink-0 place-items-center rounded-full', g.outcome === 'pass' ? 'bg-lime text-ink' : g.outcome === 'fail' ? 'bg-coral-soft text-coral-ink' : 'hatch text-ink-2')}>
+              <span className={clsx('mt-0.5 grid size-6 shrink-0 place-items-center rounded-full', g.outcome === 'pass' ? 'bg-accent text-white' : g.outcome === 'fail' ? 'bg-coral-soft text-coral-ink' : 'hatch text-ink-2')}>
                 <Icon name={g.outcome === 'pass' ? 'check' : g.outcome === 'fail' ? 'x' : 'help'} size={13} />
                 <span className="sr-only">{g.outcome === 'pass' ? 'Pasa' : g.outcome === 'fail' ? 'No pasa' : 'Desconocido'}</span>
               </span>
@@ -194,7 +194,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
           <ul className="space-y-1.5 text-[13.5px]">
             {detail.outcomes.map((o) => (
               <li key={o.observed_at} className="flex items-center justify-between">
-                <Chip tone={o.outcome === 'paid' ? 'lime' : 'coral'}>{OUTCOME_LABEL[o.outcome]}</Chip>
+                <Chip tone={o.outcome === 'paid' ? 'accent' : 'coral'}>{OUTCOME_LABEL[o.outcome]}</Chip>
                 <span className="text-muted">{date(o.observed_at)}</span>
               </li>
             ))}
@@ -225,7 +225,7 @@ function Verdict({ detail, d }: { detail: ApplicationDetail; d: Decision }) {
   const shadow = detail.shadow
   const approval = approvalOf(d, detail.request?.amount)
   return (
-    <div className={clsx('mt-4 rounded-[26px] p-5', d.status === 'qualified' || d.status === 'qualified_with_limit' ? 'bg-lime-soft' : d.status === 'not_qualified' ? 'bg-coral-soft' : d.status === 'human_review' ? 'bg-amber-soft' : 'bg-indigo-soft')}>
+    <div className={clsx('mt-4 rounded-[26px] p-5', d.status === 'qualified' || d.status === 'qualified_with_limit' ? 'bg-accent-soft' : d.status === 'not_qualified' ? 'bg-coral-soft' : d.status === 'human_review' ? 'bg-amber-soft' : 'bg-indigo-soft')}>
       <div className="flex items-center justify-between gap-3">
         <StatusChip status={d.status} decision />
         <span className="text-[12px] text-ink-2/80">Política v{detail.decision?.policy_version ?? d.policy.version}</span>
