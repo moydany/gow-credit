@@ -299,7 +299,7 @@ sequenceDiagram
 | Recorrido | La solicitud paso a paso en 3D: mensajes, lecturas, llamadas a modelos y decisiones |
 | Aclaraciones | Preguntas pendientes; se responden a mano cuando el proveedor no tiene WhatsApp |
 | Revisión | Correcciones del analista sobre la extracción, guardadas como pares inmutables y reevaluadas |
-| Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo. En su detalle se sube un estado de cuenta con el monto a solicitar y se ve la evaluación avanzar hasta el resultado |
+| Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo. En su detalle se sube el estado de cuenta con el monto a solicitar y se ve la evaluación avanzar hasta el resultado. Si la política evalúa tres meses, se pueden elegir varios PDF a la vez y se evalúan juntos, como una sola solicitud |
 | Outcomes | Si cada crédito se pagó o cayó en mora, para medir la política |
 | Bitácora | Quién hizo qué, cada llamada a un modelo con su costo, y los trabajos de la cola con su estado y error |
 | Configuración | General (antigüedad del estado de cuenta, WhatsApp, usuarios), políticas y prompts |
@@ -460,6 +460,8 @@ un mes. Luego, desde el teléfono del proveedor:
    responde "lo reviso junto con los que ya mandaste" y un minuto después llega el resultado con los tres
    meses.
 3. O desde el inicio, manda los tres PDF juntos: es una sola solicitud.
+4. Sin teléfono: en el detalle del proveedor, **Evaluar estados de cuenta** acepta los tres PDF a la vez
+   (o uno solo que traiga los tres meses) y los evalúa juntos.
 
 </details>
 

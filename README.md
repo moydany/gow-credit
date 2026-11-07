@@ -300,7 +300,7 @@ sequenceDiagram
 | Recorrido | The request step by step in 3D: messages, reads, model calls and decisions |
 | Aclaraciones | Pending questions, answered by hand when the supplier has no WhatsApp |
 | Revisión | Analyst corrections to the extraction, stored as immutable pairs and re-evaluated |
-| Proveedores | Add, search and remove suppliers with everything that belongs to them. On a supplier's page you can upload a statement with the amount to request and watch the evaluation run to its result |
+| Proveedores | Add, search and remove suppliers with everything that belongs to them. On a supplier's page you can upload the statement with the amount to request and watch the evaluation run to its result. When the policy evaluates three months, you can pick several PDFs at once and they are evaluated together, as one request |
 | Outcomes | Whether each credit was repaid or defaulted, to measure the policy |
 | Bitácora | Who did what, every model call with its cost, and the queue jobs with their state and error |
 | Configuración | General (statement age, WhatsApp, users), policies and prompts |
@@ -461,6 +461,8 @@ version again. Then, from the supplier's phone:
    review it together with the ones you already sent", and a minute later the result arrives with the three
    months.
 3. Or from the start, send the three PDFs together: it is a single request.
+4. No phone needed: on the supplier's page, **Evaluar estados de cuenta** takes the three PDFs at once
+   (or a single one that covers the three months) and evaluates them together.
 
 </details>
 
