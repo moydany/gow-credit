@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { describeFailure, DOCUMENT_AGE_WARNING, multipleStatementsReason, PDF_PASSWORD_FAILURE, type ApplicationRequest, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
-import { ZERO_USAGE, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
+import { RecordingStructuredLlm, withLlmScope, ZERO_USAGE, type LlmScope, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
 import { describe, expect, it } from 'vitest'
 import { MemoryChannel } from './channels.ts'
 import { renderReport, toApplicationResult } from './report.ts'
@@ -181,6 +181,23 @@ describe('processApplication', () => {
     expect(purposes).toEqual(['clarification_questions', 'next_steps', 'explanation'])
     expect(second.state?.decision?.explanation?.text_source).toBe('writer')
     expect(second.state?.asked[0]?.text).toBe('¿Qué fue ese abono?')
+  })
+
+  it('cada llamada al modelo dentro del workflow queda atribuida a su solicitud, también al reanudar (ADR 0064)', async () => {
+    const file = db()
+    const scripted: StructuredLlm = {
+      call: (req) => {
+        const ids = [...req.instruction.matchAll(/"id": "([a-z0-9]+)"/g)].map((m) => m[1] ?? '')
+        return Promise.resolve({ object: req.schema.parse({ texts: ids.map((id) => ({ id, text: '¿Qué fue ese abono?' })) }), usage: ZERO_USAGE, costUsd: 0, latencyMs: 1, model: 'claude-haiku-5-5', finishReason: 'stop', responseCacheHit: false })
+      },
+    }
+    const seen: { purpose: string; scope: LlmScope }[] = []
+    const llm = new RecordingStructuredLlm(scripted, { record: (e, scope) => { seen.push({ purpose: e.purpose, scope }); return Promise.resolve() } })
+    const scope = { tenantId: 't1', applicationId: 'dudoso' }
+    const first = await withLlmScope(scope, () => startApplication(createRuntime({ ...deps(), writer: new Writer(llm) }, file), input('dudoso.pdf')))
+    await withLlmScope(scope, () => resumeApplication(createRuntime({ ...deps(), writer: new Writer(llm) }, file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'customer_payment', counterparty: null }], base_dir: null }))
+    expect(seen.map((x) => x.purpose)).toEqual(['clarification_questions', 'next_steps', 'explanation'])
+    expect(seen.every((x) => x.scope.applicationId === 'dudoso' && x.scope.tenantId === 't1')).toBe(true)
   })
 
   it('si el dueño no sabe, no se le pregunta lo mismo en otra ronda: va a revisión humana (ADR 0051)', async () => {

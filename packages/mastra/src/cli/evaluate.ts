@@ -14,7 +14,7 @@
  * del documento: solo estados, conteos y costos (salvo `--interactive`, que muestra las preguntas
  * para que las conteste quien corre el comando).
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
@@ -29,12 +29,15 @@ import {
   createTransactionClassifier,
   EXTRACTION_MODEL,
   JsonFileCache,
+  JsonlLlmExchangeSink,
   loadRootEnv,
   MastraStructuredLlm,
   PROVIDER_FALLBACK_MODEL,
   providerOf,
   readAnthropicEnv,
   readGoogleEnv,
+  RecordingStructuredLlm,
+  withLlmScope,
   type CacheMode,
 } from '@gow/llm'
 import { z } from 'zod'
@@ -313,7 +316,11 @@ async function main(): Promise<void> {
 
   const limit = createLimiter(Math.max(1, Number(values.concurrency) || 3))
   // Con --cache read no se construye cliente: un miss falla en lugar de llamar al modelo.
-  const llm = new CachingStructuredLlm(mode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, mode)
+  // Cada intercambio con el modelo, crudo, queda en <id>.llm.jsonl para analizar un caso (ADR 0064).
+  const exchanges = new JsonlLlmExchangeSink(outDir)
+  const llm = new RecordingStructuredLlm(new CachingStructuredLlm(mode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, mode), exchanges, {
+    onError: (m) => { console.error(m) },
+  })
   const jevKey = process.env.TYPESAFE_API_KEY?.trim()
   // Misma llave que la eval de clasificadores: lo que ya clasificó, se reproduce sin costo.
   const docClassifier = new CachedClassifier(jevKey ? 'jev' : 'haiku', mode === 'read' ? null : createClassifier(llm), join(cacheDir, 'classifier'))
@@ -343,6 +350,7 @@ async function main(): Promise<void> {
     const previous = existsSync(resultPath) ? ApplicationResult.safeParse(JSON.parse(readFileSync(resultPath, 'utf8'))) : null
     const prevResult = previous?.success ? previous.data : null
     const given = answers?.file.applications[id]
+    const inScope = <T>(fn: () => Promise<T>) => withLlmScope({ applicationId: id }, fn)
     let outcome: RunOutcome
     let callsBefore = 0
     let note = ''
@@ -353,7 +361,9 @@ async function main(): Promise<void> {
       const otherRound = given?.round !== undefined && given.round !== pausedRound
       if (prevResult.run.status === 'suspended' && given && !otherRound && prevResult.run.suspended_step) {
         callsBefore = prevResult.costs.lines.reduce((n, l) => n + l.calls, 0)
-        outcome = await resumeApplication(wf, prevResult.run.run_id, prevResult.run.suspended_step, { answers: given.answers, base_dir: answers.baseDir })
+        const { run_id: runId, suspended_step: step } = prevResult.run
+        const baseDir = answers.baseDir
+        outcome = await inScope(() => resumeApplication(wf, runId, step, { answers: given.answers, base_dir: baseDir }))
         note = 'reanudada con respuestas'
       } else {
         rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status !== 'suspended' ? 'ya evaluada (--force para repetir)' : otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(given.round)}` : 'pausada; sin respuestas para ella' })
@@ -365,13 +375,16 @@ async function main(): Promise<void> {
     } else {
       const spec = requestFor(id)
       const input: AppInput = { application_id: id, pdf_path: pdf, as_of: asOf, request: toRequest(spec), supplier: toSupplier(spec), policy: policy.policy, policy_id: policy.id }
-      outcome = await startApplication(wf, input)
+      // Corrida nueva: los intercambios de una corrida anterior (--force) no se mezclan.
+      rmSync(exchanges.pathFor(id), { force: true })
+      outcome = await inScope(() => startApplication(wf, input))
     }
 
     while (values.interactive && outcome.status === 'suspended' && outcome.state && outcome.suspendedStep) {
       console.log(`\n${id}: necesita aclaración.`)
       const given2 = await askInteractively(outcome.state.questions)
-      outcome = await resumeApplication(wf, outcome.runId, outcome.suspendedStep, { answers: given2, base_dir: null })
+      const { runId, suspendedStep } = outcome
+      outcome = await inScope(() => resumeApplication(wf, runId, suspendedStep, { answers: given2, base_dir: null }))
       note = 'respondida en consola'
     }
 
