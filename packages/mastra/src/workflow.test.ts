@@ -3,10 +3,10 @@
  * Pausing in one Mastra instance and resuming in another over the same file is what
  * `pnpm run evaluate --answers` does between two invocations.
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describeFailure, DOCUMENT_AGE_WARNING, multipleStatementsReason, PDF_PASSWORD_FAILURE, type ApplicationRequest, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
+import { describeFailure, DOCUMENT_AGE_WARNING, multipleStatementsReason, PDF_PASSWORD_FAILURE, type ApplicationRequest, type StatementExtraction, type SupplierIdentity, parsePolicy } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
 import { RecordingStructuredLlm, withLlmScope, ZERO_USAGE, type LlmScope, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
@@ -16,6 +16,7 @@ import { renderReport, toApplicationResult } from './report.ts'
 import { createRuntime, resumeApplication, startApplication, WORKFLOW_ID } from './runtime.ts'
 import type { AppInput } from './state.ts'
 import type { WorkflowDeps } from './workflow.ts'
+import { checkFigures } from './figures.ts'
 import { Writer } from './writer.ts'
 
 const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
@@ -81,6 +82,19 @@ DOCS['sin-pagina.pdf'] = {
   flags: ['pages_missing'],
   issues: [{ id: 'i91', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } }],
 }
+
+// ADR 0072: single months for a three-month policy; the copy is the same file sent twice.
+const monthOf = (start: string) =>
+  syntheticStatement({ start, opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, `mes-${start}`)
+DOCS['mes-ago.pdf'] = monthOf('2026-08-01')
+DOCS['mes-sep.pdf'] = monthOf('2026-09-01')
+DOCS['mes-oct.pdf'] = monthOf('2026-10-01')
+DOCS['mes-oct-copia.pdf'] = DOCS['mes-oct.pdf']
+const threeMonths = (() => {
+  const r = parsePolicy(JSON.parse(readFileSync(new URL('../../../policies/examples/gow-base-tres-meses.v1.json', import.meta.url), 'utf8')))
+  if (!r.ok) throw new Error(r.message)
+  return r.policy
+})()
 
 function deps(channel = new MemoryChannel(), classifier: TransactionClassifier | null = null): WorkflowDeps {
   return {
@@ -342,6 +356,40 @@ describe('processApplication', () => {
     // Cut early and not a statement: the classification is the reason.
     const invoice = await startApplication(createRuntime(deps(), db()), input('varios-estados-y-factura.pdf'))
     expect(describeFailure(invoice.state?.failure_reason ?? null).kind).toBe('not_bank_statement')
+  })
+
+  it('ADR 0072: dos meses y uno repetido piden solo el que falta, por nombre; con él califica', async () => {
+    const file = db()
+    const send = input('mes-sep.pdf', { extra_pdf_paths: ['/docs/mes-oct.pdf', '/docs/mes-oct-copia.pdf'], policy: threeMonths, policy_id: 'gow-base-tres-meses.v1', as_of: '2026-11-05' })
+    const first = await startApplication(createRuntime(deps(), file), send)
+    expect(first.state?.decision?.profile.features.months_of_history.value).toBe(2)
+    const q = first.state?.questions[0]
+    expect(q?.topic).toBe('additional_months')
+    expect(q?.text).toBe('Recibimos 2 meses seguidos de estados de cuenta; para evaluarte necesitamos 3 meses seguidos. Nos falta 1, el estado de cuenta con corte en agosto de 2026. ¿Nos lo mandas?')
+    expect(checkFigures(q?.text ?? '', q?.facts ?? []).ok).toBe(true)
+    const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: q?.id ?? 'q1', kind: 'documents', paths: ['/docs/mes-ago.pdf'] }], base_dir: null })
+    expect(second.state?.decision?.profile.features.months_of_history.value).toBe(3)
+    expect(['qualified', 'qualified_with_limit']).toContain(second.state?.decision?.status)
+  })
+
+  it('ADR 0072: con un solo mes pide los dos que faltan juntos; si la respuesta no trae meses nuevos no se repite', async () => {
+    const file = db()
+    const first = await startApplication(createRuntime(deps(), file), input('mes-oct.pdf', { policy: threeMonths, policy_id: 'gow-base-tres-meses.v1', as_of: '2026-11-05' }))
+    const q = first.state?.questions[0]
+    expect(q?.text).toBe('Recibimos 1 mes seguido de estados de cuenta; para evaluarte necesitamos 3 meses seguidos. Nos faltan 2, los estados de cuenta con corte en agosto de 2026 y septiembre de 2026. ¿Nos los mandas juntos, en un solo envío?')
+    // The answer brings the same month again: nothing new, so it is not asked a second time.
+    const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: q?.id ?? 'q1', kind: 'documents', paths: ['/docs/mes-oct-copia.pdf'] }], base_dir: null })
+    expect(second.state?.decision?.status).toBe('human_review')
+    expect(second.state?.decision?.reasons.map((r) => r.code)).toContain('clarification_already_asked')
+  })
+
+  it('ADR 0072: si la respuesta trae un mes pero falta otro, pide solo ese', async () => {
+    const file = db()
+    const first = await startApplication(createRuntime(deps(), file), input('mes-oct.pdf', { policy: threeMonths, policy_id: 'gow-base-tres-meses.v1', as_of: '2026-11-05' }))
+    const q = first.state?.questions[0]
+    const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: q?.id ?? 'q1', kind: 'documents', paths: ['/docs/mes-sep.pdf'] }], base_dir: null })
+    expect(second.status).toBe('suspended')
+    expect(second.state?.questions[0]?.text).toMatch(/^Recibimos 2 meses seguidos[\s\S]*Nos falta 1, el estado de cuenta con corte en agosto de 2026\./)
   })
 
   it('con el ajuste del tenant, un estado viejo se analiza con advertencia; sin él, se pide uno reciente', async () => {

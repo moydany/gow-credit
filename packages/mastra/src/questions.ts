@@ -6,7 +6,7 @@
  * (writer.ts).
  */
 import type { AskTopic, Decision, GateEvaluation, Question, QuestionFact, StatementExtraction, TransactionRef } from '@gow/contracts'
-import { buildLedger, CHARGE_DEBT_CONFIDENCE_TO_TRUST, LOAN_CONFIDENCE_TO_TRUST, type LedgerRow } from '@gow/decision'
+import { buildLedger, CHARGE_DEBT_CONFIDENCE_TO_TRUST, LOAN_CONFIDENCE_TO_TRUST, windowStart, type LedgerRow } from '@gow/decision'
 import { z } from 'zod'
 import { pesos, spanishDate } from './figures.ts'
 
@@ -232,6 +232,53 @@ function missingPagesQuestion(base: Pick<Question, 'id' | 'topic' | 'transaction
   return { ...base, kind: 'documents', facts, text: `Al estado de cuenta que mandaste le faltan páginas${example}. ¿Nos mandas el PDF completo?` }
 }
 
+const MONTH_NAMES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'] as const
+const DAY_MS = 86_400_000
+const isoOfDay = (day: number): string => new Date(day * DAY_MS).toISOString().slice(0, 10)
+const monthOf = (iso: string): string => `${MONTH_NAMES[Number(iso.slice(5, 7)) - 1] ?? ''} de ${iso.slice(0, 4)}`
+const listOf = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1) ?? ''}`)
+
+/**
+ * Cutoffs of the months that would complete the stretch in a row up to the latest cutoff: the ones
+ * just before it, oldest first, as ISO dates. Empty without dated periods.
+ */
+export function missingMonthCutoffs(decision: Decision, statements: readonly StatementExtraction[], have: number, need: number): string[] {
+  const ledger = buildLedger(statements, { request: decision.profile.inputs.request, minConfidence: decision.profile.parameters.min_classification_confidence, months: decision.profile.parameters.evaluation_months })
+  const ends = ledger.periods.flatMap((p) => (p.end === null ? [] : [p.end]))
+  if (ends.length === 0) return []
+  const latest = Math.max(...ends)
+  const out: string[] = []
+  // Month i (1 = the latest) ends the day before month i - 1 starts.
+  for (let i = need; i > have; i--) out.push(isoOfDay(i === 1 ? latest : windowStart(latest, i - 1) - 1))
+  return out
+}
+
+/**
+ * The missing months (ADR 0072): only what is missing, by name, so a supplier who already sent some
+ * is not asked for all of them again. Several go together, in one send.
+ */
+function monthsQuestion(decision: Decision, statements: readonly StatementExtraction[], gate: GateEvaluation | null): Pick<Question, 'kind' | 'facts' | 'text'> {
+  const months = decision.profile.features.months_of_history.value
+  const need = typeof gate?.threshold === 'number' ? gate.threshold : null
+  const have = typeof months === 'number' ? months : null
+  const facts: QuestionFact[] = [
+    { name: 'meses_recibidos', value: have },
+    { name: 'meses_requeridos', value: need },
+  ]
+  const missing = have !== null && need !== null ? missingMonthCutoffs(decision, statements, have, need) : []
+  if (have === null || need === null || missing.length === 0) {
+    return { kind: 'documents', facts, text: 'Para evaluarte necesitamos los estados de cuenta de los meses más recientes, seguidos y sin saltarte ninguno. ¿Nos los mandas todos juntos, en un solo envío?' }
+  }
+  facts.push({ name: 'meses_faltantes', value: missing.length }, ...missing.map((iso, i) => ({ name: `corte_faltante_${String(i + 1)}`, value: iso })))
+  const received = `${String(have)} ${have === 1 ? 'mes' : 'meses'} seguido${have === 1 ? '' : 's'} de estados de cuenta`
+  const names = listOf(missing.map(monthOf))
+  const ask =
+    missing.length === 1
+      ? `Nos falta 1, el estado de cuenta con corte en ${names}. ¿Nos lo mandas?`
+      : `Nos faltan ${String(missing.length)}, los estados de cuenta con corte en ${names}. ¿Nos los mandas juntos, en un solo envío?`
+  return { kind: 'documents', facts, text: `Recibimos ${received}; para evaluarte necesitamos ${String(need)} meses seguidos. ${ask}` }
+}
+
 function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classification' | 'charge_classification'>, decision: Decision, statements: readonly StatementExtraction[]): Question {
   const gate = gateFor(decision, topic)
   const base = { id, topic, transaction: null, options: [], text_source: 'template' as const }
@@ -255,19 +302,8 @@ function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classificat
       const need = max !== null ? `con corte de los últimos ${String(max)} días` : 'reciente'
       return { ...base, kind: 'documents', facts, text: `El estado de cuenta más reciente que recibimos ${when}. Para evaluarte necesitamos uno ${need}. ¿Nos lo puedes enviar?` }
     }
-    case 'additional_months': {
-      const months = decision.profile.features.months_of_history.value
-      const need = typeof gate?.threshold === 'number' ? gate.threshold : null
-      const facts: QuestionFact[] = [
-        { name: 'meses_recibidos', value: typeof months === 'number' ? months : null },
-        { name: 'meses_requeridos', value: need },
-      ]
-      const have = typeof months === 'number' ? `${String(months)} ${months === 1 ? 'mes seguido' : 'meses seguidos'} de estados de cuenta` : 'pocos meses de estados de cuenta'
-      // ADR 0072: the months go in a row, and all the PDFs in one send (over WhatsApp, one batch).
-      const want = need !== null ? `los ${String(need)} meses más recientes, seguidos y sin saltarte ninguno` : 'los meses más recientes, seguidos y sin saltarte ninguno'
-      const together = need !== null ? `los ${String(need)} PDF juntos, en un solo envío` : 'todos los PDF juntos, en un solo envío'
-      return { ...base, kind: 'documents', facts, text: `Recibimos ${have}. Para evaluarte necesitamos ${want}. ¿Nos mandas ${together}?` }
-    }
+    case 'additional_months':
+      return { ...base, ...monthsQuestion(decision, statements, gate) }
     case 'reconciliation_gap':
       return { ...base, kind: 'documents', facts: [], text: 'Los saldos del estado de cuenta no cuadran con sus movimientos. ¿Nos envías el documento completo, tal como lo descargas de tu banco?' }
     case 'missing_pages':

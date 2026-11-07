@@ -165,8 +165,12 @@ export function holderTypeOf(state: Pick<AppState, 'statements'>): HolderType | 
  * What is asked, without the text or id (which repeat across rounds): the topic and, if it cites
  * a transaction, which one. A second round does not repeat what was already asked.
  */
-export function questionKey(q: Pick<Question, 'topic' | 'transaction'>): string {
-  return q.transaction ? `${q.topic}:${q.transaction.document_sha256}#${q.transaction.transaction_id}` : q.topic
+export function questionKey(q: Pick<Question, 'topic' | 'transaction'> & { facts?: Question['facts'] }): string {
+  if (q.transaction) return `${q.topic}:${q.transaction.document_sha256}#${q.transaction.transaction_id}`
+  // The missing months are asked again only if the answer brought months (ADR 0072): the key carries
+  // how many there were.
+  if (q.topic === 'additional_months') return `${q.topic}:${String(q.facts?.find((f) => f.name === 'meses_recibidos')?.value ?? '')}`
+  return q.topic
 }
 
 /** A run suspended before `asked_keys` existed has none: the schema default leaves it empty. */

@@ -197,7 +197,7 @@ export function isDocumentRequest(q: Question): boolean {
 /** The `isDocumentRequest` question as sent over chat: the text and how to answer it. */
 export function renderDocumentRequest(q: Question): string {
   // The missing months (ADR 0072): several PDFs, picked together and sent at once.
-  if (q.topic === 'additional_months') return `${q.text}\n\nSelecciona los PDF y mándalos juntos por este chat, en un solo envío, tal como los descargaste de tu banco.`
+  if (q.topic === 'additional_months' && q.facts.find((f) => f.name === 'meses_faltantes')?.value !== 1) return `${q.text}\n\nSelecciona los PDF y mándalos juntos por este chat, en un solo envío, tal como los descargaste de tu banco.`
   return `${q.text}\n\nMándalo por este chat como PDF, tal como lo descargaste de tu banco.`
 }
 

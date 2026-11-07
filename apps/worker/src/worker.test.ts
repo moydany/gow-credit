@@ -988,7 +988,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(await handleProcess(services, { tenant_id: TENANT, application_id: appId })).toBe('needs_clarification')
       const asked = await lastBody()
       expect(asked?.kind).toBe('question')
-      expect(asked?.body).toMatch(/^Recibimos 1 mes seguido de estados de cuenta\. Para evaluarte necesitamos los 3 meses más recientes, seguidos y sin saltarte ninguno\. ¿Nos mandas los 3 PDF juntos, en un solo envío\?\n\nSelecciona los PDF y mándalos juntos por este chat/)
+      expect(asked?.body).toMatch(/^Recibimos 1 mes seguido de estados de cuenta; para evaluarte necesitamos 3 meses seguidos\. Nos faltan 2, los estados de cuenta con corte en agosto de 2026 y septiembre de 2026\. ¿Nos los mandas juntos, en un solo envío\?\n\nSelecciona los PDF y mándalos juntos por este chat/)
 
       const answer = await say('', pdf('agosto'))
       expect(answer.resolution).toBe('document_answer')
