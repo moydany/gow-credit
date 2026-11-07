@@ -85,6 +85,7 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
       id: out.s.id,
       legal_name: out.s.legalName ?? PENDING_SUPPLIER_NAME,
       rfc: out.s.rfc,
+      address: out.s.address,
       external_ref: out.s.externalRef,
       clabes: out.s.clabes,
       created_at: out.s.createdAt.toISOString(),

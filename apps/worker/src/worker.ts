@@ -36,7 +36,7 @@ export const SYNTHETIC_SUFFIX = '.synthetic.json'
 
 export interface SyntheticDocument {
   input: z.input<typeof SyntheticStatement>
-  holder: { name: string; rfc: string | null; clabe: string | null }
+  holder: { name: string; rfc: string | null; clabe: string | null; address?: string | null }
   seed: string
 }
 

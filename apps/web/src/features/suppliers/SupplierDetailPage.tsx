@@ -72,7 +72,7 @@ export function SupplierDetailPage() {
             <CardHeader title="Datos" subtitle="Se usan para cotejar al titular del estado de cuenta" />
             <dl className="mt-4 space-y-3 px-6 text-[14px]">
               <Item label="RFC">{data.rfc ? <span className="font-mono">{data.rfc}</span> : <span className="text-muted">Sin RFC</span>}</Item>
-              <Item label="Referencia externa">{data.external_ref ? <span className="font-mono">{data.external_ref}</span> : <span className="text-muted">Sin referencia</span>}</Item>
+              <Item label="Domicilio">{data.address ?? <span className="text-muted">Su estado de cuenta no lo trae</span>}</Item>
               <Item label="CLABEs">
                 {data.clabes.length ? (
                   <ul className="space-y-1">

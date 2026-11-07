@@ -3,7 +3,7 @@
  * tenant no ve filas aunque haya un bug (docs/05 §2b, "RLS también para procesos internos").
  */
 import { notQualifiedReasons, renderVerdict } from '@gow/channels'
-import { describeFailure, parsePolicy, type ApplicationRequest, type Decision, type Policy, type StatementAgeSetting, type SupplierIdentity } from '@gow/contracts'
+import { describeFailure, parsePolicy, type ApplicationRequest, type Decision, type Policy, type StatementAgeSetting, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
 import { applicationDocuments, applications, auditLog, decisions, documents, extractions, outboundMessages, policyVersions, supplierContacts, suppliers, tenants, withTenant, type Db, type Tx } from '@gow/db'
 import { evaluate } from '@gow/decision'
 import { applicationStatus, type RunInfo, type RunOutcome } from '@gow/mastra'
@@ -127,6 +127,18 @@ export async function queueVerdict(tx: Tx, ctx: AppContext, status: typeof appli
  * activa, el de la política en sombra (se evalúa, se registra y no decide; docs/02 §6) y el estado
  * de la solicitud con el run para reanudar.
  */
+/** El domicilio del estado de cuenta más reciente (por fin de periodo) que lo trae; null si ninguno. */
+export function latestAddress(statements: readonly StatementExtraction[]): string | null {
+  let best: { end: string; address: string } | null = null
+  for (const s of statements) {
+    const address = s.holder.address.value?.replace(/\s+/g, ' ').trim()
+    if (!address) continue
+    const end = s.accounts.flatMap((a) => a.periods.map((p) => p.period_end.value ?? '')).sort().at(-1) ?? ''
+    if (!best || end > best.end) best = { end, address }
+  }
+  return best?.address ?? null
+}
+
 export async function persistOutcome(db: Db, ctx: AppContext, outcome: RunOutcome): Promise<typeof applications.$inferSelect.status> {
   const run: RunInfo = { workflow: 'process-application', run_id: outcome.runId, status: outcome.status, suspended_step: outcome.suspendedStep }
   const state = outcome.state
@@ -140,6 +152,9 @@ export async function persistOutcome(db: Db, ctx: AppContext, outcome: RunOutcom
       if (!existing) await tx.insert(extractions).values({ tenantId: ctx.tenantId, documentId: doc.id, schemaVersion: s.schema_version, status: s.extraction.status, payload: s, costUsd: String(s.extraction.cost_usd) })
     }
     if (state?.decision) await insertDecisions(tx, ctx, state.decision)
+    // El domicilio del titular, si algún estado de cuenta lo trae, queda en el perfil del proveedor (ADR 0066).
+    const address = latestAddress(state?.statements ?? [])
+    if (address) await tx.update(suppliers).set({ address }).where(eq(suppliers.id, ctx.supplier.id))
     const failure = status === 'failed' ? (state?.failure_reason ?? outcome.error ?? 'el workflow terminó sin veredicto') : null
     await tx
       .update(applications)

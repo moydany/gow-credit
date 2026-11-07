@@ -147,6 +147,9 @@ function Summary({ x }: { x: StatementExtraction }) {
           <Row label="Tipo">
             <Val field={x.holder.holder_type} format={(v) => HOLDER_TYPE[v] ?? v} target={{ kind: 'holder', field: 'holder_type' }} label="el tipo de titular" />
           </Row>
+          <Row label="Domicilio">
+            <Val field={x.holder.address} />
+          </Row>
           <Row label="Banco">
             <Val field={x.bank_name} />
           </Row>

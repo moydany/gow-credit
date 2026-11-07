@@ -533,6 +533,32 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(owner.rows).toEqual([{ legal_name: 'Comercializadora Nueva SA de CV' }])
     })
 
+    it('si la aclaración retenida solo pide el PDF completo, al terminar el registro sale ese pedido y no el aviso del analista', async () => {
+      const PHONE = '+5215577770057'
+      const { appId } = await registerWithStatement(PHONE, { name: 'Marta Ruiz Gómez', rfc: 'RUGM800101AB1', clabe: null }, 'reg-paginas', opts())
+      // Lo que deja una corrida con páginas faltantes: aclaración por WhatsApp retenida mientras se registra.
+      await admin.query("UPDATE app.applications SET status = 'needs_clarification' WHERE id = $1", [appId])
+      const missing = { id: 'q1', topic: 'missing_pages', kind: 'documents', transaction: null, facts: [{ name: 'pagina_faltante', value: 2 }, { name: 'paginas_del_documento', value: 3 }], options: [], text: 'Te falta una página en el estado de cuenta que nos mandaste: la 2 de 3. ¿Nos puedes enviar el PDF completo, por favor?', text_source: 'template' }
+      const clar = await admin.query<{ id: string }>("INSERT INTO app.clarifications (tenant_id, application_id, supplier_id, round, channel, destination, questions) SELECT tenant_id, id, supplier_id, 1, 'whatsapp', $2, $3 FROM app.applications WHERE id = $1 ON CONFLICT (application_id, round) DO UPDATE SET channel = 'whatsapp', destination = $2, questions = $3, answers = '[]', status = 'open', step = 'asking', current_question = 0 RETURNING id", [appId, PHONE, JSON.stringify([missing])])
+      const done = await step('si', null, PHONE)
+      expect(done.resolution).toBe('registration_completed')
+      const reply = await lastReply(PHONE)
+      expect(reply.kind).toBe('question')
+      expect(reply.body).toMatch(/la 2 de 3\. ¿Nos puedes enviar el PDF completo, por favor\?\n\nMándalo por este chat como PDF/)
+      expect(reply.body).not.toMatch(/Un analista revisará/)
+      const row = await admin.query<{ step: string; current_question: number; status: string }>('SELECT step, current_question, status FROM app.clarifications WHERE id = $1', [clar.rows[0]?.id])
+      expect(row.rows[0]).toEqual({ step: 'asking', current_question: 0, status: 'open' })
+    })
+
+    it('el domicilio que trae el estado de cuenta queda en el perfil del proveedor (ADR 0066)', async () => {
+      const PHONE = '+5215577770067'
+      await registerWithStatement(PHONE, { name: 'Pedro Sánchez Luna', rfc: 'SALP800101AB1', clabe: null, address: 'CALLE 5 DE MAYO 12, CENTRO, PUEBLA, PUE., C.P. 72000' }, 'reg-domicilio', opts())
+      const row = await admin.query<{ address: string | null }>("SELECT s.address FROM app.supplier_contacts c JOIN app.suppliers s ON s.id = c.supplier_id WHERE c.address = $1 AND c.channel = 'whatsapp'", [PHONE])
+      expect(row.rows).toEqual([{ address: 'CALLE 5 DE MAYO 12, CENTRO, PUEBLA, PUE., C.P. 72000' }])
+      // Sin domicilio en el estado de cuenta no se pide nada por eso: la plantilla base no lo exige.
+      expect((await lastReply(PHONE)).body).not.toMatch(/domicilio/)
+    })
+
     it('persona física con RFC sin homoclave: confirma el nombre y se le pide el RFC completo', async () => {
       const PHONE = '+5215577770017'
       const { status } = await registerWithStatement(PHONE, { name: 'Ana López Pérez', rfc: 'LOPA800101', clabe: null }, 'reg-fisica', opts())

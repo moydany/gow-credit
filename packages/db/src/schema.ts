@@ -92,6 +92,11 @@ export const suppliers = app.table(
     clabes: text('clabes').array().notNull().default(sql`'{}'::text[]`),
     /** Representante legal de una persona moral, si el proveedor lo dio (ADR 0047). No entra a la decisión. */
     representativeName: text('representative_name'),
+    /**
+     * Domicilio del titular tal como lo trae su estado de cuenta más reciente que lo incluye (ADR 0066). Dato
+     * personal: protegido por RLS, nunca en logs ni en la bitácora.
+     */
+    address: text('address'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('suppliers_tenant_ref').on(t.tenantId, t.externalRef)],

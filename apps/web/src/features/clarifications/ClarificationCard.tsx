@@ -34,6 +34,9 @@ const FALLBACK_OPTIONS: Record<'deposit' | 'charge' | 'account_use', readonly st
 const OPTION_LABEL: Record<string, string> = { personal_expense: 'Gasto personal', business_only: 'Solo negocio', mixed: 'Negocio y gastos personales' }
 
 /** La opción elegida en un borrador de opciones, o null. */
+/** Preguntas de documentos que el proveedor contesta mandando el PDF por WhatsApp (`isDocumentRequest` en @gow/channels). */
+const PDF_BY_CHAT: ReadonlySet<string> = new Set(['missing_pages', 'statement_with_address'])
+
 function selected(d: Draft | undefined): string | null {
   if (!d) return null
   if (d.kind === 'account_use') return d.use
@@ -57,6 +60,7 @@ const TOPIC: Record<string, string> = {
   reconciliation_gap: 'Diferencia en el cuadre',
   additional_months: 'Más meses',
   missing_pages: 'Páginas faltantes',
+  statement_with_address: 'Estado de cuenta con domicilio',
 }
 
 function toAnswer(q: Question, d: Draft | undefined): OwnerAnswer | null {
@@ -185,7 +189,10 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
                     <IdentityFields d={d?.kind === 'identity' ? d : { kind: 'identity', legal_name: '', rfc: '', clabe: '' }} ask={askedFields(q.facts)} onChange={(next) => { set(q.id, next) }} />
                   ) : (
                     <p className="mt-3 flex items-start gap-2 rounded-2xl bg-sunken p-3 text-[12.5px] text-ink-2">
-                      <Icon name="file" size={15} className="mt-0.5 shrink-0" /> El estado de cuenta nuevo lo manda el proveedor por la API. Si no lo hay, declina para que la evaluación siga sin él.
+                      <Icon name="file" size={15} className="mt-0.5 shrink-0" />
+                      {item.channel === 'whatsapp' && PDF_BY_CHAT.has(q.topic)
+                        ? 'Se le pidió el PDF por WhatsApp. Cuando lo mande por ese chat, se agrega a la solicitud y la evaluación sigue sola. Si no lo va a mandar, declina para que siga sin él.'
+                        : 'El estado de cuenta nuevo lo manda el proveedor por la API. Si no lo hay, declina para que la evaluación siga sin él.'}
                     </p>
                   )}
 

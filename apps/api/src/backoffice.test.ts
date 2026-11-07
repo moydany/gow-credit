@@ -255,11 +255,14 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     await q("INSERT INTO app.outcomes (tenant_id, application_id, outcome, observed_at) VALUES ($1, $2, 'paid', now())", [tenantA, app])
     await q("INSERT INTO app.supplier_contacts (tenant_id, supplier_id, channel, address, verified_at, verification_method) VALUES ($1, $2, 'whatsapp', '+5215550000000', now(), 'kyc'), ($1, $2, 'email', 'pagos@proveedor.test', null, null)", [tenantA, sup])
 
+    await q('UPDATE app.suppliers SET address = $2 WHERE id = $1', [sup, 'AV. REFORMA 100, CDMX'])
     const list = (await call('GET', '/suppliers', { cookie: a })).json as unknown as { id: string; applications: number; last_application: { id: string; status: string } | null }[]
     expect(list.find((x) => x.id === sup)).toMatchObject({ applications: 1, last_application: { id: app, status: 'qualified' } })
     const detail = (await call('GET', `/suppliers/${sup}`, { cookie: a })).json as unknown as { contacts: { channel: string; verified_at: string | null }[]; applications: { id: string; outcomes: { outcome: string }[] }[] }
     expect(detail.contacts.map((c) => [c.channel, c.verified_at !== null])).toEqual([['whatsapp', true], ['email', false]])
     expect(detail.applications).toMatchObject([{ id: app, outcomes: [{ outcome: 'paid' }] }])
+    // El domicilio sale del estado de cuenta (ADR 0066).
+    expect((detail as unknown as { address: string | null }).address).toBe('AV. REFORMA 100, CDMX')
 
     // Otro tenant ni lo lista, ni lo ve, ni lo edita.
     expect(((await call('GET', '/suppliers', { cookie: b })).json as unknown as { id: string }[]).some((x) => x.id === sup)).toBe(false)

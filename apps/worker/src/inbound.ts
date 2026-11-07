@@ -37,6 +37,7 @@ import {
   conversationalIndexes,
   describeInvoice,
   DOCUMENT_REPLIES,
+  documentRequestReplies,
   failureNotice,
   GENERIC_NO_PENDING,
   INVOICE_REPLIES,
@@ -426,7 +427,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
           .from(applicationDocuments)
           .where(and(eq(applicationDocuments.applicationId, requesting.applicationId), eq(applicationDocuments.documentId, stored.documentId)))
         if (linked) {
-          await finish('document_duplicate', requesting.id, reply('answer_same_file'), { application_id: requesting.applicationId })
+          await finish('document_duplicate', requesting.id, { body: documentRequestReplies(request).sameFile, kind: 'document' }, { application_id: requesting.applicationId })
           return { resolution: 'document_duplicate', resume: null }
         }
         await tx.insert(applicationDocuments).values({ tenantId, applicationId: requesting.applicationId, documentId: stored.documentId, origin: 'owner_answer' })
@@ -434,7 +435,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         const complete = isComplete(Questions.parse(requesting.questions), answers)
         // Con todo contestado se reanuda con el PDF como respuesta; si quedan preguntas para el analista, se le avisa.
         await tx.update(clarifications).set(complete ? { answers, step: 'confirmed', status: 'answered', answeredAt: sql`now()` } : { answers, step: 'confirmed' }).where(eq(clarifications.id, requesting.id))
-        await finish('document_answer', requesting.id, reply(complete ? 'answer_received' : 'answer_for_review'), { application_id: requesting.applicationId })
+        const texts = documentRequestReplies(request)
+        await finish('document_answer', requesting.id, { body: complete ? texts.received : texts.forReview, kind: 'document' }, { application_id: requesting.applicationId })
         return { resolution: 'document_answer', resume: complete ? { tenant_id: tenantId, application_id: requesting.applicationId, clarification_id: requesting.id } : null }
       }
       const sha256 = createHash('sha256').update(bytes).digest('hex')
@@ -536,8 +538,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     }
 
     const current = questions[open.currentQuestion]
-    // Se espera el PDF completo (páginas faltantes): un texto no lo contesta y no cambia ningún estado.
-    if (current && isDocumentRequest(current)) return answer('awaiting_document', DOCUMENT_REPLIES.send_pdf, 'reask')
+    // Se espera un PDF (el completo o uno con domicilio): un texto no lo contesta y no cambia ningún estado.
+    if (current && isDocumentRequest(current)) return answer('awaiting_document', documentRequestReplies(current).sendPdf, 'reask')
     if (!current || !isConversational(current)) return answer('awaiting_analyst', ANALYST_NOTICE, 'analyst', { step: 'confirmed' })
 
     if (open.step === 'revising') {

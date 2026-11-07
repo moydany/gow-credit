@@ -1,0 +1,1 @@
+ALTER TABLE "app"."suppliers" ADD COLUMN "address" text;

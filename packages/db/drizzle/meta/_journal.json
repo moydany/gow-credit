@@ -157,6 +157,13 @@
       "breakpoints": true
     },
     {
+      "idx": 22,
+      "version": "7",
+      "when": 1794049916669,
+      "tag": "0022_supplier_address",
+      "breakpoints": true
+    },
+    {
       "idx": 23,
       "version": "7",
       "when": 1794055000000,

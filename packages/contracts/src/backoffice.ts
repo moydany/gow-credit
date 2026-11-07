@@ -165,6 +165,7 @@ export const SupplierDetail = z.strictObject({
   rfc: z.string().nullable(),
   external_ref: z.string().nullable(),
   clabes: z.array(z.string()),
+  address: z.string().nullable().describe('Domicilio del titular según su estado de cuenta más reciente que lo trae (ADR 0066); null si ninguno lo trae'),
   created_at: z.string(),
   contacts: z.array(SupplierContactItem),
   applications: z.array(SupplierApplicationItem),
