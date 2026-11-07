@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # By hand (Actions > ci > Run workflow, or `gh workflow run ci.yml`); green on main also deploys the
+  # demo through railway.yml.
+  workflow_dispatch:
 
 permissions:
   contents: read
