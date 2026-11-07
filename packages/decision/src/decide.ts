@@ -273,8 +273,8 @@ export function decide(input: DecideInput): DecideResult {
           current_value: profile.features.operating_income_monthly.value,
           target_value: depBest.features.operating_income_monthly.value,
           related: changed(profile, depBest, ['new_debt_in_period', 'buyer_payments_count']),
-          from: { status: base.status, score: base.score },
-          to: { status: to.decision.status, score: to.decision.score },
+          from: { status: base.status, score: base.score, limit: base.limit },
+          to: { status: to.decision.status, score: to.decision.score, limit: to.decision.limit },
           message: null,
         },
       })
@@ -299,8 +299,8 @@ export function decide(input: DecideInput): DecideResult {
           current_value: profile.features.free_cash_flow_monthly.value,
           target_value: chgBest.features.free_cash_flow_monthly.value,
           related: changed(profile, chgBest, ['debt_service_monthly', 'debt_capacity']),
-          from: { status: base.status, score: base.score },
-          to: { status: to.decision.status, score: to.decision.score },
+          from: { status: base.status, score: base.score, limit: base.limit },
+          to: { status: to.decision.status, score: to.decision.score, limit: to.decision.limit },
           message: null,
         },
       })

@@ -1178,6 +1178,19 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "limit": {
+                    "default": null,
+                    "description": "Línea que da el motor en ese resultado; null si no califica",
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "description": "Monto no negativo, a lo más dos decimales"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -1205,6 +1218,19 @@
                         "type": "number",
                         "minimum": 0,
                         "maximum": 100
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "default": null,
+                    "description": "Línea que da el motor en ese resultado; null si no califica",
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "description": "Monto no negativo, a lo más dos decimales"
                       },
                       {
                         "type": "null"

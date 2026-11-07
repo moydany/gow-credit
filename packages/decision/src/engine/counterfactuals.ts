@@ -3,8 +3,9 @@
  * igual, movería el resultado sobre la misma política. Es el "motor de segunda oportunidad":
  * "con 3 meses de historial el tope desaparece", "al corriente en tu crédito vuelves a calificar".
  *
- * Cada candidato se verifica re-evaluando el perfil modificado: el `to` de un next step es
- * exactamente lo que daría el motor (lo comprueba un test de propiedades).
+ * Cada candidato se verifica re-evaluando el perfil modificado: el `to` de un next step (estado,
+ * puntaje y línea) es exactamente lo que daría el motor (lo comprueba un test de propiedades). Un
+ * candidato cuenta solo si mejora el estado o, con un estado que califica, sube la línea (ADR 0056).
  */
 import { FEATURE_CATALOG, type FeatureName, type NextStep, type Policy, type Profile } from '@gow/contracts'
 import type { z } from 'zod'
@@ -106,12 +107,16 @@ function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candida
   return out
 }
 
-/** Mejor estado, o la misma calificación en una banda más alta (más línea). */
+/**
+ * Mejor estado, o el mismo estado que califica con más línea (ADR 0056). Ya no se mira la banda del
+ * puntaje: un tope puede dejar estado y línea idénticos aunque el puntaje suba de banda, y decirle al
+ * proveedor que pasaría "de califica con límite a califica con límite" no le sirve. Sin línea es 0.
+ */
 function improves(base: Core, to: Core): boolean {
   const a = DECISION_STATUS_RANK[base.status]
   const b = DECISION_STATUS_RANK[to.status]
   const qualifies = to.status === 'qualified' || to.status === 'qualified_with_limit'
-  return b > a || (b === a && qualifies && to.bandIndex < base.bandIndex)
+  return b > a || (b === a && qualifies && (to.limit ?? 0) > (base.limit ?? 0))
 }
 
 /** Si el redondeo dejó el objetivo un paso corto, se intenta un paso más. */
@@ -163,8 +168,8 @@ export function counterfactuals(policy: Policy, profile: Profile, base: Core, op
       current_value: profile.features[main.feature].value,
       target_value: main.value as NextStepOut['target_value'],
       related: related.map((r) => ({ feature: r.feature, current_value: profile.features[r.feature].value, target_value: r.value as NextStepOut['target_value'] })),
-      from: { status: base.status, score: base.score },
-      to: { status: to.status, score: to.score },
+      from: { status: base.status, score: base.score, limit: base.limit },
+      to: { status: to.status, score: to.score, limit: to.limit },
       message: null,
     })
     if (steps.length >= max) break

@@ -220,7 +220,7 @@ describe('evaluate(policy, profile) con la política base', () => {
       expect(d.next_steps.length, JSON.stringify(v)).toBeGreaterThan(0)
       for (const s of d.next_steps) {
         const to = evaluate(policy, withFeatures(p, [{ feature: s.feature, value: s.target_value }, ...s.related.map((r) => ({ feature: r.feature, value: r.target_value }))]))
-        expect({ status: to.status, score: to.score }, s.code).toEqual(s.to)
+        expect({ status: to.status, score: to.score, limit: to.limit }, s.code).toEqual(s.to)
       }
     }
   })

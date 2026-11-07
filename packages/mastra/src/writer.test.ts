@@ -100,7 +100,7 @@ describe('redacción con filtro de cifras', () => {
 
   it('la plantilla de next_steps pasa el filtro para cualquier feature numérica', () => {
     for (const feature of FEATURE_NAMES) {
-      const step: NextStep = { code: 'improve_x', feature, current_value: 0.35, target_value: 12345.67, related: [], from: { status: 'not_qualified', score: 41.5 }, to: { status: 'qualified_with_limit', score: 55 }, message: null }
+      const step: NextStep = { code: 'improve_x', feature, current_value: 0.35, target_value: 12345.67, related: [], from: { status: 'not_qualified', score: 41.5, limit: null }, to: { status: 'qualified_with_limit', score: 55, limit: 45000.5 }, message: null }
       expect(checkFigures(nextStepTemplate(step), nextStepFacts(step)).unsupported, feature).toEqual([])
     }
   })

@@ -24,8 +24,8 @@ function decision(overrides: Partial<Decision> = {}): Decision {
         current_value: 1,
         target_value: 3,
         related: [],
-        from: { status: 'qualified_with_limit', score: 62.5 },
-        to: { status: 'qualified', score: 62.5 },
+        from: { status: 'qualified_with_limit', score: 62.5, limit: 90000 },
+        to: { status: 'qualified', score: 62.5, limit: 180000 },
         message: null,
       },
     ],
@@ -40,6 +40,26 @@ function decision(overrides: Partial<Decision> = {}): Decision {
 describe('Decision', () => {
   it('acepta un veredicto completo con diagnóstico y contrafactuales', () => {
     expect(Decision.safeParse(decision()).success).toBe(true)
+  })
+
+  it('los contrafactuales llevan la línea de antes y de después; una decisión guardada sin ella la lee como null (ADR 0056)', () => {
+    const d = Decision.parse(decision())
+    expect([d.next_steps[0]?.from.limit, d.next_steps[0]?.to.limit]).toEqual([90000, 180000])
+    const stored = structuredClone(decision()) as unknown as { next_steps: { from: Record<string, unknown>; to: Record<string, unknown> }[] }
+    for (const s of stored.next_steps) {
+      delete s.from.limit
+      delete s.to.limit
+    }
+    const old = Decision.parse(stored)
+    expect([old.next_steps[0]?.from.limit, old.next_steps[0]?.to.limit]).toEqual([null, null])
+  })
+
+  it('la línea de un contrafactual no puede ser negativa ni traer más de dos decimales', () => {
+    const bad = decision()
+    const step = bad.next_steps[0]
+    if (!step) throw new Error('sin next step')
+    expect(Decision.safeParse({ ...bad, next_steps: [{ ...step, to: { ...step.to, limit: -1 } }] }).success).toBe(false)
+    expect(Decision.safeParse({ ...bad, next_steps: [{ ...step, to: { ...step.to, limit: 10.005 } }] }).success).toBe(false)
   })
 
   it('needs_clarification exige decir qué se pregunta', () => {

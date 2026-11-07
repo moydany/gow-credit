@@ -173,8 +173,13 @@ describe('propiedades de evaluate(policy, profile)', () => {
         for (const s of d.next_steps) {
           const changed = withFeatures(profile, [{ feature: s.feature, value: s.target_value }, ...s.related.map((r) => ({ feature: r.feature, value: r.target_value }))])
           const to = evaluate(policy, changed, { counterfactuals: false })
-          expect({ status: to.status, score: to.score }).toEqual(s.to)
-          expect(DECISION_STATUS_RANK[to.status]).toBeGreaterThanOrEqual(DECISION_STATUS_RANK[d.status])
+          // `to` es exactamente lo que da el motor, con su línea (ADR 0056); `from` es el resultado de hoy.
+          expect({ status: to.status, score: to.score, limit: to.limit }).toEqual(s.to)
+          expect({ status: d.status, score: d.score, limit: d.limit }).toEqual(s.from)
+          // Y un paso cuenta solo si mejora el estado o, con un estado que califica, sube la línea.
+          const better = DECISION_STATUS_RANK[to.status] > DECISION_STATUS_RANK[d.status]
+          const moreLine = to.status === d.status && (to.status === 'qualified' || to.status === 'qualified_with_limit') && (to.limit ?? 0) > (d.limit ?? 0)
+          expect(better || moreLine, s.code).toBe(true)
         }
       }),
       RUNS,

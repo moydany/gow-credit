@@ -57,7 +57,17 @@ export const Reason = z.strictObject({
   features: z.array(FeatureName),
 })
 
-export const StatusAndScore = z.strictObject({ status: DecisionStatus, score: z.number().min(0).max(100).nullable() })
+/**
+ * Estado, puntaje y línea de un resultado, antes (`from`) o después (`to`) de un contrafactual. La línea
+ * es la `Decision.limit` del motor para ese perfil (ADR 0056): sin ella no se distingue "califica con
+ * límite" de "califica con límite, pero con más línea". `default(null)` deja leer las decisiones guardadas
+ * antes del campo, que no la traen.
+ */
+export const StatusAndScore = z.strictObject({
+  status: DecisionStatus,
+  score: z.number().min(0).max(100).nullable(),
+  limit: Money.nullable().default(null).describe('Línea que da el motor en ese resultado; null si no califica'),
+})
 
 /** Otra feature que se mueve junto con la principal en un contrafactual (atraso → monto vencido). */
 export const RelatedChange = z.strictObject({ feature: FeatureName, current_value: z.json(), target_value: z.json() })
