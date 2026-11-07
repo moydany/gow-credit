@@ -289,6 +289,15 @@ sequenceDiagram
 | Bitácora | Quién hizo qué, y cada llamada a un modelo con su costo |
 | Configuración | General (antigüedad del estado de cuenta, WhatsApp, usuarios), políticas y prompts |
 
+<table>
+<tr><td width="50%"><img src="docs/screenshots/01-solicitudes.webp" alt="Solicitudes"><br><sub><b>Solicitudes</b>: la bandeja con estado, monto pedido, línea y score</sub></td><td width="50%"><img src="docs/screenshots/02-detalle-solicitud.webp" alt="Detalle"><br><sub><b>Detalle</b>: el PDF, la extracción y la decisión con su explicación</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/03-proveedores.webp" alt="Proveedores"><br><sub><b>Proveedores</b>: cada proveedor y su última solicitud</sub></td><td width="50%"><img src="docs/screenshots/04-evaluar-desde-proveedor.webp" alt="Evaluar desde el proveedor"><br><sub><b>Evaluar desde el proveedor</b>: se sube el PDF y el monto y se sigue el avance</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/05-configuracion.webp" alt="Configuración"><br><sub><b>Configuración</b>: usuarios, WhatsApp y antigüedad del estado de cuenta</sub></td><td width="50%"><img src="docs/screenshots/06-politicas.webp" alt="Políticas"><br><sub><b>Políticas</b>: JSON con versiones, simular, sombra, activar</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/07-prompts.webp" alt="Prompts"><br><sub><b>Prompts</b>: versiones por prompt, sembradas desde <code>prompts/</code></sub></td><td width="50%"><img src="docs/screenshots/08-bitacora-llamadas.webp" alt="Bitácora"><br><sub><b>Bitácora</b>: cada llamada al modelo con tokens, costo y tiempo</sub></td></tr>
+</table>
+
+<sub>En las capturas están tapados los nombres, RFC, correo, teléfono y la página del estado de cuenta.</sub>
+
 ## Cómo se decide el crédito
 
 GOW Credit no presta. Le da a cada prestamista la infraestructura para aplicar **su** política, así

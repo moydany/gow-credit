@@ -289,6 +289,15 @@ sequenceDiagram
 | Bitácora | Who did what, and every model call with its cost |
 | Configuración | General (statement age, WhatsApp, users), policies and prompts |
 
+<table>
+<tr><td width="50%"><img src="docs/screenshots/01-solicitudes.webp" alt="Solicitudes"><br><sub><b>Solicitudes</b>: the tray with state, requested amount, line and score</sub></td><td width="50%"><img src="docs/screenshots/02-detalle-solicitud.webp" alt="Detalle"><br><sub><b>Detalle</b>: the PDF, the extraction and the decision with its explanation</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/03-proveedores.webp" alt="Proveedores"><br><sub><b>Proveedores</b>: each supplier and its latest request</sub></td><td width="50%"><img src="docs/screenshots/04-evaluar-desde-proveedor.webp" alt="Evaluar desde el proveedor"><br><sub><b>Evaluate from the supplier</b>: upload the PDF and the amount and follow the progress</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/05-configuracion.webp" alt="Configuración"><br><sub><b>Configuración</b>: users, WhatsApp and statement age</sub></td><td width="50%"><img src="docs/screenshots/06-politicas.webp" alt="Políticas"><br><sub><b>Políticas</b>: versioned JSON, simulate, shadow, activate</sub></td></tr>
+<tr><td width="50%"><img src="docs/screenshots/07-prompts.webp" alt="Prompts"><br><sub><b>Prompts</b>: versions per prompt, seeded from <code>prompts/</code></sub></td><td width="50%"><img src="docs/screenshots/08-bitacora-llamadas.webp" alt="Bitácora"><br><sub><b>Bitácora</b>: every model call with tokens, cost and time</sub></td></tr>
+</table>
+
+<sub>Names, RFCs, email, phone and the statement page are covered in the screenshots.</sub>
+
 ## How credit is decided
 
 GOW Credit doesn't lend. It gives each lender the infrastructure to apply **their own** policy, so
