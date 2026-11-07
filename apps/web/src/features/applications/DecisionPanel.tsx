@@ -1,4 +1,4 @@
-import { describeFailure, DISCARD_REASON_LABELS, DISCARDED_PREFIX, DiscardReason, DOCUMENT_AGE_WARNING, FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName } from '@gow/contracts'
+import { describeFailure, DISCARD_REASON_LABELS, DISCARDED_PREFIX, DiscardReason, DOCUMENT_AGE_WARNING, FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName, type NextStep } from '@gow/contracts'
 import clsx from 'clsx'
 import { useState } from 'react'
 import { BigMoney } from '../../ui/primitives'
@@ -20,6 +20,17 @@ function AgeWarning({ d }: { d: Decision }) {
       <p className="mt-1 text-[13px] leading-relaxed text-amber-ink/85">{warning.message.replace(/^Advertencia: /, '')}</p>
     </div>
   )
+}
+
+/**
+ * La línea antes y después de un contrafactual. `limit` se agrega a `NextStep.from` y `to` en el
+ * contrato del motor; se lee sin depender de que ya exista, y solo se muestra si ambas son cifras y
+ * cambian (de o a "sin línea" ya lo dicen las fichas de estado).
+ */
+function lineChange(step: NextStep): { from: number; to: number } | null {
+  const from = (step.from as { limit?: number | null }).limit ?? null
+  const to = (step.to as { limit?: number | null }).limit ?? null
+  return from !== null && to !== null && from !== to ? { from, to } : null
 }
 
 export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationDetail; onAnswer: () => void; tray?: React.ReactNode }) {
@@ -85,16 +96,27 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
       {d.next_steps.length > 0 ? (
         <Section title="Qué cambiaría el resultado" hint="Calculado con la misma política">
           <ul className="space-y-2">
-            {d.next_steps.map((s) => (
-              <li key={s.code} className="inner p-3.5 text-[13px] leading-snug">
-                <p className="font-medium">{s.message ?? `${featureLabel(s.feature)}: de ${featureValue(s.feature, s.current_value)} a ${featureValue(s.feature, s.target_value)}`}</p>
-                <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-                  <Chip tone="plain">{DECISION_LABEL[s.from.status]}</Chip>
-                  <Icon name="right" size={12} />
-                  <Chip tone={s.to.status === 'not_qualified' ? 'coral' : 'lime'}>{DECISION_LABEL[s.to.status]}</Chip>
-                </p>
-              </li>
-            ))}
+            {d.next_steps.map((s) => {
+              const line = lineChange(s)
+              return (
+                <li key={s.code} className="inner p-3.5 text-[13px] leading-snug">
+                  <p className="font-medium">{s.message ?? `${featureLabel(s.feature)}: de ${featureValue(s.feature, s.current_value)} a ${featureValue(s.feature, s.target_value)}`}</p>
+                  <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+                    <Chip tone="plain">{DECISION_LABEL[s.from.status]}</Chip>
+                    <Icon name="right" size={12} />
+                    <Chip tone={s.to.status === 'not_qualified' ? 'coral' : 'lime'}>{DECISION_LABEL[s.to.status]}</Chip>
+                  </p>
+                  {line ? (
+                    <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted">
+                      <span>Línea</span>
+                      <span className="text-ink-2">{money(line.from)}</span>
+                      <Icon name="right" size={12} />
+                      <span className="font-medium text-ink">{money(line.to)}</span>
+                    </p>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         </Section>
       ) : null}
