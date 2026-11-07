@@ -22,11 +22,11 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
-      // Nada de PII en logs: console solo en CLIs, que lo habilitan localmente.
+      // No PII in logs: console only in CLIs, which enable it locally.
       'no-console': 'error',
     },
   },
-  // Tamaño, complejidad y duplicación. La duplicación entre archivos la mide `pnpm dup` (jscpd).
+  // Size, complexity and duplication. Cross-file duplication is measured by `pnpm dup` (jscpd).
   {
     files: ['**/*.ts', '**/*.tsx'],
     plugins: { sonarjs },
@@ -57,7 +57,7 @@ export default tseslint.config(
     },
   },
   {
-    // Un componente React es declarativo: su longitud es JSX, no lógica. La complejidad sí se mide.
+    // A React component is declarative: its length is JSX, not logic. Complexity is still measured.
     files: ['**/*.tsx'],
     rules: { 'max-lines-per-function': 'off' },
   },

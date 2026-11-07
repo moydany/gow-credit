@@ -1,7 +1,7 @@
-/* eslint-disable no-console -- script de inspección: la salida en consola es el resultado */
-// Resumen de las extracciones en una carpeta: cuadre, conteos, verificación e issues por documento.
-// No imprime nombres, RFC ni descripciones: solo cifras y códigos.
-// Uso: node scripts/inspect-extractions.mjs [data/out/extractions]
+/* eslint-disable no-console -- inspection script: console output is the result */
+// Summary of the extractions in a folder: reconciliation, counts, verification and issues per
+// document. Prints no names, RFCs or descriptions: only figures and codes.
+// Usage: node scripts/inspect-extractions.mjs [data/out/extractions]
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 

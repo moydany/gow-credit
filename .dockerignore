@@ -1,4 +1,4 @@
-# Nunca entra a una imagen: datos reales, secretos, dependencias del host.
+# Never goes into an image: real data, secrets, host dependencies.
 data/
 .env
 .env.*

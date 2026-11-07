@@ -1,30 +1,30 @@
-# Supabase local (autohospedado y recortado) para probar el modo full contra Supabase en vez del
-# Postgres simple de docker-compose.yml (ADR 0034). No reemplaza ese archivo: los dos conviven.
+# Local Supabase (self-hosted, trimmed) to try full mode against Supabase instead of the plain
+# Postgres in docker-compose.yml. It doesn't replace that file: both coexist.
 #
-#   pnpm supabase:env    # genera infra/supabase/.env y infra/supabase/app.env (secretos de desarrollo)
+#   pnpm supabase:env    # generates infra/supabase/.env and infra/supabase/app.env (dev secrets)
 #   pnpm supabase:up     # docker compose -f docker-compose.supabase.yml --env-file infra/supabase/.env up -d --wait
-#   pnpm supabase:down   # detiene el stack; los volúmenes se conservan (añade -v para borrarlos)
+#   pnpm supabase:down   # stops the stack; volumes are kept (add -v to delete them)
 #
-# Adaptado del compose oficial de autohospedaje (github.com/supabase/supabase, docker/), commit
-# bc27d2661edd09a5d0b8d76ce33da6d4071a756e del 2026-10-16 ("update 2026-10-16 - 0.8.3"). Las
-# imágenes son las de ese commit: el repo exige al menos dos semanas de antigüedad (supply chain).
-# Los archivos de infra/supabase/volumes son copias de ese commit; solo roles.sql cambia (una línea).
+# Adapted from the official self-hosting compose (github.com/supabase/supabase, docker/), commit
+# bc27d2661edd09a5d0b8d76ce33da6d4071a756e of 2026-10-16 ("update 2026-10-16 - 0.8.3"). Images are
+# the ones from that commit: the repo requires at least two weeks of age (supply chain). The files
+# in infra/supabase/volumes are copies from that commit; only roles.sql differs (one line).
 #
-# Recorte frente al oficial (nada de esto lo usa el sistema hoy):
-#   - realtime: el backoffice consulta por HTTP; no hay suscripciones.
-#   - analytics (logflare) y vector: los procesos registran en stdout (pino); Studio queda sin la
-#     pestaña de logs (ENABLED_FEATURES_LOGS_ALL=false, igual que el oficial por defecto).
-#   - functions (edge runtime): no hay edge functions.
-#   - supavisor: la app conecta directo a Postgres con un rol por proceso (docs/05 §2).
-#   - imgproxy: solo sirve a las transformaciones de imagen de Storage; están apagadas.
-#   - webhooks.sql, realtime.sql, logs.sql, pooler.sql y _supabase.sql: esquemas de los servicios
-#     quitados. Envoy conserva las rutas de realtime y functions; sin esos servicios responden 503.
-# Añadido: `mail` (Inbucket, el mismo del compose de desarrollo oficial) para ver los correos de
-# Auth (magic links, confirmaciones) en local, y Studio y Postgres publicados en el host.
+# Trimmed vs the official (the system uses none of this today):
+#   - realtime: the backoffice polls over HTTP; no subscriptions.
+#   - analytics (logflare) and vector: processes log to stdout (pino); Studio has no logs tab
+#     (ENABLED_FEATURES_LOGS_ALL=false, same as the official default).
+#   - functions (edge runtime): no edge functions.
+#   - supavisor: the app connects straight to Postgres with one role per process.
+#   - imgproxy: only serves Storage image transforms, which are off.
+#   - webhooks.sql, realtime.sql, logs.sql, pooler.sql and _supabase.sql: schemas of the removed
+#     services. Envoy keeps the realtime and functions routes; without those services they answer 503.
+# Added: `mail` (Inbucket, same as the official dev compose) to read Auth emails (magic links,
+# confirmations) locally, and Studio and Postgres published on the host.
 #
-# Todos los puertos escuchan solo en 127.0.0.1. Por defecto: Postgres 54340, gateway (Envoy) 54341,
-# Studio 54342, correo (Inbucket) 54343. No chocan con docker-compose.yml (54330), la API (3000),
-# la web (5173) ni el stack de la Supabase CLI (54321-54324).
+# All ports listen on 127.0.0.1 only. Defaults: Postgres 54340, gateway (Envoy) 54341, Studio
+# 54342, mail (Inbucket) 54343. They don't clash with docker-compose.yml (54330), the API (3000),
+# the web app (5173) or the Supabase CLI stack (54321-54324).
 
 name: gow-supabase
 
@@ -35,17 +35,17 @@ services:
     ports:
       - "127.0.0.1:${GOW_SUPABASE_DB_PORT:-54340}:5432"
     volumes:
-      # Contraseñas de authenticator, supabase_auth_admin, etc. (del oficial, sin supabase_functions_admin).
+      # Passwords for authenticator, supabase_auth_admin, etc. (from the official, minus supabase_functions_admin).
       - ./infra/supabase/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
       - ./infra/supabase/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
-      # Los seis roles de la app con su contraseña de desarrollo (el mismo archivo que usa
-      # docker-compose.yml). Va en migrations/ para correr como supabase_admin después de que la
-      # imagen quita el superusuario a `postgres`; el archivo siguiente le da a `postgres` la
-      # membresía que tendría en Supabase si hubiera creado él los roles.
+      # The six app roles with their dev password (the same file docker-compose.yml uses). It goes
+      # in migrations/ to run as supabase_admin after the image strips superuser from `postgres`;
+      # the next file gives `postgres` the membership it would have in Supabase had it created the
+      # roles itself.
       - ./infra/postgres/init/00-roles.sql:/docker-entrypoint-initdb.d/migrations/98-gow-roles.sql:ro
       - ./infra/supabase/init/99-gow-roles-postgres.sql:/docker-entrypoint-initdb.d/migrations/99-gow-roles-postgres.sql:ro
       - gow-supabase-db:/var/lib/postgresql/data
-      # La llave de pgsodium vive aquí y debe sobrevivir a los reinicios (como en el oficial).
+      # The pgsodium key lives here and must survive restarts (as in the official).
       - gow-supabase-db-config:/etc/postgresql-custom
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
@@ -84,27 +84,27 @@ services:
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
-      # Sin registro público: las cuentas las crea la API o el CLI con la llave service_role al dar
-      # de alta a un usuario del backoffice (ADR 0035). Evita que alguien registre antes el correo
-      # de un analista con una contraseña suya.
+      # No public sign-up: accounts are created by the API or the CLI with the service_role key when
+      # adding a backoffice user. Prevents someone from registering an analyst's email first with a
+      # password of their own.
       GOTRUE_DISABLE_SIGNUP: "true"
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: ${JWT_EXPIRY}
-      # Sesión renovable del backoffice (ADR 0036): el refresh token rota en cada uso y, durante 10 s,
-      # el anterior todavía sirve (peticiones en paralelo que llegan a varias instancias de la API).
-      # Fuera de ese intervalo, reusarlo cierra la sesión. Son los valores por defecto, aquí explícitos.
+      # Renewable backoffice session: the refresh token rotates on every use and, for 10 s, the
+      # previous one still works (parallel requests hitting several API instances). Outside that
+      # window, reusing it ends the session. These are the defaults, made explicit here.
       GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: "true"
       GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: "10"
-      # HS256 con el JWT secret del proyecto: el mismo que BACKOFFICE_JWT_SECRET de la API.
+      # HS256 with the project's JWT secret: the same as the API's BACKOFFICE_JWT_SECRET.
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
       GOTRUE_JWT_ISSUER: ${API_EXTERNAL_URL}
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
       GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
       GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
-      # Todo el correo va a Inbucket (sin autenticación SMTP); se lee en http://127.0.0.1:54343.
+      # All mail goes to Inbucket (no SMTP auth); read it at http://127.0.0.1:54343.
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
       GOTRUE_SMTP_HOST: mail
       GOTRUE_SMTP_PORT: 2500
@@ -113,9 +113,9 @@ services:
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
       GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
       GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
-      # Custom access token hook (ADR 0035): agrega `tenant_id` al token de quien es miembro de un
-      # tenant. La función la crea `pnpm db:migrate` (0008_access_token_hook.sql); antes de migrar,
-      # GoTrue no puede emitir tokens.
+      # Custom access token hook: adds `tenant_id` to the token of tenant members. The function is
+      # created by `pnpm db:migrate` (0008_access_token_hook.sql); before migrating, GoTrue can't
+      # issue tokens.
       GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED: "true"
       GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI: pg-functions://postgres/app/custom_access_token_hook
 
@@ -132,7 +132,7 @@ services:
       retries: 10
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
-      # El esquema `app` no se expone: los datos de negocio solo se leen con los roles de la app.
+      # The `app` schema is not exposed: business data is only read with the app roles.
       PGRST_DB_SCHEMAS: public,graphql_public
       PGRST_DB_MAX_ROWS: 1000
       PGRST_DB_EXTRA_SEARCH_PATH: public
@@ -144,8 +144,8 @@ services:
       PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
     command: ["postgrest"]
 
-  # Encendido para uso futuro: la app todavía guarda los documentos en disco (LocalDocumentStorage);
-  # el adaptador de Supabase Storage está pendiente (docs/deploy.md).
+  # Enabled for future use: the app still stores documents on disk (LocalDocumentStorage); the
+  # Supabase Storage adapter is pending.
   storage:
     image: supabase/storage-api:v1.81.0
     restart: unless-stopped
@@ -205,7 +205,7 @@ services:
       meta:
         condition: service_healthy
     ports:
-      # Directo y sin la autenticación básica del gateway: solo escucha en 127.0.0.1.
+      # Direct and without the gateway's basic auth: listens on 127.0.0.1 only.
       - "127.0.0.1:${GOW_SUPABASE_STUDIO_PORT:-54342}:3000"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/platform/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)})\""]
@@ -237,8 +237,8 @@ services:
     volumes:
       - gow-supabase-snippets:/app/snippets
 
-  # Envoy es el gateway por defecto del compose oficial (antes Kong). Rutas /auth/v1, /rest/v1,
-  # /storage/v1, /pg y Studio en / (con autenticación básica DASHBOARD_USERNAME/PASSWORD).
+  # Envoy is the default gateway of the official compose (formerly Kong). Routes /auth/v1, /rest/v1,
+  # /storage/v1, /pg and Studio at / (with DASHBOARD_USERNAME/PASSWORD basic auth).
   api-gw:
     image: envoyproxy/envoy:v1.39.1
     restart: unless-stopped
@@ -246,7 +246,7 @@ services:
       default:
         aliases: [envoy, kong]
     healthcheck:
-      # La imagen no trae curl ni wget.
+      # The image has neither curl nor wget.
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/8000'"]
       interval: 5s
       timeout: 5s

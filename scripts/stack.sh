@@ -1,9 +1,9 @@
 #!/bin/sh
-# pnpm stack:up | stack:down | stack:reset | stack:logs | stack:ps   (ADR 0061)
+# pnpm stack:up | stack:down | stack:reset | stack:logs | stack:ps
 #
-# La pila completa en local con docker compose: Supabase, migración, API, worker, WhatsApp y backoffice.
-# Antes de levantar, genera los secretos de desarrollo si faltan (scripts/supabase-env.sh, que conserva
-# los que ya existen) y construye la imagen. Los puertos se cambian con GOW_WEB_PORT y GOW_API_PORT.
+# The full stack locally with docker compose: Supabase, migration, API, worker, WhatsApp and
+# backoffice. Before starting, generates the dev secrets if missing (scripts/supabase-env.sh, which
+# keeps the ones that exist) and builds the image. Ports change with GOW_WEB_PORT and GOW_API_PORT.
 set -eu
 
 ROOT=$(cd -- "$(dirname -- "$0")/.." && pwd)
@@ -13,19 +13,19 @@ compose() {
   docker compose -f docker-compose.supabase.yml -f docker-compose.stack.yml --env-file "$ENV_FILE" "$@"
 }
 
-# Valor de una variable del .env de la raíz (sin cargar el archivo entero ni mostrar nada).
+# Value of a variable from the root .env (without loading the whole file or printing anything).
 envval() {
   [ -f .env ] || return 0
   sed -n "s/^$1=//p" .env | head -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
 }
 
-# Correo de acceso de Supabase Auth (ADR 0063): con RESEND_API_KEY en el .env de la raíz, GoTrue manda
-# los enlaces por el SMTP de Resend; sin ella, quedan en Inbucket (http://127.0.0.1:54343).
+# Supabase Auth sign-in email: with RESEND_API_KEY in the root .env, GoTrue sends the links through
+# Resend's SMTP; without it they land in Inbucket (http://127.0.0.1:54343).
 MAIL_VIA="Inbucket (http://127.0.0.1:54343)"
 RESEND_KEY=$(envval RESEND_API_KEY)
 if [ -n "$RESEND_KEY" ]; then
   from=$(envval RESEND_FROM)
-  # Sin dominio verificado, Resend solo deja mandar desde su remitente de pruebas, y solo al dueño de la cuenta.
+  # Without a verified domain, Resend only lets you send from its test sender, and only to the account owner.
   from=${from:-"GOW Credit <onboarding@resend.dev>"}
   addr=$(printf '%s' "$from" | sed -n 's/.*<\(.*\)>.*/\1/p')
   [ -n "$addr" ] || addr=$from

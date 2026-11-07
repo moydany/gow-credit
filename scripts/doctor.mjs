@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-/* eslint-disable no-console -- diagnóstico de la máquina: la salida en consola es el resultado */
-// pnpm doctor: revisa que esta máquina tenga lo necesario para correr el repositorio
-// (docs/local-setup.md). Solo lee: no instala, no descarga y no imprime valores de .env.
+/* eslint-disable no-console -- machine diagnostic: console output is the result */
+// pnpm doctor: checks this machine has what it needs to run the repo (docs/local-setup.md).
+// Read-only: doesn't install, download or print .env values.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -15,7 +15,7 @@ let warned = 0
 const ok = (msg) => console.log(`  ok     ${msg}`)
 const warn = (msg, fix) => { warned++; console.log(`  aviso  ${msg}${fix ? `\n         → ${fix}` : ''}`) }
 const fail = (msg, fix) => { failed++; console.log(`  falta  ${msg}${fix ? `\n         → ${fix}` : ''}`) }
-/** Reporta ok o, si no se cumple, la falla o el aviso con su arreglo. */
+/** Reports ok or, if not met, the failure or warning with its fix. */
 const check = (cond, okMsg, report, msg, fix) => { if (cond) ok(okMsg); else report(msg, fix) }
 const run = (cmd, args) => {
   try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }

@@ -4,12 +4,12 @@ packages:
   - evals
   - scenarios
 
-# Cadena de suministro: no instalar versiones publicadas hace menos de 3 días.
+# Supply chain: don't install versions published less than 3 days ago.
 minimumReleaseAge: 4320
 
-# Versiones parchadas de dependencias transitivas de herramientas de desarrollo (osv-scanner en CI).
-# Los paquetes que las traen (evalite 0.19, drizzle-kit 0.31, eslint 10) ya están en su última
-# versión y todavía piden las vulnerables. Se quitan cuando ellos suban.
+# Patched versions of transitive dependencies of dev tools (osv-scanner in CI). The packages that
+# pull them (evalite 0.19, drizzle-kit 0.31, eslint 10) are already at their latest version and
+# still ask for the vulnerable ones. Remove when they bump.
 overrides:
   '@fastify/static': ^10.1.2 # GHSA-83w8-p2f5-377r, GHSA-8pvw-jcv7-9cmj, GHSA-pr96-94w5-mx2h, GHSA-x428-ghpx-8j92 (evalite)
   '@fastify/static>glob': ^14.0.2 # GHSA-3g3m-2fjr-6pw4
@@ -17,10 +17,10 @@ overrides:
   minimatch@>=7 <11.0.1: ^11.0.1 # GHSA-g3hv-75wg-m249 (eslint)
   '@esbuild-kit/core-utils>esbuild': ^0.25.0 # GHSA-67mh-4wv8-2f99 (drizzle-kit)
 
-# Solo estos paquetes pueden correr scripts de instalación (binarios nativos).
+# Only these packages may run install scripts (native binaries).
 allowBuilds:
-  # Negados a propósito (fase 6): el preinstall de Baileys solo revisa la versión de Node y el
-  # postinstall de protobufjs también; ninguno hace falta para correr.
+  # Denied on purpose: Baileys' preinstall only checks the Node version, and protobufjs's
+  # postinstall does too; neither is needed to run.
   '@whiskeysockets/baileys': false
   better-sqlite3: true
   esbuild: true

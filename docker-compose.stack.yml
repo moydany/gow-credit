@@ -1,20 +1,20 @@
-# Pila completa en local con un solo comando (ADR 0061): Supabase (docker-compose.supabase.yml) más
-# la migración, la API, el worker, WhatsApp y el backoffice. Se usa siempre junto al de Supabase:
+# Full local stack with one command: Supabase (docker-compose.supabase.yml) plus the migration, the
+# API, the worker, WhatsApp and the backoffice. Always used together with the Supabase file:
 #
-#   pnpm stack:up      # genera los secretos si faltan, construye la imagen y levanta todo
-#   pnpm stack:down    # detiene (los volúmenes se conservan); `pnpm stack:reset` los borra
-#   pnpm stack:logs    # sigue los registros de la API, el worker y WhatsApp
+#   pnpm stack:up      # generates the secrets if missing, builds the image and brings everything up
+#   pnpm stack:down    # stops (volumes are kept); `pnpm stack:reset` deletes them
+#   pnpm stack:logs    # follows the logs of the API, the worker and WhatsApp
 #
-# Equivale a: docker compose -f docker-compose.supabase.yml -f docker-compose.stack.yml
+# Equivalent to: docker compose -f docker-compose.supabase.yml -f docker-compose.stack.yml
 #               --env-file infra/supabase/.env up -d --build --wait
 #
-# Un solo proyecto (`gow-supabase`, el nombre del otro archivo): los volúmenes de Supabase que ya
-# existan se reutilizan. Todo escucha solo en 127.0.0.1: backoffice 5173, API 3000, Studio 54342,
-# correo de Auth (Inbucket) 54343. Se cambian con GOW_WEB_PORT y GOW_API_PORT.
+# A single project (`gow-supabase`, the other file's name): existing Supabase volumes are reused.
+# Everything listens on 127.0.0.1 only: backoffice 5173, API 3000, Studio 54342, Auth mail
+# (Inbucket) 54343. Change them with GOW_WEB_PORT and GOW_API_PORT.
 #
-# Una sola imagen (`gow-credit-app`) para migrar, API, worker y WhatsApp: cambia `APP`. El código corre
-# con tsx, como en desarrollo. Las contraseñas de los roles son las de desarrollo de
-# infra/postgres/init/00-roles.sql; nada de esto sirve fuera de una máquina local.
+# One image (`gow-credit-app`) to migrate, run the API, the worker and WhatsApp: `APP` changes. The
+# code runs with tsx, as in development. Role passwords are the dev ones from
+# infra/postgres/init/00-roles.sql; none of this is meant for anything but a local machine.
 
 x-app: &app
   image: gow-credit-app:local
@@ -33,8 +33,8 @@ x-roles: &roles
   DATABASE_URL_MASTRA: postgres://gow_mastra:gow_mastra_dev@db:5432/postgres
 
 services:
-  # Correo de los enlaces de acceso (ADR 0063). Por defecto, Inbucket; `scripts/stack.sh` define GOW_SMTP_*
-  # con el SMTP de Resend cuando hay RESEND_API_KEY en el .env de la raíz.
+  # Sign-in link email. Inbucket by default; `scripts/stack.sh` sets GOW_SMTP_* to Resend's SMTP
+  # when RESEND_API_KEY is in the root .env.
   auth:
     environment:
       GOTRUE_SMTP_HOST: ${GOW_SMTP_HOST:-mail}
@@ -44,7 +44,7 @@ services:
       GOTRUE_SMTP_ADMIN_EMAIL: ${GOW_SMTP_ADMIN_EMAIL:-${SMTP_ADMIN_EMAIL}}
       GOTRUE_SMTP_SENDER_NAME: ${GOW_SMTP_SENDER_NAME:-${SMTP_SENDER_NAME}}
 
-  # Aplica las migraciones con el rol `postgres` y termina. Todo lo demás espera a que acabe bien.
+  # Applies the migrations as the `postgres` role and exits. Everything else waits for it to finish OK.
   migrate:
     <<: *app
     build:
@@ -74,7 +74,7 @@ services:
       BACKOFFICE_JWT_SECRET: ${JWT_SECRET}
       STORAGE_SIGNING_SECRET: ${GOW_STORAGE_SIGNING_SECRET}
       STORAGE_DIR: /data/storage
-      # Supabase Auth por la red interna: el backoffice entra con enlace por correo (ADR 0035).
+      # Supabase Auth over the internal network: the backoffice signs in with an email link.
       SUPABASE_URL: http://api-gw:8000
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
@@ -85,8 +85,8 @@ services:
       retries: 20
       start_period: 15s
 
-  # Las llaves de los modelos salen del .env de la raíz (opcional): sin él, solo corre lo que esté en
-  # caché (LLM_CACHE_MODE=read) y un documento nuevo falla en vez de gastar.
+  # Model keys come from the root .env (optional): without it only what is cached runs
+  # (LLM_CACHE_MODE=read) and a new document fails instead of spending.
   worker:
     <<: *app
     env_file:
@@ -103,8 +103,8 @@ services:
       STORAGE_DIR: /data/storage
       LLM_CACHE_DIR: /data/llm-cache
 
-  # Sin WHATSAPP_TENANT_ID: descubre al único tenant y espera a que el wizard lo cree (ADR 0060). El
-  # número se vincula escaneando el QR en el backoffice. La sesión de Baileys vive en un volumen.
+  # No WHATSAPP_TENANT_ID: it discovers the only tenant and waits for the wizard to create it. The
+  # number is linked by scanning the QR in the backoffice. The Baileys session lives in a volume.
   whatsapp:
     <<: *app
     volumes:

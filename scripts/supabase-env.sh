@@ -1,15 +1,15 @@
 #!/bin/sh
 # pnpm supabase:env [--force]
 #
-# Genera los secretos de desarrollo del Supabase local (docker-compose.supabase.yml, ADR 0034):
-#   infra/supabase/.env     variables del compose: JWT secret, llaves anon y service_role firmadas
-#                           con él (HS256), contraseña de Postgres, usuario de Studio, etc.
-#   infra/supabase/app.env  entorno de la app (api, worker, whatsapp, tenant, tests) contra ese
-#                           Supabase: una URL por rol, BACKOFFICE_JWT_SECRET = JWT_SECRET.
-# Los dos están ignorados por git y solo sirven en local. Si .env ya existe se conserva (las
-# llaves cambiarían y la base ya inicializada dejaría de aceptar la contraseña); app.env se
-# reescribe siempre a partir de él. --force regenera .env: hace falta `pnpm supabase:down -v`
-# antes, porque la contraseña de Postgres se fija al crear el volumen.
+# Generates the dev secrets for the local Supabase (docker-compose.supabase.yml):
+#   infra/supabase/.env     compose variables: JWT secret, anon and service_role keys signed with
+#                           it (HS256), Postgres password, Studio user, etc.
+#   infra/supabase/app.env  app environment (api, worker, whatsapp, tenant, tests) against that
+#                           Supabase: one URL per role, BACKOFFICE_JWT_SECRET = JWT_SECRET.
+# Both are git-ignored and only useful locally. An existing .env is kept (the keys would change
+# and the already initialized database would reject the password); app.env is always rewritten
+# from it. --force regenerates .env: run `pnpm supabase:down -v` first, because the Postgres
+# password is fixed when the volume is created.
 set -eu
 
 ROOT=$(cd -- "$(dirname -- "$0")/.." && pwd)
@@ -52,7 +52,7 @@ if (!existsSync(envPath) || FORCE === '1') {
     PG_META_CRYPTO_KEY: hex(24),
     GOW_STORAGE_SIGNING_SECRET: hex(32),
   }
-  // La plantilla versionada trae la configuración; aquí solo se llenan los secretos vacíos.
+  // The versioned template carries the configuration; only the empty secrets are filled in here.
   const template = readFileSync(join(DIR, '.env.example'), 'utf8')
   const out = template.split('\n').map((line) => {
     const m = /^([A-Z0-9_]+)=$/.exec(line)

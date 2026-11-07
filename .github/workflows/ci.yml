@@ -1,7 +1,5 @@
-# CI del worksample (docs/00-brief.md §4, fase 8). Nada aquí usa llaves de modelos ni datos
-# reales: los modelos salen de cachés versionadas (inyección, clasificador) y lo que necesita
-# data/ corre en eval-extraction.yml, que restaura un paquete cifrado de almacenamiento privado.
-# Las acciones van fijadas por SHA; el comentario dice la versión.
+# CI. Nothing here uses model keys or real data: models come from versioned caches, and anything
+# that needs data/ runs in eval-extraction.yml. Actions are pinned by SHA; the comment is the version.
 name: ci
 
 on:
@@ -23,7 +21,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (versión de packageManager)
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (matches packageManager)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.17.0
@@ -33,11 +31,11 @@ jobs:
         run: docker compose up -d --wait
       - run: pnpm db:migrate
       - run: pnpm typecheck
-      # Los avisos de tamaño y complejidad no pueden crecer (--max-warnings en `lint`); bájalo al arreglar.
+      # Size and complexity warnings must not grow (--max-warnings in `lint`); lower it as you fix them.
       - run: pnpm lint
       - name: Duplicación entre archivos (jscpd)
         run: pnpm dup
-      # Con Postgres arriba, `pnpm test` incluye RLS y aislamiento entre tenants.
+      # With Postgres up, `pnpm test` also covers RLS and tenant isolation.
       - run: pnpm test
       - name: Escenarios en modo unitario
         run: pnpm scenario run --all
@@ -56,7 +54,7 @@ jobs:
           node-version: 24.17.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # PDFs adversarios sintéticos y respuestas versionadas en evals/fixtures: sin llaves, sin costo.
+      # Synthetic adversarial PDFs and recorded responses in evals/fixtures: no keys, no cost.
       - name: Eval de inyección (100 % o falla)
         working-directory: evals
         run: pnpm exec evalite run injection.eval.ts --hideTable

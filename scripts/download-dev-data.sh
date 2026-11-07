@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Descarga los 9 estados de cuenta de desarrollo del Drive compartido a data/dev/.
-# Requiere que la carpeta siga compartida por enlace. Verifica contra MANIFEST.sha256.
+# Downloads the 9 dev statements from the shared Drive to data/dev/.
+# Needs the folder to still be shared by link. Verifies against MANIFEST.sha256.
 set -euo pipefail
 mkdir -p "$(dirname "$0")/../data/dev" && cp "$(dirname "$0")/dev-data.MANIFEST.sha256" "$(dirname "$0")/../data/dev/MANIFEST.sha256" && cd "$(dirname "$0")/../data/dev"
 while IFS='|' read -r name id; do

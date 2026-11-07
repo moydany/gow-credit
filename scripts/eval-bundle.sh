@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Paquete cifrado con lo que necesita `pnpm eval` y no se versiona (ADR 0012): los PDFs de
-# desarrollo, el ground truth y la caché de respuestas. CI lo restaura desde almacenamiento
-# privado; el paquete nunca va al repositorio.
+# Encrypted bundle with what `pnpm eval` needs and isn't versioned: the dev PDFs, the ground truth
+# and the response cache. CI restores it from private storage; the bundle never goes in the repo.
 #
-#   EVAL_BUNDLE_KEY=... scripts/eval-bundle.sh pack  [salida.tar.gz.enc]
-#   EVAL_BUNDLE_KEY=... scripts/eval-bundle.sh unpack <entrada.tar.gz.enc>
+#   EVAL_BUNDLE_KEY=... scripts/eval-bundle.sh pack  [out.tar.gz.enc]
+#   EVAL_BUNDLE_KEY=... scripts/eval-bundle.sh unpack <in.tar.gz.enc>
 #
-# Cifrado AES-256-CBC con PBKDF2. La llave vive en un secreto de CI, nunca en el repositorio.
+# AES-256-CBC with PBKDF2. The key lives in a CI secret, never in the repo.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${EVAL_BUNDLE_KEY:?falta EVAL_BUNDLE_KEY}"

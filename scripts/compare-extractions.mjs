@@ -1,7 +1,7 @@
-/* eslint-disable no-console -- script de comparación: la salida en consola es el resultado */
-// Compara dos extracciones del mismo documento campo por campo, tomando la primera como
-// referencia. Imprime solo conteos, coincidencias y cifras agregadas: nunca nombres, RFC ni
-// descripciones. Uso: node scripts/compare-extractions.mjs <referencia.json> <candidata.json>
+/* eslint-disable no-console -- comparison script: console output is the result */
+// Compares two extractions of the same document field by field, taking the first as reference.
+// Prints only counts, matches and aggregate figures: never names, RFCs or descriptions.
+// Usage: node scripts/compare-extractions.mjs <reference.json> <candidate.json>
 import { readFileSync } from 'node:fs'
 
 const [refPath, candPath] = process.argv.slice(2)
@@ -16,7 +16,7 @@ const txs = (d) => d.accounts.flatMap((a) => a.periods.flatMap((p) => p.transact
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const pct = (n, d) => (d === 0 ? '-' : `${((100 * n) / d).toFixed(1)} %`)
 
-// --- movimientos: emparejamiento por (fecha, monto, sentido) como multiconjunto
+// --- movements: matched by (date, amount, direction) as a multiset
 function matchRows(a, b) {
   const pool = new Map()
   for (const t of b) {

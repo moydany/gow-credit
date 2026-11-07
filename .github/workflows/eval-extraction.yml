@@ -1,10 +1,10 @@
-# Eval de extracción contra el ground truth con umbral por banco (fase 3, ADR 0012).
-# Necesita lo que no se versiona: los 9 PDFs de desarrollo, el ground truth y la caché de
-# respuestas. Se restauran de un paquete cifrado (scripts/eval-bundle.sh) que vive en
-# almacenamiento privado. Sin los dos secretos el job no corre y lo dice; nunca llama a un
-# modelo: la caché se lee en modo solo lectura, y una respuesta faltante falla el umbral.
+# Extraction eval against ground truth, with a per-bank threshold. Needs what isn't versioned: the
+# 9 dev PDFs, the ground truth and the response cache, restored from an encrypted bundle
+# (scripts/eval-bundle.sh) kept in private storage. Without both secrets the job doesn't run and
+# says so. It never calls a model: the cache is read-only and a missing response fails the
+# threshold.
 #
-# Secretos: EVAL_BUNDLE_URL (URL firmada de solo lectura al paquete) y EVAL_BUNDLE_KEY.
+# Secrets: EVAL_BUNDLE_URL (signed read-only URL to the bundle) and EVAL_BUNDLE_KEY.
 name: eval-extraction
 
 on:
@@ -52,7 +52,7 @@ jobs:
       - name: pnpm eval (umbral por banco)
         if: env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
         run: pnpm eval
-      # Solo métricas, bancos y nombres de campo (gate.ts): nada del documento.
+      # Metrics, banks and field names only (gate.ts): nothing from the document.
       - name: Reporte por banco
         if: always() && env.EVAL_BUNDLE_URL != '' && env.EVAL_BUNDLE_KEY != ''
         run: cat data/eval-results/report.md >> "$GITHUB_STEP_SUMMARY"

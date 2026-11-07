@@ -1,5 +1,5 @@
-# Modo full en local (fase 6): Postgres 17 con los roles de docs/05 §2. Las migraciones se
-# corren con `pnpm db:migrate`; los escenarios full con `pnpm scenario run --all --mode full`.
+# Full mode locally: Postgres 17 with the roles of the app. Migrations run with `pnpm db:migrate`;
+# the full scenarios with `pnpm scenario run --all --mode full`.
 services:
   postgres:
     image: postgres:17-alpine

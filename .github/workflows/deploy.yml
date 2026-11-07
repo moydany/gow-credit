@@ -1,18 +1,17 @@
-# Despliegue del modo full (docs/deploy.md "Pipeline de despliegue", ADR 0055). Solo se dispara
-# a mano: Actions > deploy > Run workflow, o `gh workflow run deploy.yml -f environment=staging`.
-# No hay despliegue automático en push: la migración de la base y la publicación de servicios con
-# datos de clientes no salen sin que alguien las pida y, en production, las apruebe.
+# Full-mode deploy (see docs/deploy.md). Manual trigger only: Actions > deploy > Run workflow, or
+# `gh workflow run deploy.yml -f environment=staging`. No auto-deploy on push: DB migrations and
+# service releases touching customer data need someone to ask for them (and approve, in production).
 #
-# Identidad: Workload Identity Federation. El job pide un token OIDC a GitHub y Google lo cambia por
-# credenciales de corta vida de la cuenta de servicio del despliegue; no hay llaves JSON en ningún
-# secreto. Los secretos y las variables viven en el *environment* de GitHub que se elige (tabla en
-# docs/deploy.md); los secretos de los servicios viven en Secret Manager y Cloud Run los monta.
+# Auth: Workload Identity Federation. The job gets an OIDC token from GitHub and Google exchanges it
+# for short-lived credentials of the deploy service account; no JSON keys in any secret. Secrets and
+# variables live in the chosen GitHub *environment* (table in docs/deploy.md); service secrets live
+# in Secret Manager and Cloud Run mounts them.
 #
-# Orden: plan > imágenes (todas, antes de tocar nada) > migración (solo con el worker) > servicios
-# de Cloud Run. El backoffice (Vercel) corre en paralelo: solo depende del plan.
+# Order: plan > images (all, before touching anything) > migration (only with the worker) > Cloud
+# Run services. The backoffice (Vercel) runs in parallel and only depends on the plan.
 #
-# Este workflow no se ha ejecutado: el worksample no crea cuentas. Las acciones van fijadas por SHA;
-# el comentario dice la versión.
+# Never executed: the worksample doesn't create cloud accounts. Actions are pinned by SHA; the
+# comment is the version.
 name: deploy
 
 on:
@@ -35,14 +34,14 @@ on:
 permissions:
   contents: read
 
-# Un despliegue por entorno a la vez; el segundo espera en vez de cancelar al primero, para no
-# dejar una migración a medias.
+# One deploy per environment at a time; the second waits instead of cancelling the first, so a
+# migration is never left half-done.
 concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
 
 env:
-  # CLI de Vercel fijada (publicada hace más de 3 días, como pide minimumReleaseAge del repositorio).
+  # Pinned Vercel CLI (published over 3 days ago, per the repo's minimumReleaseAge).
   VERCEL_CLI_VERSION: 65.10.0
 
 jobs:
@@ -50,14 +49,14 @@ jobs:
     name: qué se despliega
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # No toca el repositorio ni la nube: solo lee el input.
+    # Touches neither the repo nor the cloud: only reads the input.
     permissions: {}
     outputs:
       api: ${{ steps.parse.outputs.api }}
       worker: ${{ steps.parse.outputs.worker }}
       whatsapp: ${{ steps.parse.outputs.whatsapp }}
       web: ${{ steps.parse.outputs.web }}
-      # Imágenes a construir, como arreglo JSON para la matriz del job `images`.
+      # Images to build, as a JSON array for the `images` job matrix.
       images: ${{ steps.parse.outputs.images }}
     steps:
       - id: parse
@@ -108,9 +107,8 @@ jobs:
             echo "- Servicios: api=${api}, worker=${worker}, whatsapp=${whatsapp}, web=${web}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Se construyen y publican todas las imágenes antes de migrar o desplegar nada: si una falla, no
-  # se despliega ninguna. La etiqueta es el SHA del commit, así que volver atrás es redesplegar un
-  # SHA anterior.
+  # Build and push every image before migrating or deploying anything: if one fails, none is
+  # deployed. The tag is the commit SHA, so rolling back means redeploying an older SHA.
   images:
     name: imagen ${{ matrix.app }}
     needs: plan
@@ -162,13 +160,13 @@ jobs:
           build-args: APP=${{ matrix.app }}
           push: true
           tags: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-${{ matrix.app }}:${{ github.sha }}
-          # Mismo alcance de caché que ci.yml: la imagen de CI y la de despliegue comparten capas.
+          # Same cache scope as ci.yml: the CI and deploy images share layers.
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
-  # Solo con el worker en `services`. Corre con el rol de migraciones (DATABASE_ADMIN_URL del
-  # environment), nunca con el de un proceso. Las migraciones de drizzle no tienen marcha atrás:
-  # deben ser compatibles con la versión anterior del código (ADR 0055).
+  # Only when the worker is in `services`. Runs with the migrations role (DATABASE_ADMIN_URL from the
+  # environment), never a process role. Drizzle migrations have no down step, so they must stay
+  # compatible with the previous code version.
   migrate:
     name: migraciones de la base
     needs: [plan, images]
@@ -189,7 +187,7 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (versión de packageManager)
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (matches packageManager)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.17.0
@@ -200,16 +198,16 @@ jobs:
           DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
         run: pnpm db:migrate
 
-  # api: público (su autenticación es la llave del tenant y la cookie del backoffice), escala de 0 a N.
+  # api: public (auth is the tenant key and the backoffice cookie), scales from 0 to N.
   deploy-api:
     name: api en Cloud Run
     needs: [plan, images, migrate]
-    # `migrate` se salta cuando no va el worker; `!failure()` deja pasar un salto pero no un fallo.
+    # `migrate` is skipped without the worker; `!failure()` lets a skip through but not a failure.
     if: ${{ !cancelled() && !failure() && needs.plan.outputs.api == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: ${{ inputs.environment }}
-    # Sin checkout: solo el token OIDC.
+    # No checkout: only the OIDC token.
     permissions:
       id-token: write
     steps:
@@ -245,14 +243,14 @@ jobs:
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-api:${{ github.sha }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
           region: ${{ vars.GCP_REGION }}
-          # HOST=0.0.0.0: en local el api escucha solo en loopback; aquí el tráfico entra por la interfaz
-          # del contenedor.
+          # HOST=0.0.0.0: locally the api listens on loopback only; here traffic arrives on the container
+          # interface.
           env_vars: |-
             HOST=0.0.0.0
             API_PUBLIC_URL=${{ vars.API_PUBLIC_URL }}
             BACKOFFICE_URL=${{ vars.BACKOFFICE_URL }}
             SUPABASE_URL=${{ vars.SUPABASE_URL }}
-          # Solo lo del api: ni llaves de modelos ni la URL de WhatsApp (docs/05 §2b).
+          # Only what the api needs: no model keys, no WhatsApp URL.
           secrets: |-
             DATABASE_URL_API=gow-${{ inputs.environment }}-database-url-api:latest
             DATABASE_URL_QUEUE=gow-${{ inputs.environment }}-database-url-queue:latest
@@ -274,9 +272,9 @@ jobs:
           SERVICE_URL: ${{ steps.deploy.outputs.url }}
         run: echo "api (${GITHUB_SHA}) en ${SERVICE_URL}" >> "$GITHUB_STEP_SUMMARY"
 
-  # worker: sin tráfico entrante. Necesita CPU siempre asignada (consume la cola y corre Mastra
-  # fuera de cualquier petición) y al menos una instancia. El semáforo de modelos es por proceso:
-  # el máximo acota las llamadas simultáneas a Anthropic y Google.
+  # worker: no inbound traffic. Needs always-allocated CPU (it consumes the queue and runs Mastra
+  # outside any request) and at least one instance. The model semaphore is per process, so the max
+  # bounds concurrent calls to Anthropic and Google.
   deploy-worker:
     name: worker en Cloud Run
     needs: [plan, images, migrate]
@@ -316,8 +314,8 @@ jobs:
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-worker:${{ github.sha }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
           region: ${{ vars.GCP_REGION }}
-          # LLM_CACHE_MODE=off: el disco del contenedor se pierde y las respuestas de modelos
-          # llevan datos del cliente; en la nube no se guardan en disco.
+          # LLM_CACHE_MODE=off: container disk is lost and model responses carry customer data, so in the
+          # cloud they are not written to disk.
           env_vars: |-
             API_PUBLIC_URL=${{ vars.API_PUBLIC_URL }}
             RESEND_FROM="${{ vars.RESEND_FROM }}"
@@ -340,8 +338,8 @@ jobs:
             --cpu=1
             --memory=1Gi
 
-  # whatsapp: exactamente una instancia por número (dos sesiones de Baileys del mismo número se
-  # expulsan entre sí). CPU siempre asignada: el socket y sus latidos corren fuera de peticiones.
+  # whatsapp: exactly one instance per number (two Baileys sessions on the same number kick each
+  # other out). CPU always allocated: the socket and its heartbeats run outside requests.
   deploy-whatsapp:
     name: whatsapp en Cloud Run
     needs: [plan, images, migrate]
@@ -381,12 +379,12 @@ jobs:
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-whatsapp:${{ github.sha }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
           region: ${{ vars.GCP_REGION }}
-          # WHATSAPP_AUTH_DIR en /tmp: la sesión se pierde en cada reinicio y hay que volver a
-          # escanear el QR; es el hueco "Sesión de Baileys persistente" de docs/deploy.md.
+          # WHATSAPP_AUTH_DIR in /tmp: the session is lost on every restart and the QR must be scanned
+          # again (known gap: no persistent Baileys session, see docs/deploy.md).
           env_vars: |-
             WHATSAPP_TENANT_ID=${{ vars.WHATSAPP_TENANT_ID }}
             WHATSAPP_AUTH_DIR=/tmp/whatsapp-auth
-          # Solo su rol de base: no ve documentos, extracciones ni decisiones (docs/05 §2b).
+          # Only its own DB role: it can't see documents, extractions or decisions.
           secrets: |-
             DATABASE_URL_WHATSAPP=gow-${{ inputs.environment }}-database-url-whatsapp:latest
           flags: >-
@@ -398,8 +396,8 @@ jobs:
             --cpu=1
             --memory=1Gi
 
-  # Backoffice estático. Se construye aquí con el mismo pnpm y Node que CI (`vercel build`) y se
-  # sube ya hecho (`--prebuilt`). `--prod` solo en production; en staging queda como preview.
+  # Static backoffice. Built here with the same pnpm and Node as CI (`vercel build`) and uploaded
+  # prebuilt (`--prebuilt`). `--prod` only in production; staging stays a preview.
   web:
     name: backoffice en Vercel
     needs: plan
@@ -434,7 +432,7 @@ jobs:
           esac
           exit "$missing"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (versión de packageManager)
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (matches packageManager)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.17.0
@@ -442,9 +440,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Instalar la CLI de Vercel
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
-      # La cookie de sesión es SameSite=Strict y Path=/bo: el navegador debe hablar con su propio
-      # origen. Cada entorno tiene su API, así que el destino del rewrite se escribe aquí y no en el
-      # vercel.json versionado, que no cambia.
+      # The session cookie is SameSite=Strict and Path=/bo, so the browser must talk to its own origin.
+      # Each environment has its own API, so the rewrite target is written here and not in the
+      # versioned vercel.json, which doesn't change.
       - name: Rewrite de /bo/* hacia la API del entorno
         run: |
           set -euo pipefail
