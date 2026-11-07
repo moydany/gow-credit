@@ -410,7 +410,29 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
 
   it('configuración: los canales del tenant se leen de la sesión, sin WhatsApp vinculado', async () => {
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
-    expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null } })
+    expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null }, analysis: { statement_max_age_months: 3 } })
+  })
+
+  it('configuración: la antigüedad máxima del estado de cuenta se cambia, se valida y queda en la bitácora (ADR 0049)', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const bearer = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const patch = (body: unknown) => call('PATCH', '/settings', { bearer, body })
+    const six = await patch({ statement_max_age_months: 6 })
+    expect(six.status).toBe(200)
+    expect((six.json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: 6 })
+    const none = await patch({ statement_max_age_months: null })
+    expect((none.json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: null })
+    expect(((await call('GET', '/settings', { bearer })).json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: null })
+    for (const bad of [{ statement_max_age_months: 0 }, { statement_max_age_months: 25 }, { statement_max_age_months: 1.5 }, { statement_max_age_months: '3' }, {}, { statement_max_age_months: 3, name: 'otro' }]) {
+      expect((await patch(bad)).status, JSON.stringify(bad)).toBe(400)
+    }
+    // B no ve ni toca el ajuste de A.
+    expect(((await call('GET', '/settings', { bearer: tokenFor(userB, tenantB, 'b@prestamista.test') })).json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: 3 })
+    const log = await q("SELECT actor, details FROM app.audit_log WHERE action = 'settings.updated' AND tenant_id = $1 ORDER BY at", [tenantA])
+    expect(log.rows).toEqual([
+      { actor: `user:${userA}`, details: { statement_max_age_months: { from: 3, to: 6 } } },
+      { actor: `user:${userA}`, details: { statement_max_age_months: { from: 6, to: null } } },
+    ])
   })
 
   // El inicio de sesión tiene límite por IP y las pruebas anteriores lo agotan: estas van con el JWT como Bearer.

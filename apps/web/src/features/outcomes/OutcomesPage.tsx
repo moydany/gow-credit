@@ -2,7 +2,7 @@ import type { ApplicationRow } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, ApiError } from '../../lib/api'
-import { date, money, OUTCOME_LABEL } from '../../lib/format'
+import { date, localToday, money, OUTCOME_LABEL } from '../../lib/format'
 import { useApplications } from '../../lib/queries'
 import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, SegmentBar, Skeleton } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
@@ -66,7 +66,7 @@ export function OutcomesPage() {
 
 function OutcomeRow({ a }: { a: ApplicationRow }) {
   const [outcome, setOutcome] = useState<Outcome>('paid')
-  const [day, setDay] = useState(new Date().toISOString().slice(0, 10))
+  const [day, setDay] = useState(localToday())
   const toast = useToast()
   const qc = useQueryClient()
   const save = useMutation({
@@ -107,7 +107,7 @@ function OutcomeRow({ a }: { a: ApplicationRow }) {
           </label>
           <label>
             <span className="sr-only">Fecha observada</span>
-            <input type="date" value={day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => { setDay(e.target.value) }} className="input h-10 w-auto" />
+            <input type="date" value={day} max={localToday()} onChange={(e) => { setDay(e.target.value) }} className="input h-10 w-auto" />
           </label>
           <Button size="sm" variant="lime" type="submit" disabled={save.isPending || !day}>
             Registrar

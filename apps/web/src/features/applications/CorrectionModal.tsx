@@ -25,7 +25,7 @@ interface Candidate {
 
 function show(v: string | number | null, kind: ReturnType<typeof correctionValueKind>): string {
   if (v === null) return 'sin dato'
-  return kind === 'money' || kind === 'signed_money' ? money(Number(v), true) : String(v)
+  return kind === 'money' || kind === 'signed_money' ? money(Number(v)) : String(v)
 }
 
 export function CorrectionModal({ spec, onClose, onAdd }: { spec: EditSpec | null; onClose: () => void; onAdd: (fixes: PendingFix[]) => void }) {
@@ -104,7 +104,7 @@ export function CorrectionModal({ spec, onClose, onAdd }: { spec: EditSpec | nul
         ) : (
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Monto (se leyó {money(tx.amount, true)})</span>
+              <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Monto (se leyó {money(tx.amount)})</span>
               <input className="input tnum" inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value) }} autoComplete="off" autoFocus />
             </label>
             <label className="block">

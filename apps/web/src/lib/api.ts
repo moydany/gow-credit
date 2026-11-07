@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -62,6 +62,7 @@ export const api = {
   createSupplier: (body: SupplierCreateBody) => request<{ id: string }>('POST', '/suppliers', body),
   updateSupplier: (id: string, body: SupplierUpdateBody) => request<{ id: string; fields: string[] }>('PATCH', `/suppliers/${id}`, body),
   settings: () => request<TenantSettings>('GET', '/settings'),
+  updateSettings: (body: TenantSettingsUpdateBody) => request<TenantSettings>('PATCH', '/settings', body),
   users: () => request<TenantUserItem[]>('GET', '/users'),
   addUser: (email: string) => request<TenantUserCreated>('POST', '/users', { email }),
   removeUser: (id: string) => request<undefined>('DELETE', `/users/${id}`),

@@ -1,10 +1,11 @@
 /**
  * Configuración del tenant (docs/08 §2): usuarios, llaves de API y canales. El enlace de acceso de un
  * invitado y la llave completa se muestran una sola vez, en un diálogo, y no se guardan en el
- * navegador. WhatsApp se vincula escaneando el QR aquí mismo (ADR 0033); correo, retención y aviso
- * de privacidad son de solo lectura en esta versión.
+ * navegador. WhatsApp se vincula escaneando el QR aquí mismo (ADR 0033); la antigüedad máxima del
+ * estado de cuenta se ajusta aquí (ADR 0049); correo, retención y aviso de privacidad son de solo
+ * lectura en esta versión.
  */
-import { ApiKeyScope, TenantUserCreateBody, type ApiKeyItem, type TenantUserItem } from '@gow/contracts'
+import { ApiKeyScope, DAYS_PER_MONTH, monthsText, STATEMENT_MAX_AGE_OPTIONS, TenantUserCreateBody, type ApiKeyItem, type TenantSettings, type TenantUserItem } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { useState } from 'react'
@@ -31,6 +32,7 @@ export function SettingsPage() {
         <UsersCard />
         <ApiKeysCard />
         <ChannelsCard />
+        <AnalysisCard />
         <PrivacyCard />
       </div>
     </div>
@@ -330,9 +332,68 @@ function ChannelsCard() {
   )
 }
 
-function PrivacyCard() {
+// ---------- Análisis: antigüedad máxima del estado de cuenta (ADR 0049)
+
+function AnalysisCard() {
+  const { data, isPending, isError, error, refetch } = useSettings()
+  const toast = useToast()
+  const qc = useQueryClient()
+  const save = useMutation({
+    mutationFn: (months: number | null) => api.updateSettings({ statement_max_age_months: months }),
+    onSuccess: (r) => {
+      qc.setQueryData<TenantSettings>(['settings'], r)
+      const m = r.analysis.statement_max_age_months
+      toast.ok(m === null ? 'Listo: sin límite de antigüedad' : `Listo: advertencia con más de ${monthsText(m)}`)
+    },
+    onError: (e: unknown) => { toast.error(errorText(e, 'No se pudo guardar')) },
+  })
+  const current = data?.analysis.statement_max_age_months
+  // Un valor fijado por la API fuera de las opciones también se muestra.
+  const options: (number | null)[] = [...new Set([...STATEMENT_MAX_AGE_OPTIONS, ...(typeof current === 'number' ? [current] : [])])].sort((a, b) => a - b)
+  options.push(null)
   return (
     <Card rise={3} className="pb-6">
+      <CardHeader title="Análisis" subtitle="Antigüedad máxima del estado de cuenta" />
+      {isError ? (
+        <ErrorState message={error.message} onRetry={() => void refetch()} />
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : (
+        <div className="mt-4 space-y-3 px-6">
+          <fieldset className="flex flex-wrap gap-1.5" disabled={save.isPending}>
+            <legend className="sr-only">Antigüedad máxima del estado de cuenta</legend>
+            {options.map((m) => {
+              const on = m === current
+              return (
+                <button
+                  key={m ?? 'none'}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => { if (!on) save.mutate(m) }}
+                  className={clsx('inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[13.5px] font-medium transition-colors disabled:opacity-60', on ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}
+                >
+                  {on ? <Icon name="check" size={14} /> : null}
+                  {m === null ? 'Sin límite' : monthsText(m)}
+                </button>
+              )
+            })}
+          </fieldset>
+          <p className="text-[13px] leading-relaxed text-muted">
+            {current === null || current === undefined
+              ? 'Cualquier estado de cuenta se analiza sin advertencia de antigüedad.'
+              : `Un estado de cuenta con más de ${monthsText(current)} (${String(current * DAYS_PER_MONTH)} días) desde su corte se analiza igual, sin pedir otro, y la decisión lo marca con una advertencia.`}{' '}
+            Aplica a las solicitudes que se analicen desde ahora y a las reevaluaciones.
+          </p>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function PrivacyCard() {
+  return (
+    <Card rise={4} className="pb-6">
       <CardHeader title="Retención y privacidad" subtitle="Aún no se configuran desde aquí" />
       <div className="mt-4 space-y-3 px-6 text-[13.5px] leading-relaxed text-ink-2">
         <div className="hatch rounded-2xl p-4">

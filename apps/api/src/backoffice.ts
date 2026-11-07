@@ -7,7 +7,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { apiKeys, applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, supplierContacts, suppliers, tenants, tenantUsers, whatsappSessions, withTenant, type Db, type Tx } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
+import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, TenantSettingsUpdateBody, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
 import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
@@ -45,6 +45,9 @@ interface Who {
   email: string
   tenantId: string
 }
+
+/** Nombre que se muestra de un proveedor que se registra por WhatsApp y aún no confirma sus datos (ADR 0047). */
+const PENDING_SUPPLIER_NAME = 'Por confirmar (registro por WhatsApp)'
 
 const SESSION_SECONDS = 8 * 60 * 60
 /**
@@ -369,7 +372,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
         open_clarifications: number; outcome: ApplicationRow['outcome']
       }>(sql`
         select a.id, a.status, a.failure_reason, a.request, a.created_at, a.updated_at,
-               s.id as supplier_id, s.legal_name,
+               s.id as supplier_id, coalesce(s.legal_name, ${PENDING_SUPPLIER_NAME}) as legal_name,
                d.status as decision_status, d.limit_amount, d.score, pv.version as policy_version, d.reasons,
                e.file_name, e.bank, e.page_count, e.issues, e.flags, (e.file_name is not null) as has_extraction,
                (select count(*)::int from app.clarifications c where c.application_id = a.id and c.status = 'open') as open_clarifications,
@@ -411,7 +414,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       id: string; application_id: string; legal_name: string; round: number; status: ClarificationItem['status']; channel: ClarificationItem['channel']
       questions: ClarificationItem['questions']; answers: ClarificationItem['answers']; created_at: Date; answered_at: Date | null; answered_by: string | null
     }>(sql`
-      select c.id, c.application_id, s.legal_name, c.round, c.status, c.channel, c.questions, c.answers, c.created_at, c.answered_at,
+      select c.id, c.application_id, coalesce(s.legal_name, ${PENDING_SUPPLIER_NAME}) as legal_name, c.round, c.status, c.channel, c.questions, c.answers, c.created_at, c.answered_at,
              (select u.email from app.audit_log l join app.tenant_users u on 'user:' || u.user_id::text = l.actor
                where l.subject = c.id::text and l.action = 'clarification.answered' order by l.at desc limit 1) as answered_by
         from app.clarifications c join app.suppliers s on s.id = c.supplier_id
@@ -454,7 +457,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       as_of: out.a.asOf,
       created_at: out.a.createdAt.toISOString(),
       updated_at: out.a.updatedAt.toISOString(),
-      supplier: { id: out.s.id, legal_name: out.s.legalName, rfc: out.s.rfc, external_ref: out.s.externalRef, clabes: out.s.clabes },
+      supplier: { id: out.s.id, legal_name: out.s.legalName ?? PENDING_SUPPLIER_NAME, rfc: out.s.rfc, external_ref: out.s.externalRef, clabes: out.s.clabes },
       documents: out.docs.map((d) => ({ id: d.id, sha256: d.sha256, size_bytes: d.sizeBytes, media_type: d.mediaType })),
       // La extracción guardada es inmutable: se muestra con las correcciones del analista encima.
       extraction: (out.ex ? applyCorrections(out.ex.payload as NonNullable<ApplicationDetail['extraction']>, fixes) : null),
@@ -553,7 +556,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   r.get('/suppliers', async (_req, res) => {
     const rows = await withTenant(deps.db, who(res).tenantId, (tx) =>
       tx.execute<{ id: string; legal_name: string; rfc: string | null; external_ref: string | null; created_at: Date; applications: number; last_id: string | null; last_status: ApplicationRow['status'] | null; last_at: Date | null }>(sql`
-        select s.id, s.legal_name, s.rfc, s.external_ref, s.created_at,
+        select s.id, coalesce(s.legal_name, ${PENDING_SUPPLIER_NAME}) as legal_name, s.rfc, s.external_ref, s.created_at,
                (select count(*)::int from app.applications a where a.supplier_id = s.id) as applications,
                l.id as last_id, l.status as last_status, l.created_at as last_at
           from app.suppliers s
@@ -611,7 +614,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     })
     const detail: SupplierDetail = {
       id: out.s.id,
-      legal_name: out.s.legalName,
+      legal_name: out.s.legalName ?? PENDING_SUPPLIER_NAME,
       rfc: out.s.rfc,
       external_ref: out.s.externalRef,
       clabes: out.s.clabes,
@@ -644,13 +647,37 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json({ id, fields })
   })
 
-  // ---------- Configuración: canales del tenant (solo lectura)
+  // ---------- Configuración: canales del tenant (solo lectura) y ajustes del análisis
+  const settingsOf = (t: typeof tenants.$inferSelect): TenantSettings => ({
+    tenant: { id: t.id, name: t.name, created_at: t.createdAt.toISOString() },
+    whatsapp: { number: t.whatsappNumber },
+    email: { from: t.emailFrom },
+    analysis: { statement_max_age_months: t.statementMaxAgeMonths },
+  })
   r.get('/settings', async (_req, res) => {
     const w = who(res)
     const [t] = await withTenant(deps.db, w.tenantId, (tx) => tx.select().from(tenants).where(eq(tenants.id, w.tenantId)))
     if (!t) throw new HttpError(404, 'tenant no encontrado')
-    const out: TenantSettings = { tenant: { id: t.id, name: t.name, created_at: t.createdAt.toISOString() }, whatsapp: { number: t.whatsappNumber }, email: { from: t.emailFrom } }
-    res.json(out)
+    res.json(settingsOf(t))
+  })
+
+  /**
+   * Antigüedad máxima del estado de cuenta (ADR 0049). Aplica a las solicitudes que se analicen desde
+   * ahora y a las reevaluaciones; una solicitud ya en curso conserva el ajuste con que empezó.
+   */
+  r.patch('/settings', async (req, res) => {
+    const w = who(res)
+    const body = parse(TenantSettingsUpdateBody, req.body)
+    const t = await withTenant(deps.db, w.tenantId, async (tx) => {
+      const [before] = await tx.select({ months: tenants.statementMaxAgeMonths }).from(tenants).where(eq(tenants.id, w.tenantId))
+      if (!before) throw new HttpError(404, 'tenant no encontrado')
+      await tx.update(tenants).set({ statementMaxAgeMonths: body.statement_max_age_months }).where(eq(tenants.id, w.tenantId))
+      await audit(tx, w.tenantId, actorOf(w), 'settings.updated', w.tenantId, { statement_max_age_months: { from: before.months, to: body.statement_max_age_months } })
+      const [after] = await tx.select().from(tenants).where(eq(tenants.id, w.tenantId))
+      return after
+    })
+    if (!t) throw new HttpError(404, 'tenant no encontrado')
+    res.json(settingsOf(t))
   })
 
   // ---------- Configuración: vincular WhatsApp escaneando el QR (ADR 0033)

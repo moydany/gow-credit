@@ -2,7 +2,8 @@
  * Una aclaración con sus preguntas (docs/08 §2). Abierta: el analista responde a nombre del
  * proveedor (la API deja `user:<id>` en la bitácora y el nombre aquí). Respondida: lectura.
  * Las preguntas de documentos nuevos no se contestan a mano (el PDF llega por la API): se pueden
- * declinar para que la evaluación siga sin ellos.
+ * declinar para que la evaluación siga sin ellos. Abonos, cargos y uso de la cuenta se contestan
+ * eligiendo una opción; el cliente principal, escribiendo su nombre (ADR 0050).
  */
 import { checkClabe, checkRfc, type ClarificationItem, type OwnerAnswer, type Question } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -15,12 +16,34 @@ import { Icon } from '../../ui/icons'
 import { Button, Chip } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
 
-type Draft = { kind: 'deposit'; category: string; counterparty: string } | { kind: 'identity'; legal_name: string; rfc: string; clabe: string } | { kind: 'decline'; note: string }
+type Draft =
+  | { kind: 'deposit'; category: string; counterparty: string }
+  | { kind: 'charge'; category: string; counterparty: string }
+  | { kind: 'account_use'; use: string }
+  | { kind: 'buyer'; name: string }
+  | { kind: 'identity'; legal_name: string; rfc: string; clabe: string }
+  | { kind: 'decline'; note: string }
 
-const DEPOSIT_OPTIONS = ['customer_payment', 'loan_disbursement', 'own_transfer', 'interest', 'other'] as const
+/** Opciones por si una pregunta guardada no las trae; las de la pregunta mandan. */
+const FALLBACK_OPTIONS: Record<'deposit' | 'charge' | 'account_use', readonly string[]> = {
+  deposit: ['customer_payment', 'loan_disbursement', 'own_transfer', 'interest', 'other'],
+  charge: ['loan_payment', 'supplier_payment', 'own_transfer', 'personal_expense', 'other'],
+  account_use: ['business_only', 'mixed'],
+}
+
+const OPTION_LABEL: Record<string, string> = { personal_expense: 'Gasto personal', business_only: 'Solo negocio', mixed: 'Negocio y gastos personales' }
+
+/** La opción elegida en un borrador de opciones, o null. */
+function selected(d: Draft | undefined): string | null {
+  if (!d) return null
+  if (d.kind === 'account_use') return d.use
+  return d.kind === 'deposit' || d.kind === 'charge' ? d.category : null
+}
+
+const OPTIONS_ARIA: Record<'deposit' | 'charge' | 'account_use', string> = { deposit: 'Qué fue este abono', charge: 'Qué fue este cargo', account_use: 'Uso de la cuenta' }
 
 function factText(name: string, value: string | number | boolean | null): string {
-  if (typeof value === 'number' && /monto|amount|total/i.test(name)) return money(value, true)
+  if (typeof value === 'number' && /monto|amount|total/i.test(name)) return money(value)
   return value === null ? '—' : String(value)
 }
 
@@ -28,6 +51,9 @@ const TOPIC: Record<string, string> = {
   recent_statement: 'Estado de cuenta reciente',
   identity_fields: 'Identidad del titular',
   deposit_classification: 'Abono por clasificar',
+  charge_classification: 'Cargo por clasificar',
+  main_buyer: 'Cliente principal',
+  account_use: 'Uso de la cuenta',
   reconciliation_gap: 'Diferencia en el cuadre',
   additional_months: 'Más meses',
   missing_pages: 'Páginas faltantes',
@@ -36,9 +62,14 @@ const TOPIC: Record<string, string> = {
 function toAnswer(q: Question, d: Draft | undefined): OwnerAnswer | null {
   if (!d) return null
   if (d.kind === 'decline') return { question_id: q.id, kind: 'decline', note: d.note.trim() || null }
-  if (d.kind === 'deposit') {
+  if (d.kind === 'deposit' || d.kind === 'charge') {
     if (!d.category) return null
-    return { question_id: q.id, kind: 'deposit', category: d.category as never, counterparty: d.counterparty.trim() || null }
+    return { question_id: q.id, kind: d.kind, category: d.category as never, counterparty: d.counterparty.trim() || null }
+  }
+  if (d.kind === 'account_use') return d.use ? { question_id: q.id, kind: 'account_use', use: d.use as never } : null
+  if (d.kind === 'buyer') {
+    const name = d.name.replace(/\s+/g, ' ').trim()
+    return name.length >= 3 && name.length <= 200 ? { question_id: q.id, kind: 'buyer', name } : null
   }
   const legal = d.legal_name.trim()
   const rfc = d.rfc.trim().toUpperCase()
@@ -93,7 +124,7 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
       {open && item.channel === 'manual' ? (
         <p className="mx-6 mt-4 flex items-start gap-2.5 rounded-2xl bg-sunken px-4 py-3 text-[13px] text-ink-2">
           <Icon name="chat" size={16} className="mt-0.5 shrink-0" />
-          Esta aclaración no salió por WhatsApp ni por correo (el proveedor no tiene un contacto verificado). Responde tú a nombre del proveedor: quedará registrado con tu usuario.
+          {manualReason(item.questions)} Responde tú a nombre del proveedor: quedará registrado con tu usuario.
         </p>
       ) : null}
 
@@ -121,26 +152,37 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
 
                   {!open ? (
                     <Given a={given} />
-                  ) : q.kind === 'deposit' ? (
+                  ) : q.kind === 'deposit' || q.kind === 'charge' || q.kind === 'account_use' ? (
                     <div className="mt-4 space-y-3">
-                      <div role="radiogroup" aria-label="Qué fue este abono" className="flex flex-wrap gap-1.5">
-                        {(q.options.length > 0 ? q.options.map((o) => o.value) : [...DEPOSIT_OPTIONS]).map((v) => {
-                          const on = d?.kind === 'deposit' && d.category === v
+                      <div role="radiogroup" aria-label={OPTIONS_ARIA[q.kind]} className="flex flex-wrap gap-1.5">
+                        {(q.options.length > 0 ? q.options.map((o) => o.value) : [...FALLBACK_OPTIONS[q.kind]]).map((v) => {
+                          const kind = q.kind as 'deposit' | 'charge' | 'account_use'
+                          const on = d?.kind === kind && selected(d) === v
+                          const counterparty = d && (d.kind === 'deposit' || d.kind === 'charge') ? d.counterparty : ''
+                          const pick = () => {
+                            set(q.id, kind === 'account_use' ? { kind, use: v } : { kind, category: v, counterparty })
+                          }
                           return (
-                            <button key={v} type="button" role="radio" aria-checked={on} onClick={() => { set(q.id, { kind: 'deposit', category: v, counterparty: d?.kind === 'deposit' ? d.counterparty : '' }) }} className={clsx('h-9 rounded-full px-4 text-[13px] font-medium transition-colors', on ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
-                              {q.options.find((o) => o.value === v)?.label ?? CATEGORY_LABEL[v] ?? v}
+                            <button key={v} type="button" role="radio" aria-checked={on} onClick={pick} className={clsx('h-9 rounded-full px-4 text-[13px] font-medium transition-colors', on ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
+                              {q.options.find((o) => o.value === v)?.label ?? CATEGORY_LABEL[v] ?? OPTION_LABEL[v] ?? v}
                             </button>
                           )
                         })}
                       </div>
-                      {d?.kind === 'deposit' ? (
-                        <Field label="¿Quién lo depositó? (opcional)">
+                      {d && (d.kind === 'deposit' || d.kind === 'charge') ? (
+                        <Field label={d.kind === 'deposit' ? '¿Quién lo depositó? (opcional)' : '¿A quién se le pagó? (opcional)'}>
                           <input value={d.counterparty} onChange={(e) => { set(q.id, { ...d, counterparty: e.target.value }) }} className="input" autoComplete="off" />
                         </Field>
                       ) : null}
                     </div>
+                  ) : q.kind === 'buyer' ? (
+                    <div className="mt-4">
+                      <Field label="Cliente principal (razón social o nombre comercial)" hint="Se buscan sus pagos en el estado de cuenta por este nombre.">
+                        <input value={d?.kind === 'buyer' ? d.name : ''} onChange={(e) => { set(q.id, { kind: 'buyer', name: e.target.value }) }} className="input" autoComplete="off" maxLength={200} />
+                      </Field>
+                    </div>
                   ) : q.kind === 'identity' ? (
-                    <IdentityFields d={d?.kind === 'identity' ? d : { kind: 'identity', legal_name: '', rfc: '', clabe: '' }} onChange={(next) => { set(q.id, next) }} />
+                    <IdentityFields d={d?.kind === 'identity' ? d : { kind: 'identity', legal_name: '', rfc: '', clabe: '' }} ask={askedFields(q.facts)} onChange={(next) => { set(q.id, next) }} />
                   ) : (
                     <p className="mt-3 flex items-start gap-2 rounded-2xl bg-sunken p-3 text-[12.5px] text-ink-2">
                       <Icon name="file" size={15} className="mt-0.5 shrink-0" /> El estado de cuenta nuevo lo manda el proveedor por la API. Si no lo hay, declina para que la evaluación siga sin él.
@@ -200,22 +242,45 @@ function Field({ label, hint, error, children }: { label: string; hint?: string;
   )
 }
 
-function IdentityFields({ d, onChange }: { d: Extract<Draft, { kind: 'identity' }>; onChange: (d: Draft) => void }) {
+/**
+ * Por qué una aclaración quedó para responder a mano. El worker la manda por WhatsApp o correo solo
+ * si hay preguntas que se contestan por chat (abonos, cargos, cliente principal, uso de la cuenta) y
+ * el proveedor tiene un contacto verificado (`DbClarificationChannel`): sin ellas el motivo es el
+ * tipo de pregunta, no el contacto.
+ */
+const CHAT_KINDS: ReadonlySet<Question['kind']> = new Set(['deposit', 'charge', 'buyer', 'account_use'])
+
+function manualReason(questions: readonly Question[]): string {
+  if (!questions.some((q) => CHAT_KINDS.has(q.kind))) {
+    const kinds = new Set(questions.map((q) => q.kind))
+    const what = kinds.has('identity') && kinds.has('documents') ? 'de identidad y de documentos' : kinds.has('identity') ? 'de identidad' : 'de documentos'
+    return `Esta aclaración no se manda por WhatsApp ni por correo: las preguntas ${what} no se le hacen al proveedor por chat y las revisa un analista.`
+  }
+  return 'Esta aclaración no salió por WhatsApp ni por correo porque el proveedor no tiene un contacto verificado.'
+}
+
+/** Campos que pide una pregunta de identidad (dato `pedir`, ADR 0043); sin el dato, nombre y RFC (ADR 0044). */
+function askedFields(facts: readonly { name: string; value: unknown }[]): ReadonlySet<string> {
+  const fact = facts.find((f) => f.name === 'pedir')
+  return new Set(typeof fact?.value === 'string' && fact.value ? fact.value.split(',') : ['name', 'rfc'])
+}
+
+function IdentityFields({ d, ask, onChange }: { d: Extract<Draft, { kind: 'identity' }>; ask: ReadonlySet<string>; onChange: (d: Draft) => void }) {
   const rfc = d.rfc.trim() ? checkRfc(d.rfc.trim()).result : null
-  const clabe = d.clabe.trim() ? checkClabe(d.clabe) : null
   return (
     <div className="mt-4 grid gap-3 sm:grid-cols-2">
-      <div className="sm:col-span-2">
-        <Field label="Razón social o nombre del titular">
-          <input value={d.legal_name} onChange={(e) => { onChange({ ...d, legal_name: e.target.value }) }} className="input" autoComplete="off" />
+      {ask.has('name') ? (
+        <div className="sm:col-span-2">
+          <Field label="Razón social o nombre del titular">
+            <input value={d.legal_name} onChange={(e) => { onChange({ ...d, legal_name: e.target.value }) }} className="input" autoComplete="off" />
+          </Field>
+        </div>
+      ) : null}
+      {ask.has('rfc') ? (
+        <Field label="RFC" error={rfc === 'invalid' ? 'El RFC no tiene un formato válido' : null}>
+          <input value={d.rfc} onChange={(e) => { onChange({ ...d, rfc: e.target.value.toUpperCase() }) }} className="input font-mono uppercase" autoComplete="off" maxLength={13} aria-invalid={rfc === 'invalid'} />
         </Field>
-      </div>
-      <Field label="RFC" error={rfc === 'invalid' ? 'El RFC no tiene un formato válido' : null}>
-        <input value={d.rfc} onChange={(e) => { onChange({ ...d, rfc: e.target.value.toUpperCase() }) }} className="input font-mono uppercase" autoComplete="off" maxLength={13} aria-invalid={rfc === 'invalid'} />
-      </Field>
-      <Field label="CLABE" error={clabe === 'invalid' ? 'La CLABE no pasa el dígito verificador' : null}>
-        <input value={d.clabe} onChange={(e) => { onChange({ ...d, clabe: e.target.value.replace(/[^\d\s]/g, '') }) }} className="input font-mono" inputMode="numeric" autoComplete="off" maxLength={22} aria-invalid={clabe === 'invalid'} />
-      </Field>
+      ) : null}
     </div>
   )
 }
@@ -223,7 +288,17 @@ function IdentityFields({ d, onChange }: { d: Extract<Draft, { kind: 'identity' 
 function Given({ a }: { a: OwnerAnswer | undefined }) {
   if (!a) return <p className="mt-3 text-[13px] text-muted">Sin respuesta todavía.</p>
   const text =
-    a.kind === 'deposit' ? `${CATEGORY_LABEL[a.category] ?? a.category}${a.counterparty ? ` · ${a.counterparty}` : ''}` : a.kind === 'identity' ? [a.legal_name, a.rfc, a.clabe].filter(Boolean).join(' · ') || 'Sin datos' : a.kind === 'decline' ? `Sin respuesta${a.note ? `: ${a.note}` : ''}` : 'Documentos enviados'
+    a.kind === 'deposit' || a.kind === 'charge'
+      ? `${CATEGORY_LABEL[a.category] ?? OPTION_LABEL[a.category] ?? a.category}${a.counterparty ? ` · ${a.counterparty}` : ''}`
+      : a.kind === 'account_use'
+        ? (OPTION_LABEL[a.use] ?? a.use)
+        : a.kind === 'buyer'
+          ? a.name
+          : a.kind === 'identity'
+            ? [a.legal_name, a.rfc, a.clabe].filter(Boolean).join(' · ') || 'Sin datos'
+            : a.kind === 'decline'
+              ? `Sin respuesta${a.note ? `: ${a.note}` : ''}`
+              : 'Documentos enviados'
   return (
     <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-2xl bg-lime-soft px-3.5 py-2 text-[13.5px] font-medium text-lime-ink">
       <Icon name="check" size={15} className="shrink-0" />

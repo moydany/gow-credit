@@ -1,11 +1,26 @@
-import { DISCARD_REASON_LABELS, DISCARDED_PREFIX, DiscardReason, FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName } from '@gow/contracts'
+import { describeFailure, DISCARD_REASON_LABELS, DISCARDED_PREFIX, DiscardReason, DOCUMENT_AGE_WARNING, FEATURE_CATALOG, type ApplicationDetail, type Decision, type FeatureName } from '@gow/contracts'
 import clsx from 'clsx'
 import { useState } from 'react'
+import { BigMoney } from '../../ui/primitives'
 import { describeTarget, DECISION_LABEL, featureLabel, featureValue, jsonValue, money, number, OP_LABEL, OUTCOME_LABEL, PROVENANCE_LABEL, VERIFICATION_LABEL, date } from '../../lib/format'
 import { Icon } from '../../ui/icons'
 import { Button, Chip, Meter, StatusChip } from '../../ui/primitives'
 
 const EXCLUDED: Record<string, string> = { unknown: 'sin dato', low_confidence: 'confianza baja', unverified: 'sin verificar', conflict: 'en conflicto' }
+
+/** Estado de cuenta más viejo que el ajuste del tenant (ADR 0049): se analizó igual, pero se avisa. */
+function AgeWarning({ d }: { d: Decision }) {
+  const warning = d.reasons.find((r) => r.code === DOCUMENT_AGE_WARNING)
+  if (!warning) return null
+  return (
+    <div role="note" className="mt-4 rounded-[24px] bg-amber-soft p-5">
+      <p className="flex items-center gap-2 text-[14px] font-medium text-amber-ink">
+        <Icon name="alert" size={16} /> Estado de cuenta antiguo
+      </p>
+      <p className="mt-1 text-[13px] leading-relaxed text-amber-ink/85">{warning.message.replace(/^Advertencia: /, '')}</p>
+    </div>
+  )
+}
 
 export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationDetail; onAnswer: () => void; tray?: React.ReactNode }) {
   const d = detail.decision?.payload
@@ -17,7 +32,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
       <div className="px-6 pb-6 pt-5">
         <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
         <div className="hatch mt-4 rounded-3xl p-6 text-[14px] text-ink-2">
-          {detail.status === 'failed' ? <p>La solicitud falló: {detail.failure_reason ?? 'sin detalle'}.</p> : <p>Todavía no hay decisión. La solicitud está {detail.status === 'extracting' ? 'extrayendo el documento' : 'en proceso'}.</p>}
+          {detail.status === 'failed' ? <p>La solicitud no se pudo analizar. {describeFailure(detail.failure_reason).label}</p> : <p>Todavía no hay decisión. La solicitud está {detail.status === 'extracting' ? 'extrayendo el documento' : 'en proceso'}.</p>}
         </div>
       </div>
     )
@@ -32,6 +47,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
         </div>
       ) : null}
       <Verdict detail={detail} d={d} />
+      <AgeWarning d={d} />
       {tray}
 
       {open.length > 0 ? (
@@ -46,16 +62,23 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
         </div>
       ) : null}
 
-      {d.reasons.length > 0 ? (
+      {d.explanation || d.reasons.length > 0 ? (
         <Section title="Por qué">
-          <ul className="space-y-2">
-            {d.reasons.map((r) => (
-              <li key={r.code} className="flex gap-2.5 text-[13.5px] leading-snug">
-                <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
-                {r.message}
-              </li>
-            ))}
-          </ul>
+          {/* La explicación en prosa (ADR 0045) y, debajo, los motivos del motor para auditar. */}
+          {d.explanation ? <p className="text-[14px] leading-relaxed text-ink">{d.explanation.text}</p> : null}
+          {d.reasons.length > 0 ? (
+            <details className={d.explanation ? 'mt-3' : undefined} open={!d.explanation}>
+              <summary className="cursor-pointer text-[12.5px] font-medium text-muted">Detalle del motor</summary>
+              <ul className="mt-2 space-y-2">
+                {d.reasons.map((r) => (
+                  <li key={r.code} className="flex gap-2.5 text-[13px] leading-snug text-ink-2">
+                    <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
+                    {r.message}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </Section>
       ) : null}
 
@@ -156,7 +179,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
         </Section>
       ) : null}
       <p className="mt-6 text-[11.5px] text-muted">
-        Motor {d.engine_version} · política v{d.policy.version} · decidida {date(d.decided_at)}
+        Motor {d.engine_version} · política v{detail.decision?.policy_version ?? d.policy.version} · decidida {date(d.decided_at)}
       </p>
     </div>
   )
@@ -181,12 +204,12 @@ function Verdict({ detail, d }: { detail: ApplicationDetail; d: Decision }) {
     <div className={clsx('mt-4 rounded-[26px] p-5', d.status === 'qualified' || d.status === 'qualified_with_limit' ? 'bg-lime-soft' : d.status === 'not_qualified' ? 'bg-coral-soft' : d.status === 'human_review' ? 'bg-amber-soft' : 'bg-indigo-soft')}>
       <div className="flex items-center justify-between gap-3">
         <StatusChip status={d.status} decision />
-        <span className="text-[12px] text-ink-2/80">Política v{d.policy.version}</span>
+        <span className="text-[12px] text-ink-2/80">Política v{detail.decision?.policy_version ?? d.policy.version}</span>
       </div>
       {d.limit !== null ? (
         <>
           <p className="mt-5 text-[12.5px] text-ink-2/80">Línea aprobada</p>
-          <p className="display tnum mt-1 text-[46px]">{money(d.limit)}</p>
+          <BigMoney value={d.limit} className="mt-1 text-[46px]" />
           {detail.request?.amount ? <p className="mt-2 text-[13px] text-ink-2">de {money(detail.request.amount)} solicitados</p> : null}
         </>
       ) : (

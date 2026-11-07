@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { DISCARD_REASON_LABELS, DiscardReason } from '@gow/contracts'
+import { describeFailure, DISCARD_REASON_LABELS, DiscardReason } from '@gow/contracts'
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { date, money } from '../../lib/format'
 import { api, ApiError, documentUrl } from '../../lib/api'
@@ -183,7 +183,7 @@ export function ApplicationDetailPage() {
             ) : (
               <div className="p-6">
                 <h2 className="text-[17px] font-medium tracking-tight">Extracción</h2>
-                <div className="hatch mt-4 rounded-3xl p-6 text-[14px] text-ink-2">{data.status === 'failed' ? `La extracción falló: ${data.failure_reason ?? 'sin detalle'}.` : 'El documento se está leyendo. Esta pantalla se actualiza sola.'}</div>
+                <div className="hatch mt-4 rounded-3xl p-6 text-[14px] text-ink-2">{data.status === 'failed' ? describeFailure(data.failure_reason).label : 'El documento se está leyendo. Esta pantalla se actualiza sola.'}</div>
               </div>
             )}
           </Card>

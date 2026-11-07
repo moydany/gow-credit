@@ -1,17 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { ago, date, featureValue, jsonValue, money } from './format'
+import { ago, date, featureValue, jsonValue, localToday, money, moneyParts } from './format'
 
 describe('formato es-MX', () => {
-  it('muestra montos con peso y sin decimales salvo que se pidan', () => {
-    expect(money(250000)).toMatch(/250,000/)
-    expect(money(1234.5, true)).toMatch(/1,234\.50/)
+  it('muestra montos en pesos mexicanos, con centavos y la moneda', () => {
+    expect(money(250000)).toBe('$250,000.00 MXN')
+    expect(money(149937)).toBe('$149,937.00 MXN')
+    expect(money(1234.5)).toBe('$1,234.50 MXN')
     expect(money(null)).toBe('—')
+    expect(moneyParts(149937)).toEqual({ amount: '$149,937.00', currency: 'MXN' })
+    expect(moneyParts(null)).toEqual({ amount: '—', currency: null })
   })
 
   it('una fecha sin hora no se corre por zona horaria', () => {
     expect(date('2026-03-01')).toMatch(/1/)
     expect(date('2026-03-01')).not.toMatch(/feb/i)
     expect(date(null)).toBe('—')
+  })
+
+  it('un instante con hora se muestra en la zona del navegador, no en UTC', () => {
+    // 22:30 del 6 de noviembre en la zona de quien corre la prueba; en UTC puede ser ya el 7.
+    const lateNight = new Date(2026, 10, 6, 22, 30)
+    expect(date(lateNight.toISOString())).toMatch(/\b6\b/)
+    expect(date(lateNight.toISOString())).not.toMatch(/\b7\b/)
+    expect(localToday(lateNight)).toBe('2026-11-06')
+    expect(localToday(new Date(2026, 0, 5, 0, 1))).toBe('2026-01-05')
   })
 
   it('el tiempo relativo habla en español', () => {

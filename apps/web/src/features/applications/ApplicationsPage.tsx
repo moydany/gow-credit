@@ -1,11 +1,11 @@
-import type { ApplicationRow, ApplicationStatus } from '@gow/contracts'
+import { describeFailure, DOCUMENT_AGE_WARNING, type ApplicationRow, type ApplicationStatus } from '@gow/contracts'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useMemo } from 'react'
 import { ago, money, number } from '../../lib/format'
 import { useApplications, useMe } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
-import { Card, CardHeader, EmptyState, ErrorState, Meter, SegmentBar, Skeleton, StatusChip } from '../../ui/primitives'
+import { BigMoney, Card, CardHeader, Chip, EmptyState, ErrorState, Meter, SegmentBar, Skeleton, StatusChip } from '../../ui/primitives'
 
 const FILTERS: { key: string; label: string; match: (s: ApplicationStatus) => boolean }[] = [
   { key: 'todas', label: 'Todas', match: () => true },
@@ -113,7 +113,7 @@ export function ApplicationsPage() {
           <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
             <h2 className="text-[17px] font-medium tracking-tight">Línea aprobada</h2>
             <div>
-              {isPending ? <Skeleton className="h-12 w-40" /> : <p className="display tnum text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]">{stats.approvedCount ? money(stats.approvedLimit) : '—'}</p>}
+              {isPending ? <Skeleton className="h-12 w-40" /> : <BigMoney value={stats.approvedCount ? stats.approvedLimit : null} className="text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]" />}
               <p className="mt-2 text-[13px] text-muted">{stats.approvedCount ? `En ${String(stats.approvedCount)} solicitud${stats.approvedCount === 1 ? '' : 'es'}` : 'Aún ninguna califica'}</p>
             </div>
           </div>
@@ -198,7 +198,9 @@ export function ApplicationsPage() {
 }
 
 function Row({ a }: { a: ApplicationRow }) {
-  const reason = a.status === 'failed' ? a.failure_reason : a.failure_reason?.startsWith('document_discarded:') ? 'Documento descartado por el analista' : a.decision?.reasons[0]?.message
+  // Estado de cuenta más viejo que el ajuste del tenant (ADR 0049): se analizó, con advertencia.
+  const oldStatement = a.decision?.reasons.some((r) => r.code === DOCUMENT_AGE_WARNING) ?? false
+  const reason = a.status === 'failed' ? describeFailure(a.failure_reason).label : a.failure_reason?.startsWith('document_discarded:') ? 'Documento descartado por el analista' : a.decision?.reasons[0]?.message
   return (
     <Link
       to="/solicitudes/$id"
@@ -213,8 +215,13 @@ function Row({ a }: { a: ApplicationRow }) {
           {a.document && a.document.issues > 0 ? ` · ${String(a.document.issues)} alertas` : ''}
         </p>
       </div>
-      <div className="min-w-0 justify-self-end lg:justify-self-start">
+      <div className="min-w-0 justify-self-end lg:justify-self-stretch">
         <StatusChip status={a.status} />
+        {oldStatement ? (
+          <Chip tone="amber" className="ml-1.5 align-middle" icon="alert">
+            Estado antiguo
+          </Chip>
+        ) : null}
         {a.open_clarifications > 0 ? (
           <p className="mt-1.5 hidden truncate text-[12.5px] text-indigo-ink lg:block">{a.open_clarifications === 1 ? '1 pregunta abierta' : `${String(a.open_clarifications)} preguntas abiertas`}</p>
         ) : reason ? (

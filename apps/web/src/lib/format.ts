@@ -1,23 +1,39 @@
 /** Formato y etiquetas en español (es-MX). Los estados son los canónicos de docs/README.md. */
 import { FEATURE_CATALOG, type ApplicationStatus, type CorrectionTarget, type DecisionStatus, type FeatureName } from '@gow/contracts'
 
-const mxn0 = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 })
-const mxn2 = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2 })
 const pct = new Intl.NumberFormat('es-MX', { style: 'percent', maximumFractionDigits: 1 })
-const dateFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+// Una fecha sin hora (vencimiento, fecha de un movimiento) es un día del calendario: en UTC no se corre.
+// Un instante (creada, decidida) se muestra en la zona del navegador de quien lo ve.
+const calendarDateFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+const localDateFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
 const dateTimeFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const rel = new Intl.RelativeTimeFormat('es', { numeric: 'auto', style: 'short' })
 
-export const money = (n: number | null | undefined, cents = false): string => (n === null || n === undefined ? '—' : (cents ? mxn2 : mxn0).format(n))
+/** Pesos mexicanos siempre con centavos y la moneda: "$149,937.00 MXN". */
+export const money = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : `${mxn.format(n)} MXN`)
+/** Para cifras grandes: el monto y la moneda por separado, para mostrar "MXN" más chico. */
+export const moneyParts = (n: number | null | undefined): { amount: string; currency: string | null } => (n === null || n === undefined ? { amount: '—', currency: null } : { amount: mxn.format(n), currency: 'MXN' })
 export const number = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : num.format(n))
 export const percent = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : pct.format(n))
 
-/** Fecha ISO (AAAA-MM-DD o con hora) en formato corto. Las fechas sin hora no se corren por zona horaria. */
+/**
+ * Fecha ISO en formato corto. AAAA-MM-DD es un día del calendario y se muestra tal cual; un instante
+ * con hora se muestra en la zona horaria del navegador (23:00 del 6 de noviembre en México no es "7 nov").
+ */
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—'
-  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00Z` : iso)
-  return Number.isNaN(d.getTime()) ? iso : dateFmt.format(d)
+  const calendar = /^\d{4}-\d{2}-\d{2}$/.test(iso)
+  const d = new Date(calendar ? `${iso}T00:00:00Z` : iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return (calendar ? calendarDateFmt : localDateFmt).format(d)
+}
+
+/** Hoy como AAAA-MM-DD en la zona del navegador (no en UTC, que en México ya es mañana desde las 18:00). */
+export function localToday(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 export const dateTime = (iso: string): string => dateTimeFmt.format(new Date(iso))
 

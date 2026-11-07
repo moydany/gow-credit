@@ -6,7 +6,7 @@
  */
 import { isComplete } from '@gow/channels'
 import { CorrectionsBody, DiscardBody, DISCARDED_PREFIX, OwnerAnswer, parsePolicy, Profile, Question, StatementExtraction, type SimulationCase } from '@gow/contracts'
-import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, extractions, outcomes, policies, policyVersions, withTenant, type Db, type Tx } from '@gow/db'
+import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, extractions, outcomes, policies, policyVersions, tenants, withTenant, type Db, type Tx } from '@gow/db'
 import { simulatePolicy } from '@gow/decision'
 import { applyCorrections, CorrectionError, readValue } from '@gow/extraction/corrections'
 import { enqueueRedecide, enqueueResume, type PgBoss } from '@gow/platform'
@@ -89,7 +89,10 @@ export async function simulateVersion(db: Db, tenantId: string, who: string, id:
     const policy = parsePolicy(draft.document)
     const baseline = active ? parsePolicy(active.document) : null
     if (!policy.ok) throw new HttpError(500, 'la versión guardada no es válida')
-    const report = simulatePolicy({ id: draft.id, policy: policy.policy }, cases, active && baseline?.ok ? { id: active.id, policy: baseline.policy } : null)
+    // Con el ajuste de antigüedad del tenant (ADR 0049), como decide el worker.
+    const [tenant] = await tx.select({ months: tenants.statementMaxAgeMonths }).from(tenants).where(eq(tenants.id, tenantId))
+    const statementAge = tenant ? { statementAge: { max_months: tenant.months } } : {}
+    const report = simulatePolicy({ id: draft.id, policy: policy.policy }, cases, active && baseline?.ok ? { id: active.id, policy: baseline.policy } : null, statementAge)
     await tx.update(policyVersions).set({ simulation: report }).where(eq(policyVersions.id, id))
     await audit(tx, tenantId, who, 'policy.simulated', id, { cases: cases.length })
     return report

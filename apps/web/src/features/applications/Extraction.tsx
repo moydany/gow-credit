@@ -189,34 +189,34 @@ function PeriodBlock({ p }: { p: Period }) {
       </h3>
       <dl>
         <Row label="Saldo inicial">
-          <Val field={s.opening_balance} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'opening_balance' }} label="el saldo inicial" />
+          <Val field={s.opening_balance} format={(v) => money(v)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'opening_balance' }} label="el saldo inicial" />
         </Row>
         <Row label="Abonos">
-          <Val field={s.total_credits} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'total_credits' }} label="el total de abonos" />
+          <Val field={s.total_credits} format={(v) => money(v)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'total_credits' }} label="el total de abonos" />
         </Row>
         <Row label="Número de abonos">
           <Val field={s.credits_count} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'credits_count' }} label="el número de abonos" />
         </Row>
         <Row label="Cargos">
-          <Val field={s.total_debits} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'total_debits' }} label="el total de cargos" />
+          <Val field={s.total_debits} format={(v) => money(v)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'total_debits' }} label="el total de cargos" />
         </Row>
         <Row label="Número de cargos">
           <Val field={s.debits_count} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'debits_count' }} label="el número de cargos" />
         </Row>
         <Row label="Saldo final">
-          <Val field={s.closing_balance} format={(v) => money(v, true)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'closing_balance' }} label="el saldo final" />
+          <Val field={s.closing_balance} format={(v) => money(v)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'closing_balance' }} label="el saldo final" />
         </Row>
         <Row label="Saldo promedio">
-          <Val field={s.average_balance} format={(v) => money(v, true)} className="tnum" />
+          <Val field={s.average_balance} format={(v) => money(v)} className="tnum" />
         </Row>
         <Row label="Comisiones">
-          <Val field={s.fees_charged} format={(v) => money(v, true)} className="tnum" />
+          <Val field={s.fees_charged} format={(v) => money(v)} className="tnum" />
         </Row>
         <Row label="Intereses">
-          <Val field={s.interest_earned} format={(v) => money(v, true)} className="tnum" />
+          <Val field={s.interest_earned} format={(v) => money(v)} className="tnum" />
         </Row>
         <Row label="ISR retenido">
-          <Val field={s.tax_withheld} format={(v) => money(v, true)} className="tnum" />
+          <Val field={s.tax_withheld} format={(v) => money(v)} className="tnum" />
         </Row>
       </dl>
       <Reconciliation p={p} />
@@ -246,9 +246,9 @@ function Reconciliation({ p }: { p: Period }) {
       </div>
       {g ? (
         <p className="tnum mt-3 text-[13px] leading-relaxed text-ink-2">
-          {money(g.opening_balance, true)} + {money(g.credits, true)} − {money(g.debits, true)} = <strong>{money(g.expected_closing, true)}</strong>
-          <span className="text-muted"> · impreso {money(g.printed_closing, true)}</span>
-          {!g.ok ? <span className="ml-1 font-medium text-coral-ink">(diferencia {money(g.difference, true)})</span> : null}
+          {money(g.opening_balance)} + {money(g.credits)} − {money(g.debits)} = <strong>{money(g.expected_closing)}</strong>
+          <span className="text-muted"> · impreso {money(g.printed_closing)}</span>
+          {!g.ok ? <span className="ml-1 font-medium text-coral-ink">(diferencia {money(g.difference)})</span> : null}
         </p>
       ) : (
         <p className="mt-2 text-[13px] text-muted">Falta saldo inicial o final impreso para cuadrar.</p>
@@ -313,14 +313,14 @@ function Transactions({ txs, bad }: { txs: FlatTx[]; bad: number }) {
                   <span className="min-w-0 truncate text-[13.5px] font-medium">{tx.description}</span>
                   <span className={clsx('tnum text-[13.5px] font-medium', tx.type === 'credit' && tx.verification === 'verified' && 'text-lime-ink')}>
                     {tx.type === 'credit' ? '+' : '−'}
-                    {money(tx.amount, true)}
+                    {money(tx.amount)}
                   </span>
                   <span className="truncate text-[12px] text-muted">
                     {date(tx.date)} · p. {tx.source.page}
                     {tx.classification ? ` · ${CATEGORY_LABEL[tx.classification.category] ?? tx.classification.category}` : ''}
                     {tx.verification !== 'verified' ? ` · ${tx.verification === 'conflict' ? 'en conflicto' : 'sin verificar'}` : ''}
                   </span>
-                  <span className="tnum text-right text-[12px] text-muted">{tx.balance === null ? '' : `saldo ${money(tx.balance, true)}`}</span>
+                  <span className="tnum text-right text-[12px] text-muted">{tx.balance === null ? '' : `saldo ${money(tx.balance)}`}</span>
                 </button>
                 {review.enabled ? (
                   <button
@@ -371,13 +371,13 @@ function Fiscal({ x }: { x: StatementExtraction }) {
               <Val field={f.receiver.tax_regime} />
             </Row>
             <Row label="Subtotal">
-              <Val field={f.subtotal} format={(v) => money(v, true)} className="tnum" />
+              <Val field={f.subtotal} format={(v) => money(v)} className="tnum" />
             </Row>
             <Row label="IVA">
-              <Val field={f.tax} format={(v) => money(v, true)} className="tnum" />
+              <Val field={f.tax} format={(v) => money(v)} className="tnum" />
             </Row>
             <Row label="Total">
-              <Val field={f.total} format={(v) => money(v, true)} className="tnum" />
+              <Val field={f.total} format={(v) => money(v)} className="tnum" />
             </Row>
           </dl>
           <p className="mt-2 flex flex-wrap gap-1.5 pb-1">

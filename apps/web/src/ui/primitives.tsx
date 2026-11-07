@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 import type { ApplicationStatus, DecisionStatus } from '@gow/contracts'
-import { APPLICATION_STATUS_LABEL, DECISION_LABEL } from '../lib/format'
+import { APPLICATION_STATUS_LABEL, DECISION_LABEL, moneyParts } from '../lib/format'
 import { Icon, type IconName } from './icons'
 
 export function Card({ className, rise, children, ...rest }: HTMLAttributes<HTMLElement> & { rise?: number }) {
@@ -201,5 +201,16 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
         </div>
       ) : null}
     </dialog>
+  )
+}
+
+/** Cifra grande en pesos con centavos y "MXN" más chico al lado. */
+export function BigMoney({ value, className }: { value: number | null | undefined; className?: string }) {
+  const m = moneyParts(value)
+  return (
+    <p className={clsx('display tnum', className)}>
+      {m.amount}
+      {m.currency ? <span className="ml-2 align-baseline text-[0.38em] font-medium tracking-normal text-ink-2/70">{m.currency}</span> : null}
+    </p>
   )
 }

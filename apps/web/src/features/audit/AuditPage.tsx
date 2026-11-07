@@ -23,6 +23,7 @@ const ACTION: Record<string, string> = {
   'user.removed': 'Quitó a un usuario',
   'api_key.created': 'Creó una llave de API',
   'api_key.revoked': 'Revocó una llave de API',
+  'settings.updated': 'Cambió la antigüedad máxima del estado de cuenta',
   'correction.recorded': 'Corrigió valores de una extracción',
   'application.discarded': 'Descartó un documento',
   'contact.created': 'Agregó un contacto',
