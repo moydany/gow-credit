@@ -195,7 +195,8 @@ describe('fiscalStatementCount (los CFDI de ingreso como segunda regla)', () => 
 })
 
 describe('findDuplicatePages', () => {
-  const body = 'BANCO FICTICIO 05/03 SPEI RECIBIDO CLIENTE UNO 5,000.00 15,000.00'
+  // Una página con movimientos: con pocas letras o menos de tres montos, repetirla no duplica nada y no cuenta.
+  const body = ['BANCO FICTICIO ESTADO DE CUENTA MOVIMIENTOS DEL PERIODO', '05/03 SPEI RECIBIDO CLIENTE UNO 5,000.00 15,000.00', '12/03 PAGO PROVEEDOR DOS 1,250.50 13,749.50', '20/03 SPEI RECIBIDO CLIENTE TRES 2,000.00 15,749.50'].join('\n')
 
   it('la misma huella de operadores es una página repetida; la original es la primera', () => {
     expect(findDuplicatePages(['aa', 'bb', 'aa', 'aa'], [], numbering([null, null, null, null]))).toEqual([
@@ -211,8 +212,11 @@ describe('findDuplicatePages', () => {
     expect(findDuplicatePages(['x', 'y', 'z'], texts, numbering([2, 3, 4]))).toEqual([])
   })
 
-  it('páginas casi vacías o sin huella no se comparan', () => {
+  it('páginas casi vacías, sin montos o sin huella no se comparan', () => {
     expect(findDuplicatePages([null, null], ['Hoja 1', 'Hoja 1'], numbering([null, null]))).toEqual([])
+    // Hojas finales iguales de publicidad (Banamex trae cinco): la misma huella y el mismo texto, pero sin montos.
+    const ad = 'BANCO FICTICIO te invita a conocer sus promociones vigentes en sucursales y en la aplicación del banco durante este mes'
+    expect(findDuplicatePages(['aa', 'aa'], [ad, ad], numbering([null, null]))).toEqual([])
     expect(findDuplicatePages([null, null, null], [body, body, ''], numbering([1, 1, null])).map((d) => d.page)).toEqual([2])
   })
 })
@@ -314,9 +318,10 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
   it('la numeración que reinicia es un segundo estado de cuenta', async () => {
     const pages = [...statementPages(3), ...statementPages(3)]
     const pdf = await loadPdf(write(syntheticStatementPages(pages)))
-    // Las páginas del segundo son idénticas a las del primero: se leen como repetidas (ADR 0057), así que
-    // el segundo estado es distinto en el encabezado para esta prueba.
-    expect(pdf.duplicatePages).toEqual([4, 5, 6])
+    // Las páginas del segundo son idénticas a las del primero: las que traen movimientos se leen como
+    // repetidas (ADR 0057; la última, solo con el cierre, no tiene montos que duplicar), así que el segundo
+    // estado es distinto en el encabezado para esta prueba.
+    expect(pdf.duplicatePages).toEqual([4, 5])
     const other = statementPages(3).map((lines, i) => (i === 0 ? lines.map((l) => l.replace('01/03/2026', '01/04/2026').replace('31/03/2026', '30/04/2026')) : lines.map((l) => l.replace('05/03', '05/04').replace('12/03', '12/04').replace('31/03', '30/04'))))
     const two = await loadPdf(write(syntheticStatementPages([...statementPages(3), ...other])))
     expect(two.duplicatePages).toEqual([])

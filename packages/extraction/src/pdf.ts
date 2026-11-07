@@ -399,7 +399,7 @@ function runTotal(run: readonly PageNumbering[]): number | null {
  * consecutivas y, con total conocido, al final. Una página sin número impreso entre dos numeradas
  * ocupa un lugar: no se reporta como faltante algo que el PDF sí trae.
  */
-function missingInRun(run: readonly PageNumbering[], total: number | null): number[] {
+function missingInRun(run: readonly PageNumbering[], total: number | null, pagesAfterLast: number): number[] {
   const detected = run.flatMap((p, idx) => (p.printed === null ? [] : [{ idx, printed: p.printed }]))
   const first = detected[0]
   const last = detected.at(-1)
@@ -417,10 +417,11 @@ function missingInRun(run: readonly PageNumbering[], total: number | null): numb
     const actual = b.idx - a.idx - 1
     if (expected > actual) push(a.printed + actual + 1, b.printed - 1)
   })
+  // Al final cuentan las hojas físicas que siguen a la última numerada, repetidas incluidas: Banamex cierra
+  // con siete hojas sin número (publicidad, cinco iguales) y no le falta ninguna.
   if (total !== null && last.printed <= total) {
     const expected = total - last.printed
-    const actual = run.length - 1 - last.idx
-    if (expected > actual) push(last.printed + actual + 1, total)
+    if (expected > pagesAfterLast) push(last.printed + pagesAfterLast + 1, total)
   }
   return missing
 }
@@ -441,11 +442,16 @@ export function missingPrintedPages(pagination: readonly PageNumbering[], scope:
   const runs = splitRuns(realPages(pagination, scope), scope.pageTexts)
   const missing = new Set<number>()
   let total: number | null = null
-  for (const run of runs) {
+  runs.forEach((run, ri) => {
     const printedTotal = runTotal(run)
     total ??= printedTotal
-    for (const n of missingInRun(run, printedTotal)) missing.add(n)
-  }
+    // Hojas físicas sin número impreso después de la última numerada (repetidas incluidas): ocupan un lugar.
+    // Una repetida que sí trae número es otra copia de una página que ya está, no la que falta.
+    const lastNumbered = [...run].reverse().find((p) => p.printed !== null)
+    const nextStart = runs[ri + 1]?.[0]?.page ?? pagination.length + 1
+    const pagesAfterLast = lastNumbered === undefined ? 0 : pagination.filter((p) => p.page > lastNumbered.page && p.page < nextStart && p.printed === null).length
+    for (const n of missingInRun(run, printedTotal, pagesAfterLast)) missing.add(n)
+  })
   return { missing: [...missing].sort((a, b) => a - b), total }
 }
 
@@ -611,7 +617,21 @@ export async function pageFingerprints(doc: PdfDocument, maxPages = MAX_FINGERPR
 }
 
 /** Con menos letras y dígitos que esto, dos páginas de texto igual no prueban nada (una hoja casi en blanco). */
-const MIN_DUPLICATE_TEXT_CHARS = 20
+const MIN_DUPLICATE_TEXT_CHARS = 100
+/** Montos impresos que debe tener una página para que repetirla pueda duplicar movimientos. */
+const MIN_DUPLICATE_AMOUNTS = 3
+const PRINTED_AMOUNT = /\d{1,3}(?:,\d{3})*\.\d{2}\b/g
+
+/**
+ * ¿La página tiene con qué duplicar movimientos? Con texto, hacen falta letras y montos: las hojas finales
+ * de publicidad o avisos legales se repiten en los PDFs reales (Banamex trae cinco iguales) y no alteran
+ * nada. Sin texto (escaneado) no se puede saber y la huella decide sola.
+ */
+function duplicateMatters(text: string): boolean {
+  const compact = text.replace(/[^a-z0-9]/g, '')
+  if (compact.length === 0) return true
+  return compact.length >= MIN_DUPLICATE_TEXT_CHARS && (text.match(PRINTED_AMOUNT)?.length ?? 0) >= MIN_DUPLICATE_AMOUNTS
+}
 
 /**
  * Páginas que repiten una anterior: la misma huella de operadores o, con capa de texto, el mismo texto
@@ -624,8 +644,9 @@ export function findDuplicatePages(fingerprints: readonly (string | null)[], pag
   const pages = Math.max(fingerprints.length, pageTexts.length)
   for (let i = 0; i < pages; i++) {
     const page = i + 1
-    const print = fingerprints[i] ?? null
     const text = normalizeText(pageTexts[i] ?? '')
+    if (!duplicateMatters(text)) continue
+    const print = fingerprints[i] ?? null
     const textKey = text.replace(/[^a-z0-9]/g, '').length >= MIN_DUPLICATE_TEXT_CHARS ? `${String(pagination[i]?.printed ?? null)}|${text}` : null
     const original = (print === null ? undefined : byPrint.get(print)) ?? (textKey === null ? undefined : byText.get(textKey))
     if (original !== undefined) {
