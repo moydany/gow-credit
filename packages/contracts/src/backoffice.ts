@@ -184,6 +184,26 @@ export const SupplierDeleted = z.strictObject({
 })
 export type SupplierDeleted = z.infer<typeof SupplierDeleted>
 
+/** A statement uploaded from the supplier's page: the request opened with it, already enqueued. */
+export const SupplierStatementUploaded = z.strictObject({ id: z.uuid(), status: z.literal('received') })
+export type SupplierStatementUploaded = z.infer<typeof SupplierStatementUploaded>
+
+/**
+ * Progress of a request opened from the supplier's page, polled while it runs. No RFC, CLABE or
+ * movements, so polling it does not write to the audit log like opening the request does.
+ */
+export const SupplierStatementStatus = z.strictObject({
+  id: z.uuid(),
+  status: ApplicationStatus,
+  requested: Money.nullable().describe('Monto pedido; null si se decidió con la línea máxima'),
+  decision: z.strictObject({ status: DecisionStatus, limit: Money.nullable(), score: z.number().nullable(), explanation: z.string().nullable() }).nullable(),
+  failure: z.string().nullable().describe('Por qué falló, en palabras para el analista'),
+  open_clarification: z.boolean(),
+  created_at: z.string(),
+  updated_at: z.string(),
+})
+export type SupplierStatementStatus = z.infer<typeof SupplierStatementStatus>
+
 // ---------- Settings: users, API keys and channels
 
 export const TenantUserItem = z.strictObject({ id: z.uuid(), email: z.string(), created_at: z.string(), invited_by: z.string().nullable().describe('Correo de quien lo invitó, si sigue en el tenant'), is_me: z.boolean() })

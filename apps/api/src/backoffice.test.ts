@@ -288,6 +288,55 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(JSON.stringify(log.rows)).not.toMatch(/GOMA|0021800/)
   })
 
+  it('subir el estado de cuenta desde el proveedor abre la solicitud con el monto, la encola y su avance se lee sin bitácora', async () => {
+    const a = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const sup = (await call('POST', '/suppliers', { bearer: a, body: { legal_name: 'Proveedor Con PDF' } })).json.id as string
+    const other = (await call('POST', '/suppliers', { bearer: a, body: { legal_name: 'Otro Proveedor' } })).json.id as string
+    const pdf = Buffer.from('%PDF-1.7\n% estado de cuenta desde el backoffice\n%%EOF\n')
+    // Bearer, not a cookie: the anti-CSRF header is covered by its own test and logins are rate limited.
+    const upload = (supplier: string, bytes: Buffer, query = '', type = 'application/pdf') =>
+      fetch(`${base}/bo/v1/suppliers/${supplier}/statements${query}`, { method: 'POST', headers: { 'content-type': type, authorization: `Bearer ${a}` }, body: bytes }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
+
+    // Not a PDF, a bad amount or an unknown supplier: nothing is opened.
+    expect((await upload(sup, Buffer.from('\x89PNG\r\n'))).status).toBe(415)
+    expect((await upload(sup, Buffer.from('{}'), '', 'application/json')).status).toBe(415)
+    expect((await upload(sup, pdf, '?amount=-5')).status).toBe(400)
+    expect((await upload(randomUUID(), pdf)).status).toBe(404)
+
+    const r = await upload(sup, pdf, '?amount=150000')
+    expect(r.status).toBe(201)
+    const appId = r.json.id as string
+    expect(r.json).toEqual({ id: appId, status: 'received' })
+    const row = await admin.query<{ supplier_id: string; request: unknown; status: string }>('SELECT supplier_id::text, request, status FROM app.applications WHERE id = $1', [appId])
+    expect(row.rows).toEqual([{ supplier_id: sup, request: { amount: 150000, maturity: null, buyer: null }, status: 'received' }])
+    const jobs = await admin.query<{ data: { application_id: string } }>('SELECT data FROM pgboss.job WHERE name = $1', [QUEUES.process])
+    expect(jobs.rows.map((j) => j.data.application_id)).toContain(appId)
+    const received = await admin.query<{ details: Record<string, unknown> }>("SELECT details FROM app.audit_log WHERE subject = $1 AND action = 'application.received'", [appId])
+    expect(received.rows[0]?.details).toMatchObject({ source: 'backoffice', amount_given: true, document_reused: false })
+
+    // While it runs, the same PDF is refused (one processing job per document) and another supplier never gets it.
+    expect((await upload(sup, pdf)).status).toBe(409)
+    expect((await upload(other, pdf)).status).toBe(409)
+
+    // Progress: polling it does not write to the audit log.
+    const before = (await admin.query('SELECT 1 FROM app.audit_log WHERE tenant_id = $1', [tenantA])).rowCount
+    const st = await call('GET', `/suppliers/${sup}/statements/${appId}`, { bearer: a })
+    expect(st.status).toBe(200)
+    expect(st.json).toMatchObject({ id: appId, status: 'received', requested: 150000, decision: null, failure: null, open_clarification: false })
+    expect((await admin.query('SELECT 1 FROM app.audit_log WHERE tenant_id = $1', [tenantA])).rowCount).toBe(before)
+    expect((await call('GET', `/suppliers/${other}/statements/${appId}`, { bearer: a })).status).toBe(404)
+
+    // Once it ended, the same PDF can be evaluated again for the same supplier, without an amount (maximum line).
+    await admin.query("UPDATE app.applications SET status = 'failed', failure_reason = 'el workflow terminó sin veredicto' WHERE id = $1", [appId])
+    expect((await call('GET', `/suppliers/${sup}/statements/${appId}`, { bearer: a })).json).toMatchObject({ status: 'failed', failure: expect.stringMatching(/./) as unknown })
+    const again = await upload(sup, pdf)
+    expect(again.status).toBe(201)
+    const second = await admin.query<{ request: unknown }>('SELECT request FROM app.applications WHERE id = $1', [again.json.id])
+    expect(second.rows[0]?.request).toBeNull()
+    const docs = await admin.query('SELECT DISTINCT ad.document_id FROM app.application_documents ad WHERE ad.application_id = ANY($1::uuid[])', [[appId, again.json.id]])
+    expect(docs.rowCount).toBe(1)
+  })
+
   it('borrar un proveedor se lleva todo lo suyo, deja lo de otros, no deja con una solicitud en proceso y encola la limpieza', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const count = async (sql: string, v: unknown[]) => ((await q(sql, v)).rows[0] as { n: number }).n

@@ -19,6 +19,7 @@ import { llmRouter } from './bo/llm.ts'
 import { promptsRouter } from './bo/prompts.ts'
 import { settingsRouter } from './bo/settings.ts'
 import { actorOf, backofficeBase, ENTER_PATH, iso, PENDING_SUPPLIER_NAME, SESSION_SECONDS, SUPPLIER_NOT_FOUND, type BackofficeDeps, type Who, who, whatsappSession } from './bo/shared.ts'
+import { statementsRouter } from './bo/statements.ts'
 import { suppliersRouter } from './bo/suppliers.ts'
 import { teamRouter } from './bo/team.ts'
 import { timelineRouter } from './bo/timeline.ts'
@@ -530,6 +531,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   })
 
   r.use(suppliersRouter(deps))
+  r.use(statementsRouter(deps))
   r.use(settingsRouter(deps))
   r.use(teamRouter(deps))
   r.use(llmRouter(deps))
