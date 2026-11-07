@@ -24,8 +24,19 @@ function featureValue<T extends z.ZodType>(schema: T) {
 type FeatureValueSchema<T extends z.ZodType> = z.ZodObject<{ value: z.ZodNullable<T> } & typeof featureMeta, z.core.$strict>
 type FeatureShape = { [K in keyof FeatureCatalog]: FeatureValueSchema<FeatureCatalog[K]['schema']> }
 
+/** Versiones del catálogo que este contrato lee: la vigente y las anteriores cuyos perfiles siguen guardados. */
+export const READABLE_CATALOG_VERSIONS = ['1.1.0', FEATURE_CATALOG_VERSION] as const
+/** Features que no existían en el catálogo 1.1.0: en un perfil guardado con esa versión entran como desconocidas. */
+const ADDED_IN_1_2_0: ReadonlySet<string> = new Set(['document_pages_missing', 'document_tamper_signals'])
+const notInOlderCatalog = () => ({ value: null, confidence: 0, verification: 'unverified' as const, provenance: 'extracted' as const, evidence: [] as string[], note: 'perfil calculado con un catálogo anterior: la feature no existía' })
+
 // Object.fromEntries pierde las llaves; el tipo se restituye desde el catálogo.
-const shape = Object.fromEntries(Object.entries(FEATURE_CATALOG).map(([name, def]) => [name, featureValue(def.schema)])) as unknown as FeatureShape
+const shape = Object.fromEntries(
+  Object.entries(FEATURE_CATALOG).map(([name, def]) => {
+    const entry = featureValue(def.schema)
+    return [name, ADDED_IN_1_2_0.has(name) ? entry.default(notInOlderCatalog) : entry]
+  }),
+) as unknown as FeatureShape
 
 export const ProfileFeatures = z.strictObject(shape).meta({ id: 'ProfileFeatures' })
 export type ProfileFeatures = z.infer<typeof ProfileFeatures>
@@ -49,7 +60,7 @@ export type ProfileParameters = z.infer<typeof ProfileParameters>
 
 export const Profile = z
   .strictObject({
-    catalog_version: z.literal(FEATURE_CATALOG_VERSION),
+    catalog_version: z.enum(READABLE_CATALOG_VERSIONS).describe('Versión del catálogo con la que se calculó; las features que no existían entonces quedan desconocidas'),
     computed_at: IsoDateTime,
     inputs: z.strictObject({
       document_sha256: z.array(Sha256),

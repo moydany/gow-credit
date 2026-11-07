@@ -979,7 +979,11 @@
       "properties": {
         "catalog_version": {
           "type": "string",
-          "const": "1.2.0"
+          "enum": [
+            "1.1.0",
+            "1.2.0"
+          ],
+          "description": "Versión del catálogo con la que se calculó; las features que no existían entonces quedan desconocidas"
         },
         "computed_at": {
           "type": "string",
@@ -3623,6 +3627,14 @@
           "additionalProperties": false
         },
         "document_pages_missing": {
+          "default": {
+            "value": null,
+            "confidence": 0,
+            "verification": "unverified",
+            "provenance": "extracted",
+            "evidence": [],
+            "note": "perfil calculado con un catálogo anterior: la feature no existía"
+          },
           "type": "object",
           "properties": {
             "value": {
@@ -3680,6 +3692,14 @@
           "additionalProperties": false
         },
         "document_tamper_signals": {
+          "default": {
+            "value": null,
+            "confidence": 0,
+            "verification": "unverified",
+            "provenance": "extracted",
+            "evidence": [],
+            "note": "perfil calculado con un catálogo anterior: la feature no existía"
+          },
           "type": "object",
           "properties": {
             "value": {
@@ -3789,9 +3809,7 @@
         "statement_seen_elsewhere_days",
         "sat_list_status",
         "income_from_listed_rfc_share",
-        "regime_income_plausible",
-        "document_pages_missing",
-        "document_tamper_signals"
+        "regime_income_plausible"
       ],
       "additionalProperties": false
     },
