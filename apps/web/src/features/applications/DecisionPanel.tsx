@@ -197,20 +197,36 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   )
 }
 
+/**
+ * Lo que se aprueba contra lo que se pidió (ADR 0053): si el monto solicitado cabe en la línea se
+ * aprueba el monto y la línea es lo disponible; si no cabe se aprueba la línea; sin monto es la línea
+ * máxima. Una decisión evaluada con la línea máxima se tomó sin el monto (por ejemplo, mientras llega
+ * la reevaluación con el monto que acaba de dar el proveedor), así que cuenta como sin monto. La
+ * tolerancia de centavos es la del aviso por WhatsApp.
+ */
+function approvalOf(d: Decision, requested: number | null | undefined): { label: string; value: number; note: string | null } | null {
+  if (d.limit === null) return null
+  const amount = d.reasons.some((r) => r.code === 'evaluated_at_max_line') ? null : (requested ?? null)
+  if (amount === null) return { label: 'Línea máxima', value: d.limit, note: null }
+  if (amount <= d.limit + 0.005) return { label: 'Monto aprobado', value: amount, note: `Línea disponible hasta ${money(d.limit)}` }
+  return { label: 'Línea aprobada', value: d.limit, note: `de ${money(amount)} solicitados; el resto no cabe` }
+}
+
 function Verdict({ detail, d }: { detail: ApplicationDetail; d: Decision }) {
   const final = d.status === 'qualified' || d.status === 'qualified_with_limit' || d.status === 'not_qualified'
   const shadow = detail.shadow
+  const approval = approvalOf(d, detail.request?.amount)
   return (
     <div className={clsx('mt-4 rounded-[26px] p-5', d.status === 'qualified' || d.status === 'qualified_with_limit' ? 'bg-lime-soft' : d.status === 'not_qualified' ? 'bg-coral-soft' : d.status === 'human_review' ? 'bg-amber-soft' : 'bg-indigo-soft')}>
       <div className="flex items-center justify-between gap-3">
         <StatusChip status={d.status} decision />
         <span className="text-[12px] text-ink-2/80">Política v{detail.decision?.policy_version ?? d.policy.version}</span>
       </div>
-      {d.limit !== null ? (
+      {approval ? (
         <>
-          <p className="mt-5 text-[12.5px] text-ink-2/80">Línea aprobada</p>
-          <BigMoney value={d.limit} className="mt-1 text-[46px]" />
-          {detail.request?.amount ? <p className="mt-2 text-[13px] text-ink-2">de {money(detail.request.amount)} solicitados</p> : null}
+          <p className="mt-5 text-[12.5px] text-ink-2/80">{approval.label}</p>
+          <BigMoney value={approval.value} className="mt-1 text-[46px]" />
+          {approval.note ? <p className="mt-2 text-[13px] text-ink-2">{approval.note}</p> : null}
         </>
       ) : (
         <p className="display mt-5 text-[26px] leading-tight">{final ? 'No hay línea para esta solicitud' : d.status === 'human_review' ? 'Un analista tiene que revisar' : 'Falta información del proveedor'}</p>
