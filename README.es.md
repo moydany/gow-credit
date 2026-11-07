@@ -364,12 +364,97 @@ ingreso con dinero propio es el truco más común en un estado de cuenta. Un dat
 | 50 a 69 | `qualified_with_limit` | 25 % del ingreso operativo mensual |
 | Menos de 50 | `not_qualified` | — |
 
-- **Topes.** Con menos de 3 meses de historia, o sin ningún pago del comprador, el mejor estado
-  posible es `qualified_with_limit`. Una historia corta no alcanza para la línea completa.
+- **Tope.** Sin ningún pago del comprador, el mejor estado posible es `qualified_with_limit`. Los meses
+  de historia ya no topan: la política dice cuántos se evalúan (ver abajo).
 - **Línea final** = la menor entre la línea de la banda, la capacidad de deuda menos lo que el
   proveedor ya debe a este prestamista, y lo que queda del programa del comprador.
 - **Aclaraciones.** Hasta 2 rondas. Solo se pregunta por abonos dudosos mayores al 30 % del ingreso
   del periodo que puedan cambiar el estado o la línea.
+
+### 4. Uno o tres meses: lo elige la política
+
+Cada prestamista decide en su política cuántos meses de estados de cuenta se evalúan, con un solo campo:
+`"history": { "months": 1 }` o `"history": { "months": 3 }` ([ADR 0072](docs/adr/0072-evaluated-months-one-or-three.md)).
+
+| | Un mes (por omisión) | Tres meses seguidos |
+|---|---|---|
+| Qué se evalúa | El mes más reciente. Si llegan más, los anteriores quedan fuera del cálculo | Los tres meses más recientes. Si llegan más, se toman esos tres |
+| Si llega menos | No aplica | Pide los meses que faltan (`additional_months`) en vez de decidir |
+| Meses seguidos | No aplica | Obligatorio: un hueco (julio y septiembre sin agosto) cuenta como si faltara |
+| Cómo pueden llegar | Un PDF | Tres PDF, un PDF con un periodo de tres meses (Mercado Pago) o un PDF con tres estados de cuenta pegados |
+| Por WhatsApp | Un PDF abre la solicitud y se analiza al momento | Se piden los tres PDF **juntos, en un solo envío**. WhatsApp los entrega como mensajes separados: el primero abre la solicitud y el análisis espera 60 s; los que llegan en esa ventana se suman a la misma solicitud |
+
+Las políticas vienen en pares que solo difieren en ese campo:
+
+| Modo | Un mes | Tres meses |
+|---|---|---|
+| Standalone (`pnpm run evaluate`) | [`policies/examples/standalone-evaluation.v1.json`](policies/examples/standalone-evaluation.v1.json) (por omisión) | [`policies/examples/standalone-tres-meses.v1.json`](policies/examples/standalone-tres-meses.v1.json) |
+| Full (backoffice) | [`policies/gow-base.v1.json`](policies/gow-base.v1.json) (la que se clona al crear el prestamista) | [`policies/examples/gow-base-tres-meses.v1.json`](policies/examples/gow-base-tres-meses.v1.json) |
+
+Lo que revisa el documento completo no se recorta al mes evaluado: las señales de manipulación, las
+páginas faltantes y el cotejo de comisiones contra el CFDI miran todos los PDF y todos sus movimientos.
+
+<details>
+<summary><b>Cómo probar los dos modos</b></summary>
+
+<br/>
+
+**Sin gastar (pruebas y escenarios):**
+
+```bash
+pnpm vitest run packages/decision/src/policies.test.ts packages/decision/src/engine/evaluate.test.ts
+```
+
+```bash
+pnpm scenario run proveedor-nuevo-un-mes proveedor-tres-meses tres-meses-falta-uno
+```
+
+El primer escenario es un mes con la política de un mes (`qualified`); el segundo, tres meses con la de
+tres (`qualified`, tendencia de ingresos incluida); el tercero, dos meses con la de tres
+(`needs_clarification`, pide los que faltan).
+
+**Standalone con PDFs.** Cada PDF suelto es una solicitud; una **subcarpeta** es una solicitud con todos
+sus PDF, como si llegaran juntos:
+
+```text
+mis-estados/
+├── un-mes.pdf              → solicitud "un-mes"
+├── mercado-pago-3-meses.pdf → solicitud "mercado-pago-3-meses" (un PDF, tres meses)
+└── proveedor-a/            → solicitud "proveedor-a" con sus tres PDF
+    ├── 2026-08.pdf
+    ├── 2026-09.pdf
+    └── 2026-10.pdf
+```
+
+Con un mes (por omisión):
+
+```bash
+pnpm run evaluate mis-estados
+```
+
+Con tres meses:
+
+```bash
+pnpm run evaluate mis-estados --policy policies/examples/standalone-tres-meses.v1.json --out data/out/tres-meses
+```
+
+En `data/out/.../<id>.md`, la sección del perfil muestra `months_of_history` y la nota de qué periodos
+entraron o se recortaron. Con la política de tres meses, `un-mes` queda en `needs_clarification` con la
+pregunta de los meses que faltan; se contesta con `--answers` poniendo las rutas de los PDF en `paths`.
+
+**Full (backoffice y WhatsApp).** En **Configuración → Políticas**, copia el JSON de
+`policies/examples/gow-base-tres-meses.v1.json` (o cambia `"history": { "months": 1 }` a `3` en la
+versión activa), guárdalo como borrador, simúlalo y actívalo. Para volver, activa otra vez la versión de
+un mes. Luego, desde el teléfono del proveedor:
+
+1. Manda un solo PDF: el bot contesta que lo recibió y, al minuto, pide los meses que faltan, seguidos y
+   juntos.
+2. Selecciona los otros dos PDF y mándalos en un solo envío: el primero contesta la pregunta, el segundo
+   responde "lo reviso junto con los que ya mandaste" y un minuto después llega el resultado con los tres
+   meses.
+3. O desde el inicio, manda los tres PDF juntos: es una sola solicitud.
+
+</details>
 
 ## Qué se puede configurar
 
@@ -378,6 +463,7 @@ ingreso con dinero propio es el truco más común en un estado de cuenta. Un dat
 | Backoffice → Configuración → General | Antigüedad máxima del estado de cuenta | 1, 2, 3 (por defecto), 6 o 12 meses, o sin límite. Fuera del límite la solicitud lleva una alerta, no se bloquea |
 | Backoffice → Configuración → General | Número de WhatsApp | Vincular, desvincular o cambiar escaneando un QR |
 | Backoffice → Configuración → General | Usuarios | Invitar o quitar personas; todas ven y operan las solicitudes del prestamista |
+| Backoffice → Configuración → Políticas | Meses que se evalúan | `"history": { "months": 1 }` (por omisión) o `3`, seguidos. Ver [Uno o tres meses](#4-uno-o-tres-meses-lo-elige-la-política) |
 | Backoffice → Configuración → Políticas | **La política completa** | Un borrador JSON validado con el mismo esquema del motor. Antes de activarlo, se **simula** contra solicitudes reales: cuántas mejoran, empeoran o cambian de línea, y la mora observada. Cada versión queda guardada |
 | Backoffice → Configuración → Prompts | Los prompts de los modelos | Editar crea una versión nueva y activarla es otro paso; las versiones se pueden comparar. Son los mismos para todos los prestamistas |
 | `.env` | Llaves de modelos y correo | Ver [Qué necesitas](#qué-necesitas) |
@@ -398,6 +484,7 @@ La plantilla base está en [`policies/gow-base.v1.json`](policies/gow-base.v1.js
 
 | Campo | Define |
 |---|---|
+| `history.months` | Meses que se evalúan: 1 (el más reciente) o 3 (los tres más recientes, seguidos) |
 | `gates[]` | Compuertas: `feature`, operador, valor, qué pasa si falla (`onFail`) y si el dato falta (`onUnknown`) |
 | `score.dimensions[]` | Dimensiones con `weight`, `zeroAt`, `fullAt`, `relativeTo` e `inverse` |
 | `score.minConfidence` | Confianza mínima para que un dato cuente |

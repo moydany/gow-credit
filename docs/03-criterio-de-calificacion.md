@@ -383,3 +383,18 @@ sigue calculando y se informa, pero no cambia el estado ni se pregunta al provee
 - **Catálogo 1.3.0.** `holder_address_present` (bool): algún estado de cuenta trae el domicilio del
   titular. La plantilla base no la usa; una política que la exija pide `statement_with_address`, un PDF que
   traiga el domicilio. El domicilio queda en `suppliers.address`, nunca en el perfil.
+
+### Meses que se evalúan (2026-11-07, ADR 0072)
+
+- **§4, tope por historia.** Se quita de la plantilla base y de las políticas de ejemplo el tope "menos de 3
+  meses de historia → a lo más `qualified_with_limit`". En su lugar, la política dice cuántos meses se
+  evalúan: `"history": { "months": 1 }` (el más reciente, por omisión) o `3` (los tres más recientes,
+  seguidos). Con 3, el motor agrega la compuerta `history_months` (`months_of_history >= 3`; si falla o falta,
+  pide `additional_months`).
+- **§3, `months_of_history`.** Cuenta solo los meses seguidos hasta el corte más reciente: un hueco los corta.
+- **Perfil.** Las features de flujo se calculan solo con los meses evaluados; un periodo que empieza antes se
+  recorta y lo recortado mueve su saldo inicial. Las señales de manipulación, las páginas faltantes, el ancla
+  fiscal y los UUID del CFDI siguen mirando todos los documentos completos.
+- **Escenarios.** El 1 y el 3 esperan `qualified`; el 4 usa `examples/gow-base-tres-meses.v1.json`; el 11 y
+  el 22 esperan `months_of_history: 1`; el 7 pone RFC a los pagadores; nuevo el 29 (`tres-meses-falta-uno`):
+  con la política de tres meses y dos meses seguidos, pide los que faltan.

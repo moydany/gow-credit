@@ -364,12 +364,97 @@ confidence below 0.7 doesn't count toward the score.
 | 50 to 69 | `qualified_with_limit` | 25 % of monthly operating income |
 | Below 50 | `not_qualified` | — |
 
-- **Caps.** With under 3 months of history, or no payment at all from the buyer, the best possible
-  state is `qualified_with_limit`. A short history isn't enough for the full line.
+- **Cap.** With no payment at all from the buyer, the best possible state is `qualified_with_limit`.
+  Months of history no longer cap: the policy says how many are evaluated (see below).
 - **Final line** = the smallest of the band line, the debt capacity minus what the supplier already
   owes this lender, and what's left in the buyer's program.
 - **Clarifications.** Up to 2 rounds. The system only asks about doubtful deposits larger than 30 %
   of the period's income that could change the state or the line.
+
+### 4. One month or three: the policy decides
+
+Each lender decides in its policy how many months of bank statements are evaluated, with a single field:
+`"history": { "months": 1 }` or `"history": { "months": 3 }` ([ADR 0072](docs/adr/0072-evaluated-months-one-or-three.md)).
+
+| | One month (default) | Three consecutive months |
+|---|---|---|
+| What is evaluated | The most recent month. If more arrive, the earlier ones stay out of the numbers | The three most recent months. If more arrive, those three are taken |
+| If fewer arrive | Does not apply | Asks for the missing months (`additional_months`) instead of deciding |
+| Consecutive | Does not apply | Required: a gap (July and September without August) counts as missing |
+| How they can arrive | One PDF | Three PDFs, one PDF with a three-month period (Mercado Pago) or one PDF with three statements stitched together |
+| Over WhatsApp | One PDF opens the request and is analyzed right away | The three PDFs are asked for **together, in a single send**. WhatsApp delivers them as separate messages: the first opens the request and the analysis waits 60 s; the ones that arrive in that window join the same request |
+
+The policies come in pairs that differ only in that field:
+
+| Mode | One month | Three months |
+|---|---|---|
+| Standalone (`pnpm run evaluate`) | [`policies/examples/standalone-evaluation.v1.json`](policies/examples/standalone-evaluation.v1.json) (default) | [`policies/examples/standalone-tres-meses.v1.json`](policies/examples/standalone-tres-meses.v1.json) |
+| Full (backoffice) | [`policies/gow-base.v1.json`](policies/gow-base.v1.json) (cloned when the lender is created) | [`policies/examples/gow-base-tres-meses.v1.json`](policies/examples/gow-base-tres-meses.v1.json) |
+
+What checks the whole document is not cut to the evaluated month: tamper signals, missing pages and the
+fee check against the CFDI look at every PDF and all its movements.
+
+<details>
+<summary><b>How to test both modes</b></summary>
+
+<br/>
+
+**At no cost (tests and scenarios):**
+
+```bash
+pnpm vitest run packages/decision/src/policies.test.ts packages/decision/src/engine/evaluate.test.ts
+```
+
+```bash
+pnpm scenario run proveedor-nuevo-un-mes proveedor-tres-meses tres-meses-falta-uno
+```
+
+The first scenario is one month with the one-month policy (`qualified`); the second, three months with
+the three-month one (`qualified`, income trend included); the third, two months with the three-month one
+(`needs_clarification`, asks for the missing ones).
+
+**Standalone with PDFs.** Each loose PDF is a request; a **subfolder** is one request with all its PDFs,
+as if they arrived together:
+
+```text
+my-statements/
+├── one-month.pdf            → request "one-month"
+├── mercado-pago-3-months.pdf → request "mercado-pago-3-months" (one PDF, three months)
+└── supplier-a/              → request "supplier-a" with its three PDFs
+    ├── 2026-08.pdf
+    ├── 2026-09.pdf
+    └── 2026-10.pdf
+```
+
+With one month (default):
+
+```bash
+pnpm run evaluate my-statements
+```
+
+With three months:
+
+```bash
+pnpm run evaluate my-statements --policy policies/examples/standalone-tres-meses.v1.json --out data/out/three-months
+```
+
+In `data/out/.../<id>.md`, the profile section shows `months_of_history` and the note on which periods
+went in or were cut. With the three-month policy, `one-month` ends in `needs_clarification` with the
+missing-months question; answer it with `--answers`, putting the PDF paths in `paths`.
+
+**Full (backoffice and WhatsApp).** In **Configuración → Políticas**, paste the JSON of
+`policies/examples/gow-base-tres-meses.v1.json` (or change `"history": { "months": 1 }` to `3` in the
+active version), save it as a draft, simulate it and activate it. To go back, activate the one-month
+version again. Then, from the supplier's phone:
+
+1. Send a single PDF: the bot says it got it and, a minute later, asks for the missing months, consecutive
+   and together.
+2. Select the other two PDFs and send them at once: the first answers the question, the second gets "I'll
+   review it together with the ones you already sent", and a minute later the result arrives with the three
+   months.
+3. Or from the start, send the three PDFs together: it is a single request.
+
+</details>
 
 ## What you can configure
 
@@ -378,6 +463,7 @@ confidence below 0.7 doesn't count toward the score.
 | Backoffice → Configuración → General | Maximum statement age | 1, 2, 3 (default), 6 or 12 months, or no limit. Past the limit the request gets a warning, not a block |
 | Backoffice → Configuración → General | WhatsApp number | Link, unlink or switch by scanning a QR |
 | Backoffice → Configuración → General | Users | Invite or remove people; everyone sees and works the lender's requests |
+| Backoffice → Configuración → Políticas | Months evaluated | `"history": { "months": 1 }` (default) or `3`, consecutive. See [One month or three](#4-one-month-or-three-the-policy-decides) |
 | Backoffice → Configuración → Políticas | **The whole policy** | A JSON draft validated with the engine's own schema. Before activating it, you **simulate** it against real requests: how many improve, get worse or change line, and the observed default rate. Every version is kept |
 | Backoffice → Configuración → Prompts | The model prompts | Editing creates a new version and activating it is a separate step; versions can be compared. They're shared by all lenders |
 | `.env` | Model and email keys | See [What you need](#what-you-need) |
@@ -398,6 +484,7 @@ The base template is [`policies/gow-base.v1.json`](policies/gow-base.v1.json) an
 
 | Field | Defines |
 |---|---|
+| `history.months` | Months evaluated: 1 (the most recent) or 3 (the three most recent, consecutive) |
 | `gates[]` | Gates: `feature`, operator, value, what happens on failure (`onFail`) and when the value is missing (`onUnknown`) |
 | `score.dimensions[]` | Dimensions with `weight`, `zeroAt`, `fullAt`, `relativeTo` and `inverse` |
 | `score.minConfidence` | Minimum confidence for a value to count |
