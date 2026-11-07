@@ -1,7 +1,7 @@
 <!--
 prompt: interpret_whatsapp_reply
 version: 1
-changes: primera versión (ADR 0040)
+changes: primera versión
 model: claude-haiku-5-5
 used_by: apps/worker/src/interpret.ts (respuestas por WhatsApp que las reglas no leen)
 variables: field, question, options, today, message

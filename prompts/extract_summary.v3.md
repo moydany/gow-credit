@@ -1,7 +1,7 @@
 <!--
 prompt: extract_summary
 version: 3
-changes: lee el domicilio del titular (holder_address), ADR 0066
+changes: lee el domicilio del titular (holder_address)
 model: claude-opus-5-5
 used_by: packages/extraction, pasada 1
 variables: page_count

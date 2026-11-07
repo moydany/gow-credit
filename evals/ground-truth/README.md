@@ -1,11 +1,11 @@
 # Ground truth de los 9 documentos de desarrollo
 
 Los JSON del ground truth **no viven aquí**: contienen movimientos reales, así que se
-escriben en `data/ground-truth/<documento>.json`, que git ignora (ADR 0012). Aquí se
+escriben en `data/ground-truth/<documento>.json`, que git ignora. Aquí se
 versiona solo `manifest.json`, sin datos personales: hash del PDF y del ground truth,
 conteos, comprobaciones aritméticas y si el documento entra al umbral de CI.
 
-## Cómo se construyó (ADR 0001)
+## Cómo se construyó
 
 Nada sale del modelo que se mide.
 
@@ -52,8 +52,8 @@ Reconstruir: `pnpm -F @gow/evals gt:build` (necesita `data/dev/` y `data/ground-
   PDFs: su valor correcto es `null`, y un valor del modelo ahí cuenta como invención.
 - Montos positivos con `type`; `balance` es el saldo impreso en la fila (BBVA: saldo de
   operación, solo al cierre del día; Nu: no imprime).
-- `internal_transfer` solo en Nu (cajitas y dinero de respaldo), como en la ADR 0009.
-- Mercado Pago: un periodo, como está impreso (ADR 0006). Santander y Banamex: la cuenta de
+- `internal_transfer` solo en Nu (cajitas y dinero de respaldo).
+- Mercado Pago: un periodo, como está impreso. Santander y Banamex: la cuenta de
   inversión sin movimientos también es una cuenta.
 - CFDI: sin sellos ni cadena original. Campos que el comprobante no imprime quedan en
   `null`; los de identidad del receptor se evalúan como "debe ser null", el resto no se

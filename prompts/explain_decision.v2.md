@@ -1,7 +1,7 @@
 <!--
 prompt: explain_decision
 version: 2
-changes: un nombre por dimensión, lo no evaluado por diseño aparte, sin contradicciones sobre el monto, tipo de titular y régimen (ADR 0045)
+changes: un nombre por dimensión, lo no evaluado por diseño aparte, sin contradicciones sobre el monto, tipo de titular y régimen
 model: claude-haiku-5-5
 used_by: packages/mastra writer.ts (paso explain): Writer.explanation
 variables: decision (JSON: hechos de la decisión, borrador y contexto)

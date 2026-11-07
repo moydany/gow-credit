@@ -1,7 +1,7 @@
 <!--
 prompt: explain_decision
 version: 1
-changes: primera versión (ADR 0045)
+changes: primera versión
 model: claude-haiku-5-5
 used_by: packages/mastra writer.ts (paso explain): Writer.explanation
 variables: decision (JSON: hechos de la decisión, borrador y contexto)

@@ -3,7 +3,7 @@ prompt: extract_system
 version: 1
 model: claude-opus-5-5
 used_by: packages/extraction (todas las llamadas de extracción sobre un documento)
-note: debe ser idéntico en todas las llamadas de un documento; es parte del prefijo cacheado (ADR 0005)
+note: debe ser idéntico en todas las llamadas de un documento; es parte del prefijo cacheado
 -->
 Transcribes estados de cuenta bancarios mexicanos a JSON. Lo que extraes se usa para
 calcular la capacidad de pago de una pequeña empresa, y después se verifica contra la
