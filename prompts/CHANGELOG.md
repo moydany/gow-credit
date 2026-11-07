@@ -5,6 +5,13 @@ usarse en una corrida de evals: un cambio crea `v<N+1>` y una entrada aquí con 
 por qué y qué métricas de `docs/04` 6 se midieron antes y después. El código referencia la
 versión exacta, y cada extracción guarda nombre y versión del prompt.
 
+Desde la ADR 0065 la versión que usa el código está en `PROMPT_CATALOG`
+(`packages/contracts/src/prompts.ts`), y cada `pnpm db:migrate` siembra estos archivos en la base.
+En modo full, la versión activa de cada prompt se elige en el backoffice (página Prompts), donde también
+se crean versiones nuevas. Esas versiones no pasan por aquí ni por las evals: quedan en la base marcadas
+"Sin evals". Para volver oficial una, se copia como `v<N+1>`, se sube la versión en el catálogo, se
+mide y se anota aquí. Este changelog, las evals y el modo standalone solo ven los archivos.
+
 ## Fase 8 (2026-11-06): explicación del resultado en prosa
 
 Prompt nuevo, sin versión anterior contra la cual medir. ADR 0045.

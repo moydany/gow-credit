@@ -188,7 +188,10 @@ precio de lista:
   extracción pase por el contrato, los validadores y el cuadre contra los saldos impresos. Una
   diferencia entre dos lecturas aparece como bandera o pregunta, nunca en silencio.
 - **Versiones fijadas**: modelos en `packages/llm/src/models.ts`, prompts versionados en
-  `prompts/` con su [changelog](prompts/CHANGELOG.md), y dependencias en `pnpm-lock.yaml`.
+  `prompts/` con su [changelog](prompts/CHANGELOG.md), y dependencias en `pnpm-lock.yaml`. En modo
+  full los prompts también viven en la base: la página Prompts del backoffice crea versiones y elige
+  la activa, sin evals hasta que pasan a `prompts/` (ADR 0065). `pnpm run evaluate` y las evals
+  leen siempre los archivos.
 
 ## Modo full
 
@@ -266,6 +269,11 @@ El primero imprime el enlace de acceso y el segundo carga `data/dev` por la API.
 WhatsApp, con `pnpm whatsapp` corriendo (sin variables: encuentra solo al tenant), se escanea el QR en
 Configuración → Canales; ahí mismo se desvincula o se cambia de número (ADR 0033). Sin WhatsApp
 vinculado, las aclaraciones se responden a mano desde el backoffice.
+
+La página Prompts muestra los prompts de los modelos con sus versiones (ADR 0065). Son globales: crear y
+activar versiones lo pueden los correos de `BACKOFFICE_PROMPT_EDITORS` (o `*`) y, sin esa variable,
+cualquier usuario mientras haya una sola institución crediticia. El worker toma la versión activa en
+unos 15 segundos.
 
 ### Modo full con Supabase local
 
@@ -429,7 +437,7 @@ El detalle por banco está en
 | `packages/db`, `packages/platform`, `packages/channels` | Modo full: Drizzle y RLS, pg-boss, correo y WhatsApp |
 | `apps/api`, `apps/worker`, `apps/whatsapp`, `apps/web` | Procesos del modo full y el backoffice |
 | `evals/`, `scenarios/` | Evals con Evalite y escenarios de `docs/06` |
-| `prompts/` | Prompts versionados con su changelog |
+| `prompts/` | Prompts versionados con su changelog; se siembran en la base en cada `pnpm db:migrate` |
 | `docs/` | Diseño (`00` a `09`), [spec de una página](docs/00-spec.md), [ADRs](docs/adr/README.md), [cómo se construyó](docs/harness.md), [otra máquina](docs/local-setup.md), [despliegue](docs/deploy.md), spikes y experimentos |
 
 ## English summary

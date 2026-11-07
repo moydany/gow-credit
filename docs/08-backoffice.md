@@ -238,3 +238,13 @@ muestra personalización y el loop de aprendizaje.
   instrucción, la respuesta o la salida cruda y el error, y se copia o descarga como JSON. Abrir un
   detalle queda en Movimientos como "Vio una llamada al modelo". El detalle de una solicitud tiene el
   botón "Llamadas al modelo".
+
+- **Prompts (ADR 0065).** Página nueva "Prompts", después de Políticas y con el mismo patrón:
+  - Lista de los diez prompts del catálogo con su versión activa.
+  - Versiones de cada uno con origen (`prompts/` o backoffice), autor, nota y la marca "Sin evals".
+  - Editor que guarda una versión nueva, nunca cambia una existente.
+  - Activación con confirmación y comparación línea por línea contra cualquier otra versión.
+  - Los prompts son globales. Todos los usuarios los ven; crear y activar lo pueden los editores de
+    prompts (`BACKOFFICE_PROMPT_EDITORS`) o, sin esa variable, los usuarios de una instalación con una
+    sola institución crediticia.
+  - Cada cambio queda en la bitácora de quien lo hizo, sin el texto.
