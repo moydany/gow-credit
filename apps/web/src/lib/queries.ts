@@ -19,7 +19,6 @@ export const useSuppliers = () => useQuery({ queryKey: ['suppliers'], queryFn: a
 export const useSupplier = (id: string) => useQuery({ queryKey: ['supplier', id], queryFn: () => api.supplier(id) })
 export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: api.settings })
 export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: api.users })
-export const useApiKeys = () => useQuery({ queryKey: ['api-keys'], queryFn: api.apiKeys })
 /**
  * Vinculación de WhatsApp (ADR 0033): cada 2 s mientras se espera el QR o un cambio, cada 5 s con el
  * proceso detenido y cada 15 s con la sesión abierta. Nunca en segundo plano: ver el QR se audita.

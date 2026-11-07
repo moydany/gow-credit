@@ -1,28 +1,21 @@
 /**
- * Configuración del tenant (docs/08 §2): usuarios, llaves de API y canales. El enlace de acceso de un
- * invitado y la llave completa se muestran una sola vez, en un diálogo, y no se guardan en el
- * navegador. WhatsApp se vincula escaneando el QR aquí mismo (ADR 0033); la antigüedad máxima del
- * estado de cuenta se ajusta aquí (ADR 0049); correo, retención y aviso de privacidad son de solo
- * lectura en esta versión.
+ * Configuración del tenant (docs/08 §2): usuarios y canales. El enlace de acceso de un invitado se
+ * muestra una sola vez, en un diálogo, y no se guarda en el navegador. WhatsApp se vincula escaneando
+ * el QR aquí mismo (ADR 0033); la antigüedad máxima del estado de cuenta se ajusta aquí (ADR 0049).
+ * Las llaves de API, el remitente de correo y la retención no se muestran aquí.
  */
-import { ApiKeyScope, DAYS_PER_MONTH, monthsText, STATEMENT_MAX_AGE_OPTIONS, TenantUserCreateBody, type ApiKeyItem, type TenantSettings, type TenantUserItem } from '@gow/contracts'
+import { DAYS_PER_MONTH, monthsText, STATEMENT_MAX_AGE_OPTIONS, TenantUserCreateBody, type TenantSettings, type TenantUserItem } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { useState } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { date, dateTime } from '../../lib/format'
-import { useApiKeys, useSettings, useUsers } from '../../lib/queries'
+import { useSettings, useUsers } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
-import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, Skeleton } from '../../ui/primitives'
+import { Button, Card, CardHeader, Chip, ErrorState, Modal, Skeleton } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
 import { PageTitle } from '../applications/ApplicationsPage'
 import { WhatsAppLink } from './WhatsAppLink'
-
-const SCOPE_LABEL: Record<ApiKeyScope, { label: string; hint: string }> = {
-  ingest: { label: 'Ingesta', hint: 'Proveedores, documentos, solicitudes, respuestas y outcomes' },
-  read: { label: 'Lectura', hint: 'Resultado de cada solicitud y sus aclaraciones' },
-  policies: { label: 'Políticas', hint: 'Crear, simular, poner en sombra y activar' },
-}
 
 export function SettingsPage() {
   return (
@@ -30,10 +23,8 @@ export function SettingsPage() {
       <PageTitle title="Configuración" />
       <div className="grid gap-4 xl:grid-cols-2">
         <UsersCard />
-        <ApiKeysCard />
         <ChannelsCard />
         <AnalysisCard />
-        <PrivacyCard />
       </div>
     </div>
   )
@@ -197,118 +188,12 @@ function UsersCard() {
   )
 }
 
-// ---------- Llaves de API
-
-function ApiKeysCard() {
-  const { data, isPending, isError, error, refetch } = useApiKeys()
-  const [scopes, setScopes] = useState<ApiKeyScope[]>([...ApiKeyScope.options])
-  const [shown, setShown] = useState<{ prefix: string; key: string } | null>(null)
-  const [revoking, setRevoking] = useState<ApiKeyItem | null>(null)
-  const toast = useToast()
-  const qc = useQueryClient()
-
-  const create = useMutation({
-    mutationFn: () => api.createApiKey(scopes),
-    onSuccess: (r) => {
-      setShown({ prefix: r.key.prefix, key: r.secret_key })
-      void qc.invalidateQueries({ queryKey: ['api-keys'] })
-    },
-    onError: (e: unknown) => { toast.error(errorText(e, 'No se pudo crear la llave')) },
-  })
-  const revoke = useMutation({
-    mutationFn: (id: string) => api.revokeApiKey(id),
-    onSuccess: () => {
-      toast.ok('Llave revocada')
-      setRevoking(null)
-      void qc.invalidateQueries({ queryKey: ['api-keys'] })
-    },
-    onError: (e: unknown) => { toast.error(errorText(e, 'No se pudo revocar')) },
-  })
-  const active = (data ?? []).filter((k) => !k.revoked_at).length
-
-  return (
-    <Card rise={1} className="pb-4">
-      <CardHeader title="Llaves de API" subtitle={data ? `${String(active)} activa${active === 1 ? '' : 's'} · se guardan como hash` : 'Para la API de integración (/v1)'} />
-      <form
-        className="mt-4 flex flex-wrap items-center gap-2 px-6"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (scopes.length) create.mutate()
-        }}
-      >
-        <fieldset className="flex min-w-0 flex-1 basis-64 flex-wrap gap-1.5">
-          <legend className="sr-only">Alcances de la llave nueva</legend>
-          {ApiKeyScope.options.map((s) => {
-            const on = scopes.includes(s)
-            return (
-              <button
-                key={s}
-                type="button"
-                role="checkbox"
-                aria-checked={on}
-                title={SCOPE_LABEL[s].hint}
-                onClick={() => { setScopes((xs) => (on ? xs.filter((x) => x !== s) : ApiKeyScope.options.filter((x) => x === s || xs.includes(x)))) }}
-                className={clsx('inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[13.5px] font-medium transition-colors', on ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}
-              >
-                {on ? <Icon name="check" size={14} /> : null}
-                {SCOPE_LABEL[s].label}
-              </button>
-            )
-          })}
-        </fieldset>
-        <Button type="submit" variant="lime" disabled={create.isPending || scopes.length === 0}>
-          <Icon name="key" size={16} /> Crear llave
-        </Button>
-      </form>
-      {scopes.length === 0 ? <p className="mt-2 px-6 text-[12.5px] text-coral-ink">Elige al menos un alcance</p> : null}
-      {isError ? (
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
-      ) : isPending ? (
-        <ListSkeleton />
-      ) : data.length === 0 ? (
-        <EmptyState icon="key" title="Sin llaves">Crea una para que tu sistema mande solicitudes por la API.</EmptyState>
-      ) : (
-        <ul className="mt-3 px-3" aria-label="Llaves de API">
-          {data.map((k) => (
-            <li key={k.id} className={clsx('flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line/70 px-3 py-3.5 first:border-0', k.revoked_at && 'opacity-60')}>
-              <div className="min-w-0 flex-1 basis-48">
-                <p className="truncate font-mono text-[13.5px] font-medium">{k.prefix}.••••••</p>
-                <p className="mt-1 flex flex-wrap gap-1">
-                  {k.scopes.map((s) => (
-                    <Chip key={s}>{SCOPE_LABEL[s].label}</Chip>
-                  ))}
-                </p>
-              </div>
-              <div className="text-right text-[12.5px] text-muted">
-                <p>Creada {date(k.created_at)}</p>
-                {k.revoked_at ? <p className="text-coral-ink">Revocada {date(k.revoked_at)}</p> : null}
-              </div>
-              {k.revoked_at ? null : (
-                <Button size="sm" variant="quiet" onClick={() => { setRevoking(k) }} aria-label={`Revocar ${k.prefix}`}>
-                  Revocar
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <ShowOnce open={shown !== null} onClose={() => { setShown(null) }} title={`Llave ${shown?.prefix ?? ''}`} value={shown?.key ?? ''}>
-        Guárdala ahora en tu gestor de secretos: es la única vez que se muestra completa. Aquí solo queda su hash; si se pierde, crea otra y revoca esta.
-      </ShowOnce>
-      <Confirm open={revoking !== null} onClose={() => { setRevoking(null) }} title={`Revocar ${revoking?.prefix ?? ''}`} action="Revocar" pending={revoke.isPending} onConfirm={() => { if (revoking) revoke.mutate(revoking.id) }}>
-        Toda petición con esta llave se rechaza desde este momento. No se puede deshacer.
-      </Confirm>
-    </Card>
-  )
-}
-
-// ---------- Canales (WhatsApp se vincula aquí; correo de solo lectura) y privacidad
+// ---------- Canales (WhatsApp se vincula aquí)
 
 function ChannelsCard() {
   const { data, isPending, isError, error, refetch } = useSettings()
   return (
-    <Card rise={2} className="pb-6">
+    <Card rise={1} className="pb-6">
       <CardHeader title="Canales" subtitle="Por dónde se pregunta al proveedor" />
       {isError ? (
         <ErrorState message={error.message} onRetry={() => void refetch()} />
@@ -317,15 +202,6 @@ function ChannelsCard() {
       ) : (
         <div className="mt-4 space-y-3 px-6">
           <WhatsAppLink settings={data} />
-          <div className="inner p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="flex items-center gap-2 text-[14.5px] font-medium">
-                <Icon name="mail" size={16} /> Correo
-              </p>
-              {data.email.from ? <Chip tone="lime" dot>{data.email.from}</Chip> : <Chip tone="hatch" dot>Sin remitente</Chip>}
-            </div>
-            <p className="mt-2.5 text-[13px] leading-relaxed text-muted">El remitente se define al dar de alta el tenant.</p>
-          </div>
         </div>
       )}
     </Card>
@@ -352,7 +228,7 @@ function AnalysisCard() {
   const options: (number | null)[] = [...new Set([...STATEMENT_MAX_AGE_OPTIONS, ...(typeof current === 'number' ? [current] : [])])].sort((a, b) => a - b)
   options.push(null)
   return (
-    <Card rise={3} className="pb-6">
+    <Card rise={2} className="pb-6">
       <CardHeader title="Análisis" subtitle="Antigüedad máxima del estado de cuenta" />
       {isError ? (
         <ErrorState message={error.message} onRetry={() => void refetch()} />
@@ -387,24 +263,6 @@ function AnalysisCard() {
           </p>
         </div>
       )}
-    </Card>
-  )
-}
-
-function PrivacyCard() {
-  return (
-    <Card rise={4} className="pb-6">
-      <CardHeader title="Retención y privacidad" subtitle="Aún no se configuran desde aquí" />
-      <div className="mt-4 space-y-3 px-6 text-[13.5px] leading-relaxed text-ink-2">
-        <div className="hatch rounded-2xl p-4">
-          <p className="font-medium text-ink">Retención de documentos</p>
-          <p className="mt-1">El plan: el PDF original se borra a los N días (90 por defecto, configurable por prestamista) y se conservan la extracción y las decisiones. Hoy no se borra nada automáticamente.</p>
-        </div>
-        <div className="hatch rounded-2xl p-4">
-          <p className="font-medium text-ink">Aviso de privacidad</p>
-          <p className="mt-1">El plan: tu aviso de privacidad se referencia en el primer mensaje de WhatsApp o correo al proveedor, y el consentimiento expreso que recabas queda como evidencia junto a la solicitud.</p>
-        </div>
-      </div>
     </Card>
   )
 }

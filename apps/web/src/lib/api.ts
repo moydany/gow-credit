@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -76,9 +76,6 @@ export const api = {
   users: () => request<TenantUserItem[]>('GET', '/users'),
   addUser: (email: string) => request<TenantUserCreated>('POST', '/users', { email }),
   removeUser: (id: string) => request<undefined>('DELETE', `/users/${id}`),
-  apiKeys: () => request<ApiKeyItem[]>('GET', '/api-keys'),
-  createApiKey: (scopes: ApiKeyScope[]) => request<ApiKeyCreated>('POST', '/api-keys', { scopes }),
-  revokeApiKey: (id: string) => request<ApiKeyItem>('POST', `/api-keys/${id}/revoke`),
   whatsapp: () => request<WhatsAppLinkState>('GET', '/whatsapp'),
   unlinkWhatsapp: () => request<WhatsAppUnlinkRequested>('POST', '/whatsapp/unlink'),
 }
