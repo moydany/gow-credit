@@ -432,7 +432,7 @@ describe('el sobregiro calculado solo se cree si el periodo cuadra (ADR 0058)', 
     { kind: 'supplier_payment', amount: 5000, description: 'PAGO A PROVEEDOR ACME' },
     { kind: 'customer_payment', amount: 9000, count: 2, description: 'SPEI RECIBIDO CLIENTE' },
   ]
-  const negative = (spec: Spec = {}, seed = 'o1') => withoutPrintedBalances(stmt({ opening_balance: 100, monthly: NEGATIVE, ...spec }, seed))
+  const negative = (spec: Partial<Spec> = {}, seed = 'o1') => withoutPrintedBalances(stmt({ opening_balance: 100, monthly: NEGATIVE, ...spec }, seed))
 
   it('si el periodo cuadra, el saldo diario negativo es sobregiro', () => {
     const p = profileOf([negative()])
