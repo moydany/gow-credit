@@ -529,7 +529,8 @@ function incomeTrend(cov: Coverage, monthsOfHistory: number, incomeRows: readonl
     num += (x - xMean) * (y - mean)
     den += (x - xMean) ** 2
   })
-  return round4(num / den / mean)
+  // `+ 0` turns -0 into 0: a flat income gives 0 whatever the order the sums ran in.
+  return round4(num / den / mean) + 0
 }
 
 // ---------------------------------------------------------------------------------------------
