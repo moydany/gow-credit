@@ -1,0 +1,138 @@
+# Pila completa en local con un solo comando (ADR 0061): Supabase (docker-compose.supabase.yml) más
+# la migración, la API, el worker, WhatsApp y el backoffice. Se usa siempre junto al de Supabase:
+#
+#   pnpm stack:up      # genera los secretos si faltan, construye la imagen y levanta todo
+#   pnpm stack:down    # detiene (los volúmenes se conservan); `pnpm stack:reset` los borra
+#   pnpm stack:logs    # sigue los registros de la API, el worker y WhatsApp
+#
+# Equivale a: docker compose -f docker-compose.supabase.yml -f docker-compose.stack.yml
+#               --env-file infra/supabase/.env up -d --build --wait
+#
+# Un solo proyecto (`gow-supabase`, el nombre del otro archivo): los volúmenes de Supabase que ya
+# existan se reutilizan. Todo escucha solo en 127.0.0.1: backoffice 5173, API 3000, Studio 54342,
+# correo de Auth (Inbucket) 54343. Se cambian con GOW_WEB_PORT y GOW_API_PORT.
+#
+# Una sola imagen (`gow-credit-app`) para migrar, API, worker y WhatsApp: cambia `APP`. El código corre
+# con tsx, como en desarrollo. Las contraseñas de los roles son las de desarrollo de
+# infra/postgres/init/00-roles.sql; nada de esto sirve fuera de una máquina local.
+
+x-app: &app
+  image: gow-credit-app:local
+  pull_policy: never
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+x-roles: &roles
+  DATABASE_URL_API: postgres://gow_api:gow_api_dev@db:5432/postgres
+  DATABASE_URL_WORKER: postgres://gow_worker:gow_worker_dev@db:5432/postgres
+  DATABASE_URL_WHATSAPP: postgres://gow_whatsapp:gow_whatsapp_dev@db:5432/postgres
+  DATABASE_URL_READONLY: postgres://gow_readonly:gow_readonly_dev@db:5432/postgres
+  DATABASE_URL_QUEUE: postgres://gow_queue:gow_queue_dev@db:5432/postgres
+  DATABASE_URL_MASTRA: postgres://gow_mastra:gow_mastra_dev@db:5432/postgres
+
+services:
+  # Correo de los enlaces de acceso (ADR 0063). Por defecto, Inbucket; `scripts/stack.sh` define GOW_SMTP_*
+  # con el SMTP de Resend cuando hay RESEND_API_KEY en el .env de la raíz.
+  auth:
+    environment:
+      GOTRUE_SMTP_HOST: ${GOW_SMTP_HOST:-mail}
+      GOTRUE_SMTP_PORT: ${GOW_SMTP_PORT:-2500}
+      GOTRUE_SMTP_USER: ${GOW_SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${GOW_SMTP_PASS:-}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${GOW_SMTP_ADMIN_EMAIL:-${SMTP_ADMIN_EMAIL}}
+      GOTRUE_SMTP_SENDER_NAME: ${GOW_SMTP_SENDER_NAME:-${SMTP_SENDER_NAME}}
+
+  # Aplica las migraciones con el rol `postgres` y termina. Todo lo demás espera a que acabe bien.
+  migrate:
+    <<: *app
+    build:
+      context: .
+      target: runtime
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["./node_modules/.bin/tsx", "packages/db/src/cli/migrate.ts"]
+    environment:
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+
+  api:
+    <<: *app
+    ports:
+      - "127.0.0.1:${GOW_API_PORT:-3000}:3000"
+    volumes:
+      - gow-storage:/data/storage
+    environment:
+      <<: *roles
+      APP: api
+      HOST: 0.0.0.0
+      PORT: "3000"
+      API_PUBLIC_URL: http://127.0.0.1:${GOW_API_PORT:-3000}
+      BACKOFFICE_URL: http://127.0.0.1:${GOW_WEB_PORT:-5173}
+      BACKOFFICE_JWT_SECRET: ${JWT_SECRET}
+      STORAGE_SIGNING_SECRET: ${GOW_STORAGE_SIGNING_SECRET}
+      STORAGE_DIR: /data/storage
+      # Supabase Auth por la red interna: el backoffice entra con enlace por correo (ADR 0035).
+      SUPABASE_URL: http://api-gw:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # Las llaves de los modelos salen del .env de la raíz (opcional): sin él, solo corre lo que esté en
+  # caché (LLM_CACHE_MODE=read) y un documento nuevo falla en vez de gastar.
+  worker:
+    <<: *app
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - gow-storage:/data/storage
+      - gow-llm-cache:/data/llm-cache
+    environment:
+      <<: *roles
+      APP: worker
+      API_PUBLIC_URL: http://127.0.0.1:${GOW_API_PORT:-3000}
+      STORAGE_SIGNING_SECRET: ${GOW_STORAGE_SIGNING_SECRET}
+      STORAGE_DIR: /data/storage
+      LLM_CACHE_DIR: /data/llm-cache
+
+  # Sin WHATSAPP_TENANT_ID: descubre al único tenant y espera a que el wizard lo cree (ADR 0060). El
+  # número se vincula escaneando el QR en el backoffice. La sesión de Baileys vive en un volumen.
+  whatsapp:
+    <<: *app
+    volumes:
+      - gow-whatsapp:/data/whatsapp
+    environment:
+      DATABASE_URL_WHATSAPP: postgres://gow_whatsapp:gow_whatsapp_dev@db:5432/postgres
+      APP: whatsapp
+      WHATSAPP_AUTH_DIR: /data/whatsapp
+
+  web:
+    image: gow-credit-web:local
+    pull_policy: never
+    restart: unless-stopped
+    build:
+      context: .
+      target: web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GOW_WEB_PORT:-5173}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  gow-storage:
+  gow-llm-cache:
+  gow-whatsapp:

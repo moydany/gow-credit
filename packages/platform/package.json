@@ -5,7 +5,8 @@
   "description": "Piezas compartidas del modo full: cola pg-boss (colas, prioridades, dead letter, singletonKey), almacenamiento de documentos con URL firmada y nombres de trabajos con su esquema Zod.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./health": "./src/health.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

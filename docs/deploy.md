@@ -191,6 +191,7 @@ Si falta alguno, el job lo dice con su nombre antes de llamar a la nube.
 | `SUPABASE_URL` | variable | `deploy-api` | URL del proyecto de Supabase |
 | `RESEND_FROM` | variable, opcional | `deploy-worker` | Remitente de los correos de aclaración; sin él, el worker no manda correo |
 | `WHATSAPP_TENANT_ID` | variable | `deploy-whatsapp` | Tenant dueño del número de WhatsApp |
+| `WHATSAPP_SELF_REGISTRATION` | variable, recomendada `false` | `deploy-worker` | Encendido por defecto (ADR 0062): cualquier número puede registrarse como proveedor. En un despliegue real, fíjalo en `false` en el worker (hoy el workflow no lo pasa) |
 
 Los secretos de los servicios no pasan por GitHub: viven en Secret Manager y Cloud Run los monta como
 variables. El nombre es `gow-<entorno>-<variable en minúsculas y con guiones>`; por ejemplo,
