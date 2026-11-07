@@ -131,8 +131,14 @@ export const supplierRegistrations = app.table(
     tenantId: tenantId().references(() => tenants.id),
     channel: channel('channel').notNull(),
     address: text('address').notNull(),
-    /** statement | reading | confirm | name | rfc | representative | done */
+    /** contact_name | amount | statement | reading | confirm | name | rfc | representative | done */
     step: text('step').notNull(),
+    /** How the person writing is called, asked on greeting. Not the account holder. */
+    contactName: text('contact_name'),
+    /** What they want to advance, asked before the statement; null if they skipped it. */
+    requestedAmount: numeric('requested_amount', { precision: 14, scale: 2, mode: 'number' }),
+    /** A PDF that arrived before the name and amount: it is opened once both are given. */
+    pendingDocumentId: uuid('pending_document_id').references(() => documents.id),
     /** What the supplier confirmed or typed. */
     legalName: text('legal_name'),
     rfc: text('rfc'),

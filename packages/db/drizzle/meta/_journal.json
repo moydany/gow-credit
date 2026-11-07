@@ -169,6 +169,13 @@
       "when": 1794055000000,
       "tag": "0023_timeline_read_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794076982625,
+      "tag": "0024_registration_name_and_amount",
+      "breakpoints": true
     }
   ]
 }
