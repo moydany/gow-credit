@@ -22,6 +22,8 @@ import { explanationDraft } from './explanation.ts'
 import { nextStepTemplate, type CallRecord, type Writer } from './writer.ts'
 
 export const WORKFLOW_ID = 'process-application'
+/** El ciclo de aclaración anidado: guarda su propio estado con el mismo run id (ADR 0059 lo borra). */
+export const CLARIFICATION_LOOP_ID = 'clarification-loop'
 
 export interface WorkflowDeps {
   /** Extrae un PDF; nunca lanza (una falla vuelve como extracción `failed`). */
@@ -339,7 +341,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
     execute: ({ inputData }) => (inputData.rounds > 0 && inputData.decision?.status === 'needs_clarification' ? runDecision(deps, inputData) : Promise.resolve(inputData)),
   })
 
-  const clarificationLoop = createWorkflow({ id: 'clarification-loop', description: 'Una ronda de aclaración con el dueño del documento', inputSchema: AppState, outputSchema: AppState })
+  const clarificationLoop = createWorkflow({ id: CLARIFICATION_LOOP_ID, description: 'Una ronda de aclaración con el dueño del documento', inputSchema: AppState, outputSchema: AppState })
     .then(askOwner)
     .then(applyAnswers)
     .then(reDecide)

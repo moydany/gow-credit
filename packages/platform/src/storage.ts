@@ -8,7 +8,7 @@
  * (bucket privado, `createSignedUploadUrl`); ese adaptador es del plan de despliegue (fase 8).
  */
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, normalize, sep } from 'node:path'
 
 export const MAX_DOCUMENT_BYTES = 40 * 1024 * 1024
@@ -26,6 +26,8 @@ export interface DocumentStorage {
   put(path: string, bytes: Buffer): Promise<void>
   read(path: string): Promise<Buffer>
   exists(path: string): Promise<boolean>
+  /** Borra el archivo; si ya no existe no es error (ADR 0059). */
+  remove(path: string): Promise<void>
 }
 
 /** ¿La ruta es de este tenant y no escapa del directorio? */
@@ -94,5 +96,8 @@ export class LocalDocumentStorage implements DocumentStorage {
     } catch {
       return false
     }
+  }
+  async remove(path: string): Promise<void> {
+    await rm(this.#file(path), { force: true })
   }
 }
