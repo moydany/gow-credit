@@ -1,4 +1,4 @@
-import { emptyExternalSnapshot, Profile, type ApplicationRequest, type ExternalSnapshot, type StatementExtraction, type SupplierIdentity, type SyntheticStatement } from '@gow/contracts'
+import { emptyExternalSnapshot, Profile, type ApplicationRequest, type DocumentFlag, type ExternalSnapshot, type Issue, type StatementExtraction, type SupplierIdentity, type SyntheticStatement } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import { buildProfile, buildProfileWithLedger } from './profile.ts'
@@ -328,5 +328,144 @@ describe('fuentes externas', () => {
   it('sin CFDI no hay huella: reuso desconocido', () => {
     const p = profileOf([stmt({ monthly: BASIC })], { external: snapshot({ internal: { available: true, simulated: true, prior_applications: [], statement_reuse: [], seen_elsewhere: [] } }) })
     expect(f(p, 'statement_reuse_count').value).toBeNull()
+  })
+})
+
+describe('robustez documental (ADR 0058)', () => {
+  const fiscal = { uuid: 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B', regime: '601' }
+
+  function issue(id: string, code: Issue['code'], extra: Partial<Issue> = {}): Issue {
+    return { id, code, severity: 'warning', message: 'problema de prueba', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: {}, ...extra }
+  }
+
+  function flagged(spec: Spec, flags: DocumentFlag[], issues: Issue[] = [], seed = 'r1'): StatementExtraction {
+    const s = stmt(spec, seed)
+    return { ...s, flags: [...s.flags, ...flags], issues }
+  }
+
+  const tamper = (s: StatementExtraction) => f(profileOf([s]), 'document_tamper_signals')
+
+  it('un documento sin señales: páginas completas y ninguna señal, verificadas y con confianza 1', () => {
+    const p = profileOf([stmt({ monthly: BASIC })])
+    expect(Profile.safeParse(p).success).toBe(true)
+    expect(f(p, 'document_pages_missing')).toMatchObject({ value: false, verification: 'verified', confidence: 1, evidence: [] })
+    expect(f(p, 'document_tamper_signals')).toMatchObject({ value: [], verification: 'verified', confidence: 1, evidence: [] })
+  })
+
+  it('sin estados de cuenta utilizables, las dos son desconocidas', () => {
+    const p = profileOf([])
+    expect([f(p, 'document_pages_missing').value, f(p, 'document_tamper_signals').value]).toEqual([null, null])
+  })
+
+  it('la bandera pages_missing da document_pages_missing; la evidencia es sha:id del problema', () => {
+    const s = flagged({ monthly: BASIC }, ['pages_missing'], [issue('i1', 'page_missing', { details: { missing: [2], total: 3 } })])
+    const p = profileOf([s])
+    expect(f(p, 'document_pages_missing')).toMatchObject({ value: true, verification: 'verified', confidence: 1, evidence: [`${s.document.sha256.slice(0, 12)}:i1`] })
+    // Páginas faltantes no son manipulación.
+    expect(f(p, 'document_tamper_signals').value).toEqual([])
+  })
+
+  it('el problema page_missing sin la bandera no cuenta: manda la bandera del documento', () => {
+    expect(f(profileOf([flagged({ monthly: BASIC }, [], [issue('i1', 'page_missing')])]), 'document_pages_missing').value).toBe(false)
+  })
+
+  it('una bandera sin problema que la explique igual cuenta, con la bandera como evidencia', () => {
+    const s = flagged({ monthly: BASIC }, ['pages_missing'])
+    expect(f(profileOf([s]), 'document_pages_missing')).toMatchObject({ value: true, evidence: [`${s.document.sha256.slice(0, 12)}:pages_missing`] })
+  })
+
+  it('prompt_injection: la bandera possible_prompt_injection', () => {
+    const s = flagged({ monthly: BASIC }, ['possible_prompt_injection'], [issue('i1', 'possible_prompt_injection')])
+    expect(tamper(s)).toMatchObject({ value: ['prompt_injection'], evidence: [`${s.document.sha256.slice(0, 12)}:i1`] })
+  })
+
+  it('fiscal_chain_mismatch: solo los problemas de severidad error; un aviso de fecha o de formato no cuenta', () => {
+    const error = flagged({ monthly: BASIC, fiscal }, [], [issue('i1', 'fiscal_chain_mismatch', { severity: 'error' })])
+    expect(tamper(error).value).toEqual(['fiscal_chain_mismatch'])
+    const warning = flagged({ monthly: BASIC, fiscal }, [], [issue('i1', 'fiscal_chain_mismatch', { severity: 'warning' })])
+    expect(tamper(warning).value).toEqual([])
+  })
+
+  it('fiscal_stamp_far_from_period: date_out_of_period del CFDI sí, el de los movimientos no', () => {
+    const cfdi = flagged({ monthly: BASIC, fiscal }, [], [issue('i1', 'date_out_of_period')])
+    expect(tamper(cfdi)).toMatchObject({ value: ['fiscal_stamp_far_from_period'], evidence: [`${cfdi.document.sha256.slice(0, 12)}:i1`] })
+    // Los movimientos fuera del periodo (extract.ts) siempre llevan el periodo.
+    const periodId = cfdi.accounts[0]?.periods[0]?.id ?? null
+    const movements = flagged({ monthly: BASIC, fiscal }, [], [issue('i1', 'date_out_of_period', { period_id: periodId, details: { count: 3 } })])
+    expect(tamper(movements).value).toEqual([])
+    // Sin CFDI en el documento no hay timbrado que esté lejos.
+    expect(tamper(flagged({ monthly: BASIC }, [], [issue('i1', 'date_out_of_period')])).value).toEqual([])
+  })
+
+  it('pages_duplicated: la bandera; header_read_conflict: el problema, con cualquier severidad', () => {
+    const dup = flagged({ monthly: BASIC }, ['pages_duplicated'], [issue('i1', 'duplicate_page_removed', { page: 2, details: { same_as: 1 } })])
+    expect(tamper(dup)).toMatchObject({ value: ['pages_duplicated'], evidence: [`${dup.document.sha256.slice(0, 12)}:i1`] })
+    expect(tamper(flagged({ monthly: BASIC }, [], [issue('i1', 'header_read_conflict', { severity: 'info' })])).value).toEqual(['header_read_conflict'])
+  })
+
+  it('varias señales de varios documentos: lista cerrada, ordenada y sin repetir', () => {
+    const a = flagged({ monthly: BASIC, fiscal }, ['possible_prompt_injection', 'pages_duplicated'], [issue('i1', 'fiscal_chain_mismatch', { severity: 'error' }), issue('i2', 'header_read_conflict')], 'a')
+    const b = flagged({ start: '2026-10-01', monthly: BASIC }, ['possible_prompt_injection'], [], 'b')
+    const p = profileOf([a, b])
+    expect(f(p, 'document_tamper_signals').value).toEqual(['fiscal_chain_mismatch', 'header_read_conflict', 'pages_duplicated', 'prompt_injection'])
+    expect(f(p, 'document_tamper_signals').evidence).toHaveLength(5)
+    expect(Profile.safeParse(p).success).toBe(true)
+  })
+})
+
+describe('el sobregiro calculado solo se cree si el periodo cuadra (ADR 0058)', () => {
+  /** El saldo diario se calcula solo de los movimientos: sin saldo impreso por fila, es la única fuente. */
+  function withoutPrintedBalances(s: StatementExtraction): StatementExtraction {
+    for (const a of s.accounts) for (const p of a.periods) for (const t of p.transactions) t.balance = null
+    return s
+  }
+
+  // 100 de saldo inicial, abonos de 4,500 los días 7 y 22 y un cargo de 5,000 el día 15: del 15 al 21 el saldo
+  // diario es de -400. (El saldo es al cierre de cada día: un cargo y un abono del mismo día no lo bajan de cero.)
+  const NEGATIVE: Spec['monthly'] = [
+    { kind: 'supplier_payment', amount: 5000, description: 'PAGO A PROVEEDOR ACME' },
+    { kind: 'customer_payment', amount: 9000, count: 2, description: 'SPEI RECIBIDO CLIENTE' },
+  ]
+  const negative = (spec: Spec = {}, seed = 'o1') => withoutPrintedBalances(stmt({ opening_balance: 100, monthly: NEGATIVE, ...spec }, seed))
+
+  it('si el periodo cuadra, el saldo diario negativo es sobregiro', () => {
+    const p = profileOf([negative()])
+    expect(f(p, 'red_flags')).toMatchObject({ value: ['overdraft'], evidence: ['saldo diario calculado'] })
+  })
+
+  it('si el periodo no cuadra, el saldo calculado no es confiable y no se inventa el sobregiro', () => {
+    const p = profileOf([negative({ reconciled: false })])
+    expect(f(p, 'red_flags')).toMatchObject({ value: [], verification: 'verified', note: 'saldo calculado no confiable: el periodo no cuadra' })
+    expect(f(p, 'integrity_ok').value).toBe(false)
+  })
+
+  it('basta un periodo que no cuadra entre varios', () => {
+    const s = negative({ months: 2 })
+    expect(f(profileOf([s]), 'red_flags').value).toEqual(['overdraft'])
+    const second = s.accounts[0]?.periods[1]
+    if (!second?.reconciliation) throw new Error('sin segundo periodo')
+    second.reconciliation.status = 'not_reconciled'
+    expect(f(profileOf([s]), 'red_flags')).toMatchObject({ value: [], note: 'saldo calculado no confiable: el periodo no cuadra' })
+  })
+
+  it('un cuadre parcial tampoco basta: solo cuenta reconciled', () => {
+    const s = negative()
+    const period = s.accounts[0]?.periods[0]
+    if (!period?.reconciliation) throw new Error('sin periodo')
+    period.reconciliation.status = 'partially_reconciled'
+    expect(f(profileOf([s]), 'red_flags').value).toEqual([])
+  })
+
+  it('el sobregiro por saldo impreso negativo o por SOBREGIRO en la descripción sigue igual aunque no cuadre', () => {
+    // El saldo impreso de la fila sí es del banco.
+    const printed = stmt({ opening_balance: 100, reconciled: false, monthly: NEGATIVE })
+    expect(f(profileOf([printed]), 'red_flags').value).toEqual(['overdraft'])
+    const text = negative({ reconciled: false, monthly: [...NEGATIVE, { kind: 'fee', amount: 100, description: 'COMISION POR SOBREGIRO' }] })
+    expect(f(profileOf([text]), 'red_flags').value).toEqual(['overdraft'])
+  })
+
+  it('las demás banderas no dependen del cuadre', () => {
+    const s = negative({ reconciled: false, monthly: [...NEGATIVE, { kind: 'supplier_payment', amount: 100, description: 'CARGO EMBARGO CUENTA' }] })
+    expect(f(profileOf([s]), 'red_flags').value).toEqual(['garnishment'])
   })
 })

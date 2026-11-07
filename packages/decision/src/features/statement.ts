@@ -9,7 +9,7 @@
  * - La confianza de una feature que depende de la clasificación es la confianza media de los
  *   movimientos que la alimentan, ponderada por monto.
  */
-import { checkRfc, FISCAL_REGIMES, rfcRoot, type ApplicationRequest, type ProfileParameters, type SupplierIdentity, type Verification } from '@gow/contracts'
+import { checkRfc, FISCAL_REGIMES, rfcRoot, type ApplicationRequest, type DOCUMENT_TAMPER_SIGNALS, type Issue, type ProfileParameters, type StatementExtraction, type SupplierIdentity, type Verification } from '@gow/contracts'
 import { evidenceRef, type Ledger, type LedgerRow } from '../ledger.ts'
 import { AVG_MONTH_DAYS, intervalDays, toDay, unionIntervals, type Interval } from '../util/dates.ts'
 import { clamp01, round2, round4, sumMoney, weightedMean } from '../util/num.ts'
@@ -222,7 +222,16 @@ const FLAG_RULES: readonly (readonly ['returned_check' | 'garnishment' | 'judici
   ['overdraft', /\bSOBREGIRO\b/],
 ]
 
-function redFlags(ledger: Ledger, minDailyBalance: number | null): Entry {
+/** Lo que se dice cuando el saldo diario calculado da negativo y no se toma como sobregiro (ADR 0058). */
+const UNRELIABLE_BALANCE_NOTE = 'saldo calculado no confiable: el periodo no cuadra'
+
+/**
+ * `balancesTrusted`: todos los periodos cuadran, así que el saldo diario calculado sobre los movimientos
+ * es el del banco. Si no cuadran (una página repetida o faltante, una fila alterada), ese saldo no dice
+ * nada de la cuenta y un mínimo negativo sería un sobregiro inventado (ADR 0058). El sobregiro por saldo
+ * impreso negativo o por `SOBREGIRO` en la descripción no depende del cuadre y sigue igual.
+ */
+function redFlags(ledger: Ledger, minDailyBalance: number | null, balancesTrusted: boolean): Entry {
   const found = new Map<string, { verified: boolean; refs: string[] }>()
   const add = (flag: string, verified: boolean, ref: string) => {
     const f = found.get(flag) ?? { verified: false, refs: [] }
@@ -236,11 +245,75 @@ function redFlags(ledger: Ledger, minDailyBalance: number | null): Entry {
     for (const [flag, re] of FLAG_RULES) if (re.test(text)) add(flag, r.verified, evidenceRef(r))
     if (r.tx.balance !== null && r.tx.balance < 0) add('overdraft', r.verified, evidenceRef(r))
   }
-  if (minDailyBalance !== null && minDailyBalance < 0) add('overdraft', true, 'saldo diario calculado')
+  const negativeComputed = minDailyBalance !== null && minDailyBalance < 0
+  if (negativeComputed && balancesTrusted) add('overdraft', true, 'saldo diario calculado')
   const flags = [...found.keys()].sort()
   const verification: Verification = [...found.values()].every((f) => f.verified) ? 'verified' : 'unverified'
   const evidence = [...new Set([...found.values()].flatMap((f) => f.refs))].sort()
-  return known(flags, { verification, evidence, note: flags.length > 0 ? null : 'sin señales graves en las descripciones ni saldos negativos' })
+  const ignored = negativeComputed && !balancesTrusted
+  const note = ignored ? UNRELIABLE_BALANCE_NOTE : flags.length > 0 ? null : 'sin señales graves en las descripciones ni saldos negativos'
+  return known(flags, { verification, evidence, note })
+}
+
+/** ¿Cuadran todos los periodos? Solo entonces el saldo diario calculado a partir de los movimientos es confiable. */
+function allPeriodsReconciled(ledger: Ledger): boolean {
+  return ledger.periods.length > 0 && ledger.periods.every((p) => p.period.reconciliation?.status === 'reconciled')
+}
+
+// ---------------------------------------------------------------------------------------------
+// Robustez documental: las señales de la extracción llegan al perfil (ADR 0058)
+// ---------------------------------------------------------------------------------------------
+
+type TamperSignal = (typeof DOCUMENT_TAMPER_SIGNALS)[number]
+
+/**
+ * El timbrado del CFDI lejos del periodo (`fiscal.ts`) comparte código con un movimiento fuera de las
+ * fechas del periodo (`extract.ts`). El de movimientos siempre lleva `period_id`; el del CFDI no lleva
+ * periodo ni movimiento y solo existe si el documento trae un comprobante.
+ */
+function isFiscalStampIssue(issue: Issue, statement: StatementExtraction): boolean {
+  return issue.code === 'date_out_of_period' && issue.period_id === null && issue.transaction_id === null && statement.fiscal_documents.length > 0
+}
+
+/**
+ * `document_pages_missing` y `document_tamper_signals`, de las banderas y los problemas que dejó la
+ * extracción en cada documento del libro. La evidencia es `sha:id del problema`; si la señal es solo una
+ * bandera, `sha:bandera`.
+ */
+function documentSignals(ledger: Ledger): { pagesMissing: Entry; tamper: Entry } {
+  if (ledger.documents.length === 0) {
+    const note = 'sin estados de cuenta'
+    return { pagesMissing: unknown(note), tamper: unknown(note) }
+  }
+  const missing: string[] = []
+  const signals = new Map<TamperSignal, string[]>()
+  const add = (signal: TamperSignal, refs: readonly string[]) => signals.set(signal, [...(signals.get(signal) ?? []), ...refs])
+  for (const doc of ledger.documents) {
+    const s = doc.statement
+    const ids = (match: (i: Issue) => boolean): string[] => s.issues.filter(match).map((i) => `${doc.tag}:${i.id}`)
+    // Una bandera sin problema que la explique igual cuenta; su evidencia es la bandera.
+    const flagged = (flag: StatementExtraction['flags'][number], issueCode: Issue['code']): string[] => {
+      if (!s.flags.includes(flag)) return []
+      const found = ids((i) => i.code === issueCode)
+      return found.length > 0 ? found : [`${doc.tag}:${flag}`]
+    }
+    missing.push(...flagged('pages_missing', 'page_missing'))
+    const injection = flagged('possible_prompt_injection', 'possible_prompt_injection')
+    if (injection.length > 0) add('prompt_injection', injection)
+    const chain = ids((i) => i.code === 'fiscal_chain_mismatch' && i.severity === 'error')
+    if (chain.length > 0) add('fiscal_chain_mismatch', chain)
+    const stamp = ids((i) => isFiscalStampIssue(i, s))
+    if (stamp.length > 0) add('fiscal_stamp_far_from_period', stamp)
+    const duplicated = flagged('pages_duplicated', 'duplicate_page_removed')
+    if (duplicated.length > 0) add('pages_duplicated', duplicated)
+    const header = ids((i) => i.code === 'header_read_conflict')
+    if (header.length > 0) add('header_read_conflict', header)
+  }
+  const list = [...signals.keys()].sort()
+  return {
+    pagesMissing: known(missing.length > 0, { evidence: missing, note: missing.length > 0 ? 'la paginación que imprime el documento tiene huecos: faltan páginas en el PDF' : null }),
+    tamper: known(list, { evidence: [...new Set([...signals.values()].flat())].sort(), note: list.length > 0 ? null : 'sin señales de manipulación en las banderas ni en los problemas de los documentos' }),
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -631,7 +704,7 @@ export function statementFeatures(ctx: StatementContext): StatementFeatures {
     entries.avg_daily_balance = known(balances.avg, { verification: balances.verification, note: 'saldo al cierre de cada día, sumando cuentas' })
     entries.low_balance_days = known(balances.lowDays, { verification: balances.verification, note: `días bajo ${String(ctx.params.low_balance_threshold)}` })
   }
-  entries.red_flags = redFlags(ledger, typeof balances === 'string' ? null : balances.min)
+  entries.red_flags = redFlags(ledger, typeof balances === 'string' ? null : balances.min, allPeriodsReconciled(ledger))
 
   const monthsValue = typeof entries.months_of_history.value === 'number' ? entries.months_of_history.value : 0
   const trend = incomeTrend(cov, monthsValue, flow.incomeRows)
@@ -642,6 +715,10 @@ export function statementFeatures(ctx: StatementContext): StatementFeatures {
   entries.fiscal_regime = fiscalRegime(ctx)
   entries.fiscal_anchor_ok = fiscalAnchor(ctx)
   entries.regime_income_plausible = regimeIncomePlausible(entries.fiscal_regime, ff.incomeMonthly, entries.operating_income_monthly)
+
+  const signals = documentSignals(ledger)
+  entries.document_pages_missing = signals.pagesMissing
+  entries.document_tamper_signals = signals.tamper
 
   return { entries, coverage: cov, flow }
 }
