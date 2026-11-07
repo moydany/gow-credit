@@ -10,7 +10,7 @@ import { connect, type Database } from '@gow/db'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { jidToNumber, numberToJid } from './baileys.ts'
+import { documentOf, jidToNumber, mediaKindOf, numberToJid, senderNumber } from './baileys.ts'
 import { renderQrForTerminal, writeQrPng } from './qr.ts'
 import { deliverPending, storeIncoming, type IncomingWhatsApp, type WhatsAppTransport } from './relay.ts'
 
@@ -44,6 +44,15 @@ describe('números de WhatsApp', () => {
     expect(jidToNumber('5215511110001@s.whatsapp.net')).toBe('+5215511110001')
     expect(jidToNumber('120363000000@g.us')).toBeNull()
     expect(numberToJid('+52 1 55 1111 0001')).toBe('5215511110001@s.whatsapp.net')
+  })
+
+  it('el remitente sale del JID, del alterno o del mapa LID→número (Baileys 7)', async () => {
+    const noMap = () => Promise.resolve(null)
+    expect(await senderNumber({ remoteJid: '5215511110001@s.whatsapp.net' }, noMap)).toBe('+5215511110001')
+    expect(await senderNumber({ remoteJid: '123456789012345@lid', remoteJidAlt: '5215511110001@s.whatsapp.net' }, noMap)).toBe('+5215511110001')
+    expect(await senderNumber({ remoteJid: '123456789012345@lid' }, (lid) => Promise.resolve(lid === '123456789012345@lid' ? '5215511110001:0@s.whatsapp.net' : null))).toBe('+5215511110001')
+    expect(await senderNumber({ remoteJid: '123456789012345@lid' }, noMap)).toBeNull()
+    expect(await senderNumber({ remoteJid: '123456789012345@lid' }, () => Promise.reject(new Error('sin mapa')))).toBeNull()
   })
 })
 
@@ -103,6 +112,51 @@ describe.skipIf(!available)('relay de WhatsApp (necesita el Postgres de docker c
     await storeIncoming(wa.db, A, m)
     const rows = await admin.query<{ tenant_id: string }>("SELECT tenant_id::text FROM app.inbound_messages WHERE external_id = 'wamid.1'")
     expect(rows.rows).toEqual([{ tenant_id: A }])
+  })
+
+  it('un documento se guarda con sus bytes aunque no traiga texto (ADR 0037)', async () => {
+    const bytes = Buffer.from('%PDF-1.7\n%%EOF\n')
+    await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.doc', text: '', document: { bytes, fileName: 'estado.pdf', mediaType: 'application/pdf' } })
+    const rows = await admin.query<{ attachment: Buffer; attachment_name: string; attachment_media_type: string }>("SELECT attachment, attachment_name, attachment_media_type FROM app.inbound_messages WHERE external_id = 'wamid.doc'")
+    expect(rows.rows).toEqual([{ attachment: bytes, attachment_name: 'estado.pdf', attachment_media_type: 'application/pdf' }])
+    // Sin texto ni documento no se guarda nada.
+    await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.vacio', text: '  ' })
+    expect((await admin.query("SELECT 1 FROM app.inbound_messages WHERE external_id = 'wamid.vacio'")).rowCount).toBe(0)
+  })
+
+  it('una foto o nota de voz se guarda solo con su tipo, sin bytes ni texto obligatorio (ADR 0051)', async () => {
+    await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.foto', text: '', media: 'image' })
+    await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.voz', text: '', media: 'audio' })
+    const rows = await admin.query<{ external_id: string; media_kind: string; body: string; attachment: Buffer | null }>("SELECT external_id, media_kind, body, attachment FROM app.inbound_messages WHERE external_id IN ('wamid.foto', 'wamid.voz') ORDER BY external_id")
+    expect(rows.rows).toEqual([
+      { external_id: 'wamid.foto', media_kind: 'image', body: '', attachment: null },
+      { external_id: 'wamid.voz', media_kind: 'audio', body: '', attachment: null },
+    ])
+    // La columna solo acepta los tipos conocidos.
+    await expect(admin.query("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, media_kind) VALUES ($1, 'whatsapp', '+521', '', 'pdf')", [A])).rejects.toThrow(/media_kind/)
+  })
+})
+
+describe('documentos entrantes de Baileys', () => {
+  it('lee el documento con o sin pie de foto e ignora lo demás', () => {
+    const doc = { fileName: 'edc.pdf', mimetype: 'application/pdf', fileLength: 1234, caption: 'enero' }
+    expect(documentOf({ documentMessage: doc })).toEqual({ caption: 'enero', fileName: 'edc.pdf', mediaType: 'application/pdf', size: 1234 })
+    expect(documentOf({ documentWithCaptionMessage: { message: { documentMessage: { ...doc, caption: null } } } })).toEqual({ caption: '', fileName: 'edc.pdf', mediaType: 'application/pdf', size: 1234 })
+    expect(documentOf({ conversation: 'hola' })).toBeNull()
+    expect(documentOf({ imageMessage: { mimetype: 'image/jpeg' } })).toBeNull()
+    expect(documentOf(undefined)).toBeNull()
+  })
+
+  it('fotos, notas de voz, videos y stickers pasan solo con su tipo; lo demás se ignora (ADR 0051)', () => {
+    expect(mediaKindOf({ imageMessage: { mimetype: 'image/jpeg', caption: 'mi estado' } })).toEqual({ kind: 'image', caption: 'mi estado' })
+    expect(mediaKindOf({ audioMessage: { ptt: true } })).toEqual({ kind: 'audio', caption: '' })
+    expect(mediaKindOf({ videoMessage: {} })).toEqual({ kind: 'video', caption: '' })
+    expect(mediaKindOf({ stickerMessage: {} })).toEqual({ kind: 'sticker', caption: '' })
+    expect(mediaKindOf({ viewOnceMessage: { message: { imageMessage: {} } } })).toEqual({ kind: 'image', caption: '' })
+    expect(mediaKindOf({ conversation: 'hola' })).toBeNull()
+    expect(mediaKindOf({ reactionMessage: { text: '👍' } })).toBeNull()
+    expect(mediaKindOf({ documentMessage: { fileName: 'edc.pdf' } })).toBeNull()
+    expect(mediaKindOf(undefined)).toBeNull()
   })
 })
 

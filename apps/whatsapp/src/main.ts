@@ -28,7 +28,12 @@ const line = (fields: Record<string, string>) => {
   console.log(JSON.stringify({ at: new Date().toISOString(), ...fields }))
 }
 
-const transport = new BaileysTransport({ authDir })
+const transport = new BaileysTransport({
+  authDir,
+  onIgnored: (reason) => {
+    line({ ignored: reason })
+  },
+})
 transport.onLinkEvent((e) => {
   if (e.type !== 'qr') {
     line({ connection: e.type === 'close' ? (e.loggedOut ? 'logged_out' : 'close') : e.type })
@@ -56,7 +61,16 @@ const session = await startSessionPublisher({
     line({ session: s })
   },
 })
-const relay = await startRelay({ db: db.db, tenantId, transport, onError })
+const relay = await startRelay({
+  db: db.db,
+  tenantId,
+  transport,
+  onError,
+  onEvent: (e) => {
+    if (e.type === 'incoming') line(e.kind === 'document' ? { incoming: 'document', bytes: String(e.bytes), hint: e.bytes > 0 ? 'guardado; el worker lo revisa' : 'sin bytes (muy grande o falló la descarga)' } : { incoming: e.kind })
+    else line({ delivered: String(e.count) })
+  },
+})
 const shutdown = async () => {
   await session.stop()
   await relay.stop()
