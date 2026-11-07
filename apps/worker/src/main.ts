@@ -7,7 +7,7 @@
 import { join, resolve } from 'node:path'
 import { ResendEmailTransport } from '@gow/channels'
 import { BUSINESS_TIME_ZONE, calendarToday } from '@gow/contracts'
-import { connect, databaseUrl } from '@gow/db'
+import { connect, databaseUrl, loadActivePrompts } from '@gow/db'
 import { CachedClassifier, CachingStructuredLlm, createClassifier, createLimiter, createTransactionClassifier, JsonFileCache, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, readGoogleEnv, RecordingStructuredLlm, type CacheMode } from '@gow/llm'
 import { Writer } from '@gow/mastra'
 import { LocalDocumentStorage, startQueue } from '@gow/platform'
@@ -15,6 +15,7 @@ import { startHealthListener } from '@gow/platform/health'
 import { PostgresStore } from '@mastra/pg'
 import { HaikuInterpreter } from './interpret.ts'
 import { DbLlmExchangeSink } from './llm-exchanges.ts'
+import { startPromptRefresh } from './prompts.ts'
 import { startWorker } from './worker.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
@@ -44,6 +45,8 @@ const llm = new RecordingStructuredLlm(
   new DbLlmExchangeSink(business.db),
   { onError: (m) => { log('error', m) } },
 )
+// Prompts: la versión activa de cada uno sale de la base y se refresca sola (ADR 0065); sin base, de prompts/.
+const prompts = await startPromptRefresh({ load: () => loadActivePrompts(business.db), logger: { info: (m) => { log('info', m) }, error: (m) => { log('error', m) } } })
 const mastraStore = new PostgresStore({ id: 'gow-full', connectionString: databaseUrl('mastra'), schemaName: 'mastra' })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } })
 const email = env.RESEND_API_KEY && env.RESEND_FROM ? new ResendEmailTransport({ apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM }) : undefined
@@ -78,6 +81,7 @@ log('info', `worker listo${selfRegistration ? ' · registro de proveedores por W
 
 const shutdown = async () => {
   await worker.stop()
+  prompts.stop()
   await boss.stop()
   await mastraStore.close()
   await business.close()
