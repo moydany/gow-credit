@@ -1,0 +1,66 @@
+# Demo on Railway (docs/deploy.md, "Demo en Railway"). Runs when `ci` finishes green on main and
+# ships that same commit to the three Railway services with infra/railway/deploy.sh, so the demo is
+# never ahead of CI and never behind main. A red CI deploys nothing.
+#
+# Needs one repository secret, RAILWAY_TOKEN: a project token of the `production` environment
+# (Railway > project > Settings > Tokens). Service secrets never pass through GitHub; they live in
+# the Railway variables. By hand, from a linked checkout: `sh infra/railway/deploy.sh`.
+# Actions are pinned by SHA; the comment is the version.
+name: railway
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One demo deploy at a time; a second push waits instead of cancelling a migration half-way.
+concurrency:
+  group: railway-demo
+  cancel-in-progress: false
+
+env:
+  # Pinned Railway CLI; the same version the scripts in infra/railway/ were written against.
+  RAILWAY_CLI_VERSION: 5.71.0
+
+jobs:
+  deploy:
+    name: demo en Railway
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verificar el token
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Falta el secreto RAILWAY_TOKEN (token de proyecto de Railway); sin él la demo no se actualiza."
+            exit 1
+          fi
+      # The exact commit CI approved, not whatever main points to by now.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.17.0
+      - name: Instalar la CLI de Railway
+        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+      # deploy.sh sends `app` first (its pre-deploy runs roles and migrations), then web and whatsapp.
+      - name: Desplegar app, web y whatsapp
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          sh infra/railway/deploy.sh HEAD
+          {
+            echo "### Demo en Railway"
+            echo
+            echo "- Commit: \`${COMMIT}\`"
+            echo "- Servicios: app, web, whatsapp (el avance se sigue en el panel de Railway)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -321,6 +321,10 @@ Railway está en `infra/railway/`.
    - `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `RESEND_API_KEY` y `RESEND_FROM` (`Nombre <correo@dominio>`).
 5. `sh infra/railway/deploy.sh`: sube el commit (`git archive`, nada sin versionar) a `app`, `web` y
    `whatsapp`. El pre-deploy de `app` corre `db:roles` y `db:migrate`.
+   Desde el 2026-11-07 lo mismo lo hace `.github/workflows/railway.yml` en cada push a `main` cuyo
+   `ci` termina en verde: descarga ese commit y corre `deploy.sh`. Necesita el secreto de repositorio
+   `RAILWAY_TOKEN` (token de proyecto del entorno `production`, Railway → Settings → Tokens); los
+   secretos de los servicios siguen en las variables de Railway y no pasan por GitHub.
 6. Auth: `sh infra/railway/supabase-auth.sh` lo aplica todo por la Management API con un token personal
    de Supabase (el MCP de Supabase no cambia la configuración de Auth). A mano, en el panel:
    - Authentication → Hooks → Customize Access Token (JWT) Claims: Postgres, `app.custom_access_token_hook`.
