@@ -71,6 +71,12 @@ function buildPdf(lines: readonly string[], encryption: { user: string; owner: s
     ...(encryptObject ? [encryptObject] : []),
   ]
 
+  const encrypt = encryptObject ? ` /Encrypt ${String(objects.length)} 0 R /ID [<${id.toString('hex')}> <${id.toString('hex')}>]` : ''
+  return serializePdf(objects, encrypt)
+}
+
+/** Numera los objetos, arma la tabla xref y el trailer (`trailerExtra` se añade tras `/Root`). */
+function serializePdf(objects: readonly string[], trailerExtra = ''): Buffer {
   let out = '%PDF-1.4\n'
   const offsets: number[] = []
   objects.forEach((obj, i) => {
@@ -80,8 +86,7 @@ function buildPdf(lines: readonly string[], encryption: { user: string; owner: s
   const xrefOffset = Buffer.byteLength(out, 'latin1')
   out += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`
   for (const off of offsets) out += `${String(off).padStart(10, '0')} 00000 n \n`
-  const encrypt = encryptObject ? ` /Encrypt ${String(objects.length)} 0 R /ID [<${id.toString('hex')}> <${id.toString('hex')}>]` : ''
-  out += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R${encrypt} >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`
+  out += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R${trailerExtra} >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`
   return Buffer.from(out, 'latin1')
 }
 
@@ -134,15 +139,5 @@ export function syntheticStatementPages(pages: readonly (readonly string[])[], o
     objects.push(`<< /Type /Page /Parent 2 0 R${rotate} /MediaBox [0 0 612 792] /Contents ${String(pageObject(i) + 1)} 0 R /Resources << /Font << /F1 ${String(fontObject)} 0 R >> >> >>`)
     objects.push(`<< /Length ${String(Buffer.byteLength(stream, 'latin1'))} >>\nstream\n${stream}\nendstream`)
   })
-  let out = '%PDF-1.4\n'
-  const offsets: number[] = []
-  objects.forEach((obj, i) => {
-    offsets.push(Buffer.byteLength(out, 'latin1'))
-    out += `${String(i + 1)} 0 obj\n${obj}\nendobj\n`
-  })
-  const xrefOffset = Buffer.byteLength(out, 'latin1')
-  out += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`
-  for (const off of offsets) out += `${String(off).padStart(10, '0')} 00000 n \n`
-  out += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`
-  return Buffer.from(out, 'latin1')
+  return serializePdf(objects)
 }
