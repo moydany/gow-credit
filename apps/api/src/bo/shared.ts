@@ -32,6 +32,8 @@ export interface BackofficeDeps {
   sessionIdleHours?: number
   /** Who creates and activates prompt versions (`BACKOFFICE_PROMPT_EDITORS`). */
   promptEditors?: PromptEditors
+  /** `SETUP_PASSWORD`: the first-run wizard asks for it; without it, anyone reaching the page can create the lender. */
+  setupPassword?: string | null
   logger?: { error(message: string): void }
 }
 

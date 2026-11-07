@@ -25,7 +25,7 @@ export function Setup() {
 
   if (me.isPending || (me.isError && config.isPending)) return <Frame step={1}><Skeleton className="mt-8 h-40 rounded-2xl" /></Frame>
   if (me.data) return <WhatsAppStep />
-  if (config.data?.setup_required) return <AccountStep />
+  if (config.data?.setup_required) return <AccountStep needsPassword={config.data.setup_password} />
   if (config.isError) return <Frame step={1}><ErrorState message={config.error.message} onRetry={() => void config.refetch()} /></Frame>
   return <Navigate to="/entrar" />
 }
@@ -73,12 +73,15 @@ function Field({ label, hint, error, children }: { label: string; hint?: string;
   )
 }
 
-function AccountStep() {
+/** `needsPassword`: the installation has `SETUP_PASSWORD` (a shared demo) and the API asks for it. */
+function AccountStep({ needsPassword }: { needsPassword: boolean }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [tried, setTried] = useState(false)
-  const parsed = SetupBody.safeParse({ tenant_name: name, email })
+  const parsed = SetupBody.safeParse({ tenant_name: name, email, ...(needsPassword ? { password } : {}) })
+  const missingPassword = needsPassword && tried && password === '' ? 'Escribe la contraseña de la demo' : undefined
   const issue = (path: string) => (tried && !parsed.success ? parsed.error.issues.find((i) => i.path[0] === path)?.message : undefined)
   const create = useMutation({
     mutationFn: api.setup,
@@ -99,7 +102,7 @@ function AccountStep() {
         onSubmit={(e) => {
           e.preventDefault()
           setTried(true)
-          if (!parsed.success || create.isPending) return
+          if (!parsed.success || create.isPending || (needsPassword && password === '')) return
           create.mutate(parsed.data)
         }}
       >
@@ -109,7 +112,12 @@ function AccountStep() {
         <Field label="Correo del administrador" error={issue('email')}>
           <input type="email" className="input mt-1.5 h-11" placeholder="tu@institucion.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={Boolean(issue('email'))} autoComplete="email" />
         </Field>
-        {create.isError ? (
+        {needsPassword ? (
+          <Field label="Contraseña de la demo" hint="Te la da quien te compartió la demo." error={missingPassword ?? (create.error instanceof ApiError && create.error.status === 403 ? 'Contraseña incorrecta' : undefined)}>
+            <input type="password" className="input mt-1.5 h-11" value={password} onChange={(e) => { setPassword(e.target.value) }} aria-invalid={Boolean(missingPassword)} autoComplete="current-password" />
+          </Field>
+        ) : null}
+        {create.isError && !(create.error instanceof ApiError && create.error.status === 403) ? (
           <p role="alert" className="mt-4 text-[13px] text-coral-ink">
             {create.error instanceof ApiError ? create.error.message : 'No se pudo crear la cuenta'}
           </p>

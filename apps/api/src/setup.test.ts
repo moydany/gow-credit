@@ -27,6 +27,9 @@ describe.skipIf(!available)('Primer inicio (necesita el Postgres de docker compo
   let base = ''
   let serverSb: Server
   let baseSb = ''
+  // The same API with SETUP_PASSWORD, as in the shared demo.
+  let serverPw: Server
+  let basePw = ''
   const ensured: string[] = []
   const AUTH_ID = '5b0e1c52-1a0c-4f0a-9d7e-3f1f6a1e7b11'
   const auth: AuthDirectory = {
@@ -70,11 +73,16 @@ describe.skipIf(!available)('Primer inicio (necesita el Postgres de docker compo
     serverSb.listen(0)
     await new Promise((r) => serverSb.once('listening', r))
     baseSb = `http://127.0.0.1:${String((serverSb.address() as AddressInfo).port)}`
+    serverPw = createServer(createApp({ db: apiDb.db, boss, storage, backofficeJwtSecret: SECRET, setupPassword: 'clave-de-prueba' }))
+    serverPw.listen(0)
+    await new Promise((r) => serverPw.once('listening', r))
+    basePw = `http://127.0.0.1:${String((serverPw.address() as AddressInfo).port)}`
   }, 60_000)
 
   afterAll(async () => {
     await new Promise((r) => server.close(r))
     await new Promise((r) => serverSb.close(r))
+    await new Promise((r) => serverPw.close(r))
     await boss.stop({ graceful: false })
     await admin.end()
     await apiDb.close()
@@ -87,6 +95,22 @@ describe.skipIf(!available)('Primer inicio (necesita el Postgres de docker compo
     expect((await call('POST', '/setup', { body: { ...valid, email: 'no-es-correo' } })).status).toBe(400)
     expect((await call('POST', '/setup', { body: { ...valid, whatsapp_number: '5512345678' } })).status).toBe(400)
     expect((await call('POST', '/setup', { body: { ...valid, tenant_name: 'x' } })).status).toBe(400)
+    expect(await countOf('tenants')).toBe(0)
+  })
+
+  it('con SETUP_PASSWORD, config lo avisa y sin la contraseña correcta no se crea nada', async () => {
+    expect((await call('GET', '/session/config')).json).toMatchObject({ setup_required: true, setup_password: false })
+    expect((await call('GET', '/session/config', { base: basePw })).json).toMatchObject({ setup_required: true, setup_password: true })
+    expect((await call('POST', '/setup', { body: valid, base: basePw })).status).toBe(403)
+    const wrong = await call('POST', '/setup', { body: { ...valid, password: 'otra' }, base: basePw })
+    expect(wrong.status).toBe(403)
+    expect(wrong.json).toMatchObject({ issues: [{ path: 'password' }] })
+    expect(await countOf('tenants')).toBe(0)
+    // The password never reaches the audit log.
+    expect(await countOf('audit_log', "details::text LIKE '%otra%'")).toBe(0)
+    // Brute force: after 10 tries in a minute, 429.
+    for (let i = 0; i < 8; i++) await call('POST', '/setup', { body: { ...valid, password: `x${String(i)}` }, base: basePw })
+    expect((await call('POST', '/setup', { body: { ...valid, password: 'clave-de-prueba' }, base: basePw })).status).toBe(429)
     expect(await countOf('tenants')).toBe(0)
   })
 

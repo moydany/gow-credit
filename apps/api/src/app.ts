@@ -45,6 +45,8 @@ export interface ApiDeps {
   sessionIdleHours?: number
   /** Who creates and activates prompt versions; null: only with a single lender. */
   promptEditors?: PromptEditors
+  /** `SETUP_PASSWORD`: with it, the first-run wizard asks for it before creating the lender. */
+  setupPassword?: string | null
 }
 
 interface Auth {

@@ -230,6 +230,7 @@ export type TenantUserCreated = z.infer<typeof TenantUserCreated>
 export const SessionConfig = z.strictObject({
   magic_link: z.boolean(),
   setup_required: z.boolean().describe('true mientras no exista ningún tenant: el backoffice ofrece el wizard del primer inicio'),
+  setup_password: z.boolean().describe('true si el primer inicio pide la contraseña de la instalación (SETUP_PASSWORD)'),
 })
 export type SessionConfig = z.infer<typeof SessionConfig>
 
@@ -243,6 +244,8 @@ export const SetupBody = z.strictObject({
     .regex(/^\+[1-9]\d{7,14}$/, 'Usa el formato internacional, por ejemplo +5215512345678')
     .nullable()
     .default(null),
+  /** The installation's password (`SETUP_PASSWORD`), when the API asks for one. Never stored or logged. */
+  password: z.string().max(200).optional(),
 })
 export type SetupBody = z.input<typeof SetupBody>
 

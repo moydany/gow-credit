@@ -4,7 +4,7 @@
  * in `withTenant` with the `gow_api` role. Every mutation is audit-logged with the user, and so is
  * viewing a request ("who saw what").
  */
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
 import { ClarificationStatus, CorrectionTarget, MagicLinkBody, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, SetupBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
@@ -42,6 +42,13 @@ const nowSeconds = () => Math.floor(Date.now() / 1000)
 const SESSION_REQUIRED = 'sesión requerida'
 const SET_COOKIE = 'Set-Cookie'
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'error')
+/** Constant-time comparison of the first-run password (hashes first, so lengths don't leak). */
+function samePassword(given: string, expected: string): boolean {
+  const a = createHash('sha256').update(given).digest()
+  const b = createHash('sha256').update(expected).digest()
+  return timingSafeEqual(a, b)
+}
+
 /** A cookie-authenticated write must carry the header: a form on another site cannot set it. */
 function assertCsrf(req: Request): void {
   if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
@@ -80,6 +87,8 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   // Link requests: 429 per IP; per email they are dropped silently (the response is the same).
   const magicLinkPerIp = windowLimiter(5, 60_000)
   const magicLinkPerEmail = windowLimiter(3, 15 * 60_000)
+  // First-run password: a few tries per IP so it can't be guessed by brute force.
+  const setupPerIp = windowLimiter(10, 60_000)
 
   const limits: SessionLimits = { maxSeconds: (deps.sessionMaxHours ?? 12) * 3600, idleSeconds: (deps.sessionIdleHours ?? 8) * 3600 }
 
@@ -238,21 +247,23 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   }
 
   r.get('/session/config', async (_req, res) => {
-    const out: SessionConfig = { magic_link: Boolean(deps.auth), setup_required: await setupPending() }
+    const out: SessionConfig = { magic_link: Boolean(deps.auth), setup_required: await setupPending(), setup_password: Boolean(deps.setupPassword) }
     res.json(out)
   })
 
   /**
    * First run: creates the tenant, its active base policy and its admin, and opens the session
    * with the same cookie as the dev link. Works only while no tenant exists (the database function
-   * decides, with a lock); afterwards it answers 409. Meant for a local install: it asks for no
-   * more proof of who is calling than that.
+   * decides, with a lock); afterwards it answers 409. With `SETUP_PASSWORD` (a shared demo) it
+   * also asks for that password, limited per IP; without it, whoever reaches the page first wins.
    */
   r.post('/setup', async (req, res) => {
     assertCsrf(req)
+    if (deps.setupPassword && !setupPerIp(req.ip ?? 'local')) throw new HttpError(429, 'demasiados intentos; espera un minuto')
     const body = parse(SetupBody, req.body)
     const taken = new HttpError(409, 'el sistema ya tiene una institución crediticia configurada')
     if (!(await setupPending())) throw taken
+    if (deps.setupPassword && !samePassword(body.password ?? '', deps.setupPassword)) throw new HttpError(403, 'contraseña incorrecta', [{ path: 'password', message: 'Contraseña incorrecta' }])
     let userId: string = randomUUID()
     if (deps.auth) {
       // The Auth account is created first, so the email already works with the email link afterwards.

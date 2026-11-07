@@ -58,8 +58,8 @@ describe('Backoffice: enlace de acceso por correo', () => {
   })
 
   it('la configuración dice si hay login por correo', async () => {
-    expect(await (await fetch(`${on.base}/session/config`)).json()).toEqual({ magic_link: true, setup_required: false })
-    expect(await (await fetch(`${off.base}/session/config`)).json()).toEqual({ magic_link: false, setup_required: false })
+    expect(await (await fetch(`${on.base}/session/config`)).json()).toEqual({ magic_link: true, setup_required: false, setup_password: false })
+    expect(await (await fetch(`${off.base}/session/config`)).json()).toEqual({ magic_link: false, setup_required: false, setup_password: false })
   })
 
   it('misma respuesta 202 exista o no la cuenta; el enlace apunta a /entrar del backoffice', async () => {

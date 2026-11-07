@@ -50,6 +50,7 @@ const app = createApp({
   sessionMaxHours: hours('BACKOFFICE_SESSION_MAX_HOURS', 12),
   sessionIdleHours: hours('BACKOFFICE_SESSION_IDLE_HOURS', 8),
   promptEditors: parsePromptEditors(env.BACKOFFICE_PROMPT_EDITORS),
+  setupPassword: env.SETUP_PASSWORD?.trim() || null,
   logger: { error: (m) => { log('error', m) } },
 })
 if (!env.BACKOFFICE_JWT_SECRET) log('info', 'BACKOFFICE_JWT_SECRET sin definir: /bo/v1 (backoffice) deshabilitado')
