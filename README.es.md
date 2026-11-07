@@ -212,7 +212,8 @@ De ahí en adelante, en **Configuración**:
 ## Cómo opera la demo
 
 El prestamista vincula un número y los proveedores le escriben. Cualquier número desconocido puede
-registrarse mandando su estado de cuenta (se apaga con `WHATSAPP_SELF_REGISTRATION=false`).
+registrarse: el bot le pide su nombre y cuánto quiere adelantar, y después su estado de cuenta (se
+apaga con `WHATSAPP_SELF_REGISTRATION=false`).
 
 ```mermaid
 sequenceDiagram
@@ -223,13 +224,17 @@ sequenceDiagram
     actor A as Analista (backoffice)
 
     P->>W: Hola
-    W-->>P: Mándame tu estado de cuenta más reciente en PDF
+    W-->>P: Antes necesito dos datos. Para empezar, ¿cómo te llamas?
+    P->>W: Ana López
+    W-->>P: Mucho gusto, Ana López. ¿Cuánto quieres adelantar? (o "omitir")
+    P->>W: 180 mil
+    W-->>P: Perfecto, reviso tu solicitud de adelanto de $180,000. Ahora mándame tu estado de cuenta en PDF
     P->>W: estado-de-cuenta.pdf
     W-->>P: Recibí tu estado de cuenta y lo estoy leyendo
-    S->>S: Extrae, verifica, arma el perfil
+    S->>S: Extrae, verifica, arma el perfil y decide con el monto
     W-->>P: Está a nombre de X, con RFC Y. ¿Son correctos?
     P->>W: sí
-    opt Un abono dudoso puede cambiar el resultado
+    opt Un abono dudoso o el cliente principal pueden cambiar el resultado
         W-->>P: Pregunta 1 de 2. Abono de $150,000 del 15 de septiembre… 1) Pago de un cliente 2) Préstamo 3) Traspaso entre mis cuentas…
         P->>W: 1, 3
         W-->>P: Esto es lo que entendí… ¿Es correcto?
@@ -237,10 +242,9 @@ sequenceDiagram
         S->>S: Decide con las respuestas
     end
     alt Califica
-        W-->>P: Buenas noticias: calificas hasta por $X. ¿Cuánto quieres adelantar?
-        P->>W: 180 mil
-        S->>S: Vuelve a decidir con el monto, sin llamar a modelos
-        W-->>P: Revisamos tu solicitud de adelanto de $180,000…
+        W-->>P: Buenas noticias: tu solicitud de adelanto de $180,000 está aprobada…
+    else Califica con límite
+        W-->>P: Revisamos tu solicitud de adelanto de $180,000. Podemos adelantarte hasta $X…
     else No califica
         W-->>P: Por ahora no calificas, porque… Si tu situación cambia, mándanos uno más reciente
     else Necesita revisión
@@ -252,6 +256,9 @@ sequenceDiagram
 
 **Lo que hace el bot en cada paso**
 
+- **Saludo.** Pide el nombre de quien escribe y el monto que quiere adelantar ("180000", "180 mil",
+  "1.2 millones" u "omitir"); después, el estado de cuenta. Si el PDF llega antes, lo guarda y lo lee
+  en cuanto tiene los dos datos.
 - **Registro.** Lee el titular y el RFC del estado de cuenta y pide confirmarlos. Si no son
   correctos, pide nombre y RFC; con un RFC de persona moral, también al representante legal. El RFC
   que escribe tiene que empezar como el impreso en el estado de cuenta.
@@ -262,8 +269,10 @@ sequenceDiagram
   (`1, 3`), correcciones libres ("me equivoqué, la 2 era préstamo") y "no sé". Antes de evaluar
   muestra un resumen para confirmar. Lo que las reglas no entienden lo lee Claude Haiku, pero solo
   eligiendo entre las opciones ofrecidas; nunca inventa una respuesta.
-- **Monto.** Primero ofrece la línea máxima y luego pregunta cuánto quiere adelantar ("180000",
-  "180 mil", "1.2 millones" u "omitir"). Más que la línea se vuelve a preguntar.
+- **Monto.** Con el monto del saludo decide una sola vez con ese monto. Si lo omitió, decide con la
+  línea máxima y, si califica, pregunta cuánto quiere adelantar (más que la línea se vuelve a
+  preguntar). Con monto y sin comprador, si saber quién es su cliente principal puede mejorar el
+  resultado, lo pregunta antes de decidir.
 - **Lo que nunca sale por el chat:** saldos, CLABE, ni los motivos internos del motor.
 
 **En el backoffice**

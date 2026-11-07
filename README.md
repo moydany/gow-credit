@@ -210,8 +210,8 @@ From then on, under **Configuración**:
 
 ## How the demo works
 
-The lender links a number, and suppliers message it. Any unknown number can register by sending its
-statement (turn that off with `WHATSAPP_SELF_REGISTRATION=false`).
+The lender links a number, and suppliers message it. Any unknown number can register: the bot asks for their name and how much they want to advance,
+then for their statement (turn that off with `WHATSAPP_SELF_REGISTRATION=false`).
 
 ```mermaid
 sequenceDiagram
@@ -222,13 +222,17 @@ sequenceDiagram
     actor A as Analyst (backoffice)
 
     P->>W: Hi
-    W-->>P: Send me your latest bank statement as a PDF
+    W-->>P: I need two things first. What's your name?
+    P->>W: Ana López
+    W-->>P: Nice to meet you, Ana López. How much would you like to advance? (or "omitir")
+    P->>W: 180k
+    W-->>P: Great, I'll review your $180,000 request. Now send me your bank statement as a PDF
     P->>W: statement.pdf
     W-->>P: Got it, reading it now
-    S->>S: Extract, verify, build the profile
+    S->>S: Extract, verify, build the profile and decide with the amount
     W-->>P: It's in the name of X, RFC Y. Is that right?
     P->>W: yes
-    opt A doubtful deposit could change the outcome
+    opt A doubtful deposit or the main client could change the outcome
         W-->>P: Question 1 of 2. $150,000 deposit on Sep 15… 1) Customer payment 2) Loan 3) Transfer between my accounts…
         P->>W: 1, 3
         W-->>P: Here's what I understood… Is that right?
@@ -236,10 +240,9 @@ sequenceDiagram
         S->>S: Decide with the answers
     end
     alt Qualifies
-        W-->>P: Good news: you qualify for up to $X. How much would you like to advance?
-        P->>W: 180k
-        S->>S: Decide again with the amount, no model calls
-        W-->>P: We reviewed your request for $180,000…
+        W-->>P: Good news: your $180,000 advance request is approved…
+    else Qualifies with a limit
+        W-->>P: We reviewed your $180,000 request. We can advance up to $X…
     else Doesn't qualify
         W-->>P: For now you don't qualify, because… Send a newer statement if things change
     else Needs review
@@ -253,6 +256,9 @@ sequenceDiagram
 
 **What the bot does at each step**
 
+- **Greeting.** It asks for the name of the person writing and the amount to advance ("180000",
+  "180 mil", "1.2 millones" or "omitir"), then for the statement. A PDF that arrives early is kept
+  and read once it has both.
 - **Registration.** It reads the holder and RFC from the statement and asks the supplier to
   confirm. If they're wrong, it asks for name and RFC; for a company RFC it also asks for the legal
   representative. A typed RFC must start like the one printed on the statement.
@@ -263,8 +269,10 @@ sequenceDiagram
   (`1, 3`), free corrections ("my bad, number 2 was a loan") and "I don't know". Before evaluating it
   shows a summary to confirm. What rules can't parse, Claude Haiku reads, but only by picking one of
   the offered options; it never makes up an answer.
-- **Amount.** It offers the maximum line first, then asks how much to advance ("180000", "180 mil",
-  "1.2 millones" or "omitir"). Anything above the line gets asked again.
+- **Amount.** With the amount from the greeting it decides once, with that amount. If they skipped
+  it, it decides with the maximum line and, if they qualify, asks how much to advance (anything above
+  the line gets asked again). With an amount and no buyer, if knowing their main client could improve
+  the result, it asks before deciding.
 - **Never in the chat:** balances, CLABE, or the engine's internal reasons.
 
 **In the backoffice**

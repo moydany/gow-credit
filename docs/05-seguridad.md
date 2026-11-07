@@ -435,3 +435,14 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
 - El PDF no se copia (va su sha256). El mensaje de `LlmCallError` sigue sin contenido; la salida cruda
   viaja aparte, solo hacia esta tabla.
 - Pendiente: retención. Hoy viven lo que vive el proveedor.
+
+### 2026-11-07: nombre y monto antes del estado de cuenta en el registro (ADR 0070)
+
+- El nombre de quien escribe y el monto que pide se guardan en `supplier_registrations`
+  (`contact_name`, `requested_amount`), con la misma RLS forzada. La bitácora no los lleva: el
+  mensaje que trae un PDF antes de tiempo deja solo el id del documento (`document_id`).
+- Un PDF que llega antes del nombre y el monto se valida igual que siempre (tamaño, formato,
+  contraseña) y se guarda en el almacenamiento del tenant con un proveedor sin identidad; el registro
+  lo apunta en `pending_document_id`. Un archivo rechazado no crea proveedor ni se guarda.
+- `app.purge_supplier` borra el registro antes que los documentos, así que la llave a
+  `pending_document_id` no bloquea el borrado del proveedor.
