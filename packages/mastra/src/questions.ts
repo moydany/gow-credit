@@ -69,7 +69,7 @@ function txRows(statements: readonly StatementExtraction[], refs: readonly Trans
 /** Doubtful transactions in one direction, largest first, when the engine asks without naming them. */
 function uncertainRows(statements: readonly StatementExtraction[], decision: Decision, type: 'credit' | 'debit'): TransactionRef[] {
   const min = decision.profile.parameters.min_classification_confidence
-  const ledger = buildLedger(statements, { request: decision.profile.inputs.request, minConfidence: min, accountUse: decision.profile.inputs.declarations.account_use })
+  const ledger = buildLedger(statements, { request: decision.profile.inputs.request, minConfidence: min, accountUse: decision.profile.inputs.declarations.account_use, months: decision.profile.parameters.evaluation_months })
   const uncertain = (r: LedgerRow) => {
     if (r.type !== type || r.internal || !r.verified) return false
     const c = r.classification
@@ -262,9 +262,11 @@ function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classificat
         { name: 'meses_recibidos', value: typeof months === 'number' ? months : null },
         { name: 'meses_requeridos', value: need },
       ]
-      const have = typeof months === 'number' ? `${String(months)} ${months === 1 ? 'mes' : 'meses'} de estados de cuenta` : 'pocos meses de estados de cuenta'
-      const want = need !== null ? `Con ${String(need)} meses` : 'Con más meses'
-      return { ...base, kind: 'documents', facts, text: `Recibimos ${have}. ${want} podemos evaluar mejor tu flujo. ¿Nos envías los estados de cuenta de los meses anteriores?` }
+      const have = typeof months === 'number' ? `${String(months)} ${months === 1 ? 'mes seguido' : 'meses seguidos'} de estados de cuenta` : 'pocos meses de estados de cuenta'
+      // ADR 0072: the months go in a row, and all the PDFs in one send (over WhatsApp, one batch).
+      const want = need !== null ? `los ${String(need)} meses más recientes, seguidos y sin saltarte ninguno` : 'los meses más recientes, seguidos y sin saltarte ninguno'
+      const together = need !== null ? `los ${String(need)} PDF juntos, en un solo envío` : 'todos los PDF juntos, en un solo envío'
+      return { ...base, kind: 'documents', facts, text: `Recibimos ${have}. Para evaluarte necesitamos ${want}. ¿Nos mandas ${together}?` }
     }
     case 'reconciliation_gap':
       return { ...base, kind: 'documents', facts: [], text: 'Los saldos del estado de cuenta no cuadran con sus movimientos. ¿Nos envías el documento completo, tal como lo descargas de tu banco?' }

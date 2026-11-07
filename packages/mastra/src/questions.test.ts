@@ -49,7 +49,8 @@ describe('preguntas nuevas al proveedor', () => {
     const s = structuredClone(synth([{ kind: 'customer_payment', amount: 300000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 50000 }, { kind: 'supplier_payment', amount: 280000, description: 'SPEI ENVIADO OPERADORA DEL VALLE' }]))
     for (const p of s.accounts[0]?.periods ?? []) for (const t of p.transactions) if (t.amount === 280000) t.classification = { category: 'loan_payment', confidence: 0.6, counterparty: null, counterparty_rfc: null, classifier: 'claude-haiku-5-5' }
     const qs = buildQuestions(run(s, buyer), [s])
-    expect(qs.map((q) => q.kind)).toEqual(['charge', 'charge', 'charge'])
+    // Three months; the base evaluates the most recent one (ADR 0072).
+    expect(qs.map((q) => q.kind)).toEqual(['charge'])
     const q = qs[0]
     expect(q?.options).toEqual(CHARGE_OPTIONS)
     expect(q?.text).toMatch(/^Tu estado de cuenta muestra un cargo de \$280,000\.00 el .+ con el concepto "SPEI ENVIADO OPERADORA DEL VALLE"\. ¿Qué fue\?/)

@@ -80,12 +80,14 @@ export function processKey(tenantId: string, sha256: string): string {
   return `${tenantId}:${sha256}:${PROMPTS_VERSION}`
 }
 
-export async function enqueueProcess(boss: PgBoss, job: ProcessJob, sha256: string, priority: number = PRIORITY.process): Promise<string | null> {
-  return boss.send(QUEUES.process, ProcessJob.parse(job), { singletonKey: processKey(job.tenant_id, sha256), priority })
+/** `startAfterSeconds`: the job waits, so PDFs sent together can join the request first (ADR 0072). */
+export async function enqueueProcess(boss: PgBoss, job: ProcessJob, sha256: string, priority: number = PRIORITY.process, startAfterSeconds = 0): Promise<string | null> {
+  return boss.send(QUEUES.process, ProcessJob.parse(job), { singletonKey: processKey(job.tenant_id, sha256), priority, ...(startAfterSeconds > 0 ? { startAfter: startAfterSeconds } : {}) })
 }
 
-export async function enqueueResume(boss: PgBoss, job: ResumeJob): Promise<string | null> {
-  return boss.send(QUEUES.resume, ResumeJob.parse(job), { singletonKey: job.clarification_id, priority: PRIORITY.resume })
+/** `startAfterSeconds`: the resume waits for the other PDFs of the same send (ADR 0072). */
+export async function enqueueResume(boss: PgBoss, job: ResumeJob, startAfterSeconds = 0): Promise<string | null> {
+  return boss.send(QUEUES.resume, ResumeJob.parse(job), { singletonKey: job.clarification_id, priority: PRIORITY.resume, ...(startAfterSeconds > 0 ? { startAfter: startAfterSeconds } : {}) })
 }
 
 export async function enqueueRedecide(boss: PgBoss, job: RedecideJob): Promise<string | null> {

@@ -163,7 +163,7 @@ describe('processApplication', () => {
     expect(second.state?.declarations).toEqual({ buyer: 'Cadena Norte SA de CV', account_use: null, answered: ['main_buyer'] })
     const d = second.state?.decision
     expect(d?.status).toBe('qualified')
-    expect(d?.profile.features.buyer_payments_count).toMatchObject({ value: 6, provenance: 'owner_answer' })
+    expect(d?.profile.features.buyer_payments_count).toMatchObject({ value: 2, provenance: 'owner_answer' })
     expect(d?.explanation?.text).toMatch(/cliente principal que dijo el proveedor/)
   })
 
@@ -326,26 +326,22 @@ describe('processApplication', () => {
     expect(read.state?.decision?.status).toBe('qualified_with_limit')
   })
 
-  it('varios estados de cuenta en un PDF fallan la solicitud, hayan cortado la extracción o no, antes que la clasificación', async () => {
-    const standalone = await startApplication(createRuntime(deps(), db()), input('varios-estados.pdf'))
-    expect(standalone.state?.statements[0]?.extraction.status).toBe('complete')
-    expect(standalone.state?.decision).toBeNull()
-    expect(standalone.state?.failure_reason).toBe('el PDF trae 3 estados de cuenta')
-    expect(standalone.state?.notes).toEqual([])
-    expect(describeFailure(standalone.state?.failure_reason ?? null)).toMatchObject({ kind: 'multiple_statements', documentType: null })
-    // If the issue is not there, there are two.
-    expect((await startApplication(createRuntime(deps(), db()), input('varios-estados-sin-issue.pdf'))).state?.failure_reason).toBe('el PDF trae 2 estados de cuenta')
-    // Full-mode extraction that cut carries its reason: it is not wrapped in "extraction failed".
-    for (const file of ['varios-estados-cortado.pdf', 'varios-estados-y-factura.pdf', 'varios-estados-escaneado.pdf']) {
-      const full = await startApplication(createRuntime(deps(), db()), input(file))
-      expect(full.state?.failure_reason, file).toBe('el PDF trae 2 estados de cuenta')
-      expect(full.state?.decision, file).toBeNull()
-      expect(describeFailure(full.state?.failure_reason ?? null).kind, file).toBe('multiple_statements')
+  it('varios estados de cuenta en un PDF no fallan la solicitud: se evalúa el mes más reciente (ADR 0072)', async () => {
+    for (const file of ['varios-estados.pdf', 'varios-estados-sin-issue.pdf']) {
+      const run = await startApplication(createRuntime(deps(), db()), input(file))
+      expect(run.state?.failure_reason, file).toBeNull()
+      expect(run.state?.decision, file).not.toBeNull()
     }
-    // In the standalone report the request ends failed with that reason.
-    const result = toApplicationResult('varios-estados', standalone.state, { workflow: WORKFLOW_ID, run_id: standalone.runId, status: standalone.status, suspended_step: standalone.suspendedStep }, '2026-10-05T12:00:00.000Z', standalone.error)
-    expect(result.status).toBe('failed')
-    expect(result.failure_reason).toBe('el PDF trae 3 estados de cuenta')
+    // An extraction that was cut for that reason (rejectMultipleStatements) keeps its own reason.
+    for (const file of ['varios-estados-cortado.pdf', 'varios-estados-escaneado.pdf']) {
+      const cut = await startApplication(createRuntime(deps(), db()), input(file))
+      expect(cut.state?.failure_reason, file).toBe('el PDF trae 2 estados de cuenta')
+      expect(cut.state?.decision, file).toBeNull()
+      expect(describeFailure(cut.state?.failure_reason ?? null).kind, file).toBe('multiple_statements')
+    }
+    // Cut early and not a statement: the classification is the reason.
+    const invoice = await startApplication(createRuntime(deps(), db()), input('varios-estados-y-factura.pdf'))
+    expect(describeFailure(invoice.state?.failure_reason ?? null).kind).toBe('not_bank_statement')
   })
 
   it('con el ajuste del tenant, un estado viejo se analiza con advertencia; sin él, se pide uno reciente', async () => {

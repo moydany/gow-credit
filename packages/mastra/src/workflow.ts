@@ -10,7 +10,7 @@
  * Dependencies enter through the factory so tests use doubles with no network.
  */
 import { resolve } from 'node:path'
-import { Decision, emptyExternalSnapshot, extractionFailure, multipleStatementsFailure, NO_DECLARATIONS, notBankStatementReason, type ExternalSnapshot, type HolderType, type Question, type StatementExtraction } from '@gow/contracts'
+import { Decision, emptyExternalSnapshot, extractionFailure, NO_DECLARATIONS, notBankStatementReason, type ExternalSnapshot, type HolderType, type Question, type StatementExtraction } from '@gow/contracts'
 import { applyOwnerAnswers, decide, maxLine, RULES_VERSION, transactionsForModel, withContradictions, withModelLabels } from '@gow/decision'
 import { classifyTransactionRows, type Limiter, type TransactionClassifier } from '@gow/llm'
 import { createStep, createWorkflow } from '@mastra/core/workflows'
@@ -187,13 +187,14 @@ export function decideState(state: AppState, external: ExternalSnapshot): AppSta
   if (state.failure_reason !== null) return state
   const { input } = state
   const age = input.statement_age ? { statementAge: input.statement_age } : {}
-  const run = (request: AppState['input']['request']) =>
+  const run = (request: AppState['input']['request'], askMainBuyer = true) =>
     withContradictions(
       decide({
         policy: input.policy,
         policyId: input.policy_id,
         statements: state.statements,
         request,
+        askMainBuyer,
         supplier: state.supplier,
         declarations: state.declarations,
         external,
@@ -211,7 +212,8 @@ export function decideState(state: AppState, external: ExternalSnapshot): AppSta
   const lineAtStart = noAmount ? maxLine(input.policy, decision.profile, age) : null
   if (noAmount && FINAL.has(decision.status)) {
     if (lineAtStart !== null) {
-      const atLine = run({ amount: lineAtStart.amount, maturity: input.request?.maturity ?? null, buyer: input.request?.buyer ?? null })
+      // The request at the line is ours: with no request from the supplier, no main buyer is asked.
+      const atLine = run({ amount: lineAtStart.amount, maturity: input.request?.maturity ?? null, buyer: input.request?.buyer ?? null }, input.request !== null)
       decision = Decision.parse({ ...atLine, reasons: [{ code: 'evaluated_at_max_line', message: `Sin monto solicitado: se evaluó con la línea máxima (${pesos(lineAtStart.amount)}), el mayor monto que la política aprueba con este perfil.`, features: ['requested_amount'] }, ...atLine.reasons] })
     } else if (decision.status === 'not_qualified') {
       decision = Decision.parse({ ...decision, reasons: [{ code: 'no_amount_no_line', message: 'Sin monto solicitado: con ningún monto la política aprueba este perfil.', features: ['requested_amount'] }, ...decision.reasons] })
@@ -249,20 +251,28 @@ export function createProcessApplication(deps: WorkflowDeps) {
     inputSchema: AppInput,
     outputSchema: AppState,
     execute: async ({ inputData }) => {
-      const s = await deps.extract(inputData.pdf_path)
+      const all: StatementExtraction[] = []
+      for (const path of [inputData.pdf_path, ...(inputData.extra_pdf_paths ?? [])]) all.push(await deps.extract(path))
+      const [s, ...extras] = all
+      if (!s) throw new Error('la solicitud no trae documento')
       // Classification only fails the request when extraction did not happen: full mode's early
       // cut returns `failed` with the flag and fails for not being a statement, not for extraction.
       // Any other failure is the extraction's (a password-protected or illegible scanned PDF says
       // so). A finished extraction (`complete` or `partial`) continues to profile and verdict even
       // if the classifier did not call it a statement: it only leaves a note.
       const cutBeforeExtracting = s.extraction.status === 'failed' && s.flags.includes('not_a_bank_statement')
-      // Several statements in one PDF are rejected before any other rule, whether they cut the
-      // extraction (full mode) or not (standalone): each statement is needed in its own file.
-      const failure = multipleStatementsFailure(s) ?? (cutBeforeExtracting ? notBankStatementReason(s.classification.document_type) : extractionFailure(s))
+      // Several statements in one PDF do not fail the request: the profile evaluates only the most
+      // recent month (ADR 0072). An extraction already cut for that reason keeps its own.
+      const first = cutBeforeExtracting ? notBankStatementReason(s.classification.document_type) : extractionFailure(s)
+      // Sent together (ADR 0072): the request fails only if no document is usable; one that is not
+      // is noted and left out, and the history gate asks for the missing months.
+      const usable = all.filter((x) => x.extraction.status !== 'failed')
+      const failure = usable.length > 0 && extras.length > 0 ? null : first
+      const skipped = extras.length > 0 && failure === null ? all.filter((x) => x.extraction.status === 'failed').map((x) => `el documento ${x.document.file_name} no se pudo usar (${x.extraction.failure_reason ?? 'sin detalle'}); se analizan los demás`) : []
       return {
         input: inputData,
-        statements: [s],
-        documents: [documentOf(s, 'submitted')],
+        statements: extras.length > 0 ? usable : [s],
+        documents: all.map((x) => documentOf(x, 'submitted')),
         supplier: inputData.supplier,
         declarations: NO_DECLARATIONS,
         classification: null,
@@ -276,8 +286,8 @@ export function createProcessApplication(deps: WorkflowDeps) {
         contradictions: [],
         rounds: 0,
         failure_reason: failure,
-        calls: extractionCalls(s),
-        notes: failure === null ? classificationNotes(s) : [],
+        calls: all.flatMap(extractionCalls),
+        notes: failure === null ? [...skipped, ...usable.flatMap(classificationNotes)] : [],
       }
     },
   })

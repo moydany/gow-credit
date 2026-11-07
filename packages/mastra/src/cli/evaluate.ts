@@ -42,7 +42,7 @@ import {
 import { z } from 'zod'
 import { OutboxChannel } from '../channels.ts'
 import { pesos } from '../figures.ts'
-import { extractionSummaryCsv, extractionSummaryRows, identityUnverifiable, missingExtractionRow, renderReport, STANDALONE_POLICY_PATH, toApplicationResult, type ExtractionSummaryRow, type RunInfo } from '../report.ts'
+import { extractionSummaryCsv, extractionSummaryRows, identityUnverifiable, missingExtractionRow, renderReport, STANDALONE_POLICY_PATH, THREE_MONTHS_POLICY_PATH, toApplicationResult, type ExtractionSummaryRow, type RunInfo } from '../report.ts'
 import { createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type RunOutcome } from '../runtime.ts'
 import type { AppInput } from '../state.ts'
 import { Writer } from '../writer.ts'
@@ -68,14 +68,34 @@ function fail(message: string, code = 64): never {
   process.exit(code)
 }
 
-function collectPdfs(inputs: string[]): string[] {
-  const out: string[] = []
+/** One request: its id and its PDFs (more than one when they are sent together). */
+interface Group {
+  id: string
+  pdfs: string[]
+}
+
+const isPdf = (f: string) => f.toLowerCase().endsWith('.pdf')
+
+/**
+ * Each PDF is a request; a subfolder of a given folder is one request with all its PDFs, as if they
+ * were sent together (the three months of a policy with `history.months: 3`, ADR 0072).
+ */
+function collectGroups(inputs: string[]): Group[] {
+  const out: Group[] = []
   for (const input of inputs) {
     const p = resolve(USER_CWD, input)
     if (!existsSync(p)) fail(`No existe: ${input}`)
-    if (statSync(p).isDirectory()) {
-      for (const f of readdirSync(p).sort()) if (f.toLowerCase().endsWith('.pdf')) out.push(join(p, f))
-    } else out.push(p)
+    if (!statSync(p).isDirectory()) {
+      out.push({ id: basename(p).replace(/\.pdf$/i, ''), pdfs: [p] })
+      continue
+    }
+    for (const f of readdirSync(p).sort()) {
+      const child = join(p, f)
+      if (statSync(child).isDirectory()) {
+        const pdfs = readdirSync(child).sort().filter(isPdf).map((x) => join(child, x))
+        if (pdfs.length > 0) out.push({ id: f, pdfs })
+      } else if (isPdf(f)) out.push({ id: f.replace(/\.pdf$/i, ''), pdfs: [child] })
+    }
   }
   return out
 }
@@ -229,7 +249,9 @@ function printRow(r: Row): void {
 
 const USAGE = `uso: pnpm run evaluate <carpeta|pdf>... [opciones]
 
-Evalúa cada PDF (extracción, perfil, política, aclaración) y escribe en la carpeta de salida
+Evalúa cada PDF (extracción, perfil, política, aclaración). Una subcarpeta dentro de la carpeta es
+una sola solicitud con todos sus PDFs, como si llegaran juntos: los 3 meses de una política con
+history.months 3. Escribe en la carpeta de salida
 <id>.extraction.json, <id>.result.json, <id>.md, summary.md, summary.json, extraction-summary.json,
 extraction-summary.csv (encabezado de cada documento y cuenta, para contrastar con una verdad de
 referencia) y, si alguna solicitud quedó pausada, answers.template.json. La consola nunca muestra
@@ -238,7 +260,9 @@ datos del documento.
 Opciones:
   --out <dir>             Carpeta de salida (por defecto data/out/evaluate)
   --policy <archivo|base> Política del tenant. Por defecto ${STANDALONE_POLICY_PATH}:
-                          la plantilla base sin la compuerta de antigüedad del estado de cuenta. "base" usa la plantilla base tal cual, con esa compuerta.
+                          la plantilla base sin la compuerta de antigüedad del estado de cuenta; evalúa
+                          solo el mes más reciente. ${THREE_MONTHS_POLICY_PATH}
+                          evalúa 3 meses seguidos. "base" usa la plantilla base tal cual, con esa compuerta.
   --as-of <AAAA-MM-DD>    Fecha de cálculo del perfil (por defecto hoy): contra ella se mide la
                           antigüedad del estado de cuenta (document_age_days). La política por
                           defecto no se detiene por esa antigüedad; la plantilla base
@@ -339,14 +363,15 @@ async function main(): Promise<void> {
     join(outDir, '.state', 'mastra.db'),
   )
 
-  const pdfs = collectPdfs(positionals)
+  const groups = collectGroups(positionals)
   const rows: Row[] = []
   const summaryRows: ExtractionSummaryRow[] = []
   const pending: Record<string, { round: number; answers: Record<string, unknown>[] }> = {}
   let failures = 0
 
-  for (const pdf of pdfs) {
-    const id = basename(pdf).replace(/\.pdf$/i, '')
+  for (const { id, pdfs } of groups) {
+    const [pdf, ...extra] = pdfs
+    if (!pdf) continue
     const resultPath = join(outDir, `${id}.result.json`)
     const previous = existsSync(resultPath) ? ApplicationResult.safeParse(JSON.parse(readFileSync(resultPath, 'utf8'))) : null
     const prevResult = previous?.success ? previous.data : null
@@ -375,7 +400,7 @@ async function main(): Promise<void> {
       }
     } else {
       const spec = requestFor(id)
-      const input: AppInput = { application_id: id, pdf_path: pdf, as_of: asOf, request: toRequest(spec), supplier: toSupplier(spec), policy: policy.policy, policy_id: policy.id }
+      const input: AppInput = { application_id: id, pdf_path: pdf, ...(extra.length > 0 ? { extra_pdf_paths: extra } : {}), as_of: asOf, request: toRequest(spec), supplier: toSupplier(spec), policy: policy.policy, policy_id: policy.id }
       // New run: exchanges from a previous run (--force) are not mixed in.
       rmSync(exchanges.pathFor(id), { force: true })
       outcome = await inScope(() => startApplication(wf, input))

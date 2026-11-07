@@ -19,7 +19,7 @@ const indebted = syntheticStatement(
   'x1',
 )
 const healthy = syntheticStatement(
-  { start: '2026-07-01', opening_balance: 20000, months: 3, monthly: [{ kind: 'customer_payment', amount: 180000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 60000 }] },
+  { start: '2026-07-01', opening_balance: 20000, months: 3, monthly: [{ kind: 'customer_payment', amount: 180000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 60000 }] },
   holder,
   'x2',
 )

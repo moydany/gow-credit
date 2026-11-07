@@ -32,6 +32,8 @@ const STATUS_TEXT: Record<ApplicationStatus, string> = {
 
 /** Default policy of `evaluate`: the base template without the statement-age gate. */
 export const STANDALONE_POLICY_PATH = 'policies/examples/standalone-evaluation.v1.json'
+/** The same policy evaluating three months in a row (ADR 0072). */
+export const THREE_MONTHS_POLICY_PATH = 'policies/examples/standalone-tres-meses.v1.json'
 
 /** The identity gate blocked for lack of anything to compare with (not because of a mismatch). */
 export function identityUnverifiable(result: ApplicationResult): boolean {
@@ -168,7 +170,7 @@ function classificationSection(state: AppState): string[] {
   if (!c) return []
   const who = c.implementation === 'jev' ? `Jev (\`${c.model ?? ''}\`)` : c.implementation === 'claude' ? `Haiku (\`${c.model ?? ''}\`)${c.fallback ? ', respaldo porque no hay llave de Jev' : ''}` : 'solo reglas'
   const out = ['', '## Clasificación de movimientos', '', `Reglas \`${c.rules_version}\` y ${who}. ${String(c.transactions)} movimientos; ${String(c.sent_to_model)} sin regla confiable fueron al modelo y ${String(c.classified_by_model)} recibieron etiqueta.${c.error ? ` ${c.error}.` : ''}`, '']
-  const ledger = buildLedger(state.statements, { request: state.input.request, minConfidence: state.decision?.profile.parameters.min_classification_confidence ?? 0.7 })
+  const ledger = buildLedger(state.statements, { request: state.input.request, minConfidence: state.decision?.profile.parameters.min_classification_confidence ?? 0.7, months: state.decision?.profile.parameters.evaluation_months ?? 1 })
   const by = new Map<string, { n: number; credits: number; debits: number; low: number }>()
   for (const r of ledger.rows) {
     const key = r.internal ? 'traspaso interno' : r.classification.category
