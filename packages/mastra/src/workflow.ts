@@ -54,6 +54,11 @@ function classificationNotes(s: StatementExtraction): string[] {
   return []
 }
 
+/** ¿Alguna respuesta de esta ronda trae un documento para la pregunta de páginas faltantes? */
+function answeredMissingPages(state: AppState): boolean {
+  return state.answers.some((a) => a.kind === 'documents' && state.questions.some((q) => q.id === a.question_id && q.topic === 'missing_pages'))
+}
+
 function documentOf(s: StatementExtraction, origin: 'submitted' | 'owner_answer'): AppState['documents'][number] {
   return { file_name: s.document.file_name, sha256: s.document.sha256, extraction_status: s.extraction.status, origin }
 }
@@ -300,6 +305,13 @@ export function createProcessApplication(deps: WorkflowDeps) {
           else extracted.push(s)
         }
         const c = await classifyStatements(deps, state, extracted)
+        // El PDF completo que contesta `missing_pages` reemplaza al incompleto (ADR 0058): si se quedaran los
+        // dos, el perfil vería las páginas faltantes del viejo y el periodo repetido, y volvería a preguntar.
+        if (c.statements.length > 0 && answeredMissingPages(state)) {
+          const replaced = statements.filter((s) => s.flags.includes('pages_missing'))
+          statements = statements.filter((s) => !s.flags.includes('pages_missing'))
+          if (replaced.length > 0) notes.push(`${String(replaced.length)} documento(s) con páginas faltantes se reemplazaron por el PDF completo de la respuesta`)
+        }
         statements = [...statements, ...c.statements]
         classification = c.summary
         calls = [...calls, ...c.calls]

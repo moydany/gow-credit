@@ -73,6 +73,15 @@ DOCS['varios-estados-y-factura.pdf'] = { ...DOCS['varios-estados-cortado.pdf'], 
 // Escaneado que la visión leyó en parte y cortó por sus dos CFDI: no es "escaneado ilegible".
 DOCS['varios-estados-escaneado.pdf'] = { ...DOCS['varios-estados-cortado.pdf'], document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, flags: ['vision_only', 'multiple_statements'] }
 
+// Página faltante (ADR 0057 y 0058): la compuerta pregunta `missing_pages`; el PDF completo de la respuesta
+// reemplaza al incompleto. Otro sha256 para que no cuente como el mismo documento.
+DOCS['sin-pagina.pdf'] = {
+  ...CLARO,
+  document: { ...CLARO.document, sha256: 'b'.repeat(64) },
+  flags: ['pages_missing'],
+  issues: [{ id: 'i91', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } }],
+}
+
 function deps(channel = new MemoryChannel(), classifier: TransactionClassifier | null = null): WorkflowDeps {
   return {
     extract: (path) => {
@@ -121,6 +130,26 @@ describe('processApplication', () => {
     // Lo enviado sobrevive a la reanudación en otro proceso.
     expect(second.state?.asked).toEqual(first.state?.questions)
     expect(second.state?.calls).toEqual(first.state?.calls)
+  })
+
+  it('con una página faltante pide el PDF completo y, al llegar, reemplaza al incompleto', async () => {
+    const file = db()
+    const first = await startApplication(createRuntime(deps(), file), input('sin-pagina.pdf'))
+    expect(first.status).toBe('suspended')
+    expect(first.state?.decision?.status).toBe('needs_clarification')
+    const q = first.state?.questions[0]
+    expect(q).toMatchObject({ kind: 'documents', topic: 'missing_pages' })
+    expect(q?.text).toMatch(/la 2 de 3/)
+    const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: q?.id ?? 'q1', kind: 'documents', paths: ['/docs/claro.pdf'] }], base_dir: null })
+    expect(second.error).toBeNull()
+    expect(second.status).toBe('success')
+    // Solo queda el documento completo: el perfil ya no ve páginas faltantes y el periodo no se duplica.
+    expect(second.state?.statements.map((s) => s.document.sha256)).toEqual([CLARO.document.sha256])
+    expect(second.state?.documents.map((d) => d.origin)).toEqual(['submitted', 'owner_answer'])
+    expect(second.state?.notes.some((n) => n.includes('se reemplazaron por el PDF completo'))).toBe(true)
+    const d = second.state?.decision
+    expect(d?.profile.features.document_pages_missing.value).toBe(false)
+    expect(d?.status).not.toBe('needs_clarification')
   })
 
   it('sin comprador pregunta por el cliente principal y usa la respuesta como comprador (ADR 0050)', async () => {
