@@ -1,9 +1,8 @@
 #!/bin/sh
-# Genera una contraseña por rol de base y la guarda en las variables del servicio `app` de Railway
-# (ADR 0068), sin imprimirla. El siguiente despliegue de `app` se las pone a los roles en Supabase
-# (infra/railway/predeploy.sh). Volver a correrlo las rota todas.
+# Generates one password per database role and stores it in the Railway `app` variables without
+# printing it. The next `app` deploy applies them in Supabase (predeploy.sh). Rerunning rotates them all.
 #
-#   sh infra/railway/set-db-passwords.sh            # proyecto y entorno enlazados con `railway link`
+#   sh infra/railway/set-db-passwords.sh            # project and environment from `railway link`
 set -eu
 service=${RAILWAY_APP_SERVICE:-app}
 for role in API WORKER WHATSAPP READONLY QUEUE MASTRA; do

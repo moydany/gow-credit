@@ -1,6 +1,5 @@
-# Backoffice en Railway (ADR 0068). Igual que infra/web/nginx.conf, salvo dos cosas: escucha en ${PORT}
-# y la API está en ${API_UPSTREAM} (host.railway.internal:puerto), que se resuelve en cada petición
-# con el DNS interno de Railway: así nginx arranca aunque la API todavía no exista.
+# Backoffice on Railway. Same as infra/web/nginx.conf except it listens on the Railway port and finds
+# the API through Railway's internal DNS on every request, so nginx starts even before the API exists.
 server {
   listen ${PORT};
   listen [::]:${PORT};
@@ -15,8 +14,8 @@ server {
   add_header Referrer-Policy "no-referrer" always;
   add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 
-  # Todo lo del backoffice va a la API: la cookie de sesión es del mismo origen. Con una variable en
-  # proxy_pass y sin URI, nginx manda la ruta original completa.
+  # Backoffice calls go to the API on the same origin, so the session cookie works. With a variable
+  # in proxy_pass and no URI, nginx forwards the full original path.
   location /bo/ {
     set $api_upstream http://${API_UPSTREAM};
     proxy_pass $api_upstream;
@@ -27,7 +26,7 @@ server {
     client_max_body_size 5m;
   }
 
-  # pdf.js arranca su worker como .mjs y este nginx no conoce ese tipo.
+  # pdf.js loads its worker as .mjs, a type this nginx doesn't know.
   location ~* \.mjs$ {
     default_type text/javascript;
     expires max;

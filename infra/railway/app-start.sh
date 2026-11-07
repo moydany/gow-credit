@@ -1,11 +1,10 @@
 #!/bin/sh
-# Servicio `app` en Railway (ADR 0068): la API y el worker en el mismo contenedor porque comparten el
-# disco de los documentos (LocalDocumentStorage) y en Railway un volumen se monta en un solo servicio.
-# Si cualquiera de los dos termina, termina el contenedor y Railway lo reinicia completo.
+# Railway `app` service: API and worker in one container, because they share the document disk and a
+# Railway volume mounts on a single service. If either exits, the container exits and Railway restarts it.
 set -u
 tsx=./node_modules/.bin/tsx
 
-# Sin PORT, el worker no abre su listener de salud: el puerto es de la API.
+# No PORT for the worker, so it skips its health listener; the port belongs to the API.
 env -u PORT "$tsx" apps/worker/src/main.ts &
 worker=$!
 "$tsx" apps/api/src/main.ts &

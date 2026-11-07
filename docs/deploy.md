@@ -284,7 +284,7 @@ Dos de los tres se cerraron al integrar el pipeline; el tercero sigue en "Falta 
 Son precios de lista a la fecha del documento. Se verifican antes de comprometer un
 presupuesto.
 
-## Demo en Railway (ADR 0068)
+## Demo en Railway
 
 Para que una persona pruebe el backoffice con su correo, sin el pipeline de Cloud Run: base y Auth en
 Supabase (`gow-demo`, `us-west-2`) y los procesos en Railway (`gow-credit`, `us-west2`). Todo lo de
@@ -334,4 +334,4 @@ Railway está en `infra/railway/`.
 8. Probar el acceso con un correo propio antes de dar de alta a la persona.
 
 Huecos de la demo: TLS hacia Supabase sin verificar el certificado, API y worker escalan juntos y
-`WHATSAPP_SELF_REGISTRATION` queda con su valor por defecto (encendido, ADR 0062).
+`WHATSAPP_SELF_REGISTRATION` queda con su valor por defecto (encendido).

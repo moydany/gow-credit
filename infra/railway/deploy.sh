@@ -1,10 +1,10 @@
 #!/bin/sh
-# Despliega en Railway (ADR 0068) exactamente un commit, no la carpeta de trabajo: `git archive` deja
-# fuera lo que no está versionado (data/, .env, cambios sin commit). Sin argumentos, HEAD y los tres
-# servicios; `app` primero, porque su pre-deploy aplica las migraciones.
+# Deploys one commit to Railway, never the working folder: `git archive` leaves out anything
+# unversioned (data/, .env, uncommitted changes). Defaults to HEAD and all three services, `app` first
+# because its pre-deploy runs the migrations.
 #
 #   sh infra/railway/deploy.sh                 # HEAD → app, web, whatsapp
-#   sh infra/railway/deploy.sh HEAD app web    # solo esos
+#   sh infra/railway/deploy.sh HEAD app web    # only those
 set -eu
 ref=${1:-HEAD}
 [ $# -gt 0 ] && shift

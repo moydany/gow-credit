@@ -2,8 +2,8 @@
 /**
  * `pnpm -F @gow/db db:roles`: on a hosted Postgres (Supabase), gives each process role LOGIN with the
  * password in GOW_DB_PASSWORD_<ROLE>, creating the role if it doesn't exist, and lets `postgres` SET
- * the pg-boss and Mastra owners so migration 0001 can create their schemas (ADR 0034). Idempotent: on
- * Railway it runs before every migration (ADR 0068). It sends SCRAM verifiers, never the passwords,
+ * the pg-boss and Mastra owners so migration 0001 can create their schemas. Idempotent: on Railway it
+ * runs before every migration. It sends SCRAM verifiers, never the passwords,
  * and prints only role names.
  */
 import pg from 'pg'

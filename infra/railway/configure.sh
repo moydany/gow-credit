@@ -1,8 +1,7 @@
 #!/bin/sh
-# Configura los servicios del proyecto de Railway enlazado (`railway link`) para la demo (ADR 0068):
-# cómo se construye y arranca cada uno. Railway ya no acepta railway.json por servicio y su IaC
-# (.railway/railway.ts) pide un paquete más en el lockfile; esto usa su API pública con el CLI.
-# Idempotente. Las variables y los volúmenes van aparte (docs/deploy.md, "Demo en Railway").
+# Sets how each service of the linked Railway project (`railway link`) builds and starts. Railway no
+# longer reads a per-service railway.json and its IaC needs another lockfile package, so this goes
+# through the public API with the CLI. Idempotent. Variables are set apart (docs/deploy.md).
 #
 #   sh infra/railway/configure.sh
 set -eu
@@ -28,7 +27,7 @@ update() {
   echo "$1 configurado"
 }
 
-# Un volumen por servicio, si todavía no tiene uno en esa ruta (el `railway volume add` del CLI falla).
+# One volume per service unless it already has one at that path (`railway volume add` is broken).
 volume() {
   if railway volume list --json | SERVICE="$1" MOUNT="$2" node -e '
     const v = JSON.parse(require("fs").readFileSync(0, "utf8")).volumes
@@ -44,7 +43,7 @@ volume() {
 volume app /data
 volume whatsapp /data/whatsapp
 
-# API y worker juntos: comparten el disco de los documentos. Antes de arrancar, roles y migraciones.
+# API and worker together, sharing the document disk. Roles and migrations run before start.
 update app '{
   "dockerfilePath": "Dockerfile",
   "preDeployCommand": ["sh infra/railway/predeploy.sh"],
@@ -55,14 +54,14 @@ update app '{
   "multiRegionConfig": { "us-west2": { "numReplicas": 1 } }
 }'
 
-# Backoffice estático; nginx reenvía /bo a app por la red privada.
+# Static backoffice; nginx forwards /bo to app over the private network.
 update web '{
   "dockerfilePath": "infra/railway/web.Dockerfile",
   "restartPolicyType": "ON_FAILURE", "restartPolicyMaxRetries": 5,
   "multiRegionConfig": { "us-west2": { "numReplicas": 1 } }
 }'
 
-# Una sola instancia por número de WhatsApp.
+# Exactly one instance per WhatsApp number.
 update whatsapp '{
   "dockerfilePath": "Dockerfile",
   "restartPolicyType": "ON_FAILURE", "restartPolicyMaxRetries": 5,
