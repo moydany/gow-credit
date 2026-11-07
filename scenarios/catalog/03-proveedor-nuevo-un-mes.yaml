@@ -1,5 +1,5 @@
-# One statement: the profile is healthy, but with one month of history the base policy caps at
-# `qualified_with_limit`; `next_steps` says the cap goes away at 3 months.
+# One statement: the base policy evaluates one month (ADR 0072), so a healthy profile qualifies
+# with no history cap.
 id: proveedor-nuevo-un-mes
 catalog: 3
 title: Proveedor nuevo con un mes de historia
@@ -22,9 +22,8 @@ suppliers:
           - { kind: fee, amount: 580 }
     request: { amount: 100000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
 expect:
-  status: qualified_with_limit
-  limit_min: 70000
-  limit_max: 80000
-  reasons_include: [cap_months_of_history]
-  next_steps_include: [months_of_history]
+  status: qualified
+  limit_min: 140000
+  limit_max: 160000
+  reasons_include: [limit_band]
   features: { months_of_history: 1, buyer_payments_count: 2 }

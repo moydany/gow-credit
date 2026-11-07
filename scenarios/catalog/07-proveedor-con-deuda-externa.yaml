@@ -1,5 +1,6 @@
 # No credit with us, but the statement shows a received loan and payments to another institution:
-# debt service goes up, capacity goes down; bureau confirms open accounts.
+# debt service goes up, capacity goes down; bureau confirms open accounts. The other clients carry
+# their RFC: without the history cap (ADR 0072), unidentified deposits near the band would be asked.
 id: proveedor-con-deuda-externa
 catalog: 7
 title: Proveedor con deuda con otra institución
@@ -15,7 +16,7 @@ suppliers:
         opening_balance: 60000
         monthly:
           - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
-          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: customer_payment, amount: 150000, count: 6, counterparty: Tiendas Dos, counterparty_rfc: TDO850101AB2 }
           - { kind: loan_disbursement, amount: 100000, counterparty: FINANCIERA DEL CENTRO }
           - { kind: supplier_payment, amount: 150000, count: 5 }
           - { kind: payroll, amount: 40000, count: 2 }
@@ -25,7 +26,7 @@ suppliers:
 external:
   bureau: { sup-1: { score: 610, open_accounts: 2 } }
 expect:
-  status: qualified_with_limit
+  status: qualified
   limit_max: 60000
   reasons_include: [limit_debt_capacity]
   features: { new_debt_in_period: 100000, external_debt_signal: 190000 }

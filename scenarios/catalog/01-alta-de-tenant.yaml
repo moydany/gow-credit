@@ -24,8 +24,8 @@ suppliers:
           - { kind: fee, amount: 580 }
     request: { amount: 100000, maturity: 2026-12-15, buyer: Cadena Norte SA de CV }
 expect:
-  status: qualified_with_limit
-  reasons_include: [cap_months_of_history]
+  status: qualified
+  reasons_include: [limit_band]
   full:
-    application_status: qualified_with_limit
+    application_status: qualified
     isolated_from_other_tenant: true

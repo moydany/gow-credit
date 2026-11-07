@@ -1,0 +1,29 @@
+# Policy that evaluates three months in a row (ADR 0072), but only two consecutive months arrive:
+# the request asks for the missing ones instead of deciding. Over WhatsApp, the supplier sends the
+# PDFs together in one send.
+id: tres-meses-falta-uno
+catalog: 29
+title: Política de tres meses con dos meses seguidos
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: policies/examples/gow-base-tres-meses.v1.json }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-08-01
+        months: 2
+        opening_balance: 80000
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+          - { kind: payroll, amount: 40000, count: 2 }
+          - { kind: fee, amount: 580 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+expect:
+  status: needs_clarification
+  clarification_topics: [additional_months]
+  reasons_include: [gate_history_months]
+  features: { months_of_history: 2 }

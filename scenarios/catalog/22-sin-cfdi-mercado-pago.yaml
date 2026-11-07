@@ -1,5 +1,6 @@
 # Statement without CFDI and with a single three-month period (like Mercado Pago): the tax gates
-# pass for lack of data and there is no penalty.
+# pass for lack of data and there is no penalty. The policy evaluates one month: the period is cut
+# to its last month (ADR 0072).
 id: sin-cfdi-mercado-pago
 catalog: 22
 title: Estado de cuenta sin CFDI, un periodo de tres meses
@@ -23,4 +24,4 @@ suppliers:
     request: { amount: 100000, buyer: Cadena Norte SA de CV }
 expect:
   status: qualified
-  features: { months_of_history: 3, fiscal_regime: null, cfdi_sat_status: null, statement_reuse_count: null }
+  features: { months_of_history: 1, fiscal_regime: null, cfdi_sat_status: null, statement_reuse_count: null }

@@ -1,5 +1,5 @@
-# Healthy profile with three months, but the buyer doesn't appear in the statement: at most
-# `qualified_with_limit` (base policy cap).
+# Healthy profile, but the buyer doesn't appear in the statement: at most `qualified_with_limit`
+# (base policy cap). Three months arrive; the base evaluates the most recent one (ADR 0072).
 id: sin-pagos-del-comprador
 catalog: 11
 title: Perfil sano sin pagos del comprador
@@ -25,4 +25,4 @@ expect:
   status: qualified_with_limit
   reasons_include: [cap_buyer_payments_count]
   next_steps_include: [buyer_payments_count]
-  features: { buyer_payments_count: 0, months_of_history: 3 }
+  features: { buyer_payments_count: 0, months_of_history: 1 }

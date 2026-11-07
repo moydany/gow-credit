@@ -1,10 +1,11 @@
-# Three consecutive statements: the history cap goes away and the income trend appears.
+# Three consecutive statements with a policy that evaluates three months (ADR 0072): all three
+# count and the income trend appears.
 id: proveedor-tres-meses
 catalog: 4
 title: Proveedor con tres meses de historia
 modes: [unit]
 as_of: 2026-10-05
-tenant: { name: Fintech Demo, policy: base }
+tenant: { name: Fintech Demo, policy: policies/examples/gow-base-tres-meses.v1.json }
 suppliers:
   - id: sup-1
     name: Distribuidora Luna SA de CV
