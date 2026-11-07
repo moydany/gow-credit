@@ -11,7 +11,7 @@ describe('locate: ubicar el fragmento citado en la capa de texto', () => {
   })
 
   it('si el PDF parte el texto distinto, cae al inicio, al final o al token más largo', () => {
-    // El fragmento citado trae una palabra que la capa de texto no tiene; el inicio sí está.
+    // The cited snippet has a word the text layer lacks; its start is there.
     expect(locate(page, 'PAGO A TERCEROS REF. 0426020100492978 palabra-que-no-esta-en-el-pdf')).not.toBeNull()
     expect(locate(page, 'texto ajeno 0426020100492978')).not.toBeNull()
   })

@@ -1,8 +1,7 @@
 /**
- * Eval de inyección (fase 3): PDFs adversarios sintéticos (src/adversarial.ts). Las respuestas
- * del modelo viven en evals/fixtures/llm-cache, que se versiona porque los documentos son
- * ficticios: CI la reproduce sin llaves. EVAL_LIVE=1 llama al modelo en lo que falte (pagado,
- * centavos; solo a mano).
+ * Injection eval: synthetic adversarial PDFs (src/adversarial.ts). The model responses live in
+ * evals/fixtures/llm-cache, which is versioned because the documents are fictional: CI replays it
+ * without keys. EVAL_LIVE=1 calls the model for whatever is missing (paid, pennies; manual only).
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

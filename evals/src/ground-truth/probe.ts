@@ -1,5 +1,5 @@
-/* eslint-disable no-console -- herramienta local: imprime solo cifras y códigos, sin texto del documento */
-// Uso: pnpm -F @gow/evals exec tsx src/ground-truth/probe.ts <banco> [--rows]
+/* eslint-disable no-console -- local tool: prints only figures and codes, no document text */
+// Usage: pnpm -F @gow/evals exec tsx src/ground-truth/probe.ts <bank> [--rows]
 import { join, resolve } from 'node:path'
 import { BANKS } from './banks.ts'
 import { readLayout } from './layout.ts'

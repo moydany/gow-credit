@@ -1,7 +1,7 @@
 {
   "gt_version": "1.0.0",
   "built_at": "2026-11-04",
-  "location": "data/ground-truth/<documento>.json (no se versiona, ADR 0012)",
+  "location": "data/ground-truth/<documento>.json (no se versiona)",
   "documents": [
     {
       "file": "EDC_01_Inbursa_2025-01.pdf",

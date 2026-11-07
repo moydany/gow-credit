@@ -1,12 +1,12 @@
 /**
- * Eval de extracción contra ground truth (fase 3, docs/04 §6). Cada modelo se reproduce desde
- * la caché de respuestas: CI no llama a ningún modelo. Llenar la caché de un modelo nuevo es
- * una corrida pagada aparte: `pnpm extract data/dev --model <modelo>`.
+ * Extraction eval against ground truth. Each model replays from the response cache: CI calls no
+ * model. Filling the cache for a new model is a separate paid run: `pnpm extract data/dev
+ * --model <model>`.
  *
- * EVAL_MODELS (coma) elige los modelos; por defecto Gemini y Opus, los que tienen caché de los
- * 9 documentos. Sonnet y Haiku se agregan con EVAL_MODELS tras llenar su caché.
- * Los puntajes por documento quedan en data/eval-results/; `src/gate.ts` aplica los umbrales
- * por banco y escribe el reporte.
+ * EVAL_MODELS (comma-separated) picks the models; by default Gemini and Opus, the ones with a
+ * cache for the 9 documents. Sonnet and Haiku are added with EVAL_MODELS once their cache is
+ * filled. Per-document scores go to data/eval-results/; `src/gate.ts` applies the per-bank
+ * thresholds and writes the report.
  */
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -65,7 +65,7 @@ const s = (name: string, f: (x: DocumentScore) => number) => ({ name, scorer: ({
 for (const model of MODELS) {
   evalite<Input, DocumentScore, DocumentScore>(`extracción · ${model}`, {
     data: () => scored(model),
-    // El trabajo (replay y puntaje) se hace en `data`, una vez por documento; la tarea lo entrega.
+    // The work (replay and scoring) happens in `data`, once per document; the task returns it.
     task: (input) => {
       const score = computed.get(keyOf(input))
       if (!score) throw new Error(`sin puntaje para ${input.file}`)

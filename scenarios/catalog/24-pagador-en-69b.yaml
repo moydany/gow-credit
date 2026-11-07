@@ -1,5 +1,5 @@
-# docs/09 §9.4, caso 24. El pagador principal está en la lista 69-B definitiva del SAT (factura
-# operaciones simuladas): no se arregla con flujo → no califica.
+# The main payer is on SAT's definitive 69-B list (invoices simulated operations): no flow fixes
+# it -> not qualified.
 id: pagador-en-69b
 catalog: 24
 title: Pagador principal en 69-B definitivo

@@ -1,20 +1,20 @@
-/* eslint-disable no-console -- CLI: conteos, nombres de archivo y referencias de fila; los valores solo van a data/ */
+/* eslint-disable no-console -- CLI: counts, file names and row references; values only go to data/ */
 /**
- * Muestra del ground truth revisada por una persona (ADR 0001, procedencia `human_review`).
+ * Ground-truth sample reviewed by a person (provenance `human_review`).
  *
  *   pnpm -F @gow/evals gt:review sample [--per-doc 8] [--seed 20261105]
- *   pnpm -F @gow/evals gt:review record [--reviewer <iniciales>]
+ *   pnpm -F @gow/evals gt:review record [--reviewer <initials>]
  *
- * `sample` elige filas por documento (al menos una por página con movimientos, el resto al azar
- * con semilla fija) y escribe en `data/ground-truth/review/` una hoja por documento (`<doc>.md`,
- * con fecha, concepto, monto, sentido y saldo para cotejar contra el PDF) y `review.json`, donde
- * quien revisa marca cada fila `ok: true` o `false`. Esos archivos traen datos del documento y no
- * se versionan.
+ * `sample` picks rows per document (at least one per page with movements, the rest random with a
+ * fixed seed) and writes to `data/ground-truth/review/` one sheet per document (`<doc>.md`, with
+ * date, description, amount, direction and balance to check against the PDF) and `review.json`,
+ * where the reviewer marks each row `ok: true` or `false`. Those files carry document data and
+ * are not versioned.
  *
- * `record` exige todas las filas marcadas y escribe `evals/ground-truth/human-review.json`, que sí
- * se versiona: por documento, el hash del ground truth revisado, cuántas filas, cuántas bien, las
- * referencias de las que no (cuenta, periodo, índice y página; nunca valores), iniciales y fecha.
- * Sale con 1 si alguna fila está mal: el ground truth se corrige antes de seguir midiendo.
+ * `record` requires every row marked and writes `evals/ground-truth/human-review.json`, which is
+ * versioned: per document, the hash of the reviewed ground truth, how many rows, how many right,
+ * references to the wrong ones (account, period, index and page; never values), initials and date.
+ * Exits 1 if any row is wrong: fix the ground truth before measuring further.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -33,7 +33,7 @@ export interface SampledRow {
   tx: GtTransaction
 }
 
-/** PRNG con semilla (mulberry32): la misma semilla da la misma muestra. */
+/** Seeded PRNG (mulberry32): the same seed gives the same sample. */
 export function prng(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -45,7 +45,7 @@ export function prng(seed: number): () => number {
   }
 }
 
-/** Una fila por página primero (en orden de página) y luego al azar hasta `perDoc`. */
+/** One row per page first (in page order), then random up to `perDoc`. */
 export function sampleRows(gt: GroundTruth, perDoc: number, seed: number): SampledRow[] {
   const all: SampledRow[] = gt.accounts.flatMap((a) => a.periods.flatMap((p) => p.transactions.map((tx, i) => ({ ref: `${p.key.startsWith(a.key) ? p.key : `${a.key}.${p.key}`}.${String(i)}`, page: tx.page, tx }))))
   const rand = prng(seed ^ parseInt(gt.sha256.slice(0, 8), 16))
@@ -122,7 +122,7 @@ function record(reviewer: string): void {
     console.error(`Faltan ${String(missing.length)} fila(s) por marcar, por ejemplo: ${missing.slice(0, 3).join('; ')}`)
     process.exit(65)
   }
-  // El ground truth no debe haber cambiado entre la muestra y el registro.
+  // The ground truth must not have changed between sampling and recording.
   for (const d of review.documents) {
     const now = createHash('sha256').update(readFileSync(join(GT_DIR, d.file.replace(/\.pdf$/i, '.json')))).digest('hex')
     if (now !== d.gt_sha256) throw new Error(`el ground truth de ${d.file} cambió desde la muestra; vuelve a correr sample`)

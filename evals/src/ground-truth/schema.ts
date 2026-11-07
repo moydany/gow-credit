@@ -1,7 +1,7 @@
 /**
- * Formato del ground truth (fase 3, ADR 0001). Cada valor lleva su procedencia; el ground
- * truth se construye desde la capa de texto y la aritmética del banco, nunca desde la salida
- * del modelo que se va a medir. Los JSON viven en data/ground-truth/ (no se versionan, ADR 0012).
+ * Ground-truth format. Every value carries its provenance; the ground truth is built from the text
+ * layer and the bank's arithmetic, never from the output of the model being measured. The JSON
+ * files live in data/ground-truth/ (not versioned).
  */
 import { z } from 'zod'
 
@@ -10,7 +10,7 @@ export const GT_VERSION = '1.0.0'
 export const GtProvenance = z.enum(['text_layer', 'bank_arithmetic', 'visual_review', 'human_review'])
 export type GtProvenance = z.infer<typeof GtProvenance>
 
-/** Valor con procedencia; `value: null` significa "el documento no lo imprime". */
+/** Value with provenance; `value: null` means "the document doesn't print it". */
 export const gtValue = <T extends z.ZodType>(t: T) =>
   z.strictObject({
     value: t.nullable(),
@@ -26,11 +26,11 @@ const Day = gtValue(z.iso.date())
 export const GtTransaction = z.strictObject({
   page: z.int().min(1),
   date: z.iso.date(),
-  /** Concepto completo: todas las líneas de la fila unidas, sin la columna de referencia. */
+  /** Full description: all the row's lines joined, without the reference column. */
   description: z.string().min(1),
-  /** Primera línea del concepto (lo que cualquier lectura razonable debe incluir). */
+  /** First line of the description (what any reasonable reading must include). */
   description_head: z.string().min(1),
-  /** Referencia o folio cuando el banco la imprime en columna propia; null si no. */
+  /** Reference or folio when the bank prints it in its own column; null otherwise. */
   reference: z.string().nullable(),
   amount: z.number().positive(),
   type: z.enum(['credit', 'debit']),
@@ -50,14 +50,14 @@ export const GtPeriod = z.strictObject({
   total_debits: Num,
   credits_count: Int,
   debits_count: Int,
-  /** Comprobaciones aritméticas que pasó el libro de movimientos del ground truth. */
+  /** Arithmetic checks the ground-truth ledger passed. */
   checks: z.strictObject({
     running_balance: z.enum(['ok', 'not_printed', 'failed']),
     global: z.enum(['ok', 'ok_consolidated', 'failed', 'not_checkable']),
     totals: z.enum(['ok', 'not_printed', 'failed']),
     counts: z.enum(['ok', 'not_printed', 'failed']),
   }),
-  /** Página → cuántas filas tiene; sirve para medir por página y para el reporte. */
+  /** Page -> how many rows it has; used to measure per page and for the report. */
   pages: z.array(z.int().min(1)),
   transactions: z.array(GtTransaction),
 })
@@ -99,7 +99,7 @@ export const GroundTruth = z.strictObject({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   page_count: z.int().min(1),
   bank: z.string(),
-  /** Si entra al umbral de CI: todos sus periodos cierran saldo corrido o totales (ADR 0001). */
+  /** Whether it counts toward the CI threshold: all its periods close on running balance or totals. */
   gated: z.boolean(),
   holder: z.strictObject({ name: Str, rfc: Str }),
   accounts: z.array(GtAccount),
@@ -110,7 +110,7 @@ export const GroundTruth = z.strictObject({
     method: z.string(),
     human_sample: z.string().nullable(),
   }),
-  /** Notas sin datos personales: decisiones de convención, lo que no cuadra y por qué. */
+  /** Notes without personal data: convention decisions, what doesn't reconcile and why. */
   notes: z.array(z.string()),
 })
 export type GroundTruth = z.infer<typeof GroundTruth>

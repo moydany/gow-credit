@@ -1,14 +1,13 @@
 /**
- * Modo `full` de un escenario (docs/06 §1 y §7; ADR 0018): el sistema real de punta a punta sobre
- * una base nueva en el Postgres de docker compose. Corren la API (Express), la cola (pg-boss), el
- * worker (workflow de Mastra con estado en Postgres) y el relay de WhatsApp; lo único simulado es
- * lo externo:
- * - fuentes externas: los dobles de docs/06 §2 con los datos del YAML;
- * - el teléfono del proveedor: un transporte que recibe los mensajes y contesta el guion;
- * - los modelos: la caché fija por hash (data/llm-cache, o la versionada de la eval de inyección);
- *   nunca hay llamadas pagadas. Movimientos solo por reglas y redacción con plantillas.
- * Los estados de cuenta sintéticos se suben como documento `.synthetic.json`, que solo la API y el
- * worker de los escenarios aceptan.
+ * `full` mode of a scenario: the real system end to end on a fresh database in the docker compose
+ * Postgres. The API (Express), queue (pg-boss), worker (Mastra workflow with state in Postgres)
+ * and WhatsApp relay run; only the external parts are simulated:
+ * - external sources: doubles fed with the YAML data;
+ * - the supplier's phone: a transport that receives messages and answers the script;
+ * - models: the fixed per-hash cache (data/llm-cache, or the versioned injection-eval one); never
+ *   a paid call. Movements by rules only, wording from templates.
+ * Synthetic statements are uploaded as a `.synthetic.json` document, which only the scenarios'
+ * API and worker accept.
  */
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
@@ -48,7 +47,7 @@ export interface FullResult {
 
 export type PolicyLoader = (ref: string) => { id: string; policy: Policy }
 
-/** El teléfono del proveedor en el escenario: guarda lo que le llega. */
+/** The supplier's phone in the scenario: stores what it receives. */
 class ScenarioPhone implements WhatsAppTransport {
   readonly inbox = new SimulatedTransport('whatsapp')
   start(): Promise<void> {
@@ -62,7 +61,7 @@ class ScenarioPhone implements WhatsAppTransport {
   }
 }
 
-/** Clasificador de documento desde la caché; si no está, etiqueta fija (la etiqueta no cambia la extracción, ADR 0002). */
+/** Document classifier from the cache; if absent, a fixed label (the label doesn't change the extraction). */
 function scenarioClassifier(dir: string): Classifier {
   const cached = new CachedClassifier(process.env.TYPESAFE_API_KEY ? 'jev' : 'haiku', null, dir)
   const fixed: Classification = { documentType: 'bank_statement', confidence: 1, bank: 'other', textIsReadable: true, containsInstructionsToAi: false, implementation: 'claude', model: 'scenario', fallback: false, usage: ZERO_USAGE, costUsd: 0, latencyMs: 0, promptId: null, responseCacheHit: true }
@@ -146,7 +145,7 @@ export async function runFull(scenario: Scenario, loadPolicy: PolicyLoader, opts
   const checks: Check[] = []
   const phone = new ScenarioPhone()
   try {
-    // ---------- Alta del tenant (escenario 1): política, número, llave; proveedores con contactos.
+    // ---------- Tenant onboarding (scenario 1): policy, number, key; suppliers with contacts.
     const { policy } = loadPolicy(scenario.tenant.policy)
     const tenant = await createTenant(adminDb.db, { name: scenario.tenant.name, whatsappNumber: scenario.tenant.whatsapp_number ?? null, policy })
     const call = async (method: string, path: string, body?: unknown, key = tenant.apiKey) => {
@@ -157,7 +156,7 @@ export async function runFull(scenario: Scenario, loadPolicy: PolicyLoader, opts
     const created = await call('POST', '/v1/suppliers', { external_ref: sup.id, legal_name: sup.name, rfc: sup.rfc, clabes: sup.clabes, contacts: sup.contacts.map((c) => ({ channel: c.channel, address: c.address, verified_by_kyc: c.verified })) })
     if (created.status !== 201) throw new Error(`alta de proveedor: ${String(created.status)}`)
 
-    // ---------- Documento por URL firmada y solicitud.
+    // ---------- Document by signed URL and request.
     const synthetic = sup.statements[0]
     const bytes = synthetic ? Buffer.from(JSON.stringify({ input: synthetic, holder: { name: sup.name, rfc: sup.rfc, clabe: sup.clabes[0] ?? null }, seed: `${scenario.id}-${sup.id}-0` } satisfies SyntheticDocument)) : (pdf as Buffer)
     const up = await call('POST', '/v1/uploads', { synthetic: synthetic !== undefined })
@@ -172,7 +171,7 @@ export async function runFull(scenario: Scenario, loadPolicy: PolicyLoader, opts
     })
     let view = await settled()
 
-    // ---------- Conversación por WhatsApp: el teléfono recibe y contesta el guion.
+    // ---------- WhatsApp conversation: the phone receives and answers the script.
     const supplierPhone = sup.contacts.find((c) => c.channel === 'whatsapp' && c.verified)?.address ?? STRANGER_DEFAULT
     for (const step of scenario.conversation) {
       await deliverPending(waDb.db, tenant.tenantId, phone)
@@ -193,7 +192,7 @@ export async function runFull(scenario: Scenario, loadPolicy: PolicyLoader, opts
     }
     await deliverPending(waDb.db, tenant.tenantId, phone)
 
-    // ---------- Lo que quedó en la base.
+    // ---------- What ended up in the database.
     const status = String(view.status)
     const d = await admin.query<{ payload: unknown }>("SELECT payload FROM app.decisions WHERE application_id = $1 AND kind = 'active' ORDER BY created_at DESC LIMIT 1", [appId])
     const decision = d.rows[0] ? Decision.parse(d.rows[0].payload) : null

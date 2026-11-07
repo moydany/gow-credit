@@ -1,6 +1,6 @@
-# ADR 0050. Un cargo grande que las reglas solo reconocen como "SPEI enviado" (confianza 0.6) se come
-# el flujo libre y no queda línea. Si fuera un traspaso a otra cuenta del titular, calificaría: se
-# pregunta al dueño qué fue ese cargo.
+# A large charge the rules only recognize as "SPEI enviado" (confidence 0.6) eats the free flow and
+# leaves no line. If it were a transfer to another account of the holder, it would qualify: the
+# owner is asked what the charge was.
 id: cargo-grande-dudoso
 catalog: 26
 title: Cargo grande sin clasificar con confianza

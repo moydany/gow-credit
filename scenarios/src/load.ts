@@ -1,4 +1,4 @@
-/** Lectura de escenarios YAML y de políticas desde la raíz del repo. */
+/** Reads scenario YAMLs and policies from the repo root. */
 import { parsePolicy, Scenario, type Policy } from '@gow/contracts'
 import { BASE_POLICY_ID, basePolicyTemplate } from '@gow/decision'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -22,7 +22,7 @@ export function loadCatalog(dir = CATALOG_DIR): Scenario[] {
     .map((f) => loadScenarioFile(join(dir, f)))
 }
 
-/** `base` es la plantilla GOW; cualquier otra cosa es una ruta a un JSON desde la raíz del repo. */
+/** `base` is the GOW template; anything else is a path to a JSON from the repo root. */
 export function loadPolicy(ref: string): { id: string; policy: Policy } {
   if (ref === 'base') return { id: BASE_POLICY_ID, policy: basePolicyTemplate() }
   const path = resolve(REPO_ROOT, ref)

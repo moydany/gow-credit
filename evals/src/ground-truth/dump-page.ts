@@ -1,5 +1,5 @@
-/* eslint-disable no-console -- herramienta local para escribir parsers: imprime texto del documento, nunca se usa en CI ni en logs */
-// Uso: pnpm -F @gow/evals exec tsx src/ground-truth/dump-page.ts <pdf> <página> [desde] [hasta]
+/* eslint-disable no-console -- local tool for writing parsers: prints document text, never used in CI or logs */
+// Usage: pnpm -F @gow/evals exec tsx src/ground-truth/dump-page.ts <pdf> <page> [from] [to]
 import { readLayout } from './layout.ts'
 
 const [path, pageArg, from, to] = process.argv.slice(2)

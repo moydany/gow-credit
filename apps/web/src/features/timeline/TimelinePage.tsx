@@ -53,14 +53,14 @@ const Glyph = ({ kind }: { kind: 'play' | 'pause' }) => (
 
 function TimelineView({ timeline }: { timeline: ApplicationTimeline }) {
   const reduced = useMemo(prefersReducedMotion, [])
-  // Sin autoplay con movimiento reducido ni mientras la solicitud sigue viva (el recorrido crece).
+  // No autoplay with reduced motion or while the request is still live (the journey keeps growing).
   const live = !['qualified', 'qualified_with_limit', 'not_qualified', 'failed'].includes(timeline.status)
   const pb = usePlayback(timeline, !reduced && !live)
   const { seek, toggle, nextChapter, prevChapter } = pb
   const [pinned, setPinned] = useState<Selection | null>(null)
 
   const layout = useMemo(() => sceneLayout(timeline), [timeline])
-  // Lo que dura "un instante" en pantalla: casi un segundo de reproducción, en tiempo real del tramo actual.
+  // How long "an instant" lasts on screen: almost a second of playback, in real time of the current span.
   const linger = Math.min(Math.max(pb.axis.msPerUnit(pb.t) * 0.9, 400), 6000)
   const state = useMemo(() => sceneStateAt(timeline, pb.t, { lingerMs: linger }), [timeline, pb.t, linger])
 
@@ -81,7 +81,7 @@ function TimelineView({ timeline }: { timeline: ApplicationTimeline }) {
     [timeline, pb.t],
   )
 
-  // Teclado: ←/→ capítulos, espacio reproduce o pausa (sin robarle teclas a los controles enfocados).
+  // Keyboard: left/right for chapters, space to play or pause (without stealing keys from focused controls).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -190,7 +190,7 @@ function TimelineView({ timeline }: { timeline: ApplicationTimeline }) {
   )
 }
 
-/** Cómo leer las formas: exacto sólido, derivado punteado, inferido rayado; círculo entra, cuadrado sale. */
+/** How to read the shapes: exact solid, derived dotted, inferred striped; circle inbound, square outbound. */
 function Legend() {
   return (
     <ul className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Leyenda">

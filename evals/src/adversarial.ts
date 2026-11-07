@@ -1,8 +1,7 @@
 /**
- * PDFs adversarios sintéticos para la eval de inyección (docs/04, docs/05 OWASP LLM01,
- * docs/09 §7). Ficticios y determinísticos: el mismo contenido da el mismo hash, así que las
- * respuestas del modelo quedan en una caché versionable sin datos personales
- * (evals/fixtures/llm-cache).
+ * Synthetic adversarial PDFs for the injection eval (OWASP LLM01). Fictional and deterministic:
+ * the same content gives the same hash, so model responses can live in a versionable cache with
+ * no personal data (evals/fixtures/llm-cache).
  */
 import { createHash } from 'node:crypto'
 import { syntheticStatementPdf } from '@gow/extraction/testing'
@@ -15,14 +14,14 @@ export interface AdversarialCase {
     transactions: { date: string; amount: number; type: 'credit' | 'debit' }[]
     opening: number
     closing: number
-    /** Montos que solo aparecen en la instrucción inyectada. */
+    /** Amounts that only appear in the injected instruction. */
     injected_amounts: number[]
-    /** Texto que nunca debe aparecer en la extracción (sello falso). */
+    /** Text that must never appear in the extraction (fake stamp). */
     forbidden: string | null
   }
 }
 
-/** Sello "digital" falso de 344 caracteres en base64, determinístico. */
+/** Fake 344-character "digital" stamp in base64, deterministic. */
 export function fakeSeal(seed: string): string {
   let out = ''
   let block = seed

@@ -1,26 +1,26 @@
-/** Formato y etiquetas en español (es-MX). Los estados son los canónicos de docs/README.md. */
+/** Formatting and labels in Spanish (es-MX). Statuses are the canonical ones. */
 import { FEATURE_CATALOG, type ApplicationStatus, type CorrectionTarget, type DecisionStatus, type FeatureName } from '@gow/contracts'
 
 const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2 })
 const pct = new Intl.NumberFormat('es-MX', { style: 'percent', maximumFractionDigits: 1 })
-// Una fecha sin hora (vencimiento, fecha de un movimiento) es un día del calendario: en UTC no se corre.
-// Un instante (creada, decidida) se muestra en la zona del navegador de quien lo ve.
+// A date without a time (due date, movement date) is a calendar day: never shifted in UTC.
+// An instant (created, decided) is shown in the viewer's browser zone.
 const calendarDateFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 const localDateFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
 const dateTimeFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const rel = new Intl.RelativeTimeFormat('es', { numeric: 'auto', style: 'short' })
 
-/** Pesos mexicanos siempre con centavos y la moneda: "$149,937.00 MXN". */
+/** Mexican pesos always with cents and currency: "$149,937.00 MXN". */
 export const money = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : `${mxn.format(n)} MXN`)
-/** Para cifras grandes: el monto y la moneda por separado, para mostrar "MXN" más chico. */
+/** For big figures: amount and currency apart, so "MXN" can be smaller. */
 export const moneyParts = (n: number | null | undefined): { amount: string; currency: string | null } => (n === null || n === undefined ? { amount: '—', currency: null } : { amount: mxn.format(n), currency: 'MXN' })
 export const number = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : num.format(n))
 export const percent = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : pct.format(n))
 
 /**
- * Fecha ISO en formato corto. AAAA-MM-DD es un día del calendario y se muestra tal cual; un instante
- * con hora se muestra en la zona horaria del navegador (23:00 del 6 de noviembre en México no es "7 nov").
+ * ISO date, short format. YYYY-MM-DD is a calendar day and is shown as is; an instant with a time
+ * is shown in the browser's time zone (23:00 on November 6 in Mexico is not "7 nov").
  */
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -30,7 +30,7 @@ export function date(iso: string | null | undefined): string {
   return (calendar ? calendarDateFmt : localDateFmt).format(d)
 }
 
-/** Hoy como AAAA-MM-DD en la zona del navegador (no en UTC, que en México ya es mañana desde las 18:00). */
+/** Today as YYYY-MM-DD in the browser's zone (not UTC, which in Mexico is already tomorrow from 18:00). */
 export function localToday(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
@@ -97,7 +97,7 @@ export const ENUM_LABEL: Record<string, string> = {
   clear: 'Limpio', efos_presumed: 'EFOS presunto', efos_definitive: 'EFOS definitivo', not_located: 'No localizado',
 }
 
-/** Valor de una feature del perfil, según su unidad en el catálogo. */
+/** Value of a profile feature, by its unit in the catalog. */
 export function featureValue(name: FeatureName, value: unknown): string {
   if (value === null || value === undefined) return '—'
   const unit = FEATURE_CATALOG[name].unit
@@ -116,7 +116,7 @@ export function featureValue(name: FeatureName, value: unknown): string {
 
 export const featureLabel = (name: FeatureName): string => FEATURE_CATALOG[name].description
 
-/** Texto plano de cualquier valor JSON para umbrales de reglas. */
+/** Plain text of any JSON value, for rule thresholds. */
 export function jsonValue(v: unknown): string {
   const plain = (x: unknown): string => (typeof x === 'string' ? (ENUM_LABEL[x] ?? x) : typeof x === 'number' ? number(x) : typeof x === 'boolean' ? (x ? 'Sí' : 'No') : x === null || x === undefined ? '—' : JSON.stringify(x))
   return Array.isArray(v) ? v.map(plain).join(', ') : plain(v)
@@ -130,7 +130,7 @@ const FIELD_LABEL: Record<string, string> = {
   amount: 'monto', type: 'sentido', date: 'fecha',
 }
 
-/** Qué valor se corrigió, en español, para el historial. */
+/** Which value was corrected, in Spanish, for the history. */
 export function describeTarget(t: CorrectionTarget): string {
   const f = FIELD_LABEL[t.field] ?? t.field
   return t.kind === 'holder' ? `Titular: ${f}` : t.kind === 'account' ? `Cuenta: ${f}` : t.kind === 'period' ? `Periodo: ${f}` : `Movimiento ${t.transaction_id}: ${f}`

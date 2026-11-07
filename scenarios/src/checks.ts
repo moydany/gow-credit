@@ -1,4 +1,4 @@
-/** Aserciones de `expect` sobre un veredicto: las mismas en modo unit y full. */
+/** `expect` assertions on a verdict: the same in unit and full mode. */
 import type { Decision, ScenarioExpect } from '@gow/contracts'
 
 export interface Check {

@@ -1,7 +1,7 @@
 /**
- * El catálogo en modo full (docs/06 §7): API, cola, worker y Mastra reales sobre una base nueva por
- * escenario, sin llamadas a modelos. Necesita el Postgres de docker compose; el caso 16 además
- * necesita data/dev y su caché, y sin ellos se salta.
+ * The catalog in full mode: real API, queue, worker and Mastra on a fresh database per scenario,
+ * no model calls. Needs the docker compose Postgres; case 16 also needs data/dev and its cache,
+ * and is skipped without them.
  */
 import { postgresAvailable } from '@gow/db/testing'
 import { describe, expect, it } from 'vitest'

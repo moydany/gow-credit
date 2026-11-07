@@ -1,6 +1,6 @@
-/* eslint-disable no-console -- CLI: imprime solo métricas, nombres de campo y páginas */
-// Puntúa extracciones ya escritas (JSON del contrato) contra el ground truth.
-// Uso: tsx src/score-dir.ts <carpeta-de-extracciones> [--json salida.json]
+/* eslint-disable no-console -- CLI: prints only metrics, field names and pages */
+// Scores already-written extractions (contract JSON) against the ground truth.
+// Usage: tsx src/score-dir.ts <extractions-folder> [--json out.json]
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { StatementExtraction } from '@gow/contracts'

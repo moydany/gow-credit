@@ -1,4 +1,4 @@
-/** Haces de los modelos y cápsulas de mensajes: objetos que se reutilizan de un fotograma a otro. */
+/** Model beams and message capsules: objects reused from one frame to the next. */
 import * as THREE from 'three'
 import type { Capsule, SceneState, StationId } from './scene-state'
 import { C, STATION_POS } from './scene-config'
@@ -84,7 +84,7 @@ export class Effects {
     return mesh
   }
 
-  /** Punto a lo largo del camino de estaciones, con `progress` repartido por distancia. */
+  /** Point along the station path, with `progress` spread by distance. */
   private pathPoint(c: Capsule): THREE.Vector3 | null {
     const pts = c.path.map((s) => STATION_POS[s])
     const lens = pts.slice(1).map((p, i) => p.distanceTo(pts[i] as THREE.Vector3))

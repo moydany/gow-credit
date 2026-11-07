@@ -9,7 +9,7 @@ import { Button, Chip, Meter, StatusChip } from '../../ui/primitives'
 
 const EXCLUDED: Record<string, string> = { unknown: 'sin dato', low_confidence: 'confianza baja', unverified: 'sin verificar', conflict: 'en conflicto' }
 
-/** Estado de cuenta más viejo que el ajuste del tenant (ADR 0049): se analizó igual, pero se avisa. */
+/** Statement older than the tenant's age limit: analyzed anyway, but flagged. */
 function AgeWarning({ d }: { d: Decision }) {
   const warning = d.reasons.find((r) => r.code === DOCUMENT_AGE_WARNING)
   if (!warning) return null
@@ -24,9 +24,9 @@ function AgeWarning({ d }: { d: Decision }) {
 }
 
 /**
- * La línea antes y después de un contrafactual. `limit` se agrega a `NextStep.from` y `to` en el
- * contrato del motor; se lee sin depender de que ya exista, y solo se muestra si ambas son cifras y
- * cambian (de o a "sin línea" ya lo dicen las fichas de estado).
+ * The line before and after a counterfactual. `limit` is added to `NextStep.from`/`to` in the
+ * engine contract; read it without assuming it exists, and show it only if both are numbers and
+ * differ ("no line" on either side is already covered by the status chips).
  */
 function lineChange(step: NextStep): { from: number; to: number } | null {
   const from = (step.from as { limit?: number | null }).limit ?? null
@@ -52,7 +52,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
   return (
     <div className="scroll-thin h-full overflow-y-auto px-6 pb-6 pt-5">
       <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
-      {/* Descartado en revisión: el veredicto es el del analista, no el que lo mandó a revisión. */}
+      {/* Discarded in review: the verdict is the analyst's, not the one that sent it to review. */}
       {discarded ? <Discarded detail={detail} d={d} reason={discarded} /> : <Verdict detail={detail} d={d} />}
       <AgeWarning d={d} />
       {tray}
@@ -71,7 +71,7 @@ export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationD
 
       {d.explanation || d.reasons.length > 0 ? (
         <Section title={discarded ? 'Por qué fue a revisión' : 'Por qué'}>
-          {/* La explicación en prosa (ADR 0045) y, debajo, los motivos del motor para auditar. */}
+          {/* The prose explanation and, below it, the engine's reasons for auditing. */}
           {d.explanation ? <p className="text-[14px] leading-relaxed text-ink">{d.explanation.text}</p> : null}
           {d.reasons.length > 0 ? (
             <details className={d.explanation ? 'mt-3' : undefined} open={!d.explanation}>
@@ -215,7 +215,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   )
 }
 
-/** El analista descartó el documento en revisión humana: la solicitud cerró en no califica sin reevaluar. */
+/** The analyst discarded the document in human review: closed as not qualified, no re-evaluation. */
 function Discarded({ detail, d, reason }: { detail: ApplicationDetail; d: Decision; reason: string }) {
   return (
     <div className="mt-4 rounded-[26px] bg-coral-soft p-5">

@@ -59,7 +59,7 @@ const STATUS_TONE: Record<ApplicationStatus | DecisionStatus, Tone> = {
   failed: 'ink',
 }
 
-/** El estado siempre lleva punto y texto: el color nunca es la única señal. */
+/** Status always has a dot and text: color is never the only signal. */
 export function StatusChip({ status, decision }: { status: ApplicationStatus | DecisionStatus; decision?: boolean }) {
   const label = decision ? DECISION_LABEL[status as DecisionStatus] : APPLICATION_STATUS_LABEL[status]
   const tone = STATUS_TONE[status]
@@ -90,7 +90,7 @@ export function Button({ variant = 'primary', size = 'md', className, ...rest }:
   )
 }
 
-/** Botón redondo de ícono (flechas, cerrar): objetivo táctil de 40 px. */
+/** Round icon button (arrows, close): 40 px touch target. */
 export function IconButton({ icon, label, className, ...rest }: { icon: IconName; label: string } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button type="button" aria-label={label} title={label} {...rest} className={clsx('inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-line bg-card text-ink transition-[transform,background-color] duration-150 hover:bg-sunken active:scale-95 disabled:opacity-40', className)}>
@@ -103,7 +103,7 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={clsx('skeleton', className)} aria-hidden="true" />
 }
 
-/** Filas de espera de una tabla mientras carga. */
+/** Placeholder rows for a table while loading. */
 export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="space-y-2 p-4">
@@ -143,7 +143,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   )
 }
 
-/** Barra segmentada como la de la referencia: lo hecho en color y lo pendiente rayado. */
+/** Segmented bar: done in color, pending striped. */
 export function SegmentBar({ segments, className }: { segments: { value: number; className: string; label: string }[]; className?: string }) {
   const total = segments.reduce((s, x) => s + x.value, 0)
   return (
@@ -181,7 +181,7 @@ export function Stat({ label, value, hint, children }: { label: string; value: R
   )
 }
 
-/** Diálogo modal nativo: trampa de foco y Esc gratis. Se cierra con clic en el fondo. */
+/** Native modal dialog: focus trap and Esc for free. Closes on a backdrop click. */
 export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
@@ -189,7 +189,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
     if (!d) return
     if (open && !d.open) {
       d.showModal()
-      // El contenido se pinta al abrir: el foco inicial va al primer campo, no al botón de cerrar.
+      // Content renders on open: initial focus goes to the first field, not the close button.
       d.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea')?.focus()
     }
     if (!open && d.open) d.close()
@@ -215,7 +215,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
   )
 }
 
-/** Cifra grande en pesos con centavos y "MXN" más chico al lado. */
+/** Big peso figure with cents and a smaller "MXN" next to it. */
 export function BigMoney({ value, className }: { value: number | null | undefined; className?: string }) {
   const m = moneyParts(value)
   return (

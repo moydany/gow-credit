@@ -1,6 +1,6 @@
 /**
- * Parser de tablas de movimientos guiado por una especificación por banco. Determinístico y
- * sin modelo: lee la capa de texto con coordenadas (ADR 0001, procedencia `text_layer`).
+ * Movement-table parser driven by a per-bank spec. Deterministic and model-free: reads the text
+ * layer with coordinates (provenance `text_layer`).
  */
 import type { Line } from './layout.ts'
 import { columnAmounts, groupRows, round2, textInRange, type RowGroup } from './table.ts'
@@ -8,39 +8,39 @@ import { columnAmounts, groupRows, round2, textInRange, type RowGroup } from './
 export interface AnchorInfo {
   date: string
   reference: string | null
-  /** Texto de concepto que viene pegado al ancla (Santander: fecha, folio y concepto en un segmento). */
+  /** Description text glued to the anchor (Santander: date, folio and description in one segment). */
   head: string | null
 }
 
 export interface TableSpec {
-  /** Qué páginas tienen la tabla (1-based). */
+  /** Which pages have the table (1-based). */
   pages: (page: number) => boolean
-  /** Dónde empieza la tabla en cada página; sin coincidencia, la página no tiene tabla. */
+  /** Where the table starts on each page; with no match, the page has no table. */
   start: RegExp | null
-  /** Si true, una página sin la línea de inicio se lee completa (páginas de continuación sin encabezado). */
+  /** If true, a page without the start line is read whole (continuation pages with no header). */
   startOptional?: boolean
-  /** Dónde termina la tabla en una página (pie, avisos). */
+  /** Where the table ends on a page (footer, notices). */
   stop: RegExp | null
   isAnchor: (line: Line) => boolean
   parseAnchor: (line: Line) => AnchorInfo
-  /** Bordes derechos de las columnas de monto. `amount` = columna única con signo. */
+  /** Right edges of the amount columns. `amount` = single signed column. */
   columns: Partial<Record<'debit' | 'credit' | 'amount' | 'balance' | 'balance2', number>>
   /**
-   * Columnas relativas al encabezado de cada página (Hey mueve las columnas entre páginas):
-   * borde derecho del título de la columna + `offset`.
+   * Columns relative to each page's header (Hey moves columns between pages): right edge of the
+   * column title + `offset`.
    */
   headerColumns?: { titles: Partial<Record<'debit' | 'credit' | 'amount' | 'balance' | 'balance2', RegExp>>; offset: number }
   columnTolerance?: number
-  /** Rango x del concepto (y de la referencia si va en columna propia). */
+  /** x range of the description (and of the reference if it has its own column). */
   description: [number, number]
   reference?: [number, number]
   attach: 'following' | 'nearest'
   band?: number
   orphan?: 'previous' | 'next'
-  /** Filas que no son movimientos (saldo inicial impreso como fila). */
+  /** Rows that aren't movements (opening balance printed as a row). */
   skip?: (row: ParsedRow) => boolean
   isNoise?: (line: Line) => boolean
-  /** Cambio de cuenta o periodo dentro del documento (Santander: cheques e inversión). */
+  /** Account or period change within the document (Santander: checking and investment). */
   section?: (line: Line) => string | null
   internalTransfer?: (row: ParsedRow) => boolean
 }
@@ -57,7 +57,7 @@ export interface ParsedRow {
   balance: number | null
   balance2: number | null
   internal_transfer: boolean
-  /** Problemas del parser con esta fila (montos de más o de menos); vacío si limpia. */
+  /** Parser problems with this row (extra or missing amounts); empty if clean. */
   problems: string[]
 }
 
@@ -96,7 +96,7 @@ function tableLines(pages: Line[][], spec: TableSpec, columnsByPage: Map<number,
 export function parseTable(pages: Line[][], spec: TableSpec): ParsedRow[] {
   const columnsByPage = new Map<number, Columns>()
   const lines = tableLines(pages, spec, columnsByPage)
-  // Las secciones se marcan antes de agrupar: una línea de sección cierra la fila anterior.
+  // Sections are marked before grouping: a section line closes the previous row.
   const sectionOf = new Map<Line, string>()
   let section = 'main'
   const content: Line[] = []
@@ -189,7 +189,7 @@ export interface ChainCheck {
   closingFromChain: number | null
 }
 
-/** Saldo corrido: saldo(n) = saldo(n−1) ± monto(n), arrastrando el esperado por filas sin saldo. */
+/** Running balance: balance(n) = balance(n-1) +/- amount(n), carrying the expected one over rows with no balance. */
 export function checkChain(rows: ParsedRow[], opening: number | null, opts: { reverse?: boolean; excludeInternal?: boolean } = {}): ChainCheck {
   const ordered = opts.reverse ? [...rows].reverse() : rows
   let expected = opening

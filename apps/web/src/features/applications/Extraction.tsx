@@ -21,7 +21,7 @@ export function flattenTransactions(x: StatementExtraction): FlatTx[] {
 type Walked = StatementExtraction['accounts'][number]['periods'][number]['transactions'][number]
 type WalkedField = { verification: string; value: unknown; source: { page: number } | null }
 
-/** Recorre cada valor de la extracción (cabecera, cuentas y periodos) y cada movimiento, para los avisos de revisión. */
+/** Walks every extracted value (header, accounts, periods) and every movement, for the review warnings. */
 function walkExtraction(x: StatementExtraction, onField: (f: WalkedField) => void, onTransaction: (t: Walked) => void): void {
   onField(x.bank_name)
   Object.values(x.holder).forEach(onField)
@@ -35,7 +35,7 @@ function walkExtraction(x: StatementExtraction, onField: (f: WalkedField) => voi
   }
 }
 
-/** Todo valor de la extracción que no quedó verificado, con su etiqueta, para el aviso de la cabecera. */
+/** Every extracted value that isn't verified, with its label, for the header warning. */
 export function unverifiedCount(x: StatementExtraction): number {
   let n = 0
   walkExtraction(
@@ -50,7 +50,7 @@ export function unverifiedCount(x: StatementExtraction): number {
   return n
 }
 
-/** Páginas con algo por revisar: valores sin verificar, movimientos dudosos o alertas. */
+/** Pages with something to review: unverified values, doubtful movements or alerts. */
 export function alertPages(x: StatementExtraction): Set<number> {
   const pages = new Set<number>()
   walkExtraction(

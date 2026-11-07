@@ -1,6 +1,6 @@
 import { money } from './format'
 
-/** Lo que el panel y el tablero necesitan de una decisión para saber qué se aprobó. */
+/** What the panel and the board need from a decision to know what was approved. */
 export interface ApprovalInput {
   limit: number | null
   reasons: readonly { code: string }[]
@@ -8,17 +8,17 @@ export interface ApprovalInput {
 
 export interface Approval {
   label: string
-  /** Lo aprobado: el monto pedido si cabe en la línea; si no cabe o no hay monto, la línea. */
+  /** Approved: the requested amount if it fits the line; otherwise (or with no amount) the line. */
   value: number
   note: string | null
 }
 
 /**
- * Lo que se aprueba contra lo que se pidió (ADR 0053): si el monto solicitado cabe en la línea se
- * aprueba el monto y la línea es lo disponible; si no cabe se aprueba la línea; sin monto es la línea
- * máxima. Una decisión evaluada con la línea máxima se tomó sin el monto (por ejemplo, mientras llega
- * la reevaluación con el monto que acaba de dar el proveedor), así que cuenta como sin monto. La
- * tolerancia de centavos es la del aviso por WhatsApp.
+ * What is approved against what was requested: if the requested amount fits the line, the amount
+ * is approved and the line is what is available; if not, the line is approved; with no amount it
+ * is the maximum line. A decision evaluated with the maximum line was made without the amount
+ * (for example while the re-evaluation with the amount the supplier just gave is pending), so it
+ * counts as no amount. The cents tolerance matches the WhatsApp notice.
  */
 export function approvalOf(d: ApprovalInput, requested: number | null | undefined): Approval | null {
   if (d.limit === null) return null

@@ -1,8 +1,8 @@
 /**
- * Reproduce una extracción desde la caché de respuestas por hash (docs/07 E), sin llamar a
- * ningún modelo: es lo que corre en CI. Si falta una respuesta en la caché, la extracción no
- * se puntúa (sería una salida parcial que mide la caché, no el modelo) y se reporta como
- * `cache_miss` con el comando que la llena.
+ * Replays an extraction from the hash-keyed response cache, calling no model: this is what CI
+ * runs. If a response is missing from the cache, the extraction isn't scored (it would be a
+ * partial output measuring the cache, not the model) and is reported as `cache_miss` with the
+ * command that fills it.
  */
 import { join, resolve } from 'node:path'
 import type { StatementExtraction } from '@gow/contracts'
@@ -15,7 +15,7 @@ export const GT_DIR = process.env.GROUND_TRUTH_DIR ?? join(REPO, 'data/ground-tr
 export const CACHE_DIR = process.env.LLM_CACHE_DIR ?? join(REPO, 'data/llm-cache')
 export const RESULTS_DIR = process.env.EVAL_RESULTS_DIR ?? join(REPO, 'data/eval-results')
 
-/** Cuenta las respuestas que no estaban en la caché. */
+/** Counts the responses that weren't in the cache. */
 class MissRecorder implements StructuredLlm {
   readonly misses: string[] = []
   readonly #inner: StructuredLlm
@@ -33,9 +33,8 @@ class MissRecorder implements StructuredLlm {
 }
 
 /**
- * La clasificación etiqueta y no cambia los movimientos (ADR 0002); en el replay se fija para
- * que Jev, que no pasa por la caché, no haga falta. La comparación de clasificadores es otra
- * eval (`classifier.eval.ts`).
+ * Classification labels and doesn't change movements; in replay it is pinned so Jev, which skips
+ * the cache, isn't needed. Comparing classifiers is a separate eval (`classifier.eval.ts`).
  */
 const replayClassifier: Classifier = {
   classify: (): Promise<Classification> =>
@@ -45,8 +44,8 @@ const replayClassifier: Classifier = {
 export type ReplayResult = { status: 'ok'; doc: StatementExtraction } | { status: 'cache_miss'; misses: string[] }
 
 /**
- * `live: true` llama al modelo en lo que falte y guarda las respuestas (corrida pagada; solo a
- * mano, nunca en CI). Sin `live`, solo caché.
+ * `live: true` calls the model for whatever is missing and stores the responses (paid run;
+ * manual only, never in CI). Without `live`, cache only.
  */
 export async function replayExtraction(pdfPath: string, model: string, opts: { cacheDir?: string; classifier?: Classifier; live?: boolean } = {}): Promise<ReplayResult> {
   let inner: StructuredLlm | null = null

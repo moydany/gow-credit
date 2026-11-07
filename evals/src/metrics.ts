@@ -1,19 +1,19 @@
 /**
- * Métricas de extracción contra ground truth (docs/04 §6, docs/09 §7). Puras: reciben la
- * extracción (contrato) y el ground truth y devuelven números; sin modelo ni E/S.
+ * Extraction metrics against ground truth. Pure: they take the extraction (contract) and the
+ * ground truth and return numbers; no model or I/O.
  *
- * - Precisión de movimientos = 1 − tasa de invención (filas extraídas que no existen).
- * - Recall de movimientos = 1 − tasa de omisión (filas del banco que faltan).
- * - Exactitud por fila emparejada: fecha, monto, sentido, saldo, descripción (difusa),
- *   traspaso interno.
- * - Exactitud de encabezado y resumen por campo; exactitud del CFDI por campo.
- * - Cuadre a la primera: todos los periodos cuadran sin relectura.
+ * - Movement precision = 1 - invention rate (extracted rows that don't exist).
+ * - Movement recall = 1 - omission rate (bank rows that are missing).
+ * - Per-matched-row accuracy: date, amount, direction, balance, description (fuzzy), internal
+ *   transfer.
+ * - Header and summary accuracy per field; CFDI accuracy per field.
+ * - First-pass reconciliation: all periods reconcile without re-reading.
  */
 import type { StatementExtraction, Transaction } from '@gow/contracts'
 import { costUsd } from '@gow/llm'
 import type { GroundTruth, GtTransaction } from './ground-truth/schema.ts'
 
-// ---------- texto
+// ---------- text
 
 const STOP = new Set(['de', 'del', 'la', 'el', 'en', 'por', 'a', 'al', 'y', 'los', 'las', 'con'])
 
@@ -27,10 +27,9 @@ export function tokens(s: string): string[] {
 }
 
 /**
- * Fracción de los tokens de `part` que aparecen en `whole` (multiconjunto). Un token largo
- * también cuenta si aparece dentro del texto sin espacios: la capa de texto a veces pega
- * palabras ("RECIBIDOCITI") que el modelo separa, y al revés. Los códigos cortos de operación
- * (T17, A15) no se exigen.
+ * Fraction of `part`'s tokens that appear in `whole` (multiset). A long token also counts if it
+ * appears inside the text without spaces: the text layer sometimes glues words ("RECIBIDOCITI")
+ * that the model separates, and vice versa. Short operation codes (T17, A15) aren't required.
  */
 export function containment(part: string, whole: string): number {
   const p = tokens(part).filter((t) => !(t.length <= 3 && /\d/.test(t) && /[a-z]/.test(t)))
@@ -54,10 +53,9 @@ export function containment(part: string, whole: string): number {
 export const DESCRIPTION_THRESHOLD = 0.7
 
 /**
- * Descripción difusa: el texto del modelo (descripción + referencia) debe contener la
- * primera línea del concepto del banco y no traer texto que no esté en la fila del banco
- * (descripción + referencia). Dónde quedó la referencia no cuenta (convención en
- * evals/ground-truth/README.md).
+ * Fuzzy description: the model's text (description + reference) must contain the first line of the
+ * bank's description and carry no text that isn't in the bank's row (description + reference).
+ * Where the reference ended up doesn't count (convention in evals/ground-truth/README.md).
  */
 export function descriptionMatches(gt: Pick<GtTransaction, 'description' | 'description_head' | 'reference'>, ex: { description: string; reference: string | null }): boolean {
   const exText = `${ex.description} ${ex.reference ?? ''}`
@@ -65,7 +63,7 @@ export function descriptionMatches(gt: Pick<GtTransaction, 'description' | 'desc
   return containment(gt.description_head, exText) >= DESCRIPTION_THRESHOLD && containment(exText, gtText) >= DESCRIPTION_THRESHOLD
 }
 
-// ---------- emparejamiento de filas
+// ---------- row matching
 
 export interface FlatTx {
   page: number
@@ -81,7 +79,7 @@ export interface FlatTx {
 export interface Pair {
   gt: GtTransaction
   ex: FlatTx
-  /** exact: fecha, monto y sentido iguales; loose: emparejada pese a un campo mal leído. */
+  /** exact: same date, amount and direction; loose: matched despite one misread field. */
   kind: 'exact' | 'loose'
 }
 
@@ -95,10 +93,10 @@ const cents = (n: number) => Math.round(n * 100)
 const dayDiff = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) / 86_400_000
 
 /**
- * Empareja filas en dos rondas. Primero exactas por (fecha, monto, sentido), prefiriendo la
- * misma página y el orden. Después, entre las sobrantes, filas con un solo campo mal leído:
- * mismo monto y página cercana (fecha o sentido distintos) o misma fecha, sentido y página con
- * descripción equivalente (monto distinto). Lo que queda son invenciones y omisiones.
+ * Matches rows in two rounds. First exact ones by (date, amount, direction), preferring the same
+ * page and order. Then, among the leftovers, rows with a single misread field: same amount and a
+ * nearby page (different date or direction), or same date, direction and page with an equivalent
+ * description (different amount). What remains are inventions and omissions.
  */
 export function matchTransactions(gt: readonly GtTransaction[], ex: readonly FlatTx[]): MatchResult {
   const usedEx = new Set<number>()
@@ -143,12 +141,12 @@ export function matchTransactions(gt: readonly GtTransaction[], ex: readonly Fla
   }
 }
 
-// ---------- campos
+// ---------- fields
 
 export interface FieldScore {
   field: string
   ok: boolean
-  /** Sin valor impreso en el ground truth y el modelo inventó uno. */
+  /** No value printed in the ground truth and the model invented one. */
   invented: boolean
 }
 
@@ -181,7 +179,7 @@ export function scoreField(field: string, gt: string | number | null, ex: string
   return { field, ok, invented: false }
 }
 
-// ---------- documento
+// ---------- document
 
 export interface DocumentScore {
   file: string
@@ -199,7 +197,7 @@ export interface DocumentScore {
   reconciled_final: boolean
   reconciled_first_pass: boolean
   retry_pages: number
-  /** Páginas con filas omitidas o inventadas (para localizar). */
+  /** Pages with omitted or invented rows (to locate them). */
   pages_with_errors: number[]
   cost_usd: number
   models: string[]
@@ -226,7 +224,7 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
     internal_transfer: ratio(m.pairs.filter((p) => p.ex.internal_transfer === p.gt.internal_transfer).length, n),
   }
 
-  // Encabezado y resumen: cuentas emparejadas por movimientos compartidos, luego por orden.
+  // Header and summary: accounts matched by shared movements, then by order.
   const header: FieldScore[] = []
   const add = (s: FieldScore | null) => {
     if (s) header.push(s)
@@ -278,7 +276,7 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
   })
   if (exAccounts.length > gt.accounts.length) header.push({ field: 'accounts.extra', ok: false, invented: true })
 
-  // CFDI: emparejado por UUID, luego por orden.
+  // CFDI: matched by UUID, then by order.
   const fiscal: FieldScore[] = []
   const usedF = new Set<number>()
   gt.fiscal_documents.forEach((gf, i) => {
@@ -334,7 +332,7 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
     reconciled_first_pass: reconciled_final && retryCalls.length === 0,
     retry_pages: retryCalls.length,
     pages_with_errors: errorPages,
-    // Costo a precio de lista de las llamadas que produjeron la extracción, aunque hoy salgan de la caché.
+    // Cost at list price of the calls that produced the extraction, even if they now come from cache.
     cost_usd: Math.round(doc.extraction.calls.reduce((s, c) => s + costUsd(c.model, c.usage), 0) * 1e4) / 1e4,
     models: [...new Set(doc.extraction.calls.map((c) => c.model))],
   }

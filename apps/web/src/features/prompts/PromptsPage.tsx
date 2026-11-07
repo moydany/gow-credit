@@ -1,7 +1,7 @@
 /**
- * Prompts de los modelos (ADR 0065). Globales: los mismos para todas las instituciones crediticias.
- * Lista, versiones de un prompt, editor que guarda una versión nueva (nunca cambia una existente),
- * activación con confirmación y comparación entre dos versiones. Mismo patrón que Políticas.
+ * Model prompts. Global: the same for every lender. List, versions of a prompt, an editor that
+ * saves a new version (never changes an existing one), activation with confirmation, and a diff
+ * between two versions. Same pattern as Policies.
  */
 import { PROMPT_CATALOG, promptPlaceholders, unknownPlaceholders, type PromptDetail, type PromptName, type PromptSummary, type PromptVersionItem } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -18,7 +18,7 @@ import { PageTitle } from '../applications/ApplicationsPage'
 
 const NO_EVALS = 'Sin evals'
 
-/** Chip de la versión activa en la lista: del código, otra de archivo o editada en el backoffice. */
+/** Chip for the active version in the list: from code, another from file, or edited in the backoffice. */
 function ActiveChip({ active }: { active: PromptSummary['active'] }) {
   if (!active) return <Chip tone="hatch">Sin sembrar</Chip>
   if (active.is_code_default) return <Chip tone="plain">v{active.version} · del código</Chip>
@@ -63,7 +63,7 @@ export function PromptsPage() {
   )
 }
 
-/** Detalle de un prompt: encabezado, versiones, editor de la versión elegida y comparación. */
+/** Prompt detail: header, versions, editor for the chosen version, and comparison. */
 function PromptPanel({ name, v, cmp, onSelect }: { name: PromptName; v: string | undefined; cmp: string | undefined; onSelect: (s: { p?: string; v?: string; cmp?: string }) => void }) {
   const detail = usePrompt(name)
   if (detail.isError) {
@@ -278,7 +278,7 @@ function ActivateModal({ open, d, v, pending, onClose, onConfirm }: { open: bool
   )
 }
 
-/** Comparación: por defecto la versión elegida contra la activa (o contra la anterior si es la activa). */
+/** Comparison: by default the chosen version against the active one (or the previous one if it is active). */
 function Compare({ d, selected, cmp, onPick }: { d: PromptDetail; selected: PromptVersionItem | undefined; cmp: string | undefined; onPick: (id: string) => void }) {
   const others = d.items.filter((x) => x.id !== selected?.id)
   const fallback = selected?.active ? d.items.find((x) => x.version < selected.version) : d.items.find((x) => x.active)
@@ -321,7 +321,7 @@ const CONTEXT = 2
 
 function DiffView({ lines }: { lines: { op: 'same' | 'add' | 'del'; text: string }[] }) {
   if (!lines.some((l) => l.op !== 'same')) return <p className="rounded-2xl bg-sunken p-4 text-[13px] text-ink-2">Mismo texto.</p>
-  // Solo los cambios con dos líneas de contexto; lo demás se resume.
+  // Only the changes with two lines of context; the rest is summarized.
   const keep = lines.map((_, i) => lines.slice(Math.max(0, i - CONTEXT), i + CONTEXT + 1).some((l) => l.op !== 'same'))
   const out: ({ kind: 'line'; op: 'same' | 'add' | 'del'; text: string; key: number } | { kind: 'gap'; count: number; key: number })[] = []
   lines.forEach((l, i) => {

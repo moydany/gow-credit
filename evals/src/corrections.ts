@@ -1,20 +1,19 @@
-/* eslint-disable no-console -- CLI: solo conteos por documento y nombres de campo, nunca valores */
+/* eslint-disable no-console -- CLI: only per-document counts and field names, never values */
 /**
  * pnpm -F @gow/evals corrections [--model <id>]
  *
- * Las correcciones del analista como conjunto de regresión (ADR 0020, fase 8). Lee
- * `data/corrections/<sha256>.json` (de `pnpm corrections:export`), busca el PDF con ese hash en
- * `data/dev/` o en CORRECTIONS_PDF_DIR, repite la extracción desde la caché con el modelo actual y
- * clasifica cada corrección:
+ * Analyst corrections as a regression set. Reads `data/corrections/<sha256>.json` (from
+ * `pnpm corrections:export`), finds the PDF with that hash in `data/dev/` or CORRECTIONS_PDF_DIR,
+ * replays the extraction from cache with the current model and classifies each correction:
  *
- * - `fixed`: el modelo actual ya lee el valor correcto.
- * - `same_error`: vuelve a leer lo que el analista corrigió.
- * - `other`: lee un tercer valor.
- * - `not_in_document`: el valor leído era null (dato redactado o ausente). El analista confirmó un
- *   dato que el documento no trae; no es error de extracción y no cuenta en la tasa.
+ * - `fixed`: the current model already reads the correct value.
+ * - `same_error`: it reads again what the analyst corrected.
+ * - `other`: it reads a third value.
+ * - `not_in_document`: the value read was null (redacted or absent data). The analyst confirmed
+ *   data the document doesn't carry; not an extraction error and not counted in the rate.
  *
- * Es informativa: no bloquea `pnpm eval`. Un error que el analista corrigió y el modelo sigue
- * cometiendo es el primer candidato a ground truth y a cambio de prompt.
+ * Informational: doesn't block `pnpm eval`. An error the analyst fixed and the model keeps making
+ * is the first candidate for ground truth and a prompt change.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'

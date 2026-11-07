@@ -9,12 +9,12 @@ export type FocusFn = (target: { page: number; snippet: string | null } | null, 
 export const FocusCtx = createContext<FocusFn>(() => undefined)
 export const useFocus = () => useContext(FocusCtx)
 
-/** Una corrección que el analista armó y todavía no guarda. */
+/** A correction the analyst built and hasn't saved yet. */
 export interface PendingFix {
   target: CorrectionTarget
   value: string | number
   page: number | null
-  /** Lo que hoy dice la extracción, para mostrar "antes → después". */
+  /** What the extraction says today, to show "before -> after". */
   read: string | number | null
   label: string
 }
@@ -24,11 +24,11 @@ export interface EditSpec {
   current: string | number | null
   page: number | null
   snippet: string | null
-  /** Un movimiento se corrige completo: monto, sentido y fecha en el mismo formulario. */
+  /** A movement is corrected whole: amount, direction and date in the same form. */
   tx?: { id: string; amount: number; type: 'credit' | 'debit'; date: string }
 }
 export interface ReviewApi {
-  /** Solo en solicitudes en revisión humana. */
+  /** Only on requests in human review. */
   enabled: boolean
   pending: PendingFix[]
   edit: (spec: EditSpec) => void
@@ -46,8 +46,8 @@ interface FieldLike<T> {
 }
 
 /**
- * Un valor extraído con su estado visible: verificado se ve normal, sin verificar rayado ámbar,
- * en conflicto rayado coral. Clic = ir a su página en el PDF y resaltar el fragmento citado.
+ * An extracted value with its visible status: verified looks normal, unverified gets amber
+ * stripes, conflicting gets coral stripes. Click = go to its PDF page and highlight the snippet.
  */
 export function Val<T>({ field, format, empty = '—', className, target, label }: { field: FieldLike<T>; format?: (v: T) => ReactNode; empty?: string; className?: string; target?: CorrectionTarget; label?: string }) {
   const focus = useFocus()
@@ -57,7 +57,7 @@ export function Val<T>({ field, format, empty = '—', className, target, label 
   const status = VERIFICATION_LABEL[field.verification] ?? field.verification
   const where = field.source ? ` · p. ${String(field.source.page)}` : ''
   const tip = `${status}${where} · confianza ${String(Math.round(field.confidence * 100))} % · ${PROVENANCE_LABEL[field.provenance] ?? field.provenance}`
-  // Un dato que no aparece en el documento no es una alarma: se muestra apagado, sin rayado.
+  // A value absent from the document is not an alarm: shown muted, no stripes.
   const missing = field.value === null
   const cls = clsx('val', pending && 'bg-indigo-soft text-indigo-ink', !pending && !missing && field.verification === 'unverified' && 'val-unverified', !pending && !missing && field.verification === 'conflict' && 'val-conflict', missing && !pending && 'text-muted', field.provenance === 'analyst_answer' && !pending && 'underline decoration-indigo decoration-2 underline-offset-4', className)
   const marker = field.verification === 'verified' || missing ? null : <Icon name={field.verification === 'conflict' ? 'alert' : 'help'} size={12} className="mb-0.5 ml-1 inline" />

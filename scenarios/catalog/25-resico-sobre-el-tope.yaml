@@ -1,7 +1,7 @@
-# docs/09 §9.5, caso 25. RESICO (626) con ingresos operativos anualizados sobre 3.5 millones: no es
-# plausible para el régimen → se pregunta al dueño por el origen de los abonos. Como la titular es
-# persona física y la mayor parte del ingreso son transferencias de terceros sin RFC, también se
-# pregunta si la cuenta es solo del negocio (ADR 0050): en una cuenta mixta no se presumen ventas.
+# RESICO (626) with annualized operating income over 3.5 million: implausible for the regime ->
+# ask the owner where the deposits come from. Since the holder is an individual and most income is
+# third-party transfers without RFC, it also asks whether the account is business-only: in a mixed
+# account sales are not presumed.
 id: resico-sobre-el-tope
 catalog: 25
 title: RESICO con ingresos anualizados sobre el tope

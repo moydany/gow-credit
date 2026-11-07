@@ -25,7 +25,7 @@ export function PoliciesPage() {
   const [text, setText] = useState('')
   const [confirm, setConfirm] = useState<'activate' | null>(null)
 
-  // El editor arranca con el documento de la versión elegida; editarlo no la cambia (las versiones son inmutables).
+  // The editor starts from the chosen version's document; editing doesn't change it (versions are immutable).
   useEffect(() => {
     if (selected) setText(JSON.stringify(selected.document, null, 2))
   }, [selected?.id])

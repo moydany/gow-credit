@@ -1,7 +1,6 @@
-# docs/06 §4, caso 1. Alta completa de un prestamista: crear el tenant, clonar la política base
-# como activa, registrar su número de WhatsApp, emitir la llave de API y dar de alta a un proveedor
-# con su contacto verificado; después, una solicitud de punta a punta. Un segundo tenant no ve nada
-# de él. Solo modo full: lo que se prueba es la plataforma, no el motor.
+# Full tenant onboarding: create the tenant, clone the base policy as active, register its WhatsApp
+# number, issue the API key and add a supplier with a verified contact; then one request end to
+# end. A second tenant sees none of it. Full mode only: this tests the platform, not the engine.
 id: alta-de-tenant
 catalog: 1
 title: Alta de tenant y aislamiento

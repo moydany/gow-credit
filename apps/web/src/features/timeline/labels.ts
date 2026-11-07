@@ -1,4 +1,4 @@
-/** Etiquetas en español del recorrido y las filas del panel de detalle. Solo muestra lo que el contrato trae. */
+/** Spanish labels for the journey and the detail panel rows. Shows only what the contract carries. */
 import type { ApplicationTimeline, TimelineChapter, TimelineEvent, TimelineLane, TimelinePrecision } from '@gow/contracts'
 import { APPLICATION_STATUS_LABEL, DECISION_LABEL } from '../../lib/format'
 
@@ -169,12 +169,12 @@ const ROWS: RowsFor = {
   analyst_action: (ev) => [{ label: 'Acción', value: ev.action, mono: true }],
 }
 
-/** Las filas del panel para un evento: solo campos que el contrato trae. */
+/** Panel rows for an event: only fields the contract carries. */
 export function detailRows(ev: TimelineEvent): DetailRow[] {
   return (ROWS[ev.kind] as (e: TimelineEvent) => DetailRow[])(ev)
 }
 
-/** Compuertas y dimensiones de una decisión, en filas para el panel. */
+/** Gates and dimensions of a decision, as panel rows. */
 export function gateRows(ev: Extract<TimelineEvent, { kind: 'decision' }>): { id: string; text: string; tone: 'pass' | 'warn' | 'fail' | 'none' }[] {
   return ev.gates.map((g) => ({
     id: g.id,

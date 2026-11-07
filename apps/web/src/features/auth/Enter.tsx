@@ -7,11 +7,11 @@ import { Icon, Logo } from '../../ui/icons'
 import { Button } from '../../ui/primitives'
 
 /**
- * Lo que trae la URL al volver de un enlace de acceso, siempre en el fragmento (nunca viaja al
- * servidor ni a los registros): `#token=` del enlace de desarrollo, `#access_token=` de Supabase Auth
- * (flujo implícito, ADR 0035) o `#error=` si GoTrue rechazó el enlace. Con Supabase también viene el
- * `refresh_token`: va una sola vez a la API, que lo guarda cifrado en una cookie HttpOnly y renueva
- * la sesión sola (ADR 0036). Nada de esto se guarda en el navegador.
+ * What the URL carries when coming back from a sign-in link, always in the fragment (it never
+ * reaches the server or the logs): `#token=` from the dev link, `#access_token=` from Supabase Auth
+ * (implicit flow) or `#error=` if GoTrue rejected the link. With Supabase there is also a
+ * `refresh_token`: it goes once to the API, which stores it encrypted in an HttpOnly cookie and
+ * renews the session on its own. None of this is kept in the browser.
  */
 function readReturn(): { token: string | null; refreshToken: string | null; failed: boolean } {
   const hash = new URLSearchParams(window.location.hash.slice(1))
@@ -34,7 +34,7 @@ export function Enter() {
   useEffect(() => {
     const back = readReturn()
     if (!back.token && !back.failed) return
-    // Fuera de la barra de direcciones y del historial antes de cualquier otra cosa.
+    // Out of the address bar and history before anything else.
     window.history.replaceState(null, '', window.location.pathname)
     if (!back.token) {
       setState({ kind: 'error', message: 'El enlace ya venció o ya se usó' })
@@ -49,7 +49,7 @@ export function Enter() {
       })
   }, [navigate])
 
-  // Sistema vacío (primer inicio): no hay a quién pedirle un enlace, se configura primero (ADR 0060).
+  // Empty system (first run): nobody to send a link to, so set up first.
   if (config.data?.setup_required) return <Navigate to="/configuracion-inicial" />
 
   return (
@@ -79,7 +79,7 @@ export function Enter() {
   )
 }
 
-/** Con Supabase Auth: el correo recibe el enlace. La respuesta es la misma tenga o no cuenta. */
+/** With Supabase Auth: the email gets the link. The response is the same whether or not an account exists. */
 function EmailForm({ error, onSent }: { error: string | null; onSent: (email: string) => void }) {
   const [email, setEmail] = useState('')
   const [tried, setTried] = useState(false)
@@ -142,7 +142,7 @@ function Sent({ email, onAgain }: { email: string; onAgain: () => void }) {
   )
 }
 
-/** Sin Supabase Auth: el enlace con el JWT que imprime el CLI o que da quien invita. */
+/** Without Supabase Auth: the link with the JWT printed by the CLI or given by whoever invites. */
 function DevLink({ error }: { error: string | null }) {
   return (
     <>

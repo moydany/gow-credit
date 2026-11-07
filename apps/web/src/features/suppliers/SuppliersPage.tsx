@@ -8,7 +8,7 @@ import { Button, Card, CardHeader, EmptyState, ErrorState, Skeleton, StatusChip 
 import { PageTitle } from '../applications/ApplicationsPage'
 import { SupplierFormModal } from './SupplierForm'
 
-/** Proveedores del tenant (docs/08 §2): cuántas solicitudes tiene cada uno y cómo va la última. */
+/** The tenant's suppliers: how many requests each has and how the latest is going. */
 export function SuppliersPage() {
   const { data, isPending, isError, error, refetch } = useSuppliers()
   const { q = '' } = useSearch({ from: '/shell/proveedores' })
@@ -92,7 +92,7 @@ function Row({ s }: { s: SupplierRow }) {
     >
       <div className="min-w-0">
         <p className="truncate text-[15px] font-medium">{s.legal_name}</p>
-        {/* En pantallas chicas la columna del RFC no se ve: va debajo del nombre. */}
+        {/* On small screens the RFC column is hidden: it goes under the name. */}
         <p className="mt-0.5 truncate font-mono text-[13px] text-muted lg:hidden">{s.rfc ?? <span className="font-sans">Sin RFC</span>}</p>
       </div>
       <p className="hidden truncate font-mono text-[13px] text-ink-2 lg:block">{s.rfc ?? <span className="font-sans text-muted">Sin RFC</span>}</p>

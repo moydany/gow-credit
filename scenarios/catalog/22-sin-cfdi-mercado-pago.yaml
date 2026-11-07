@@ -1,5 +1,5 @@
-# docs/09 §6, caso 22. Estado de cuenta sin CFDI y con un solo periodo de tres meses (como Mercado
-# Pago): las compuertas fiscales pasan por falta de dato y no hay penalización.
+# Statement without CFDI and with a single three-month period (like Mercado Pago): the tax gates
+# pass for lack of data and there is no penalty.
 id: sin-cfdi-mercado-pago
 catalog: 22
 title: Estado de cuenta sin CFDI, un periodo de tres meses

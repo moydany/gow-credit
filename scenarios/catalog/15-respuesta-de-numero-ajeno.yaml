@@ -1,6 +1,6 @@
-# docs/06 §4, caso 15 (docs/05 §2b). Mismo depósito dudoso que el caso 12, pero contesta un número
-# que no tiene vínculo verificado con el proveedor y cita la solicitud: el texto nunca autoriza nada.
-# Recibe la respuesta fija, queda en bitácora y la solicitud sigue esperando al dueño.
+# Same doubtful deposit as scenario 12, but the reply comes from a number with no verified link to
+# the supplier and quotes the request: text never authorizes anything. It gets the fixed reply, is
+# logged, and the request keeps waiting for the owner.
 id: respuesta-de-numero-ajeno
 catalog: 15
 title: Respuesta desde un número ajeno

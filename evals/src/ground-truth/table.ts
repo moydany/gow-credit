@@ -1,29 +1,29 @@
 /**
- * Utilidades para leer tablas de movimientos de la capa de texto: agrupar líneas en filas
- * (una fila empieza en una línea "ancla" con fecha) y asignar cada monto a su columna por la
- * posición de su borde derecho (los montos van alineados a la derecha).
+ * Utilities to read movement tables from the text layer: group lines into rows (a row starts at
+ * an "anchor" line with a date) and assign each amount to its column by the position of its right
+ * edge (amounts are right-aligned).
  */
 import { isAmount, parseAmountText, type Line, type Segment } from './layout.ts'
 
 export interface RowGroup {
   anchor: Line
-  /** Todas las líneas de la fila en orden de lectura, incluida el ancla. */
+  /** All the row's lines in reading order, anchor included. */
   lines: Line[]
 }
 
 export interface GroupOptions {
   isAnchor: (line: Line) => boolean
-  /** Líneas que no son parte de ninguna fila (encabezados de columna, pies de página). */
+  /** Lines that belong to no row (column headers, footers). */
   isNoise?: (line: Line) => boolean
   /**
-   * Cómo se asignan las líneas sin fecha:
-   * - following: a la fila anterior (descripción debajo de la fecha).
-   * - nearest: a la fila con el ancla más cercana en y si está a menos de `band` puntos
-   *   (descripción centrada verticalmente); si no, según `orphan`.
+   * How undated lines are assigned:
+   * - following: to the previous row (description below the date).
+   * - nearest: to the row with the closest anchor in y if within `band` points (vertically
+   *   centered description); otherwise per `orphan`.
    */
   attach: 'following' | 'nearest'
   band?: number
-  /** Para `nearest`: a qué fila va una línea lejos de todo ancla. */
+  /** For `nearest`: which row a line far from every anchor goes to. */
   orphan?: 'previous' | 'next'
 }
 
@@ -47,7 +47,7 @@ export function groupRows(lines: Line[], opts: GroupOptions): RowGroup[] {
   const indexOf = (g: RowGroup) => useful.indexOf(g.anchor)
   for (const l of useful) {
     if (opts.isAnchor(l)) {
-      // Las huérfanas que esperaban la siguiente fila (cruce de página) entran aquí.
+      // Orphans waiting for the next row (page break) are handled here.
       const g = groups.find((x) => x.anchor === l)
       if (g && pending.length > 0) g.lines.unshift(...pending.splice(0))
       continue
@@ -90,8 +90,8 @@ export interface ColumnAmount {
 }
 
 /**
- * Montos de una línea asignados a la columna cuyo borde derecho está más cerca. `columns`
- * mapea nombre → x del borde derecho; si el monto queda a más de `maxDistance`, no se asigna.
+ * Amounts of a line assigned to the column whose right edge is closest. `columns` maps name -> x
+ * of the right edge; if the amount is more than `maxDistance` away, it isn't assigned.
  */
 export function columnAmounts(line: Line, columns: Record<string, number>, maxDistance = 30): ColumnAmount[] {
   const out: ColumnAmount[] = []
@@ -111,7 +111,7 @@ export function columnAmounts(line: Line, columns: Record<string, number>, maxDi
   return out
 }
 
-/** Texto de los segmentos de las líneas cuyo x inicial cae en [from, to). */
+/** Text of the line segments whose starting x falls in [from, to). */
 export function textInRange(lines: Line[], from: number, to: number): string {
   return lines
     .flatMap((l) => l.segments.filter((s) => s.x >= from && s.x < to && !isAmount(s.str)).map((s) => s.str))

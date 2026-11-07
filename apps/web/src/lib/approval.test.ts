@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { approvalOf } from './approval'
 
-describe('lo aprobado contra lo pedido (ADR 0053)', () => {
+describe('lo aprobado contra lo pedido', () => {
   const line = { limit: 149937.24, reasons: [] }
 
   it('si lo pedido cabe en la línea se aprueba lo pedido', () => {

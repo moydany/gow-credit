@@ -16,7 +16,7 @@ import { alertPages, ExtractionPanel, type ExtractionTab } from './Extraction'
 import { FocusCtx, ReviewCtx, targetKey, type EditSpec, type FocusFn, type PendingFix, type ReviewApi } from './focus'
 import type { PdfFocus } from './PdfViewer'
 
-// pdf.js pesa más que todo el resto de la app: se descarga solo al abrir una solicitud.
+// pdf.js outweighs the rest of the app: load it only when a request is opened.
 const PdfViewer = lazy(() => import('./PdfViewer').then((m) => ({ default: m.PdfViewer })))
 
 type Panel = 'documento' | 'extraccion' | 'decision'
@@ -140,7 +140,7 @@ export function ApplicationDetailPage() {
             <Link to="/solicitudes/$id/recorrido" params={{ id: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
               <Icon name="clock" size={14} /> Ver recorrido
             </Link>
-            {/* Prompts y respuestas tal cual de esta solicitud (ADR 0064). */}
+            {/* This request's prompts and responses, verbatim. */}
             <Link to="/configuracion/bitacora" search={{ tab: 'modelo', solicitud: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
               <Icon name="bolt" size={14} /> Llamadas al modelo
             </Link>

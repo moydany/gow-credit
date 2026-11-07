@@ -23,7 +23,7 @@ function Rows({ rows }: { rows: { label: string; value: string; mono?: boolean }
 
 const GATE_TONE = { pass: 'accent', warn: 'amber', fail: 'coral', none: 'plain' } as const
 
-/** Detalle del evento o capítulo seleccionado. Solo muestra lo que el contrato trae. */
+/** Detail of the selected event or chapter. Shows only what the contract carries. */
 export function EventPanel({ timeline, selection, pinned, onFollow }: { timeline: ApplicationTimeline; selection: Selection | null; pinned: boolean; onFollow: () => void }) {
   const ev = selection?.type === 'event' ? timeline.events.find((e) => e.id === selection.id) : undefined
   const chapter = selection?.type === 'chapter' ? timeline.chapters.find((c) => c.id === selection.id) : undefined

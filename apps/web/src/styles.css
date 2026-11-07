@@ -1,6 +1,6 @@
-/* Sistema visual del backoffice. Referencia: lienzo gris suave, tarjetas bento muy redondeadas,
-   nav en píldoras con la activa en negro, morado + periwinkle como acentos y rayado diagonal para lo
-   que está pendiente. El rayado además tiene significado en el producto: "aún no verificado". */
+/* Backoffice visual system: soft gray canvas, very rounded bento cards, pill nav with the active
+   one in black, purple + periwinkle accents and diagonal stripes for anything pending. The
+   stripes also carry meaning in the product: "not yet verified". */
 @import 'tailwindcss';
 
 @theme {
@@ -68,7 +68,7 @@ body {
 .tnum { font-variant-numeric: tabular-nums; }
 .display { letter-spacing: -0.035em; font-weight: 500; line-height: 1; }
 
-/* Lo pendiente o desconocido se ve rayado, en toda la app. */
+/* Pending or unknown shows striped, across the app. */
 .hatch {
   background-image: repeating-linear-gradient(135deg, rgb(20 23 31 / 0.22) 0 1px, transparent 1px 5px);
   background-color: rgb(20 23 31 / 0.04);
@@ -90,14 +90,14 @@ body {
 }
 .inner { background: var(--color-sunken); border-radius: var(--radius-inner); }
 
-/* Foco visible y consistente en todo lo interactivo. */
+/* Visible, consistent focus on everything interactive. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--color-indigo);
   outline-offset: 2px;
   border-radius: 10px;
 }
 
-/* Entrada escalonada de tarjetas: `style="--i: n"`. Solo transform y opacity. */
+/* Staggered card entrance: `style="--i: n"`. Only transform and opacity. */
 .rise { animation: var(--animate-rise); animation-delay: calc(var(--i, 0) * 55ms); }
 
 .skeleton {
@@ -108,7 +108,7 @@ body {
 }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-/* Valores extraídos: el estado de verificación se ve sin leer nada. */
+/* Extracted values: verification status is visible without reading anything. */
 .val { display: inline; padding: 1px 6px; margin: -1px -2px; border-radius: 8px; transition: background-color 120ms ease; text-align: left; font: inherit; }
 button.val { cursor: pointer; }
 button.val:hover { background-color: var(--color-indigo-soft); }
@@ -123,7 +123,7 @@ button.val:hover { background-color: var(--color-indigo-soft); }
 }
 @media (hover: none) { button.val:hover { background-color: inherit; } }
 
-/* Campos de formulario: misma altura y radio que los botones. En la capa de componentes para que las utilidades (h-80, w-auto) puedan ajustarlos. */
+/* Form fields: same height and radius as buttons. In the components layer so utilities (h-80, w-auto) can override them. */
 @layer components {
   .input {
     width: 100%;

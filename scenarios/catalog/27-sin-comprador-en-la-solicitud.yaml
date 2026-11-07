@@ -1,6 +1,6 @@
-# ADR 0050. Perfil sano de tres meses, pero la solicitud no dice a quién se facturó: la dimensión del
-# comprador no suma y aplica el tope. Si los pagos del cliente principal aparecen, calificaría sin
-# límite: se le pregunta al dueño quién es su cliente principal.
+# Healthy three-month profile, but the request doesn't say who was invoiced: the buyer dimension
+# adds nothing and the cap applies. If the main customer's payments show up it would qualify
+# without a limit: the owner is asked who their main customer is.
 id: sin-comprador-en-la-solicitud
 catalog: 27
 title: Solicitud sin comprador, se pregunta el cliente principal

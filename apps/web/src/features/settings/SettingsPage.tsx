@@ -1,8 +1,7 @@
 /**
- * Configuración del tenant (docs/08 §2): usuarios y canales. El enlace de acceso de un invitado se
- * muestra una sola vez, en un diálogo, y no se guarda en el navegador. WhatsApp se vincula escaneando
- * el QR aquí mismo (ADR 0033); la antigüedad máxima del estado de cuenta se ajusta aquí (ADR 0049).
- * Las llaves de API, el remitente de correo y la retención no se muestran aquí.
+ * Tenant settings: users and channels. A guest's access link is shown once, in a dialog, and is
+ * not kept in the browser. WhatsApp is linked by scanning the QR right here, and the maximum
+ * statement age is set here too. API keys, the email sender and retention are not shown.
  */
 import { DAYS_PER_MONTH, monthsText, STATEMENT_MAX_AGE_OPTIONS, TenantUserCreateBody, type TenantSettings, type TenantUserItem } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -34,7 +33,7 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof ApiError ? e.message : fallback
 }
 
-/** Diálogo para lo que se muestra una sola vez: el valor, un botón de copiar y la advertencia. */
+/** Dialog for something shown once: the value, a copy button and the warning. */
 function ShowOnce({ open, onClose, title, value, children }: { open: boolean; onClose: () => void; title: string; value: string; children: React.ReactNode }) {
   const toast = useToast()
   return (
@@ -90,7 +89,7 @@ function ListSkeleton() {
   )
 }
 
-// ---------- Usuarios
+// ---------- Users
 
 function UsersCard() {
   const { data, isPending, isError, error, refetch } = useUsers()
@@ -106,7 +105,7 @@ function UsersCard() {
   const invite = useMutation({
     mutationFn: () => api.addUser(email.trim()),
     onSuccess: (r) => {
-      // Con Supabase Auth no hay enlace que compartir: la persona entra con su correo (ADR 0035).
+      // With Supabase Auth there is no link to share: the person signs in with their email.
       if (r.access_link && r.expires_at) setLink({ email: r.user.email, url: r.access_link, expires: r.expires_at })
       else toast.ok(r.email_sent ? `Listo: le mandamos a ${r.user.email} un enlace de acceso` : `Listo: ${r.user.email} ya puede entrar con su correo`)
       setEmail('')
@@ -188,7 +187,7 @@ function UsersCard() {
   )
 }
 
-// ---------- Canales (WhatsApp se vincula aquí)
+// ---------- Channels (WhatsApp is linked here)
 
 function ChannelsCard() {
   const { data, isPending, isError, error, refetch } = useSettings()
@@ -208,7 +207,7 @@ function ChannelsCard() {
   )
 }
 
-// ---------- Análisis: antigüedad máxima del estado de cuenta (ADR 0049)
+// ---------- Analysis: maximum statement age
 
 function AnalysisCard() {
   const { data, isPending, isError, error, refetch } = useSettings()
@@ -224,7 +223,7 @@ function AnalysisCard() {
     onError: (e: unknown) => { toast.error(errorText(e, 'No se pudo guardar')) },
   })
   const current = data?.analysis.statement_max_age_months
-  // Un valor fijado por la API fuera de las opciones también se muestra.
+  // A value set by the API outside the options is shown too.
   const options: (number | null)[] = [...new Set([...STATEMENT_MAX_AGE_OPTIONS, ...(typeof current === 'number' ? [current] : [])])].sort((a, b) => a - b)
   options.push(null)
   return (

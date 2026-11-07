@@ -22,7 +22,7 @@ interface Props {
   onSelectChapter: (c: TimelineChapter) => void
 }
 
-/** Línea de tiempo 2D en SVG: carriles, capítulos, esperas comprimidas, zoom y cabezal arrastrable. */
+/** 2D SVG timeline: lanes, chapters, compressed waits, zoom and a draggable playhead. */
 export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapterId, onSelectEvent, onSelectChapter }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -58,7 +58,7 @@ export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapte
     [axis],
   )
 
-  // Mantiene bajo el cursor el instante que se estaba mirando al hacer zoom.
+  // Keeps the instant being looked at under the cursor while zooming.
   useLayoutEffect(() => {
     const el = scroller.current
     const a = anchor.current
@@ -67,7 +67,7 @@ export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapte
     anchor.current = null
   }, [axis])
 
-  // Ctrl/⌘ + rueda (o pellizco) hace zoom; la rueda sola desplaza la página.
+  // Ctrl/Cmd + wheel (or pinch) zooms; the wheel alone scrolls the page.
   useEffect(() => {
     const el = scroller.current
     if (!el) return
@@ -80,7 +80,7 @@ export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapte
     return () => { el.removeEventListener('wheel', onWheel) }
   }, [zoomBy])
 
-  // Al reproducir, el cabezal no se sale de la vista.
+  // While playing, the playhead stays in view.
   useEffect(() => {
     const el = scroller.current
     if (!el || !playing) return
@@ -152,7 +152,7 @@ export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapte
               </pattern>
             </defs>
 
-            {/* Capítulos */}
+            {/* Chapters */}
             {timeline.chapters.map((c, i) => {
               const x0 = axis.toV(ms(c.start))
               const x1 = Math.max(axis.toV(ms(c.end)), x0 + 4)
@@ -170,7 +170,7 @@ export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapte
               )
             })}
 
-            {/* Esperas comprimidas */}
+            {/* Compressed waits */}
             {axis.segments
               .filter((s) => s.gap)
               .map((s) => (
@@ -182,19 +182,19 @@ export function TimelineTrack({ timeline, t, playing, onSeek, selectedId, chapte
                 </g>
               ))}
 
-            {/* Carriles */}
+            {/* Lanes */}
             {lanes.map((l) => (
               <line key={l.id} x1={0} x2={axis.size} y1={bodyTop + l.top} y2={bodyTop + l.top} stroke="#e3e3e7" />
             ))}
 
-            {/* Eventos */}
+            {/* Events */}
             {placed.map(({ ev, x0, x1, row }) => {
               const lane = lanes.find((l) => l.id === ev.lane)
               if (!lane) return null
               return <EventMark key={ev.id} ev={ev} x0={x0} x1={x1} y={bodyTop + lane.top + LANE_PAD + row * ROW_H} laneColor={colorOf(ev.lane)} selected={ev.id === selectedId} onSelect={onSelectEvent} />
             })}
 
-            {/* Cabezal */}
+            {/* Playhead */}
             <g pointerEvents="none">
               <line x1={headX} x2={headX} y1={CHAPTER_H - 4} y2={totalH} stroke="#6574ff" strokeWidth={2} />
               <path d={`M${String(headX - 6)} ${String(CHAPTER_H - 6)} L${String(headX + 6)} ${String(CHAPTER_H - 6)} L${String(headX)} ${String(CHAPTER_H + 5)} Z`} fill="#6574ff" />

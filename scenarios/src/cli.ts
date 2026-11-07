@@ -1,11 +1,11 @@
-/* eslint-disable no-console -- CLI; los escenarios solo traen datos inventados */
+/* eslint-disable no-console -- CLI; scenarios only carry made-up data */
 /**
- * pnpm scenario run <id>              un escenario (modo unit)
- * pnpm scenario run --all             todos los del catálogo con modo unit
+ * pnpm scenario run <id>              one scenario (unit mode)
+ * pnpm scenario run --all             every catalog scenario with unit mode
  * pnpm scenario run --all --policy policies/examples/fiscal-anchors.v1.json
- *                                     ¿qué pasaría con otra política? (no compara con expect)
- * pnpm scenario run --all --mode full los de modo full: API, cola, worker y Mastra reales sobre el
- *                                     Postgres de docker compose; sin llamadas a modelos
+ *                                     what would another policy do? (doesn't compare with expect)
+ * pnpm scenario run --all --mode full the full-mode ones: real API, queue, worker and Mastra on the
+ *                                     docker compose Postgres; no model calls
  */
 import { postgresAvailable } from '@gow/db/testing'
 import { loadCatalog, loadPolicy } from './load.ts'

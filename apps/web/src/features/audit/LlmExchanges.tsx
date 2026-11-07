@@ -8,7 +8,7 @@ import { Icon } from '../../ui/icons'
 import { Button, Card, Chip, EmptyState, ErrorState, Modal, Skeleton, TableSkeleton } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
 
-/** Para qué se llamó al modelo (ADR 0064); lo que no esté aquí se muestra tal cual. */
+/** What the model call was for; anything not listed here is shown as is. */
 const PURPOSE: Record<string, string> = {
   classify: 'Clasificar el documento',
   classify_transactions: 'Clasificar movimientos',
@@ -150,7 +150,7 @@ function CopyButton({ value, label = 'Copiar' }: { value: string; label?: string
       size="sm"
       variant="quiet"
       onClick={(e) => {
-        // Dentro del encabezado de un <details>: copiar no lo pliega.
+        // Inside a <details> summary: copying must not toggle it.
         e.preventDefault()
         e.stopPropagation()
         void navigator.clipboard.writeText(value).then(

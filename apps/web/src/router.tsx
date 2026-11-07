@@ -34,7 +34,7 @@ const detail = createRoute({
   component: ApplicationDetailPage,
   validateSearch: (s: Record<string, unknown>): { tab?: string; pag?: number } => ({ tab: str(s.tab), pag: typeof s.pag === 'number' ? s.pag : Number(str(s.pag)) || undefined }),
 })
-// three.js pesa más que el resto de la app: el recorrido se descarga solo al abrirlo.
+// three.js outweighs the rest of the app: the journey is downloaded only when opened.
 const timeline = createRoute({
   getParentRoute: () => shell,
   path: '/solicitudes/$id/recorrido',
@@ -47,7 +47,7 @@ const clarifications = createRoute({
   validateSearch: (s: Record<string, unknown>): { id?: string; ver?: string } => ({ id: str(s.id), ver: str(s.ver) }),
 })
 const review = createRoute({ getParentRoute: () => shell, path: '/revision', component: ReviewPage })
-// Configuración agrupa General, Políticas, Prompts y Bitácora con un submenú.
+// Settings groups General, Policies, Prompts and Audit log under a submenu.
 const settingsSection = createRoute({ getParentRoute: () => shell, path: '/configuracion', component: SettingsLayout })
 const settings = createRoute({ getParentRoute: () => settingsSection, path: '/', component: SettingsPage })
 const policies = createRoute({ getParentRoute: () => settingsSection, path: '/politicas', component: PoliciesPage, validateSearch: (s: Record<string, unknown>): { v?: string } => ({ v: str(s.v) }) })
@@ -66,7 +66,7 @@ const audit = createRoute({
 })
 const suppliers = createRoute({ getParentRoute: () => shell, path: '/proveedores', component: SuppliersPage, validateSearch: (s: Record<string, unknown>): { q?: string } => ({ q: str(s.q) }) })
 const supplier = createRoute({ getParentRoute: () => shell, path: '/proveedores/$id', component: SupplierDetailPage })
-// Las rutas de antes siguen sirviendo (enlaces guardados): llevan a su lugar en Configuración.
+// The old routes still work (saved links): they redirect to their place in Settings.
 const legacy = (from: '/politicas' | '/prompts' | '/bitacora', to: '/configuracion/politicas' | '/configuracion/prompts' | '/configuracion/bitacora') =>
   createRoute({
     getParentRoute: () => shell,

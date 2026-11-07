@@ -1,8 +1,8 @@
 /**
- * Visor del documento (docs/08 §2): pdf.js sobre la página que pide la extracción. Cuando un valor
- * trae su fragmento literal (`source.snippet`), se busca en la capa de texto de la página y se
- * resalta; el color dice si el valor está verificado, sin verificar o en conflicto. Un documento
- * sin capa de texto utilizable (HSBC, solo visión) muestra la página sin resaltado y lo dice.
+ * Document viewer: pdf.js on the page the extraction points to. When a value carries its literal
+ * snippet (`source.snippet`), it is searched in the page's text layer and highlighted; the color
+ * shows verified, unverified or conflicting. A document without a usable text layer (HSBC,
+ * vision-only) shows the page unhighlighted and says so.
  */
 import clsx from 'clsx'
 import * as pdfjs from 'pdfjs-dist'
@@ -20,7 +20,7 @@ export interface PdfFocus {
   page: number
   snippet: string | null
   tone: Tone
-  /** Cambia en cada clic, para volver a resaltar el mismo valor. */
+  /** Changes on every click, so the same value can be highlighted again. */
   nonce: number
 }
 
@@ -52,7 +52,7 @@ export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentI
     task.promise.then(
       (doc) => { if (!cancelled) setPdf(doc) },
       (e: unknown) => {
-        // StrictMode monta, desmonta y monta: el aborto del primer intento no es un error.
+        // StrictMode mounts, unmounts and mounts again: the first attempt's abort is not an error.
         if (!cancelled) setError(e instanceof Error ? e.message : 'No se pudo abrir el PDF')
       },
     )
@@ -102,7 +102,7 @@ export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentI
       if (stopped()) return
       setRendering(false)
 
-      // Resaltado del fragmento citado.
+      // Highlight the cited snippet.
       const content = await p.getTextContent()
       const items = content.items.filter((i): i is Extract<typeof i, { str: string }> => 'str' in i)
       let flat = ''
@@ -133,7 +133,7 @@ export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentI
       ctl.cancelled = true
       task?.cancel()
     }
-    // `focus.nonce` fuerza el resaltado aunque se pida el mismo valor dos veces.
+    // `focus.nonce` forces the highlight even when the same value is requested twice.
   }, [pdf, current, width, zoom, focus.snippet, focus.nonce])
 
   useEffect(() => {

@@ -1,5 +1,5 @@
-# docs/09 §6, caso 21. El CFDI impreso en el estado de cuenta aparece cancelado ante el SAT:
-# sugiere documento alterado → revisión humana (compuerta de la política de ejemplo, no de la base).
+# The CFDI printed in the statement shows as cancelled at SAT: suggests a tampered document ->
+# human review (gate of the example policy, not the base one).
 id: cfdi-cancelado
 catalog: 21
 title: CFDI del estado de cuenta cancelado ante el SAT

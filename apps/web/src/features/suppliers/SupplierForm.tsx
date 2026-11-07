@@ -1,7 +1,7 @@
 /**
- * Alta y edición de un proveedor. Se valida con los mismos contratos que la API (`SupplierCreateBody`,
- * `SupplierUpdateBody`, con los validadores de RFC y CLABE de `@gow/contracts`): el error aparece al
- * escribir y la API lo vuelve a revisar. En la edición solo se mandan los campos que cambiaron.
+ * Create and edit a supplier. Validated with the same contracts as the API (`SupplierCreateBody`,
+ * `SupplierUpdateBody`, with the RFC and CLABE validators from `@gow/contracts`): the error shows
+ * while typing and the API checks again. On edit only the changed fields are sent.
  */
 import { SupplierCreateBody, SupplierUpdateBody, type SupplierDetail } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,7 +14,7 @@ type Field = 'legal_name' | 'rfc' | 'clabes'
 
 const splitClabes = (text: string): string[] => text.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean)
 
-/** Mensaje por campo; en las CLABEs dice el renglón, nunca el valor. */
+/** One message per field; for CLABEs it names the row, never the value. */
 function issuesByField(issues: { path: string; message: string }[]): Partial<Record<Field, string>> {
   const out: Partial<Record<Field, string>> = {}
   for (const i of issues) {
@@ -49,7 +49,7 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
   const parsed = editing ? SupplierUpdateBody.safeParse(input) : SupplierCreateBody.safeParse(input)
   const local = parsed.success ? {} : issuesByField(parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
 
-  // En la edición, lo que de verdad cambió respecto a lo guardado (ya normalizado).
+  // On edit, what really changed from what's stored (already normalized).
   const changes: { legal_name?: string; rfc?: string | null; clabes?: string[] } = {}
   if (editing && parsed.success) {
     const p = parsed.data

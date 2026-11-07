@@ -1,7 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    // El modo full arma el worker, que compone workflows de Mastra (ADR 0004).
+    // Full mode builds the worker, which composes Mastra workflows.
     "exactOptionalPropertyTypes": false
   },
   "include": ["src/**/*.ts"]

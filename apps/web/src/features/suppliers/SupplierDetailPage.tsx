@@ -12,7 +12,7 @@ import { SupplierFormModal } from './SupplierForm'
 
 const OUTCOME_TONE = { paid: 'accent', late: 'amber', default: 'coral', fraud: 'coral' } as const
 
-/** Un proveedor (docs/08 §2): sus datos, sus contactos verificados y todo lo que ha pedido. Abrirlo queda en la bitácora. */
+/** One supplier: its data, verified contacts and everything it has requested. Opening it is logged. */
 export function SupplierDetailPage() {
   const { id } = useParams({ from: '/shell/proveedores/$id' })
   const { data, isPending, isError, error, refetch } = useSupplier(id)
@@ -148,8 +148,8 @@ const IN_PROGRESS = new Set<SupplierApplicationItem['status']>(['received', 'ext
 const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`
 
 /**
- * Borrar al proveedor con todo lo suyo (ADR 0059). Dice qué se va a borrar con lo que ya muestra la
- * página; con una solicitud en proceso no deja (la API también contesta 409).
+ * Delete the supplier with everything it owns. Says what will go using what the page already
+ * shows; refused while a request is in progress (the API also answers 409).
  */
 function DeleteSupplierModal({ open, onClose, supplier }: { open: boolean; onClose: () => void; supplier: SupplierDetail }) {
   const toast = useToast()

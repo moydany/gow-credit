@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion -- pruebas: los índices existen en el fixture */
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- tests: the indexes exist in the fixture */
 import { describe, expect, it } from 'vitest'
 import { ApplicationTimeline } from '@gow/contracts'
 import { fixtureTimeline as tl } from './fixture'
@@ -31,7 +31,7 @@ describe('escala comprimida', () => {
     expect(seg.v1 - seg.v0).toBe(GAP_PX)
     expect(ms(gap.end) - ms(gap.start)).toBeGreaterThan(86_400_000)
     expect(axis.toV(ms(gap.end)) - axis.toV(ms(gap.start))).toBeCloseTo(GAP_PX)
-    // El zoom agranda el tiempo activo, no la espera.
+    // Zoom enlarges active time, not the wait.
     const zoomed = buildTrackAxis(tl, 1000, 20)
     expect(zoomed.segments.find((s) => s.gap)!.v1 - zoomed.segments.find((s) => s.gap)!.v0).toBe(GAP_PX)
     expect(zoomed.size).toBeGreaterThan(axis.size * 5)
@@ -57,7 +57,7 @@ describe('escala comprimida', () => {
       prev = v
       expect(play.toT(v)).toBeCloseTo(t, 3)
     }
-    // Cada capítulo dura algo legible; la espera de un día, un instante.
+    // Each chapter lasts something readable; the one-day wait, an instant.
     expect(play.size).toBeLessThan(60)
     const waiting = play.segments.find((s) => s.gap)!
     expect(waiting.v1 - waiting.v0).toBeLessThan(3)
@@ -109,7 +109,7 @@ describe('sceneStateAt', () => {
     expect(a.progress).toBeLessThan(1)
     expect(s.token.station).toBe('extract')
     expect(s.pages.filter((p) => p.reading).map((p) => p.page)).toEqual(expect.arrayContaining([1, 2, 3, 4, 5, 6]))
-    // Aún no hay verificación: todas rayadas.
+    // No verification yet: all striped.
     expect(s.pages.every((p) => p.verification === 'pending')).toBe(true)
     const flash = sceneStateAt(tl, at('llm:tx-c') + 200, { lingerMs: 1000 })
     expect(flash.flashes).toHaveLength(1)
@@ -136,7 +136,7 @@ describe('sceneStateAt', () => {
     expect(s.dimensions.find((d) => d.id === 'cash_flow_stability')).toMatchObject({ used: true, value: 0.72 })
     expect(s.dimensions.find((d) => d.id === 'income_concentration')?.used).toBe(false)
     expect(s.ghost).toMatchObject({ status: 'qualified_with_limit' })
-    // La sombra no cambia la ficha ni las compuertas, y se desvanece.
+    // Shadow doesn't change the token or the gates, and fades out.
     expect(sceneStateAt(tl, t + 5000, { lingerMs: 1000 }).ghost).toBeNull()
   })
 
@@ -169,7 +169,7 @@ describe('sceneStateAt', () => {
     const direct = sceneStateAt(tl, t1)
     sceneStateAt(tl, t2)
     expect(sceneStateAt(tl, t1)).toEqual(direct)
-    // Y una vez atrás, lo posterior desaparece.
+    // And once back, what came later disappears.
     expect(direct.gates.every((g) => g.color === 'unknown')).toBe(true)
     expect(direct.pages.every((p) => p.verification === 'pending')).toBe(true)
   })

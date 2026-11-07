@@ -1,7 +1,7 @@
 /**
- * Estado declarativo de la escena 3D en un instante `t` (ms desde epoch). Función pura de
- * (recorrido, t): no importa three ni toca el DOM, así que retroceder y adelantar es calcular otra vez.
- * `scene.ts` aplica este estado a objetos de three que se reutilizan.
+ * Declarative state of the 3D scene at an instant `t` (ms since epoch). A pure function of
+ * (journey, t): it doesn't import three or touch the DOM, so rewinding and fast-forwarding is just
+ * computing again. `scene.ts` applies this state to reused three objects.
  */
 import type { ApplicationStatus, ApplicationTimeline, DecisionStatus, TimelineEvent } from '@gow/contracts'
 
@@ -25,20 +25,20 @@ export type GateColor = 'pass' | 'unknown' | 'clarify' | 'review' | 'reject' | '
 export interface Beam {
   eventId: string
   model: string
-  /** Páginas que lee; vacío: el haz va a una estación. */
+  /** Pages it reads; empty: the beam goes to a station. */
   pages: { document: number; page: number }[]
   station: StationId | null
-  /** 0..1: cuánto del haz se ha extendido. */
+  /** 0..1: how far the beam has extended. */
   progress: number
   kind: 'ok' | 'error'
-  /** Ya terminó la llamada y el haz se está apagando. */
+  /** The call has finished and the beam is fading out. */
   fading: boolean
 }
 
 export interface Flash {
   eventId: string
   model: string
-  /** 1 al inicio, 0 al apagarse. */
+  /** 1 at the start, 0 when faded out. */
   strength: number
 }
 
@@ -55,7 +55,7 @@ export interface PageState {
   document: number
   page: number
   verification: PageVerification
-  /** Alguna llamada la está leyendo ahora. */
+  /** A call is reading it right now. */
   reading: boolean
   issues: boolean
 }
@@ -78,12 +78,12 @@ export interface SceneState {
   dimensions: { id: string; value: number; used: boolean }[]
   models: { model: string; active: boolean }[]
   analyst: { level: number; active: boolean; eventId: string | null }
-  /** Evento más reciente que ya empezó (el que el panel sigue al reproducir). */
+  /** Latest event that has started (the one the panel follows during playback). */
   activeEventId: string | null
   chapterId: string | null
 }
 
-/** Lo que la escena necesita construir una sola vez (cambia solo si cambia la estructura). */
+/** What the scene builds once (changes only if the structure changes). */
 export interface SceneLayout {
   documents: { index: number; pages: number[] }[]
   models: string[]
@@ -94,7 +94,7 @@ export interface SceneLayout {
 export type ScenePick = { type: 'page'; document: number; page: number } | { type: 'orb'; model: string } | { type: 'gate'; id: string } | { type: 'token' } | { type: 'analyst' } | { type: 'station'; station: StationId }
 
 export interface SceneOptions {
-  /** Cuánto se queda visible lo instantáneo (cápsulas, destellos, haces ya terminados), en ms reales. */
+  /** How long instantaneous things stay visible (capsules, flashes, finished beams), in real ms. */
   lingerMs?: number
 }
 export const DEFAULT_LINGER_MS = 1500
@@ -156,7 +156,7 @@ const VERDICT_STATION: Partial<Record<ApplicationStatus | DecisionStatus, Statio
 }
 const verdictStation = (status: ApplicationStatus | DecisionStatus | null): StationId | null => (status ? (VERDICT_STATION[status] ?? null) : null)
 
-/** A dónde mira cada propósito de modelo cuando no lee páginas. */
+/** Where each model purpose looks when it isn't reading pages. */
 export function purposeStation(purpose: string, fallback: StationId): StationId {
   if (purpose.startsWith('classify_transactions')) return 'classify-transactions'
   if (purpose === 'write_questions') return 'ask-owner'
@@ -183,7 +183,7 @@ const STEP_STATUS: Record<string, ApplicationStatus> = {
   explain: 'deciding',
 }
 
-/** Lo que se va acumulando al recorrer los eventos hasta `t`. */
+/** What accumulates while walking the events up to `t`. */
 interface Acc {
   t: number
   linger: number
@@ -211,7 +211,8 @@ const spanEnd = (ev: Ev): number => ev.e ?? ev.s
 const inFlight = (a: Acc, ev: Ev): number => Math.max(spanEnd(ev) - ev.s, a.linger)
 
 function onInbound(a: Acc, ev: EvOf<'inbound_message'>): void {
-  // La cápsula sube al buzón y luego baja a la cola; la ficha se queda en el relay hasta que algo la mueva.
+  // The capsule goes up to the mailbox and then down to the queue; the token stays at the relay
+  // until something moves it.
   if (!a.floating && !isFinal(a.status)) a.station = 'relay'
   a.tokenEvent = ev.id
   const dur = inFlight(a, ev)
@@ -340,7 +341,7 @@ export function sceneStateAt(tl: ApplicationTimeline, t: number, opts: SceneOpti
   const decision = a.lastActiveDecision
 
   const lastAnalyst = a.analystEvent ? events.find((e) => e.id === a.analystEvent) : undefined
-  // Activa solo mientras el último movimiento del analista sigue vigente.
+  // Active only while the analyst's latest move is still current.
   const analystActive = lastAnalyst ? t <= Math.max(spanEnd(lastAnalyst), lastAnalyst.s + linger) : false
   const chapter = [...chapters].reverse().find((c) => c.s <= t) ?? chapters[0] ?? null
 
@@ -368,7 +369,7 @@ export function sceneStateAt(tl: ApplicationTimeline, t: number, opts: SceneOpti
   }
 }
 
-/** El evento al que lleva un clic en la escena (null si no hay uno relacionado). */
+/** The event a click on the scene leads to (null if none is related). */
 export function eventForPick(tl: ApplicationTimeline, t: number, pick: ScenePick): TimelineEvent | null {
   const { events } = prepare(tl)
   const latest = <T extends Ev>(list: T[]): T | null => {

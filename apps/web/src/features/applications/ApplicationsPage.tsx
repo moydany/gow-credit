@@ -42,7 +42,7 @@ export function ApplicationsPage() {
       total: rows.length,
       clarification: by((a) => a.status === 'needs_clarification'),
       review: by((a) => a.status === 'human_review'),
-      // Lo aprobado de cada solicitud: el monto que pidió si cabe en la línea (ADR 0053).
+      // Approved per request: the requested amount if it fits the line.
       approvedAmount: approved.reduce((s, a) => s + (a.decision ? (approvalOf(a.decision, a.request?.amount)?.value ?? 0) : 0), 0),
       approvedCount: approved.length,
       qualified: by((a) => a.status === 'qualified' || a.status === 'qualified_with_limit'),
@@ -200,7 +200,7 @@ export function ApplicationsPage() {
 }
 
 function Row({ a }: { a: ApplicationRow }) {
-  // Estado de cuenta más viejo que el ajuste del tenant (ADR 0049): se analizó, con advertencia.
+  // Statement older than the tenant's age limit: analyzed anyway, with a warning.
   const oldStatement = a.decision?.reasons.some((r) => r.code === DOCUMENT_AGE_WARNING) ?? false
   const reason = a.status === 'failed' ? describeFailure(a.failure_reason).label : a.failure_reason?.startsWith('document_discarded:') ? 'Documento descartado por el analista' : a.decision?.reasons[0]?.message
   return (

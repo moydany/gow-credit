@@ -1,6 +1,6 @@
 /**
- * Definición de terminado de la fase 4 (docs/00 §4): los escenarios de docs/06 pasan en modo
- * unitario, sin LLM. Cada archivo de catalog/ con modo unit es un caso.
+ * The catalog scenarios pass in unit mode, without an LLM. Each catalog/ file with unit mode is a
+ * case.
  */
 import { describe, expect, it } from 'vitest'
 import { loadCatalog, loadPolicy } from './load.ts'

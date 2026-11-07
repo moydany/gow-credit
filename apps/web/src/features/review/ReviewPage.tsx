@@ -6,8 +6,8 @@ import { Card, CardHeader, Chip, EmptyState, ErrorState, Skeleton } from '../../
 import { PageTitle } from '../applications/ApplicationsPage'
 
 /**
- * Cola de revisión humana (docs/08 §2): lista el motivo y abre la solicitud, donde el analista corrige
- * valores con el PDF al lado y reevalúa (ADR 0020).
+ * Human review queue: lists the reason and opens the request, where the analyst corrects values
+ * next to the PDF and re-evaluates.
  */
 export function ReviewPage() {
   const { data, isPending, isError, error, refetch } = useApplications()

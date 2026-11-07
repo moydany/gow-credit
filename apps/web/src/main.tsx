@@ -10,10 +10,10 @@ import { router } from './router'
 import { ToastProvider } from './ui/toast'
 
 /**
- * La API renueva la sesión de Supabase Auth en cualquier petición (ADR 0036): las consultas que se
- * refrescan solas la mantienen viva sin hacer nada aquí. Una sesión terminada (límite absoluto,
- * inactividad, usuario quitado, salir) aparece como 401 en cualquier consulta: se vuelve a pedir
- * /me, y el Shell manda a /entrar cuando también responde 401.
+ * The API renews the Supabase Auth session on any request, so queries that refresh themselves keep
+ * it alive without anything here. An ended session (absolute limit, inactivity, removed user,
+ * sign-out) shows up as a 401 on any query: `/me` is requested again, and the Shell redirects to
+ * /entrar when it also answers 401.
  */
 const onUnauthorized = (err: unknown) => {
   if (err instanceof ApiError && err.status === 401) void queryClient.invalidateQueries({ queryKey: ['me'] })

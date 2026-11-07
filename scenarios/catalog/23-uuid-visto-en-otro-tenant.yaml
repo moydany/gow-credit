@@ -1,5 +1,5 @@
-# docs/09 §9.2, caso 23. El mismo UUID de CFDI se presentó a otro prestamista hace 3 días
-# (solicitudes simultáneas): revisión humana. El índice de plataforma solo dice cuándo.
+# The same CFDI UUID was presented to another lender 3 days ago (simultaneous requests): human
+# review. The platform index only says when.
 id: uuid-visto-en-otro-tenant
 catalog: 23
 title: Mismo estado de cuenta presentado a otro prestamista hace 3 días

@@ -1,8 +1,8 @@
 /**
- * Lectura de la capa de texto con coordenadas para construir el ground truth sin pasar por el
- * modelo extractor (ADR 0001, procedencia `text_layer`). pdfjs entrega fragmentos con
- * posición; aquí se agrupan en líneas (misma y) y segmentos (fragmentos contiguos en x), que
- * es lo que necesita un parser de tablas: en qué columna cae cada monto.
+ * Reads the text layer with coordinates to build the ground truth without going through the
+ * extractor model (provenance `text_layer`). pdfjs returns fragments with positions; here they are
+ * grouped into lines (same y) and segments (fragments contiguous in x), which is what a table
+ * parser needs: which column each amount falls in.
  */
 import { readFile } from 'node:fs/promises'
 import { assessTextLayer, decodeEbcdic } from '@gow/extraction'
@@ -16,7 +16,7 @@ export interface Segment {
 
 export interface Line {
   page: number
-  /** y de arriba abajo (0 arriba), en puntos. */
+  /** y from top to bottom (0 at the top), in points. */
   y: number
   segments: Segment[]
   text: string
@@ -34,7 +34,7 @@ interface Item {
   w: number
 }
 
-/** Une fragmentos cercanos en x (menos de `gap` puntos) en un solo segmento. */
+/** Joins fragments close in x (less than `gap` points) into one segment. */
 function toSegments(items: Item[], gap: number): Segment[] {
   const sorted = [...items].sort((a, b) => a.x - b.x)
   const out: Segment[] = []
@@ -66,7 +66,7 @@ export async function readLayout(path: string, opts: { yTolerance?: number; gap?
         if (!('str' in it) || it.str.trim() === '') continue
         const t = it.transform as number[]
         const item = { str: it.str, x: t[4] ?? 0, y: height - (t[5] ?? 0), w: it.width }
-        // Algunas páginas imprimen el texto dos veces en el mismo lugar (Mercado Pago): se descarta el duplicado.
+        // Some pages print the text twice in the same place (Mercado Pago): the duplicate is dropped.
         const key = `${item.str}@${item.x.toFixed(0)},${item.y.toFixed(0)}`
         if (seen.has(key)) continue
         seen.add(key)
@@ -77,7 +77,7 @@ export async function readLayout(path: string, opts: { yTolerance?: number; gap?
   } finally {
     await task.destroy()
   }
-  // Misma decisión que el extractor: si la capa viene en EBCDIC (HSBC), se decodifica.
+  // Same decision as the extractor: if the layer is EBCDIC (HSBC), decode it.
   const assessed = assessTextLayer(rawPages.map((items) => items.map((i) => i.str).join('\n')))
   const repaired = assessed.repaired
   const pages = rawPages.map((items, pi) => {

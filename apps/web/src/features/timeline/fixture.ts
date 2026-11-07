@@ -1,16 +1,16 @@
 /**
- * Recorrido de ejemplo para las pruebas (y para trabajar la pantalla sin API): una solicitud por
- * WhatsApp con datos de factura, extracción de un PDF de 6 páginas (pasada 1, bloques en paralelo,
- * doble lectura), clasificación, decisión ronda 1 que pide aclaración, espera de un día, reanudación,
- * decisión ronda 2, explicación y veredicto. Incluye una decisión de sombra y un aviso. Sin PII.
+ * Sample journey for tests (and for working on the screen without an API): a WhatsApp request with
+ * invoice data, extraction of a 6-page PDF (pass 1, parallel blocks, double read), classification,
+ * a round 1 decision that asks for clarification, a one-day wait, resume, a round 2 decision,
+ * explanation and verdict. Includes a shadow decision and a warning. No PII.
  */
 import type { ApplicationTimeline, TimelineEvent } from '@gow/contracts'
 
 const BASE = Date.parse('2026-11-02T15:00:00.000Z')
 const at = (sec: number): string => new Date(BASE + Math.round(sec * 1000)).toISOString()
-const DAY = 100_800 // 1 d 4 h de espera al proveedor
+const DAY = 100_800 // 1 d 4 h waiting on the supplier
 
-/** Capítulos del recorrido de ejemplo. */
+/** Chapters of the sample journey. */
 const CH = {
   clarification_1: 'c-clarification-1',
   classification: 'c-classification',
@@ -52,7 +52,7 @@ type CallInput = Omit<Common, 'lane' | 'label'> & {
 
 const callLabel = (c: CallInput): string => c.label ?? `${c.purpose.replace(/_/g, ' ')}${c.cache ? ' (de caché)' : ''}${c.error ? ' (con error)' : ''}`
 const callDoc = (c: CallInput): number | null => (c.doc !== undefined ? c.doc : c.pages?.length ? 0 : null)
-/** Una llamada de caché no gasta: sin costo, latencia ni tokens. */
+/** A cache hit costs nothing: no cost, latency or tokens. */
 const callUsage = (c: CallInput) => {
   const live = !c.cache
   const dur = c.end === undefined ? 0 : Math.round((c.end - c.start) * 1000)
@@ -108,13 +108,13 @@ const HAIKU = 'claude-haiku-5-5'
 const OPUS = 'claude-opus-5-5'
 
 const events: TimelineEvent[] = [
-  // ── Recepción ──
+  // ── Intake ──
   { ...base({ id: 'applications:app-1', lane: 'queue', start: 0, chapter: CH.reception, label: 'Solicitud creada por WhatsApp', source: { table: 'applications', id: 'app-1' } }), kind: 'application_created', origin: 'whatsapp' },
   { ...base({ id: 'inbound_messages:in-1', lane: 'supplier', start: 1.2, chapter: CH.reception, label: 'El proveedor envía los datos de la factura' }), kind: 'inbound_message', channel: 'whatsapp', resolution: 'intake_amount', has_document: false, media_kind: null, interpreted: false },
   { ...base({ id: 'inbound_messages:in-2', lane: 'supplier', start: 6.4, chapter: CH.reception, label: 'El proveedor envía el estado de cuenta (PDF)' }), kind: 'inbound_message', channel: 'whatsapp', resolution: 'document_received', has_document: true, media_kind: null, interpreted: false },
   { ...base({ id: 'queue:process', lane: 'queue', start: 6.9, end: 8.1, precision: 'derived', chapter: CH.reception, label: 'Espera en la cola (proceso)' }), kind: 'queue_wait', job: 'process' },
 
-  // ── Extracción ──
+  // ── Extraction ──
   step('extract', CH.extraction, 8.1, 52, 'extract', 0, 'Extraer el estado de cuenta'),
   call({ id: 'llm:classify', chapter: CH.extraction, start: 8.4, end: 10.2, purpose: 'classify', model: GEMINI, prompt: 'classify@3', effort: 'low', pages: [1], cost: 0.0009, tokens: [2100, 90] }),
   call({ id: 'llm:summary', chapter: CH.extraction, start: 10.4, end: 16.8, purpose: 'extraction.pass1', model: GEMINI, prompt: 'extraction-summary@7', effort: 'medium', pages: [1, 2, 3, 4, 5, 6], cost: 0.0112, tokens: [18400, 1450] }),
@@ -136,11 +136,11 @@ const events: TimelineEvent[] = [
     flags: ['balance_break'],
   },
 
-  // ── Clasificación ──
+  // ── Classification ──
   step('classify', CH.classification, 52, 66, 'classify-transactions', 0, 'Clasificar movimientos'),
   call({ id: 'llm:classify-tx', chapter: CH.classification, start: 52.5, end: 64.8, purpose: 'classify_transactions', model: HAIKU, prompt: 'classify-transactions@5', effort: 'low', cost: 0.0094, tokens: [7200, 1600], doc: null }),
 
-  // ── Decisión, ronda 1 ──
+  // ── Decision, round 1 ──
   step('decide-1', CH.decision_1, 66, 66.4, 'decide', 0, 'Evaluar con la política'),
   {
     ...base({ id: 'decisions:dec-1', lane: 'engine', start: 66.2, precision: 'inferred', chapter: CH.decision_1, label: 'Decisión: pide una aclaración', source: { table: 'decisions', id: 'dec-1' } }),
@@ -171,21 +171,21 @@ const events: TimelineEvent[] = [
     asks: [],
   },
 
-  // ── Aclaración, ronda 1 ──
+  // ── Clarification, round 1 ──
   step('ask-1', CH.clarification_1, 66.6, 75, 'ask-owner', 1, 'Preguntar al proveedor'),
   call({ id: 'llm:questions', chapter: CH.clarification_1, start: 66.8, end: 71.2, purpose: 'write_questions', model: OPUS, prompt: 'write-questions@2', effort: 'medium', cost: 0.034, tokens: [2900, 620], doc: null }),
   { ...base({ id: 'clarifications:cl-1', lane: 'workflow', start: 71.5, chapter: CH.clarification_1, label: 'Se abre la aclaración (ronda 1)', source: { table: 'clarifications', id: 'cl-1' } }), kind: 'clarification_opened', clarification_id: 'cl-1', round: 1, channel: 'whatsapp', questions: 1 },
   { ...base({ id: 'outbound_messages:out-1', lane: 'relay', start: 72.6, chapter: CH.clarification_1, label: 'Se envía la pregunta por WhatsApp' }), kind: 'outbound_message', channel: 'whatsapp', message_kind: 'question', delivery: 'sent', attempts: 1 },
   { ...base({ id: 'step:suspended-1', lane: 'workflow', start: 75, end: DAY + 75, precision: 'derived', chapter: CH.clarification_1, label: 'El workflow espera la respuesta' }), kind: 'workflow_suspended', round: 1 },
 
-  // ── Reanudación ──
+  // ── Resume ──
   { ...base({ id: 'inbound_messages:in-3', lane: 'supplier', start: DAY + 75, chapter: CH.resume, label: 'El proveedor responde' }), kind: 'inbound_message', channel: 'whatsapp', resolution: 'matched', has_document: false, media_kind: null, interpreted: true },
   call({ id: 'llm:interpret', chapter: CH.resume, start: DAY + 75.4, end: DAY + 77.0, purpose: 'interpret_reply', model: HAIKU, prompt: 'interpret-reply@3', effort: 'low', cost: 0.0016, tokens: [900, 120], doc: null }),
   { ...base({ id: 'clarifications:cl-1:answered', lane: 'supplier', start: DAY + 77.4, chapter: CH.resume, label: 'Se contesta la aclaración (ronda 1)', source: { table: 'clarifications', id: 'cl-1' } }), kind: 'clarification_answered', clarification_id: 'cl-1', round: 1, answers: 1 },
   { ...base({ id: 'queue:resume', lane: 'queue', start: DAY + 77.5, end: DAY + 79, precision: 'derived', chapter: CH.resume, label: 'Espera en la cola (reanudar)' }), kind: 'queue_wait', job: 'resume' },
   step('apply', CH.resume, DAY + 79, DAY + 79.6, 'apply-answers', 1, 'Aplicar la respuesta'),
 
-  // ── Decisión, ronda 2 ──
+  // ── Decision, round 2 ──
   step('redecide', CH.decision_2, DAY + 79.6, DAY + 80, 're-decide', 1, 'Reevaluar'),
   {
     ...base({ id: 'decisions:dec-2', lane: 'engine', start: DAY + 79.8, precision: 'inferred', chapter: CH.decision_2, label: 'Decisión: califica con línea', source: { table: 'decisions', id: 'dec-2' } }),
@@ -202,11 +202,11 @@ const events: TimelineEvent[] = [
     asks: [],
   },
 
-  // ── Explicación ──
+  // ── Explanation ──
   step('explain', CH.explanation, DAY + 80, DAY + 85, 'explain', 1, 'Explicar la decisión'),
   call({ id: 'llm:explain', chapter: CH.explanation, start: DAY + 80.2, end: DAY + 84.6, purpose: 'explain', model: OPUS, prompt: 'explain@4', effort: 'medium', cost: 0.041, tokens: [3600, 880], doc: null, exchange: null }),
 
-  // ── Veredicto ──
+  // ── Verdict ──
   step('finalize', CH.verdict, DAY + 85, DAY + 85.4, 'finalize', 1, 'Cerrar la solicitud'),
   { ...base({ id: 'outbound_messages:out-2', lane: 'relay', start: DAY + 86, chapter: CH.verdict, label: 'Se envía el veredicto por WhatsApp' }), kind: 'outbound_message', channel: 'whatsapp', message_kind: 'verdict', delivery: 'sent', attempts: 1 },
   { ...base({ id: 'audit_log:verdict-1', lane: 'relay', start: DAY + 86.6, chapter: CH.verdict, label: 'Veredicto en cola de envío' }), kind: 'verdict_queued', application_status: 'qualified_with_limit' },

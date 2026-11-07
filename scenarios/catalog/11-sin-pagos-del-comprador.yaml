@@ -1,5 +1,5 @@
-# docs/06 §4, caso 11. Perfil sano con tres meses, pero el comprador no aparece en el estado de
-# cuenta: máximo qualified_with_limit (tope de la política base, docs/03 cambios de la fase 1).
+# Healthy profile with three months, but the buyer doesn't appear in the statement: at most
+# `qualified_with_limit` (base policy cap).
 id: sin-pagos-del-comprador
 catalog: 11
 title: Perfil sano sin pagos del comprador

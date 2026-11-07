@@ -1,10 +1,10 @@
 /**
- * Escalas del recorrido (sin React ni three). Una escala es una función por tramos entre el tiempo real
- * (ms desde epoch) y un eje "comprimido": los `gaps` (esperas de un día) ocupan un ancho fijo pequeño y
- * el resto del tiempo se reparte lineal. Es estrictamente creciente, así que se puede invertir.
+ * Journey scales (no React or three). A scale is a piecewise function between real time (ms since
+ * epoch) and a "compressed" axis: the `gaps` (one-day waits) take a small fixed width and the rest
+ * of the time is spread linearly. Strictly increasing, so it can be inverted.
  *
- * Hay dos usos con la misma pieza: el eje horizontal de la línea de tiempo 2D (píxeles) y el eje de
- * reproducción (segundos): ahí cada tramo dura algo legible, no su tiempo real.
+ * Two uses, same piece: the horizontal axis of the 2D timeline (pixels) and the playback axis
+ * (seconds), where each span lasts something readable, not its real time.
  */
 import type { ApplicationTimeline } from '@gow/contracts'
 
@@ -18,19 +18,19 @@ export interface AxisSegment {
 
 export interface Axis {
   segments: AxisSegment[]
-  /** Valor del eje al final del recorrido. */
+  /** Axis value at the end of the journey. */
   size: number
   tStart: number
   tEnd: number
   toV: (t: number) => number
   toT: (v: number) => number
-  /** Milisegundos reales por unidad del eje en el tramo de `t` (cuánto "pesa" cada unidad ahí). */
+  /** Real milliseconds per axis unit in the span of `t` (how much each unit "weighs" there). */
   msPerUnit: (t: number) => number
 }
 
 export const ms = (iso: string): number => Date.parse(iso)
 
-/** Los tramos de espera, recortados al recorrido, ordenados y sin traslapes. */
+/** Wait spans, clipped to the journey, sorted and non-overlapping. */
 export function gapRanges(timeline: ApplicationTimeline): { t0: number; t1: number }[] {
   const lo = ms(timeline.start)
   const hi = ms(timeline.end)
@@ -48,8 +48,8 @@ export function gapRanges(timeline: ApplicationTimeline): { t0: number; t1: numb
 }
 
 /**
- * Construye la escala. `weight(ms, isGap)` da el ancho de cada pieza en unidades del eje; `breaks`
- * parte los tramos activos (por ejemplo, en los límites de los capítulos).
+ * Builds the scale. `weight(ms, isGap)` gives each piece's width in axis units; `breaks` splits
+ * active spans (for example at chapter boundaries).
  */
 export function buildAxis(timeline: ApplicationTimeline, weight: (ms: number, gap: boolean) => number, breaks: number[] = []): Axis {
   const lo = ms(timeline.start)
@@ -122,7 +122,7 @@ export function buildAxis(timeline: ApplicationTimeline, weight: (ms: number, ga
 
 export const GAP_PX = 64
 
-/** Eje horizontal (px) de la línea de tiempo 2D para un ancho visible y un zoom (1 = todo cabe). */
+/** Horizontal axis (px) of the 2D timeline for a visible width and a zoom (1 = everything fits). */
 export function buildTrackAxis(timeline: ApplicationTimeline, viewportPx: number, zoom: number): Axis {
   const gaps = gapRanges(timeline)
   const activeMs = Math.max(ms(timeline.end) - ms(timeline.start) - gaps.reduce((a, g) => a + (g.t1 - g.t0), 0), 1)
@@ -133,16 +133,16 @@ export function buildTrackAxis(timeline: ApplicationTimeline, viewportPx: number
 
 export const GAP_PLAY_S = 1.6
 
-/** Segundos de reproducción de un tramo activo de `span` ms: legible, sin seguir el tiempo real. */
+/** Playback seconds of an active span of `span` ms: readable, not following real time. */
 export const playSeconds = (span: number): number => Math.min(Math.max(0.9 + Math.sqrt(span / 1000) * 0.5, 1.1), 6.5)
 
-/** Eje de reproducción: cada tramo entre capítulos dura `playSeconds`, y cada espera `GAP_PLAY_S`. */
+/** Playback axis: each span between chapters lasts `playSeconds`, each wait `GAP_PLAY_S`. */
 export function buildPlayAxis(timeline: ApplicationTimeline): Axis {
   const breaks = timeline.chapters.flatMap((c) => [ms(c.start), ms(c.end)])
   return buildAxis(timeline, (span, gap) => (gap ? GAP_PLAY_S : playSeconds(span)), breaks)
 }
 
-/** "1 d 4 h", "3 h 20 min", "2 min 10 s", "850 ms": la duración real de un tramo comprimido. */
+/** "1 d 4 h", "3 h 20 min", "2 min 10 s", "850 ms": the real duration of a compressed span. */
 export function formatSpan(span: number): string {
   if (span < 1000) return `${String(Math.round(span))} ms`
   const s = Math.round(span / 1000)

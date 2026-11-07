@@ -1,5 +1,5 @@
-# docs/06 §3 y §4, caso 5. Ya tiene una línea con este prestamista, al corriente: la línea nueva se
-# calcula sobre la capacidad menos la exposición vigente.
+# Already has a current line with this lender: the new line is computed on capacity minus current
+# exposure.
 id: proveedor-con-credito-vigente
 catalog: 5
 title: Proveedor con crédito vigente al corriente

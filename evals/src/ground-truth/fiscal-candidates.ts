@@ -1,5 +1,5 @@
-/* eslint-disable no-console -- herramienta local para llenar a mano los hechos del CFDI; imprime texto del documento */
-// Uso: tsx src/ground-truth/fiscal-candidates.ts <pdf>
+/* eslint-disable no-console -- local tool for filling in CFDI facts by hand; prints document text */
+// Usage: tsx src/ground-truth/fiscal-candidates.ts <pdf>
 import { readLayout } from './layout.ts'
 
 const path = process.argv[2]

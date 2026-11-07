@@ -1,4 +1,4 @@
-/** Construcción de la maqueta: placas, estaciones, losetas de páginas, orbes, compuertas, pilares y torre. */
+/** Builds the 3D model: plates, stations, page tiles, orbs, gates, pillars and tower. */
 import * as THREE from 'three'
 import type { PageVerification, SceneLayout, ScenePick, StationId } from './scene-state'
 import type { LabelLayer } from './scene-labels'
@@ -52,7 +52,7 @@ function makePageMaterials(own: Owner): Record<PageVerification, Mat> {
   return { pending: mk(0xffffff, tex), verified: mk(C.lime), unverified: mk(C.amber), conflict: mk(C.coral), none: mk(0xdedee2) }
 }
 
-/** Número de página en un lienzo: el texto va en la geometría para que gire con la loseta. */
+/** Page number on a canvas: the text is in the geometry so it turns with the tile. */
 function numberTexture(own: Owner, n: number): THREE.CanvasTexture {
   const cv = document.createElement('canvas')
   cv.width = cv.height = 96
@@ -73,7 +73,7 @@ function numberTexture(own: Owner, n: number): THREE.CanvasTexture {
   return tex
 }
 
-/** Placa del tamaño del contenido. Las translúcidas no escriben profundidad y se pintan en orden fijo. */
+/** Plate sized to its content. Translucent ones don't write depth and are drawn in a fixed order. */
 function plate(ctx: BuildCtx, y: number, color: number, opacity: number, order: number, material?: Mat): void {
   const geo = ctx.own(new THREE.BoxGeometry(PLATE_W, PLATE_T, PLATE_D))
   const mat = material ?? ctx.own(new THREE.MeshStandardMaterial({ color, transparent: opacity < 1, opacity, roughness: 0.85, depthWrite: opacity >= 1 }))
@@ -93,7 +93,7 @@ function buildPlates(ctx: BuildCtx): void {
   plate(ctx, Y.relay, C.indigo, 0.08, 3, ctx.relayMat)
   plate(ctx, Y.supplier, C.plate, 0.45, 5)
 
-  // El borde del relay brilla cuando algo lo cruza (el relleno casi no se ve).
+  // The relay's edge glows when something crosses it (the fill is barely visible).
   const frameGeo = [ctx.own(new THREE.BoxGeometry(PLATE_W, 0.09, 0.09)), ctx.own(new THREE.BoxGeometry(0.09, 0.09, PLATE_D))]
   for (const [geo, x, z] of [[0, 0, PLATE_D / 2], [0, 0, -PLATE_D / 2], [1, PLATE_W / 2, 0], [1, -PLATE_W / 2, 0]] as const) {
     const bar = new THREE.Mesh(frameGeo[geo], ctx.relayEdgeMat)
@@ -102,14 +102,14 @@ function buildPlates(ctx: BuildCtx): void {
     ctx.scene.add(bar)
   }
 
-  // Teléfono del proveedor.
+  // Supplier's phone.
   const phone = new THREE.Mesh(ctx.own(new THREE.BoxGeometry(1.3, 2.3, 0.2)), ctx.own(new THREE.MeshStandardMaterial({ color: C.ink, roughness: 0.4 })))
   phone.position.set(-11, Y.supplier + 1.25, -1.2)
   const screen = new THREE.Mesh(ctx.own(new THREE.PlaneGeometry(1.1, 1.95)), ctx.own(new THREE.MeshStandardMaterial({ color: C.lime, roughness: 0.6 })))
   screen.position.set(-11, Y.supplier + 1.25, -1.09)
   ctx.scene.add(phone, screen)
 
-  // Las capas se nombran a la izquierda, fuera de las placas.
+  // Layers are named on the left, outside the plates.
   const left = -PLATE_W / 2 - 0.6
   const layers: [string, number][] = [['Proveedor', Y.supplier], ['Relay · buzón', Y.relay], ['Worker · workflow', Y.worker], ['Modelos', Y.models]]
   for (const [name, y] of layers) ctx.labels.add(name, new THREE.Vector3(left, y, 0), 'layer', 'right')
@@ -130,13 +130,13 @@ function buildStations(ctx: BuildCtx, stage: Stage): void {
     ctx.scene.add(d)
     stage.stationDisks.set(id, d)
   }
-  // Banda de cola.
+  // Queue band.
   const queue = new THREE.Mesh(ctx.own(new THREE.BoxGeometry(2.4, 0.08, 1.3)), stage.pageMats.pending)
   queue.position.set(STATION_POS.queue.x, SURFACE + 0.04, STATION_POS.queue.z)
   queue.userData['pick'] = pickOf({ type: 'station', station: 'queue' })
   ctx.pickables.push(queue)
   ctx.scene.add(queue)
-  // Las estaciones se nombran en fila, al borde frontal de la placa del worker.
+  // Stations are named in a row, at the front edge of the worker plate.
   for (const [id, label] of Object.entries(STATION_LABEL) as [StationId, string][]) {
     const p = STATION_POS[id]
     const verdict = isVerdict(id)
@@ -144,7 +144,7 @@ function buildStations(ctx: BuildCtx, stage: Stage): void {
   }
 }
 
-/** Losetas grandes, inclinadas hacia la cámara, junto a la estación de extracción. */
+/** Large tiles, tilted toward the camera, next to the extraction station. */
 function buildPages(ctx: BuildCtx, stage: Stage, layout: SceneLayout): void {
   const total = layout.documents.reduce((a, d) => a + d.pages.length, 0)
   const cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(total * 1.5))))
@@ -230,7 +230,7 @@ function buildPillars(ctx: BuildCtx, stage: Stage, layout: SceneLayout): void {
   const dgap = Math.min(1.3, 5 / Math.max(m, 1))
   const maxWeight = Math.max(...layout.dimensions.map((d) => d.weight), 1e-9)
   layout.dimensions.forEach((d, j) => {
-    // Los pesos pueden venir en cualquier escala (1, 100…): la base del pilar es proporcional al mayor.
+    // Weights may come in any scale (1, 100...): the pillar base is proportional to the largest.
     const size = 0.35 + (d.weight / maxWeight) * 0.75
     const mat = ctx.own(new THREE.MeshStandardMaterial({ color: C.indigo, roughness: 0.5 }))
     const mesh = new THREE.Mesh(ctx.own(new THREE.BoxGeometry(size, 1, size)), mat)

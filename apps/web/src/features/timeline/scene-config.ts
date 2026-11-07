@@ -1,4 +1,4 @@
-/** Constantes de la maqueta 3D: paleta, medidas, posición de cada estación y colores por estado. */
+/** 3D model constants: palette, sizes, each station's position and colors by status. */
 import * as THREE from 'three'
 import type { GateColor, StationId } from './scene-state'
 
@@ -22,13 +22,13 @@ export const C = {
 export const PLATE_W = 26
 export const PLATE_D = 8
 export const PLATE_T = 0.12
-/** Capas bien separadas en vertical: la profundidad (8) es menor que el salto entre placas (3.6). */
+/** Layers well separated vertically: depth (8) is less than the step between plates (3.6). */
 export const Y = { supplier: 10.8, relay: 7.2, worker: 3.6, models: 0 }
 export const SURFACE = Y.worker + PLATE_T / 2
 export const TOWER_X = 15.6
 export const TILE_TILT = 0.85
 
-/** Posición de reposo de la ficha en cada estación. */
+/** Resting position of the token at each station. */
 export const STATION_POS: Record<StationId, THREE.Vector3> = {
   chat: new THREE.Vector3(-11, Y.supplier + 1.3, 0),
   relay: new THREE.Vector3(-11, Y.relay + 1.0, 0),

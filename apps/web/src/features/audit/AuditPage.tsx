@@ -65,7 +65,7 @@ export function AuditPage() {
             role="tab"
             type="button"
             aria-selected={current === t.key}
-            // Cambiar de pestaña limpia los filtros de la otra.
+            // Switching tabs clears the other tab's filters.
             onClick={() => void navigate({ search: { tab: t.key === 'movimientos' ? undefined : t.key } })}
             className={clsx('inline-flex h-10 items-center rounded-full px-5 text-[14px] font-medium transition-colors', current === t.key ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}
           >

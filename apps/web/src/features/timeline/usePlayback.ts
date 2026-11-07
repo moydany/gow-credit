@@ -5,8 +5,8 @@ import { buildPlayAxis, ms } from './scale'
 export const SPEEDS = [0.5, 1, 2, 4] as const
 
 /**
- * Reproducción del recorrido. El cabezal vive en tiempo real (`t`, ms desde epoch), pero avanza por el
- * eje de reproducción: cada capítulo dura algo legible y cada espera un instante.
+ * Journey playback. The playhead lives in real time (`t`, ms since epoch) but advances along the
+ * playback axis: each chapter lasts something readable and each wait an instant.
  */
 export function usePlayback(timeline: ApplicationTimeline, autoplay: boolean) {
   const axis = useMemo(() => buildPlayAxis(timeline), [timeline])
@@ -59,7 +59,7 @@ export function usePlayback(timeline: ApplicationTimeline, autoplay: boolean) {
   }, [chapters, seek])
 
   const prevChapter = useCallback(() => {
-    // Si ya pasó un poco del inicio del capítulo, vuelve a su inicio; si no, al anterior.
+    // If a bit of the chapter has already played, go to its start; otherwise to the previous one.
     const here = tRef.current
     const slack = Math.min(axisRef.current.msPerUnit(here) * 0.4, 3000)
     const before = chapters.filter((c) => c < here - Math.max(slack, 1))

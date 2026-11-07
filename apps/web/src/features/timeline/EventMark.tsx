@@ -15,7 +15,7 @@ interface Style {
 const isError = (ev: TimelineEvent): boolean => ev.kind === 'model_call' && ev.outcome === 'error'
 const isCacheHit = (ev: TimelineEvent): boolean => ev.kind === 'model_call' && ev.cache_hit
 
-/** Exacta: sólida; derivada: contorno punteado; inferida: rayado diagonal. */
+/** Exact: solid; derived: dotted outline; inferred: diagonal stripes. */
 function styleOf(ev: TimelineEvent, laneColor: string): Style {
   const color = isError(ev) ? CORAL : laneColor
   const fill = { exact: color, inferred: `url(#hatch-${ev.lane})`, derived: '#fcfcfc' }[ev.precision]
@@ -35,7 +35,7 @@ function Shape({ ev, x0, x1, cy, st }: { ev: TimelineEvent; x0: number; x1: numb
   return <path d={d} fill={isCacheHit(ev) ? '#a6f23b' : st.fill} {...common} />
 }
 
-/** Un evento en la línea de tiempo: círculo si entra, cuadrado si sale, barra si dura, rombo si es puntual. */
+/** An event on the timeline: circle if inbound, square if outbound, bar if it lasts, diamond if instant. */
 export function EventMark({ ev, x0, x1, y, laneColor, selected, onSelect }: { ev: TimelineEvent; x0: number; x1: number; y: number; laneColor: string; selected: boolean; onSelect: (ev: TimelineEvent) => void }) {
   const cy = y + ROW_H / 2 - 1
   return (

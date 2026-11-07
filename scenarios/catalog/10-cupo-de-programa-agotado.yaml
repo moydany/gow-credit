@@ -1,5 +1,5 @@
-# docs/06 §4, caso 10. La cadena tiene un cupo total para pronto pago casi comprometido: el
-# proveedor califica, pero la línea se topa por program_available_limit.
+# The chain's total early-payment quota is almost committed: the supplier qualifies, but the line
+# is capped by `program_available_limit`.
 id: cupo-de-programa-agotado
 catalog: 10
 title: Cupo del programa del comprador casi agotado

@@ -1,6 +1,6 @@
 /**
- * Configuración agrupa lo que se ajusta poco y afecta a todo: usuarios, canales y análisis (General),
- * políticas, prompts y la bitácora. Un submenú arriba; cada sección conserva su página.
+ * Settings groups what is rarely adjusted and affects everything: users, channels and analysis
+ * (General), policies, prompts and the audit log. A submenu on top; each section keeps its page.
  */
 import { Link, Outlet } from '@tanstack/react-router'
 

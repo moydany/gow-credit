@@ -18,7 +18,7 @@ describe('formato es-MX', () => {
   })
 
   it('un instante con hora se muestra en la zona del navegador, no en UTC', () => {
-    // 22:30 del 6 de noviembre en la zona de quien corre la prueba; en UTC puede ser ya el 7.
+    // 22:30 on November 6 in the zone of whoever runs the test; in UTC it may already be the 7th.
     const lateNight = new Date(2026, 10, 6, 22, 30)
     expect(date(lateNight.toISOString())).toMatch(/\b6\b/)
     expect(date(lateNight.toISOString())).not.toMatch(/\b7\b/)

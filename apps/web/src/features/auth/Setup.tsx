@@ -10,14 +10,14 @@ import { Icon, Logo } from '../../ui/icons'
 import { Button, ErrorState, Skeleton } from '../../ui/primitives'
 
 /**
- * Wizard del primer inicio (ADR 0060). Dos pasos:
- *  1. Prestamista y administrador: se crean el tenant, su política base y la cuenta, y la sesión
- *     queda abierta.
- *  2. WhatsApp: la misma tarjeta de Configuración (ADR 0033) para escanear el QR.
+ * First-run wizard, two steps:
+ *  1. Lender and admin: creates the tenant, its base policy and the account, and leaves the
+ *     session open.
+ *  2. WhatsApp: the same Settings card, to scan the QR.
  *
- * El paso se deduce del estado, no se guarda en el navegador: con sesión, toca WhatsApp (también si se
- * recarga la página); sin sesión y con el sistema vacío, la cuenta; sin sesión y con un tenant ya
- * creado, el wizard no tiene nada que hacer y manda a `/entrar`.
+ * The step is derived from state, not stored in the browser: with a session it's WhatsApp (also
+ * after a reload); without a session and an empty system, the account; without a session and an
+ * existing tenant, the wizard has nothing to do and redirects to `/entrar`.
  */
 export function Setup() {
   const me = useMe()

@@ -1,8 +1,8 @@
-# docs/specs/2026-11-07-robustez-documental.md (M) y ADR 0058. El documento imprime "Pág 1/3" y
-# "Pág 3/3": le falta la 2. La extracción deja la bandera `pages_missing` y, sin esa página, el periodo
-# no cuadra (`reconciled: false`). Con la plantilla base el motor no manda el caso a revisión humana por
-# el descuadre: pide el PDF completo (`missing_pages`). Si con el documento completo siguiera sin
-# cuadrar, la compuerta `integrity` volvería a fallar.
+# The document prints "Pág 1/3" and "Pág 3/3": page 2 is missing. Extraction sets the
+# `pages_missing` flag and, without that page, the period doesn't reconcile (`reconciled: false`).
+# With the base template the engine doesn't send the case to human review for the mismatch: it
+# asks for the full PDF (`missing_pages`). If it still didn't reconcile with the full document,
+# the `integrity` gate would fail again.
 id: pagina-faltante
 catalog: 28
 title: PDF al que le falta una página, se pide el documento completo

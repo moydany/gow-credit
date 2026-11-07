@@ -1,10 +1,10 @@
 /**
- * Vincular el WhatsApp del tenant escaneando el QR desde Configuración (ADR 0033). El proceso de
- * WhatsApp publica el estado de su sesión; esta tarjeta lo consulta y muestra, según el caso, cómo
- * arrancar el proceso, el QR, el número vinculado con "Desvincular" o qué hacer tras un cierre.
+ * Link the tenant's WhatsApp by scanning the QR from Settings. The WhatsApp process publishes its
+ * session state; this card reads it and shows, as the case may be, how to start the process, the
+ * QR, the linked number with "Desvincular", or what to do after a logout.
  *
- * El QR se dibuja en un canvas en el navegador (sin servicios de terceros ni `data:` URLs) y no se
- * guarda en ningún lado: quien lo escanee vincula su cuenta al bot del prestamista.
+ * The QR is drawn on a canvas in the browser (no third-party services or `data:` URLs) and is not
+ * stored anywhere: whoever scans it links their account to the lender's bot.
  */
 import type { TenantSettings, WhatsAppLinkState } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'

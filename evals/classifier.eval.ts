@@ -1,8 +1,8 @@
 /**
- * Jev contra Haiku como clasificador de documentos (docs/02 4c, decisión de la fase 2): tipo de
- * documento, banco y si trae instrucciones dirigidas a la IA. Mismos 9 estados de cuenta y los
- * 2 adversarios sintéticos. Las respuestas se reproducen de caché; EVAL_LIVE=1 llama en lo que
- * falte (Jev USD 0.042 por millón de tokens de entrada; Haiku centavos).
+ * Jev vs Haiku as document classifier: document type, bank and whether it carries instructions
+ * aimed at the AI. Same 9 statements plus the 2 synthetic adversarial ones. Responses replay
+ * from cache; EVAL_LIVE=1 calls for whatever is missing (Jev USD 0.042 per million input tokens;
+ * Haiku pennies).
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -36,7 +36,7 @@ interface Expected {
   injection: boolean
 }
 export interface ClassifierResult extends Input, Expected {
-  /** costUsd: a precio de lista desde los tokens, aunque la respuesta venga de caché. latencyMs: 0 si vino de caché. */
+  /** costUsd: at list price from tokens, even if the response came from cache. latencyMs: 0 if cached. */
   got: Pick<Classification, 'documentType' | 'bank' | 'containsInstructionsToAi' | 'model' | 'implementation' | 'costUsd' | 'latencyMs' | 'confidence'> | null
   error: string | null
 }
@@ -63,7 +63,7 @@ async function cases(): Promise<{ input: Input; expected: Expected }[]> {
   for (const c of ADVERSARIAL_CASES) {
     const path = join(advDir, `${c.id}.pdf`)
     writeFileSync(path, adversarialPdf(c))
-    // Banco ficticio: cualquier etiqueta vale; se mide tipo de documento e inyección.
+    // Fictional bank: any label works; document type and injection are what is measured.
     inputs.push({ doc: c.id, path, expected: { bank: null, injection: true }, dir: FIXTURES })
   }
   const out: { input: Input; expected: Expected }[] = []
@@ -72,7 +72,7 @@ async function cases(): Promise<{ input: Input; expected: Expected }[]> {
     const cls = byDir.get(i.dir) ?? classifiers(i.dir)
     byDir.set(i.dir, cls)
     const pdf = await loadPdf(i.path)
-    // Misma muestra que manda la extracción (extract.ts).
+    // Same sample that extraction sends (extract.ts).
     const sample = textUsable(pdf) ? pdf.pageTexts.slice(0, 2).join('\n').slice(0, 6000) : null
     for (const name of ['jev', 'haiku'] as const) {
       let got: ClassifierResult['got'] = null

@@ -1,5 +1,5 @@
-# docs/06 §4, caso 3. Un solo estado de cuenta: el perfil es sano, pero con un mes de historia
-# la política base topa en qualified_with_limit; next_steps dice que con 3 meses el tope desaparece.
+# One statement: the profile is healthy, but with one month of history the base policy caps at
+# `qualified_with_limit`; `next_steps` says the cap goes away at 3 months.
 id: proveedor-nuevo-un-mes
 catalog: 3
 title: Proveedor nuevo con un mes de historia

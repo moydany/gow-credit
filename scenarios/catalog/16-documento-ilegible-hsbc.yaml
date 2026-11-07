@@ -1,6 +1,6 @@
-# docs/06 §4, caso 16. El PDF de HSBC trae la capa de texto corrupta: la extracción va solo por
-# visión y aun así cuadra. Necesita data/dev (no se versiona) y la caché de respuestas de la fase 3;
-# sin ellas el runner lo salta. Ningún modelo se llama: la extracción sale de la caché.
+# The HSBC PDF has a corrupt text layer: extraction goes vision-only and still reconciles. Needs
+# data/dev (not versioned) and the response cache; the runner skips it without them. No model is
+# called: extraction comes from the cache.
 id: documento-ilegible-hsbc
 catalog: 16
 title: Documento con texto corrupto (HSBC) por visión
@@ -12,7 +12,7 @@ suppliers:
     name: Proveedor de Prueba HSBC SA de CV
     documents: [EDC_09_HSBC_2026-03.pdf]
     request: { amount: 50000, maturity: 2026-06-30, buyer: Cadena Norte SA de CV }
-# La identidad no decide (ADR 0052): con el titular redactado ya no se pregunta; el perfil no califica.
+# Identity doesn't decide: with the holder redacted nothing is asked; the profile does not qualify.
 expect:
   status: not_qualified
   reasons_include: [score_band]

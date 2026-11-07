@@ -10,7 +10,7 @@ import { PageTitle } from '../applications/ApplicationsPage'
 
 type Outcome = keyof typeof OUTCOME_LABEL
 
-/** Lo que pasó después de financiar (docs/03 §8): es el dato que cierra el loop y alimenta la simulación de políticas. */
+/** What happened after funding: the data that closes the loop and feeds policy simulation. */
 export function OutcomesPage() {
   const { data, isPending, isError, error, refetch } = useApplications()
   const funded = (data ?? []).filter((a) => a.status === 'qualified' || a.status === 'qualified_with_limit')

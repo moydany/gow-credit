@@ -1,8 +1,8 @@
-/** Búsqueda del fragmento citado dentro del texto de una página (pura, para poder probarla). */
+/** Finds the cited snippet inside a page's text (pure, so it can be tested). */
 
 export const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '')
 
-/** Busca el fragmento en la página: completo, y si el PDF lo parte distinto, por su inicio, su final o su token más largo. */
+/** Finds the snippet in the page: whole, or, if the PDF splits it differently, by its start, end or longest token. */
 export function locate(flat: string, snippet: string): { start: number; end: number } | null {
   const target = norm(snippet)
   if (!target) return null

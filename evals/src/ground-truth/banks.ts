@@ -1,6 +1,6 @@
 /**
- * Especificación de la tabla de movimientos de cada banco de desarrollo. Solo formato
- * (coordenadas, expresiones de fecha, marcadores de inicio y fin); ningún dato del titular.
+ * Movement-table spec for each dev bank. Format only (coordinates, date expressions, start and end
+ * markers); no holder data.
  */
 import type { Line } from './layout.ts'
 import type { TableSpec } from './parse-table.ts'
@@ -13,11 +13,11 @@ export interface BankSpec {
   bank: string
   file: string
   tables: TableSpec[]
-  /** Orden de la tabla: Nu imprime del más reciente al más antiguo. */
+  /** Table order: Nu prints newest to oldest. */
   reverseChronological?: boolean
 }
 
-// ---------- Inbursa: FECHA "ENE. 16" + referencia en el mismo segmento; CARGOS, ABONOS, SALDO.
+// ---------- Inbursa: DATE "ENE. 16" + reference in the same segment; CARGOS, ABONOS, SALDO.
 const inbursa: BankSpec = {
   bank: 'inbursa',
   file: 'EDC_01_Inbursa_2025-01.pdf',
@@ -40,7 +40,7 @@ const inbursa: BankSpec = {
   ],
 }
 
-// ---------- Hey: DIA (solo día) + concepto; CARGOS, ABONOS, SALDO. Abril de 2025.
+// ---------- Hey: DIA (day only) + description; CARGOS, ABONOS, SALDO. April 2025.
 const hey: BankSpec = {
   bank: 'hey',
   file: 'EDC_02_Hey_2025-04.pdf',
@@ -58,7 +58,7 @@ const hey: BankSpec = {
   ],
 }
 
-// ---------- Fondeadora: dd/mm/aaaa; Cargos y Abonos (el otro en 0.00), Saldo.
+// ---------- Fondeadora: dd/mm/yyyy; Cargos and Abonos (the other is 0.00), Saldo.
 const fondeadora: BankSpec = {
   bank: 'fondeadora',
   file: 'EDC_03_Fondeadora_2025-10.pdf',
@@ -79,8 +79,8 @@ const fondeadora: BankSpec = {
   ],
 }
 
-// ---------- BBVA: OPER y LIQ "01/SEP"; COD. DESCRIPCIÓN; CARGOS, ABONOS; saldo de operación y de
-// liquidación solo en la última fila de cada día.
+// ---------- BBVA: OPER and LIQ "01/SEP"; COD. DESCRIPCIÓN; CARGOS, ABONOS; operation and settlement
+// balance only on the last row of each day.
 const bbva: BankSpec = {
   bank: 'bbva',
   file: 'EDC_05_BBVA_2025-09.pdf',
@@ -101,8 +101,8 @@ const bbva: BankSpec = {
   ],
 }
 
-// ---------- Mercado Pago: dd-mm-aaaa; descripción centrada en vertical (líneas arriba y abajo
-// de la fecha); ID de la operación; Valor con signo; Saldo.
+// ---------- Mercado Pago: dd-mm-yyyy; description vertically centered (lines above and below the
+// date); operation ID; signed Valor; Saldo.
 const mercadoPago: BankSpec = {
   bank: 'mercadopago',
   file: 'EDC_06_MercadoPago_2026-06a09.pdf',
@@ -128,8 +128,8 @@ const mercadoPago: BankSpec = {
   ],
 }
 
-// ---------- Santander: "01-ABR-2025 FOLIO CONCEPTO" en un segmento; DEPOSITO, RETIRO, SALDO.
-// Cuenta de cheques con movimientos; la inversión trae su tabla vacía (TOTAL 0.00).
+// ---------- Santander: "01-ABR-2025 FOLIO CONCEPTO" in one segment; DEPOSITO, RETIRO, SALDO.
+// Checking account with movements; the investment has an empty table (TOTAL 0.00).
 const santander: BankSpec = {
   bank: 'santander',
   file: 'EDC_07_Santander_2025-04.pdf',
@@ -151,9 +151,8 @@ const santander: BankSpec = {
   ],
 }
 
-// ---------- Nu: "30 JUL 2025"; concepto centrado y detalle debajo; MONTO con signo; sin saldo por
-// fila; del más reciente al más antiguo. Solo el detalle de la cuenta (las secciones de cajitas
-// repiten los traspasos, ADR 0009).
+// ---------- Nu: "30 JUL 2025"; description centered with detail below; signed MONTO; no balance
+// per row; newest to oldest. Only the account detail (the cajitas sections repeat the transfers).
 const nu: BankSpec = {
   bank: 'nu',
   file: 'EDC_08_Nu_2025-07.pdf',
@@ -178,8 +177,8 @@ const nu: BankSpec = {
   ],
 }
 
-// ---------- Banamex: "03 FEB"; el concepto sigue en varias líneas y el monto va en la última línea
-// de la fila; RETIROS, DEPOSITOS, SALDO. La inversión empresarial no tiene movimientos.
+// ---------- Banamex: "03 FEB"; the description spans several lines and the amount is on the last
+// line of the row; RETIROS, DEPOSITOS, SALDO. The business investment has no movements.
 const banamex: BankSpec = {
   bank: 'banamex',
   file: 'EDC_04_Banamex_2026-02.pdf',
@@ -196,14 +195,14 @@ const banamex: BankSpec = {
       columns: { debit: 320, credit: 395, balance: 475 },
       description: [48, 260],
       attach: 'following',
-      // SALDO ANTERIOR y el contador informativo de disposiciones exentas no son movimientos.
+      // SALDO ANTERIOR and the informational exempt-withdrawals counter are not movements.
       skip: (r) => /^SALDO ANTERIOR\b/.test(r.description) || (r.amount === 0 && /DISPOSICIONES EN CAJERO EXENTAS/.test(r.description)),
     },
   ],
 }
 
-// ---------- HSBC: capa de texto en EBCDIC (se decodifica); día; descripción; Referencia/Serial en
-// dos líneas; Retiro/Cargo, Depósito/Abono y Saldo con "$". Marzo de 2026.
+// ---------- HSBC: EBCDIC text layer (decoded); day; description; Referencia/Serial on two lines;
+// Retiro/Cargo, Depósito/Abono and Saldo with "$". March 2026.
 const hsbc: BankSpec = {
   bank: 'hsbc',
   file: 'EDC_09_HSBC_2026-03.pdf',

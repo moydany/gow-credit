@@ -1,4 +1,4 @@
-/** Reparto de los eventos en carriles y filas de la línea de tiempo 2D (sin React). */
+/** Splits events into lanes and rows of the 2D timeline (no React). */
 import type { ApplicationTimeline, TimelineEvent, TimelineLane } from '@gow/contracts'
 import type { Axis } from './scale'
 import { ms } from './scale'
@@ -20,7 +20,7 @@ export interface LaneBox {
   height: number
 }
 
-/** Ancho mínimo para poder verlos y tocarlos: un evento puntual no desaparece al comprimirse. */
+/** Minimum width to see and tap them: a point event doesn't vanish when compressed. */
 const minWidth = (ev: TimelineEvent): number => (ev.kind === 'inbound_message' || ev.kind === 'outbound_message' ? 14 : 9)
 
 export function layoutTrack(tl: ApplicationTimeline, axis: Axis): { placed: Placed[]; lanes: LaneBox[]; height: number } {

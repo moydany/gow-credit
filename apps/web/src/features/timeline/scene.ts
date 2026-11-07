@@ -1,10 +1,10 @@
 /**
- * Maqueta 3D del recorrido (three.js vanilla). Aplica un `SceneState` (scene-state.ts) a objetos que se
- * crean una vez y se reutilizan; no decide nada del recorrido. Renderiza bajo demanda: un fotograma
- * cuando cambia el estado, la cámara o el tamaño, y fotogramas seguidos solo mientras dura una
- * transición (ficha en arco, cámara). Sin bucle perpetuo en pausa.
+ * 3D model of the journey (vanilla three.js). Applies a `SceneState` (scene-state.ts) to objects
+ * created once and reused; it decides nothing about the journey. Renders on demand: one frame when
+ * the state, camera or size changes, and consecutive frames only during a transition (token arc,
+ * camera). No perpetual loop while paused.
  *
- * Construcción en scene-build.ts, haces y cápsulas en scene-effects.ts, etiquetas en scene-labels.ts.
+ * Building is in scene-build.ts, beams and capsules in scene-effects.ts, labels in scene-labels.ts.
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -84,7 +84,7 @@ export class TimelineScene {
     layout: SceneLayout,
     private readonly opts: Options,
   ) {
-    // Si no hay WebGL esto lanza; quien llama lo captura y muestra el aviso.
+    // Without WebGL this throws; the caller catches it and shows the notice.
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'default' })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setClearColor(0x000000, 0)
@@ -138,7 +138,7 @@ export class TimelineScene {
     this.setPreset('maqueta', false)
   }
 
-  // ───────────────────────── estado → objetos ─────────────────────────
+  // ───────────────────────── state → objects ─────────────────────────
 
   apply(state: SceneState): void {
     if (this.disposed) return
@@ -161,7 +161,7 @@ export class TimelineScene {
     this.tokenMat.color.setHex(STATUS_COLOR[state.token.status] ?? C.mute)
     this.tokenRing.visible = state.token.floating
     for (const [id, disk] of this.stage.stationDisks) (disk.material as THREE.MeshStandardMaterial).emissiveIntensity = id === state.token.station ? 0.55 : 0
-    // Fantasma (decisión de sombra)
+    // Ghost (shadow decision)
     this.ghost.visible = state.ghost !== null
     if (state.ghost) {
       this.ghost.position.copy(STATION_POS.decide).add(new THREE.Vector3(0.8, 0.45, -0.9))
@@ -183,7 +183,7 @@ export class TimelineScene {
   }
 
   private applyRelay(state: SceneState): void {
-    // Relleno casi invisible (nunca opaco); lo que se nota es el borde.
+    // Nearly invisible fill (never opaque); the border is what shows.
     this.relayMat.emissiveIntensity = state.relayGlow * 0.25
     this.relayMat.opacity = 0.08 + state.relayGlow * 0.14
     this.relayEdgeMat.opacity = 0.28 + state.relayGlow * 0.72
@@ -239,7 +239,7 @@ export class TimelineScene {
     this.stage.tower.forEach((seg, i) => { seg.visible = i < state.analyst.level })
   }
 
-  // ───────────────────────── cámara ─────────────────────────
+  // ───────────────────────── camera ─────────────────────────
 
   setFollow(on: boolean): void {
     this.follow = on
@@ -252,7 +252,7 @@ export class TimelineScene {
     const v = PRESET_VIEW[preset]
     const aspect = this.camera.aspect || 1.6
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))
-    // Toda la pila (26 de ancho + la torre en x = TOWER_X, 11 de alto) cabe con margen; el worker queda al centro.
+    // The whole stack (26 wide + the tower at x = TOWER_X, 11 tall) fits with margin; the worker stays centered.
     const el = THREE.MathUtils.degToRad(v.el)
     const az = THREE.MathUtils.degToRad(v.az)
     const target = new THREE.Vector3(...v.target)
@@ -262,7 +262,7 @@ export class TimelineScene {
     this.moveCamera(target.clone().addScaledVector(dir, dist), target, animate)
   }
 
-  /** Seguir: el objetivo se desplaza hacia la estación; la distancia al objetivo no cambia (sin zoom). */
+  /** Follow: the target shifts toward the station; the distance to the target doesn't change (no zoom). */
   private focusStation(station: StationId): void {
     const to = this.baseTarget.clone().lerp(STATION_POS[station], 0.2)
     const delta = to.clone().sub(this.controls.target)
@@ -295,7 +295,7 @@ export class TimelineScene {
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
-    // Mientras nadie haya movido la cámara, el encuadre sigue al tamaño real del contenedor.
+    // While nobody has moved the camera, the framing follows the container's real size.
     if (this.ready && !this.userMoved && !this.camTween) this.setPreset(this.preset, false)
     this.requestRender()
   }
@@ -345,7 +345,7 @@ export class TimelineScene {
     if (tokenMoving || cameraMoving) this.requestRender()
   }
 
-  // ───────────────────────── puntero ─────────────────────────
+  // ───────────────────────── pointer ─────────────────────────
 
   private pickAt(ev: PointerEvent): ScenePick | null {
     const rect = this.renderer.domElement.getBoundingClientRect()
@@ -376,7 +376,7 @@ export class TimelineScene {
     }
   }
 
-  // ───────────────────────── limpieza ─────────────────────────
+  // ───────────────────────── cleanup ─────────────────────────
 
   dispose(): void {
     if (this.disposed) return

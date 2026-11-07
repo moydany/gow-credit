@@ -2,13 +2,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LlmExchangeListQuery } from '@gow/contracts'
 import { api } from './api'
 
-/** Sin Supabase Realtime todavía (docs/08 §2): la bandeja se refresca sola mientras la pestaña está visible. */
+/** No Supabase Realtime yet: the inbox refreshes itself while the tab is visible. */
 const LIVE = { refetchInterval: 6000, refetchIntervalInBackground: false } as const
 
 export const useMe = () => useQuery({ queryKey: ['me'], queryFn: api.me, retry: false, staleTime: 5 * 60_000 })
 export const useApplications = () => useQuery({ queryKey: ['applications'], queryFn: api.applications, ...LIVE })
 export const useApplication = (id: string) => useQuery({ queryKey: ['application', id], queryFn: () => api.application(id), refetchInterval: 6000 })
-/** Se refresca cada 6 s solo mientras la solicitud no haya llegado a un estado final. */
+/** Refreshes every 6 s only until the request reaches a final status. */
 const FINAL: readonly string[] = ['qualified', 'qualified_with_limit', 'not_qualified', 'failed']
 export const useApplicationTimeline = (id: string) =>
   useQuery({
@@ -25,7 +25,7 @@ export const usePromptDiff = (name: string, from: string | undefined, to: string
   useQuery({ queryKey: ['prompt-diff', name, from, to], queryFn: () => api.promptDiff(name, from ?? '', to ?? ''), enabled: Boolean(from && to), staleTime: Infinity })
 export const useAudit = () => useQuery({ queryKey: ['audit'], queryFn: api.audit })
 export const useLlmExchanges = (q: LlmExchangeListQuery) => useQuery({ queryKey: ['llm-exchanges', q], queryFn: () => api.llmExchanges(q) })
-/** Ver el detalle se audita: solo al abrirlo, sin refrescos en segundo plano. */
+/** Viewing the detail is audited: only on open, no background refreshes. */
 export const useLlmExchange = (id: string | undefined) =>
   useQuery({ queryKey: ['llm-exchange', id], queryFn: () => api.llmExchange(id ?? ''), enabled: Boolean(id), staleTime: Infinity, refetchOnWindowFocus: false })
 export const useSuppliers = () => useQuery({ queryKey: ['suppliers'], queryFn: api.suppliers })
@@ -33,8 +33,8 @@ export const useSupplier = (id: string) => useQuery({ queryKey: ['supplier', id]
 export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: api.settings })
 export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: api.users })
 /**
- * Vinculación de WhatsApp (ADR 0033): cada 2 s mientras se espera el QR o un cambio, cada 5 s con el
- * proceso detenido y cada 15 s con la sesión abierta. Nunca en segundo plano: ver el QR se audita.
+ * WhatsApp linking: every 2 s while waiting for the QR or a change, every 5 s with the process
+ * stopped and every 15 s with the session open. Never in the background: viewing the QR is audited.
  */
 export const useWhatsApp = () =>
   useQuery({

@@ -1,6 +1,6 @@
 /**
- * Etiquetas HTML proyectadas sobre el lienzo (la CSP no permite fuentes remotas). Se colocan por
- * prioridad (capas, estaciones, orbes); la que choca con una ya puesta se oculta.
+ * HTML labels projected over the canvas (the CSP doesn't allow remote fonts). Placed by priority
+ * (layers, stations, orbs); one that collides with an already placed label is hidden.
  */
 import type * as THREE from 'three'
 
@@ -10,7 +10,7 @@ interface Label {
   pos: THREE.Vector3
   kind: LabelKind
   anchor: 'center' | 'right'
-  /** Ancho medido (se lee una vez). */
+  /** Measured width (read once). */
   w: number
   model?: string
 }
@@ -39,7 +39,7 @@ export class LabelLayer {
     this.labels.push({ el, pos, kind, anchor, w: 0, ...(model ? { model } : {}) })
   }
 
-  /** Coloca una etiqueta; devuelve su caja si quedó visible. */
+  /** Places a label; returns its box if it ended up visible. */
   private placeOne(l: Label, camera: THREE.Camera, w: number, h: number, show: boolean, placed: Box[]): Box | null {
     const v = l.pos.clone().project(camera)
     const x = (v.x * 0.5 + 0.5) * w
@@ -56,7 +56,7 @@ export class LabelLayer {
     return box
   }
 
-  /** Los orbes solo muestran su etiqueta si están activos o bajo el puntero. */
+  /** Orbs only show their label when active or under the pointer. */
   place(camera: THREE.Camera, w: number, h: number, active: Set<string | undefined>, hover: string | null): void {
     const placed: Box[] = []
     for (const kind of ORDER) {

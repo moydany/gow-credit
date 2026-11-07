@@ -1,7 +1,7 @@
 /**
- * Formulario de corrección de un valor (docs/08 §2). El PDF queda al lado en la página donde se leyó
- * el valor; aquí solo se arma la corrección: se guarda junto con las demás al reevaluar. Un
- * movimiento se corrige completo (monto, sentido y fecha) porque un cuadre roto suele ser uno de los tres.
+ * Form to correct one value. The PDF stays alongside on the page where the value was read; this
+ * only builds the correction, which is saved with the others on re-evaluation. A movement is
+ * corrected whole (amount, direction, date) because a broken balance is usually one of the three.
  */
 import { checkCorrectionValue, correctionValueKind, type CorrectionTarget } from '@gow/contracts'
 import clsx from 'clsx'
@@ -50,7 +50,7 @@ export function CorrectionModal({ spec, onClose, onAdd }: { spec: EditSpec | nul
   const kind = correctionValueKind(single)
   const tx = spec.tx
 
-  // Lo que se va a agregar y su error, si lo hay.
+  // What will be added, and its error if any.
   const all: Candidate[] = tx
     ? [
         { target: { kind: 'transaction', transaction_id: tx.id, field: 'amount' }, value: amount.trim(), read: tx.amount, label: `${spec.label}: monto` },

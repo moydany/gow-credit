@@ -1,7 +1,7 @@
-# docs/06 §4, caso 12. Un depósito en efectivo grande que las reglas no pueden clasificar con
-# confianza y que cambia la banda: se pregunta por WhatsApp, el proveedor contesta con texto libre,
-# el worker lo lee contra la pregunta abierta de ese número, le muestra el resumen, el proveedor lo
-# confirma y el worker reanuda el run suspendido y califica.
+# A large cash deposit the rules can't classify with confidence and that changes the band: it is
+# asked over WhatsApp, the supplier replies in free text, the worker reads the reply against the
+# open question for that number and shows the summary, the supplier confirms, and the worker
+# resumes the suspended run and qualifies.
 id: aclaracion-respondida
 catalog: 12
 title: Aclaración por WhatsApp respondida
@@ -24,7 +24,7 @@ suppliers:
 conversation:
   - on_question: deposit_classification
     reply: "Es un pago de cliente, de Cadena Norte"
-  # Contestada la última pregunta llega el resumen; con "sí" se envía a evaluación (ADR 0051).
+  # After the last question the summary arrives; "sí" sends it to evaluation.
   - on_question: deposit_classification
     reply: "Sí"
 expect:

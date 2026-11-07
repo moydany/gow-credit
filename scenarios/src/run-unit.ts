@@ -1,7 +1,7 @@
 /**
- * Modo `unit` de un escenario (fase 4): estados de cuenta sintéticos → clasificación por reglas
- * → fuentes externas simuladas → perfil → política → veredicto, y se compara con `expect`. Sin
- * LLM, sin base, sin red. El modo `full` (fase 6) corre el workflow real sobre los PDFs.
+ * `unit` mode of a scenario: synthetic statements -> rules classification -> simulated external
+ * sources -> profile -> policy -> verdict, compared with `expect`. No LLM, no database, no
+ * network. `full` mode runs the real workflow on the PDFs.
  */
 import type { Decision, Policy, Scenario, SupplierIdentity } from '@gow/contracts'
 import { buildLedger, decide, gatherExternal, simulatedPorts } from '@gow/decision'
@@ -29,7 +29,7 @@ export async function runUnit(scenario: Scenario, loadPolicy: PolicyLoader, poli
   const statements = sup.statements.map((spec, i) => syntheticStatement(spec, { name: sup.name, rfc: sup.rfc, clabe: sup.clabes[0] ?? null }, `${scenario.id}-${sup.id}-${String(i)}`))
   const request = sup.request
 
-  // Las reglas leen los RFC de contraparte de las descripciones; con ellos se consultan las listas del SAT.
+  // The rules read counterparty RFCs from descriptions; those are used to query the SAT lists.
   const ledger = buildLedger(statements, { request, minConfidence: 0.7 })
   const rfcs = [...new Set(ledger.rows.map((r) => r.classification.counterparty_rfc).filter((r): r is string => r !== null))]
   const external = await gatherExternal(simulatedPorts(scenario.external, { asOf: scenario.as_of }), { supplierId: sup.id, supplier: identity, request, statements }, rfcs)

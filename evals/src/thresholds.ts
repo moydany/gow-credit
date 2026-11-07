@@ -1,25 +1,24 @@
 /**
- * Umbrales de la eval de extracción (docs/04 §6, ADR 0012). Por documento: un banco que cae
- * bajo cualquiera de ellos con el modelo por defecto falla `pnpm eval`. Invención y omisión
- * van por separado porque se corrigen con medidas distintas.
+ * Extraction eval thresholds. Per document: a bank that falls under any of them with the default
+ * model fails `pnpm eval`. Invention and omission are separate because they take different fixes.
  */
 export const THRESHOLDS = {
-  /** Precisión de movimientos: a lo más 0.5 % de filas inventadas. */
+  /** Movement precision: at most 0.5% of rows invented. */
   precision: 0.995,
-  /** Recall de movimientos: a lo más 1 % de filas omitidas. */
+  /** Movement recall: at most 1% of rows omitted. */
   recall: 0.99,
-  /** Exactitud por fila emparejada. */
+  /** Accuracy per matched row. */
   amount: 0.995,
   date: 0.99,
   type: 0.995,
   balance: 0.99,
-  /** Descripción difusa (description + reference contra la fila del banco). */
+  /** Fuzzy description (description + reference against the bank's row). */
   description: 0.9,
-  /** Encabezado y resumen por campo (incluye no inventar lo redactado). */
+  /** Header and summary per field (includes not inventing what is redacted). */
   header: 0.9,
-  /** CFDI por campo. */
+  /** CFDI per field. */
   fiscal: 0.85,
-  /** El documento debe terminar cuadrado (a la primera o tras la relectura). */
+  /** The document must end up reconciled (first pass or after the re-read). */
   reconciled_final: true,
 } as const
 

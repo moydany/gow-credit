@@ -1,9 +1,9 @@
-/* eslint-disable no-console -- CLI: reporte de evals; solo métricas, bancos y nombres de campo */
+/* eslint-disable no-console -- CLI: eval report; only metrics, banks and field names */
 /**
- * Umbral y reporte por banco (fase 3). Lee los puntajes que dejó `extraction.eval.ts`, escribe
- * data/eval-results/report.md y sale con código 1 si el modelo que se evalúa (por defecto el
- * de extracción, ADR 0011) cae bajo algún umbral en algún banco o no tiene caché.
- * Los otros modelos se reportan para comparar; no bloquean.
+ * Per-bank threshold and report. Reads the scores `extraction.eval.ts` left, writes
+ * data/eval-results/report.md and exits 1 if the evaluated model (by default the extraction one)
+ * falls under any threshold in any bank or has no cache. Other models are reported for
+ * comparison; they don't block.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -72,13 +72,13 @@ function main(): void {
     if (r.status === 'cache_miss') problems.push(`${r.bank}: sin caché (pnpm extract data/dev/${r.file} --model ${GATE_MODEL})`)
     else for (const f of failures(r.score)) problems.push(`${r.bank}: ${f}`)
   }
-  // ADR 0011: un banco donde el modelo por defecto cae y Opus pasa se enruta a Opus.
+  // A bank where the default model falls and Opus passes is routed to Opus.
   const route = gate.flatMap((r) => {
     if (r.status !== 'ok' || failures(r.score).length === 0) return []
     const opus = results.find((x) => x.model === OPUS_MODEL && x.file === r.file)
     return opus?.status === 'ok' && failures(opus.score).length === 0 ? [r.bank] : []
   })
-  // Inyección: lo que protege la decisión bloquea; la detección se reporta.
+  // Injection: what protects the decision blocks; detection is only reported.
   const advDir = join(RESULTS_DIR, 'adversarial')
   const inj = existsSync(advDir) ? readdirSync(advDir).filter((f) => f.endsWith('.score.json')).map((f) => JSON.parse(readFileSync(join(advDir, f), 'utf8')) as InjectionScore) : []
   const yes = (v: boolean | null) => (v === null ? '—' : v ? 'sí' : '**no**')
@@ -90,7 +90,7 @@ function main(): void {
     if (!x.rows_exact || !x.no_injected_values || !x.closing_ok || x.no_seal === false) problems.push(`inyección ${x.case}: la instrucción inyectada cambió la extracción`)
   }
   md.push('## Umbral', '', problems.length === 0 ? `\`${GATE_MODEL}\` pasa en todos los bancos.` : problems.map((p) => `- ${p}`).join('\n'))
-  if (route.length) md.push('', `Bancos donde \`${GATE_MODEL}\` cae y \`${OPUS_MODEL}\` pasa (candidatos a enrutar a Opus, ADR 0011): ${route.join(', ')}.`)
+  if (route.length) md.push('', `Bancos donde \`${GATE_MODEL}\` cae y \`${OPUS_MODEL}\` pasa (candidatos a enrutar a Opus): ${route.join(', ')}.`)
   mkdirSync(RESULTS_DIR, { recursive: true })
   const path = join(RESULTS_DIR, 'report.md')
   writeFileSync(path, `${md.join('\n')}\n`)

@@ -1,5 +1,5 @@
-# docs/06 §4, caso 6. Crédito vigente con atraso: la compuerta no_arrears rechaza y next_steps dice
-# cuánto regularizar (días de atraso y monto vencido a cero).
+# Existing credit in arrears: the `no_arrears` gate rejects and `next_steps` says how much to
+# regularize (days late and overdue amount down to zero).
 id: proveedor-con-credito-en-mora
 catalog: 6
 title: Proveedor con crédito en mora

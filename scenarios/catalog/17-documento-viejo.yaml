@@ -1,4 +1,4 @@
-# docs/06 §4, caso 17. El corte más reciente es de hace más de 90 días: se pide un estado reciente.
+# The latest cutoff is over 90 days old: a recent statement is requested.
 id: documento-viejo
 catalog: 17
 title: Estado de cuenta con corte de hace 120 días

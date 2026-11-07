@@ -12,7 +12,7 @@ const PRESETS: { id: CameraPreset; label: string }[] = [
 
 export const prefersReducedMotion = (): boolean => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-/** Contenedor de la escena: crea y destruye el motor de three, y le pasa el estado de cada instante. */
+/** Scene container: creates and destroys the three engine and feeds it the state of each instant. */
 export function Scene3D({ layout, state, onPick }: { layout: SceneLayout; state: SceneState; onPick: (pick: ScenePick) => void }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const labelsRef = useRef<HTMLDivElement>(null)
@@ -30,7 +30,7 @@ export function Scene3D({ layout, state, onPick }: { layout: SceneLayout; state:
     if (!host || !labels) return
     let scene: TimelineScene | null = null
     let cancelled = false
-    // three se importa aquí: así el chunk también es dinámico respecto de esta pantalla y no pesa si WebGL no existe.
+    // three is imported here so its chunk is also dynamic relative to this screen and costs nothing without WebGL.
     void import('./scene')
       .then(({ TimelineScene }) => {
         if (cancelled) return

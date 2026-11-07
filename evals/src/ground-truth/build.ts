@@ -1,15 +1,14 @@
-/* eslint-disable no-console -- CLI: imprime solo cifras, conteos y códigos; nunca texto del documento */
+/* eslint-disable no-console -- CLI: prints only figures, counts and codes; never document text */
 /**
  * pnpm -F @gow/evals gt:build
  *
- * Construye el ground truth de los 9 documentos de desarrollo (ADR 0001, ADR 0012):
- * - Movimientos: parser determinístico de la capa de texto por banco (`banks.ts`).
- * - Encabezado, resumen y CFDI: hechos leídos a mano de la capa de texto (y de la imagen en
- *   HSBC), en data/ground-truth/facts/<doc>.json; aquí se comprueba que cada valor aparezca
- *   en el documento.
- * - Árbitro: la aritmética del banco (saldo corrido, cuadre global, totales y conteos).
- * Nada sale del modelo extractor. La salida va a data/ground-truth/ (no se versiona) y un
- * manifiesto sin datos personales a evals/ground-truth/manifest.json.
+ * Builds the ground truth for the 9 dev documents:
+ * - Movements: deterministic per-bank parser of the text layer (`banks.ts`).
+ * - Header, summary and CFDI: facts read by hand from the text layer (and the image for HSBC), in
+ *   data/ground-truth/facts/<doc>.json; here each value is checked to appear in the document.
+ * - Arbiter: the bank's arithmetic (running balance, global reconciliation, totals and counts).
+ * Nothing comes from the extractor model. Output goes to data/ground-truth/ (not versioned) and a
+ * manifest without personal data to evals/ground-truth/manifest.json.
  */
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -35,9 +34,9 @@ interface FactPeriod {
   total_debits: number | null
   credits_count: number | null
   debits_count: number | null
-  /** Concepto del resumen que el banco no detalla como fila (Nu: rendimiento). */
+  /** Summary item the bank doesn't list as a row (Nu: yield). */
   unitemized_adjustment?: number
-  /** Cargos que el banco imprime aparte y no suma en su total de cargos (Fondeadora: ISR). */
+  /** Charges the bank prints apart and doesn't add into its charges total (Fondeadora: ISR). */
   printed_debits_exclude?: number
 }
 interface FactAccount {
@@ -59,10 +58,10 @@ interface Facts {
   notes: string[]
 }
 
-/** Limpieza de concepto propia de cada banco (solo formato). */
+/** Per-bank description cleanup (format only). */
 function cleanRow(bank: string, r: ParsedRow): ParsedRow {
   if (bank === 'bbva') {
-    // El segmento del concepto empieza con la fecha de liquidación ("01/SEP T17 ...").
+    // The description segment starts with the settlement date ("01/SEP T17 ...").
     const strip = (s: string) => s.replace(/^\d{2}\/[A-Z]{3} /, '')
     return { ...r, description: strip(r.description), description_head: strip(r.description_head) }
   }
@@ -70,9 +69,9 @@ function cleanRow(bank: string, r: ParsedRow): ParsedRow {
 }
 
 /**
- * Saldo corrido tolerante al orden: cada saldo impreso debe salir del saldo inicial o del saldo
- * impreso de otra fila más o menos su monto (Fondeadora imprime intereses e ISR al final con
- * saldos calculados en otro orden). Devuelve las filas cuyo saldo no se explica.
+ * Order-tolerant running balance: each printed balance must come from the opening balance or from
+ * another row's printed balance plus or minus its amount (Fondeadora prints interest and ISR at
+ * the end with balances computed in another order). Returns the rows whose balance isn't explained.
  */
 function unexplainedBalances(rows: ParsedRow[], opening: number | null): number {
   const balances = new Set<number>(rows.flatMap((r) => (r.balance === null ? [] : [Math.round(r.balance * 100)])))
@@ -101,13 +100,13 @@ async function run(): Promise<void> {
     const text = new PageText({ ...pdf, textLayer: pdf.textRepaired ? 'ok' : pdf.textLayer })
     const warnings: string[] = []
 
-    // ---------- verificación de hechos contra la capa de texto
+    // ---------- checking facts against the text layer
     const visual = spec.bank === 'hsbc'
     const prov = (found: boolean): GtProvenance[] => (found ? ['text_layer'] : visual ? ['visual_review'] : ['text_layer'])
     const strFact = (label: string, value: string | null, page: number | null = null) => {
       if (value === null) return { value: null, provenance: ['text_layer'] as GtProvenance[], page }
       const hit = text.locateText(value) ?? text.locateText(value.replace(/-/g, ''))
-      // Fechas ISO y valores enmascarados no siempre aparecen literal; se marcan como lectura a mano.
+      // ISO dates and masked values don't always appear literally; they are marked as hand-read.
       if (!hit && value.length >= 4 && !/^\d{4}-\d{2}-\d{2}T/.test(value) && !/--/.test(value)) warnings.push(`${label}: no aparece literal en la capa de texto`)
       return { value, provenance: prov(hit !== null), page: hit?.page ?? page }
     }
@@ -122,7 +121,7 @@ async function run(): Promise<void> {
     const intFact = (value: number | null) => ({ value, provenance: ['text_layer'] as GtProvenance[], page: null })
     const dayFact = (value: string) => ({ value, provenance: ['text_layer'] as GtProvenance[], page: null })
 
-    // ---------- movimientos
+    // ---------- movements
     const rowsByTable = new Map<string, ParsedRow[]>()
     for (const table of spec.tables) {
       const rows = parseTable(layout.pages, table).map((r) => cleanRow(spec.bank, r))
@@ -259,7 +258,7 @@ async function run(): Promise<void> {
     console.log(`${spec.bank.padEnd(12)} mov ${String(txs.length).padStart(4)} internos ${String(entry.internal_transfers).padStart(3)} cfdi ${String(entry.fiscal_documents)} gated ${String(gated)} ${entry.checks.map((c) => `${c.period}[saldo ${c.running_balance}, cuadre ${c.global}, totales ${c.totals}, conteos ${c.counts}]`).join(' ')}`)
     for (const w of warnings) console.log(`   aviso: ${w}`)
   }
-  writeFileSync(join(REPO, 'evals/ground-truth/manifest.json'), `${JSON.stringify({ gt_version: GT_VERSION, built_at: TODAY, location: 'data/ground-truth/<documento>.json (no se versiona, ADR 0012)', documents: manifest }, null, 2)}\n`)
+  writeFileSync(join(REPO, 'evals/ground-truth/manifest.json'), `${JSON.stringify({ gt_version: GT_VERSION, built_at: TODAY, location: 'data/ground-truth/<documento>.json (no se versiona)', documents: manifest }, null, 2)}\n`)
 }
 
 await main()

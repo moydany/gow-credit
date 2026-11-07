@@ -1,5 +1,5 @@
-# docs/06 §4, caso 7. Sin crédito con nosotros, pero el estado muestra un préstamo recibido y pagos
-# a otra institución: sube el servicio de deuda, baja la capacidad; buró confirma cuentas abiertas.
+# No credit with us, but the statement shows a received loan and payments to another institution:
+# debt service goes up, capacity goes down; bureau confirms open accounts.
 id: proveedor-con-deuda-externa
 catalog: 7
 title: Proveedor con deuda con otra institución

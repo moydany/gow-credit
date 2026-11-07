@@ -1,9 +1,9 @@
 /**
- * Una aclaración con sus preguntas (docs/08 §2). Abierta: el analista responde a nombre del
- * proveedor (la API deja `user:<id>` en la bitácora y el nombre aquí). Respondida: lectura.
- * Las preguntas de documentos nuevos no se contestan a mano (el PDF llega por la API): se pueden
- * declinar para que la evaluación siga sin ellos. Abonos, cargos y uso de la cuenta se contestan
- * eligiendo una opción; el cliente principal, escribiendo su nombre (ADR 0050).
+ * A clarification with its questions. Open: the analyst answers on the supplier's behalf (the API
+ * logs `user:<id>`, the name shows here). Answered: read-only. Questions for new documents can't
+ * be answered by hand (the PDF arrives through the API); they can be declined so the evaluation
+ * goes on without them. Deposits, charges and account use are answered by picking an option; the
+ * main customer by typing a name.
  */
 import { checkClabe, checkRfc, type ClarificationItem, type OwnerAnswer, type Question } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -24,7 +24,7 @@ type Draft =
   | { kind: 'identity'; legal_name: string; rfc: string; clabe: string }
   | { kind: 'decline'; note: string }
 
-/** Opciones por si una pregunta guardada no las trae; las de la pregunta mandan. */
+/** Fallback options for a stored question that has none; the question's own options win. */
 const FALLBACK_OPTIONS: Record<'deposit' | 'charge' | 'account_use', readonly string[]> = {
   deposit: ['customer_payment', 'loan_disbursement', 'own_transfer', 'interest', 'other'],
   charge: ['loan_payment', 'supplier_payment', 'own_transfer', 'personal_expense', 'other'],
@@ -33,8 +33,8 @@ const FALLBACK_OPTIONS: Record<'deposit' | 'charge' | 'account_use', readonly st
 
 const OPTION_LABEL: Record<string, string> = { personal_expense: 'Gasto personal', business_only: 'Solo negocio', mixed: 'Negocio y gastos personales' }
 
-/** La opción elegida en un borrador de opciones, o null. */
-/** Preguntas de documentos que el proveedor contesta mandando el PDF por WhatsApp (`isDocumentRequest` en @gow/channels). */
+/** The chosen option in an options draft, or null. */
+/** Document questions the supplier answers by sending the PDF over WhatsApp (`isDocumentRequest`). */
 const PDF_BY_CHAT: ReadonlySet<string> = new Set(['missing_pages', 'statement_with_address'])
 
 function selected(d: Draft | undefined): string | null {
@@ -250,10 +250,10 @@ function Field({ label, hint, error, children }: { label: string; hint?: string;
 }
 
 /**
- * Por qué una aclaración quedó para responder a mano. El worker la manda por WhatsApp o correo solo
- * si hay preguntas que se contestan por chat (abonos, cargos, cliente principal, uso de la cuenta) y
- * el proveedor tiene un contacto verificado (`DbClarificationChannel`): sin ellas el motivo es el
- * tipo de pregunta, no el contacto.
+ * Why a clarification was left to answer by hand. The worker sends it over WhatsApp or email only
+ * if some questions are answerable by chat (deposits, charges, main customer, account use) and the
+ * supplier has a verified contact (`DbClarificationChannel`); without those, the reason is the
+ * question type, not the contact.
  */
 const CHAT_KINDS: ReadonlySet<Question['kind']> = new Set(['deposit', 'charge', 'buyer', 'account_use'])
 
@@ -266,7 +266,7 @@ function manualReason(questions: readonly Question[]): string {
   return 'Esta aclaración no salió por WhatsApp ni por correo porque el proveedor no tiene un contacto verificado.'
 }
 
-/** Campos que pide una pregunta de identidad (dato `pedir`, ADR 0043); sin el dato, nombre y RFC (ADR 0044). */
+/** Fields an identity question asks for (`pedir` data); without it, name and RFC. */
 function askedFields(facts: readonly { name: string; value: unknown }[]): ReadonlySet<string> {
   const fact = facts.find((f) => f.name === 'pedir')
   return new Set(typeof fact?.value === 'string' && fact.value ? fact.value.split(',') : ['name', 'rfc'])

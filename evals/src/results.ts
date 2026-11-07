@@ -1,4 +1,4 @@
-/** Resultados de una corrida de evals por modelo y documento, en data/eval-results/ (no se versiona). */
+/** Results of an eval run per model and document, in data/eval-results/ (not versioned). */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DocumentScore } from './metrics.ts'
