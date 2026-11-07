@@ -7,8 +7,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { apiKeys, applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, supplierContacts, suppliers, tenants, tenantUsers, whatsappSessions, withTenant, type Db, type Tx } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, TenantSettingsUpdateBody, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
-import { pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
+import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierDeleted, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, TenantSettingsUpdateBody, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
+import { enqueuePurge, pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
@@ -89,6 +89,16 @@ const actorOf = (w: Who) => `user:${w.userId}`
 const iso = (d: Date | string | null): string | null => (d === null ? null : new Date(d).toISOString())
 
 /** Violación de unicidad de Postgres, venga directa o envuelta por Drizzle. */
+/** El proveedor tiene una solicitud en proceso (`app.purge_supplier`, 55006 object_in_use). */
+function inUse(e: unknown): boolean {
+  for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
+    if ((x as { code?: unknown }).code === '55006') return true
+  }
+  return false
+}
+
+const PurgeResult = z.object({ application_ids: z.array(z.uuid()), run_ids: z.array(z.string()), storage_paths: z.array(z.string()), counts: SupplierDeleted.shape.counts })
+
 function uniqueViolation(e: unknown): boolean {
   for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
     if ((x as { code?: unknown }).code === '23505') return true
@@ -645,6 +655,35 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       await audit(tx, w.tenantId, actorOf(w), 'supplier.updated', id, { fields })
     })
     res.json({ id, fields })
+  })
+
+  /**
+   * Borrar un proveedor con todo lo suyo (ADR 0059): solicitudes, documentos, extracciones, decisiones,
+   * aclaraciones, resultados de crédito, correcciones, registro y mensajes. La base se borra en una sola
+   * transacción con `app.purge_supplier` (el rol de la API no tiene DELETE sobre esas tablas); los PDFs,
+   * los trabajos de la cola y el estado de Mastra los borra el worker con `supplier.purge`. Con una
+   * solicitud en proceso no se borra (409). La bitácora guarda solo los conteos.
+   */
+  r.delete('/suppliers/:id', async (req, res) => {
+    const id = parse(z.uuid(), req.params.id)
+    const w = who(res)
+    let purged: z.infer<typeof PurgeResult>
+    try {
+      purged = await withTenant(deps.db, w.tenantId, async (tx) => {
+        const out = await tx.execute<{ purged: unknown }>(sql`select app.purge_supplier(${id}::uuid) as purged`)
+        const raw = out.rows[0]?.purged ?? null
+        if (raw === null) throw new HttpError(404, 'proveedor no encontrado')
+        const p = PurgeResult.parse(raw)
+        await audit(tx, w.tenantId, actorOf(w), 'supplier.deleted', id, p.counts)
+        return p
+      })
+    } catch (e) {
+      if (inUse(e)) throw new HttpError(409, 'el proveedor tiene una solicitud en proceso; espera a que termine y vuelve a intentar')
+      throw e
+    }
+    await enqueuePurge(deps.boss, { tenant_id: w.tenantId, supplier_id: id, application_ids: purged.application_ids, run_ids: purged.run_ids, storage_paths: purged.storage_paths.filter((p) => pathBelongsTo(p, w.tenantId)) })
+    const body: SupplierDeleted = { id, counts: purged.counts }
+    res.json(body)
   })
 
   // ---------- Configuración: canales del tenant (solo lectura) y ajustes del análisis

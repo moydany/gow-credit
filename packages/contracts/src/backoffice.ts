@@ -171,6 +171,22 @@ export const SupplierDetail = z.strictObject({
 })
 export type SupplierDetail = z.infer<typeof SupplierDetail>
 
+/**
+ * Lo que se borró con un proveedor (ADR 0059): solicitudes, documentos, resultados de crédito,
+ * aclaraciones y mensajes. Solo conteos.
+ */
+export const SupplierDeleted = z.strictObject({
+  id: z.uuid(),
+  counts: z.strictObject({
+    applications: z.int().nonnegative(),
+    documents: z.int().nonnegative(),
+    outcomes: z.int().nonnegative(),
+    clarifications: z.int().nonnegative(),
+    messages: z.int().nonnegative(),
+  }),
+})
+export type SupplierDeleted = z.infer<typeof SupplierDeleted>
+
 // ---------- Configuración (docs/08 §2): usuarios, llaves de API y canales
 
 export const TenantUserItem = z.strictObject({ id: z.uuid(), email: z.string(), created_at: z.string(), invited_by: z.string().nullable().describe('Correo de quien lo invitó, si sigue en el tenant'), is_me: z.boolean() })

@@ -282,6 +282,54 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(JSON.stringify(log.rows)).not.toMatch(/GOMA|0021800/)
   })
 
+  it('borrar un proveedor se lleva todo lo suyo, deja lo de otros, no deja con una solicitud en proceso y encola la limpieza (ADR 0059)', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const count = async (sql: string, v: unknown[]) => ((await q(sql, v)).rows[0] as { n: number }).n
+    // Con Bearer: no gasta intentos de /session (20 por minuto por IP) que usan las pruebas de abajo.
+    const a = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const b = tokenFor(userB, tenantB, 'b@prestamista.test')
+    const [sup, other, app, doc, clar] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()]
+    const phone = '+5215551112222'
+    const path = `${tenantA}/${randomUUID()}.pdf`
+    await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3), ($4, $2, $5)', [sup, tenantA, 'Proveedor a borrar', other, 'Proveedor que se queda'])
+    await q("INSERT INTO app.supplier_contacts (tenant_id, supplier_id, channel, address, verified_at, verification_method) VALUES ($1, $2, 'whatsapp', $3, now(), 'kyc')", [tenantA, sup, phone])
+    await q("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, $4, $5, 10, 'application/pdf')", [doc, tenantA, sup, path, 'f'.repeat(64)])
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status, run_id) VALUES ($1, $2, $3, 'qualified', 'run-borrar')", [app, tenantA, sup])
+    await q('INSERT INTO app.application_documents (tenant_id, application_id, document_id) VALUES ($1, $2, $3)', [tenantA, app, doc])
+    await q("INSERT INTO app.extractions (tenant_id, document_id, schema_version, status, payload) VALUES ($1, $2, '1.2.0', 'complete', $3)", [tenantA, doc, JSON.stringify(sampleStatement())])
+    await q("INSERT INTO app.decisions (tenant_id, application_id, status, payload) VALUES ($1, $2, 'qualified', '{}')", [tenantA, app])
+    await q("INSERT INTO app.outcomes (tenant_id, application_id, outcome, observed_at) VALUES ($1, $2, 'paid', now())", [tenantA, app])
+    await q("INSERT INTO app.clarifications (id, tenant_id, application_id, supplier_id, round, channel, questions) VALUES ($1, $2, $3, $4, 1, 'whatsapp', '[]')", [clar, tenantA, app, sup])
+    await q("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, clarification_id) VALUES ($1, 'whatsapp', $2, 'hola', $3), ($1, 'whatsapp', '+5215559990000', 'de otro', null)", [tenantA, phone, clar])
+    await q("INSERT INTO app.outbound_messages (tenant_id, channel, destination, body, kind) VALUES ($1, 'whatsapp', $2, 'aviso', 'generic')", [tenantA, phone])
+    await q("INSERT INTO app.supplier_registrations (tenant_id, channel, address, step, supplier_id) VALUES ($1, 'whatsapp', $2, 'done', $3)", [tenantA, phone, sup])
+    const busy = randomUUID()
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'extracting')", [busy, tenantA, other])
+
+    // Otro tenant no lo encuentra; con una solicitud en proceso no se borra y nada cambia.
+    expect((await call('DELETE', `/suppliers/${sup}`, { bearer: b })).status).toBe(404)
+    expect((await call('DELETE', `/suppliers/${other}`, { bearer: a })).status).toBe(409)
+    expect(await count('SELECT count(*)::int AS n FROM app.suppliers WHERE id = $1', [other])).toBe(1)
+
+    const r = await call('DELETE', `/suppliers/${sup}`, { bearer: a })
+    expect(r.status).toBe(200)
+    expect(r.json).toEqual({ id: sup, counts: { applications: 1, documents: 1, outcomes: 1, clarifications: 1, messages: 2 } })
+    for (const [table, col, id] of [['suppliers', 'id', sup], ['supplier_contacts', 'supplier_id', sup], ['applications', 'supplier_id', sup], ['documents', 'id', doc], ['extractions', 'document_id', doc], ['decisions', 'application_id', app], ['outcomes', 'application_id', app], ['clarifications', 'id', clar]] as const) {
+      expect(await count(`SELECT count(*)::int AS n FROM app.${table} WHERE ${col} = $1`, [id]), table).toBe(0)
+    }
+    expect(await count('SELECT count(*)::int AS n FROM app.inbound_messages WHERE from_address = $1', [phone])).toBe(0)
+    expect(await count('SELECT count(*)::int AS n FROM app.outbound_messages WHERE destination = $1', [phone])).toBe(0)
+    expect(await count('SELECT count(*)::int AS n FROM app.supplier_registrations WHERE address = $1', [phone])).toBe(0)
+    // Lo de otros se queda.
+    expect(await count('SELECT count(*)::int AS n FROM app.inbound_messages WHERE from_address = $1', ['+5215559990000'])).toBe(1)
+    expect(await count('SELECT count(*)::int AS n FROM app.applications WHERE supplier_id = $1', [other])).toBe(1)
+    // La bitácora guarda solo conteos; la limpieza fuera de la base queda encolada para el worker.
+    expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'supplier.deleted'", [sup])).rows).toEqual([{ actor: `user:${userA}`, details: { applications: 1, documents: 1, outcomes: 1, clarifications: 1, messages: 2 } }])
+    const job = (await q('SELECT data FROM pgboss.job WHERE name = $1', [QUEUES.purge])).rows[0] as { data: unknown }
+    expect(job.data).toEqual({ tenant_id: tenantA, supplier_id: sup, application_ids: [app], run_ids: ['run-borrar'], storage_paths: [path] })
+    expect((await call('DELETE', `/suppliers/${sup}`, { bearer: a })).status).toBe(404)
+  })
+
   it('usuarios: invitar devuelve el enlace una vez, no se puede quitar a sí mismo y cada tenant ve solo los suyos', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
