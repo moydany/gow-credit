@@ -45,7 +45,7 @@ export function documentAgeWarning(profile: Profile, setting: StatementAgeSettin
   if (months === null) return null
   const maxDays = statementMaxAgeDays(months)
   const age = profile.features.document_age_days.value
-  const limit = `la antigüedad máxima de ${monthsText(months)} (${String(maxDays)} días) que fija la configuración del prestamista`
+  const limit = `la antigüedad máxima de ${monthsText(months)} (${String(maxDays)} días) que fija la configuración de la institución crediticia`
   if (typeof age !== 'number') {
     return { code: DOCUMENT_AGE_WARNING, message: `Advertencia: no se pudo calcular la antigüedad del estado de cuenta (sin fecha de corte) para compararla con ${limit}. Se analizó igual.`, features: ['document_age_days'] }
   }

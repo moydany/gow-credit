@@ -18,7 +18,7 @@ export const ExistingCredit = z
     balance: Money.describe('Saldo insoluto'),
     monthly_payment: Money,
     days_past_due: Count,
-    past_due_amount: Money.nullable().default(null).describe('Monto vencido; null si el core del prestamista no lo informa'),
+    past_due_amount: Money.nullable().default(null).describe('Monto vencido; null si el core de la institución crediticia no lo informa'),
   })
   .meta({ id: 'ExistingCredit' })
 export type ExistingCredit = z.infer<typeof ExistingCredit>
@@ -73,7 +73,7 @@ export const ExternalSnapshot = z
       statement_reuse: z.array(z.strictObject({ uuid: z.string().min(1), application_id: LocalId })).describe('Otras solicitudes de este tenant con el mismo UUID'),
       seen_elsewhere: z
         .array(z.strictObject({ uuid: z.string().min(1), seen_on: IsoDate }))
-        .describe('Índice de plataforma por HMAC(UUID): solo la fecha en que otro prestamista lo vio (docs/09 §9.2)'),
+        .describe('Índice de plataforma por HMAC(UUID): solo la fecha en que otra institución crediticia lo vio (docs/09 §9.2)'),
     }),
   })
   .meta({ id: 'ExternalSnapshot', title: 'Fuentes externas del perfil' })

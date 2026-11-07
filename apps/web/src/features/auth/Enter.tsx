@@ -110,7 +110,7 @@ function EmailForm({ error, onSent }: { error: string | null; onSent: (email: st
       </p>
       <label className="mt-6 block">
         <span className="text-[13px] font-medium text-ink-2">Correo</span>
-        <input type="email" className="input mt-1.5 h-11" placeholder="tu@prestamista.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={invalid} autoComplete="email" autoFocus />
+        <input type="email" className="input mt-1.5 h-11" placeholder="tu@institucion.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={invalid} autoComplete="email" autoFocus />
         {invalid ? (
           <span role="alert" className="mt-1.5 block text-[12.5px] text-coral-ink">
             Escribe un correo válido

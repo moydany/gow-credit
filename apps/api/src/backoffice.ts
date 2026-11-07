@@ -247,7 +247,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   r.post('/setup', async (req, res) => {
     assertCsrf(req)
     const body = parse(SetupBody, req.body)
-    const taken = new HttpError(409, 'el sistema ya tiene un prestamista configurado')
+    const taken = new HttpError(409, 'el sistema ya tiene una institución crediticia configurada')
     if (!(await setupPending())) throw taken
     let userId: string = randomUUID()
     if (deps.auth) {

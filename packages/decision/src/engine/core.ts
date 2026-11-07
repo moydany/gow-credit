@@ -582,7 +582,7 @@ function limitReason(profile: Profile, lim: LimitResult): ReasonOut {
       if (exposure) {
         return {
           code: 'existing_exposure',
-          message: `La línea (${value}) se reduce por la exposición vigente con este prestamista: ${t.minuend} ${fmt(profile.features[t.minuend].value)} menos saldo vigente ${fmt(sub)}.`,
+          message: `La línea (${value}) se reduce por la exposición vigente con esta institución crediticia: ${t.minuend} ${fmt(profile.features[t.minuend].value)} menos saldo vigente ${fmt(sub)}.`,
           features: [t.minuend, t.subtrahend],
         }
       }

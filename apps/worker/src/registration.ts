@@ -89,7 +89,7 @@ export async function verdictText(tx: Tx, app: { id: string; status: string; req
   const [tenant] = await tx.select({ name: tenants.name }).from(tenants)
   const request = ApplicationRequest.nullable().safeParse(app.request)
   const decision = d ? Decision.safeParse(d.payload) : null
-  return renderVerdict({ status, limit: d?.limit == null ? null : Number(d.limit), request: request.success ? request.data : null, tenantName: tenant?.name ?? 'el prestamista', reasons: status === 'not_qualified' && decision?.success ? notQualifiedReasons(decision.data) : [] })
+  return renderVerdict({ status, limit: d?.limit == null ? null : Number(d.limit), request: request.success ? request.data : null, tenantName: tenant?.name ?? 'la institución crediticia', reasons: status === 'not_qualified' && decision?.success ? notQualifiedReasons(decision.data) : [] })
 }
 
 export interface Completion {

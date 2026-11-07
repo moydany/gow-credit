@@ -127,7 +127,7 @@ function UsersCard() {
 
   return (
     <Card rise={0} className="pb-4">
-      <CardHeader title="Usuarios" subtitle="Todos ven y operan las solicitudes del prestamista" />
+      <CardHeader title="Usuarios" subtitle="Todos ven y operan las solicitudes de la institución crediticia" />
       <form
         noValidate
         className="mt-4 flex flex-wrap items-start gap-2 px-6"
@@ -139,7 +139,7 @@ function UsersCard() {
       >
         <label className="min-w-0 flex-1 basis-56">
           <span className="sr-only">Correo de la persona a invitar</span>
-          <input type="email" className="input h-11" placeholder="persona@prestamista.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={invalid} autoComplete="off" />
+          <input type="email" className="input h-11" placeholder="persona@institucion.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={invalid} autoComplete="off" />
           {invalid ? (
             <span role="alert" className="mt-1.5 block text-[12.5px] text-coral-ink">
               Escribe un correo válido

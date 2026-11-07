@@ -93,7 +93,7 @@ function AccountStep() {
       <h1 className="display mt-6 text-[34px]">
         Bienvenido a <span className="text-muted">GOW Credit</span>
       </h1>
-      <p className="mt-3 text-[15px] leading-relaxed text-muted">Es el primer inicio. Crea al prestamista y a su administrador; entras con esa cuenta al terminar.</p>
+      <p className="mt-3 text-[15px] leading-relaxed text-muted">Es el primer inicio. Crea la institución crediticia y a su administrador; entras con esa cuenta al terminar.</p>
       <form
         noValidate
         onSubmit={(e) => {
@@ -103,11 +103,11 @@ function AccountStep() {
           create.mutate(parsed.data)
         }}
       >
-        <Field label="Nombre del prestamista" error={issue('tenant_name')}>
+        <Field label="Nombre de la institución crediticia" error={issue('tenant_name')}>
           <input className="input mt-1.5 h-11" placeholder="Fintech Demo" value={name} onChange={(e) => { setName(e.target.value) }} aria-invalid={Boolean(issue('tenant_name'))} autoFocus />
         </Field>
         <Field label="Correo del administrador" error={issue('email')}>
-          <input type="email" className="input mt-1.5 h-11" placeholder="tu@prestamista.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={Boolean(issue('email'))} autoComplete="email" />
+          <input type="email" className="input mt-1.5 h-11" placeholder="tu@institucion.mx" value={email} onChange={(e) => { setEmail(e.target.value) }} aria-invalid={Boolean(issue('email'))} autoComplete="email" />
         </Field>
         {create.isError ? (
           <p role="alert" className="mt-4 text-[13px] text-coral-ink">

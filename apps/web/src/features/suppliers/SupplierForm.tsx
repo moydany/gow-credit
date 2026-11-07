@@ -100,7 +100,7 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
         }}
         className="space-y-4"
       >
-        {!editing ? <p className="text-[13.5px] leading-relaxed text-muted">Los contactos de WhatsApp y correo verificados entran por la API de integración, con el KYC del prestamista.</p> : null}
+        {!editing ? <p className="text-[13.5px] leading-relaxed text-muted">Los contactos de WhatsApp y correo verificados entran por la API de integración, con el KYC de la institución crediticia.</p> : null}
         <TextField label="Razón social" value={name} onChange={(v) => { setName(v); setServer((s) => ({ ...s, legal_name: undefined })) }} error={errName} autoComplete="organization" />
         <TextField label="RFC" hint="Opcional. 12 posiciones persona moral, 13 persona física." value={rfc} onChange={(v) => { setRfc(v); setServer((s) => ({ ...s, rfc: undefined })) }} error={errRfc} mono />
         {!editing ? <TextField label="Referencia externa" hint="Opcional. El id del proveedor en tu sistema; no se repite." value={ref} onChange={(v) => { setRef(v); setServer((s) => ({ ...s, external_ref: undefined })) }} error={errRef} mono /> : null}

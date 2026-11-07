@@ -38,7 +38,7 @@ function QrCanvas({ value }: { value: string }) {
   )
 }
 
-const STEPS = ['Abre WhatsApp en el teléfono del número del prestamista.', 'Ve a Ajustes (o Configuración) → Dispositivos vinculados.', 'Toca Vincular un dispositivo y apunta la cámara a este código.']
+const STEPS = ['Abre WhatsApp en el teléfono del número de la institución crediticia.', 'Ve a Ajustes (o Configuración) → Dispositivos vinculados.', 'Toca Vincular un dispositivo y apunta la cámara a este código.']
 
 function StatusChip({ s }: { s: WhatsAppLinkState }) {
   if (!s.process_running) return <Chip tone="amber" dot>Proceso detenido</Chip>
@@ -92,10 +92,10 @@ export function WhatsAppLink({ settings }: { settings: TenantSettings }) {
       ) : !data.process_running ? (
         <div className="mt-2.5 space-y-2 text-[13px] leading-relaxed text-muted">
           <p>
-            Para vincular el número, el proceso de WhatsApp de este prestamista tiene que estar corriendo. En desarrollo: {command}; encuentra solo a este prestamista. Si hay varios, agrega <Command>WHATSAPP_TENANT_ID={settings.tenant.id}</Command>, que también fija el tenant en producción (servicio <Command>whatsapp</Command> de Cloud Run, con una instancia fija).
+            Para vincular el número, el proceso de WhatsApp de esta institución crediticia tiene que estar corriendo. En desarrollo: {command}; la encuentra por sí solo. Si hay varias, agrega <Command>WHATSAPP_TENANT_ID={settings.tenant.id}</Command>, que también fija el tenant en producción (servicio <Command>whatsapp</Command> de Cloud Run, con una instancia fija).
           </p>
           <p>
-            {data.status === null ? 'Nunca ha corrido para este prestamista.' : `Su último estado fue a las ${dateTime(data.updated_at ?? '')}.`} Esta tarjeta se actualiza sola en cuanto arranque; mientras tanto, las aclaraciones sin WhatsApp las respondes desde Aclaraciones.
+            {data.status === null ? 'Nunca ha corrido para esta institución crediticia.' : `Su último estado fue a las ${dateTime(data.updated_at ?? '')}.`} Esta tarjeta se actualiza sola en cuanto arranque; mientras tanto, las aclaraciones sin WhatsApp las respondes desde Aclaraciones.
           </p>
         </div>
       ) : data.unlink_pending ? (
@@ -119,7 +119,7 @@ export function WhatsAppLink({ settings }: { settings: TenantSettings }) {
               <span className="size-1.5 animate-pulse-soft rounded-full bg-indigo" /> El código cambia cada 20 a 60 segundos y esta pantalla lo actualiza sola.
             </p>
             <p className="hatch-amber mt-3 rounded-2xl px-3.5 py-2.5 text-amber-ink">
-              Quien escanee este código vincula <strong>su</strong> WhatsApp al bot de este prestamista: escanéalo solo con el teléfono del número dedicado. Ver el código queda en la bitácora.
+              Quien escanee este código vincula <strong>su</strong> WhatsApp al bot de esta institución crediticia: escanéalo solo con el teléfono del número dedicado. Ver el código queda en la bitácora.
             </p>
           </div>
         </div>
@@ -130,7 +130,7 @@ export function WhatsAppLink({ settings }: { settings: TenantSettings }) {
           </p>
           {registered && data.linked_number && registered !== data.linked_number ? (
             <p className="hatch-amber rounded-2xl px-3.5 py-2.5 text-amber-ink">
-              El número registrado del prestamista es {registered}, distinto del vinculado. Los proveedores reciben los mensajes del vinculado.
+              El número registrado de la institución crediticia es {registered}, distinto del vinculado. Los proveedores reciben los mensajes del vinculado.
             </p>
           ) : null}
           <Button size="sm" variant="quiet" onClick={() => { setConfirming(true) }}>

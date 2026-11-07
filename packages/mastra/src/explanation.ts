@@ -231,7 +231,7 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
     const age = num(decision, 'document_age_days')
     if (age !== null) {
       fact('dias_desde_el_corte', age)
-      sentences.push(`Aviso: el estado de cuenta tiene ${String(age)} días desde su corte, más de lo que pide la configuración del prestamista; se analizó igual.`)
+      sentences.push(`Aviso: el estado de cuenta tiene ${String(age)} días desde su corte, más de lo que pide la configuración de la institución crediticia; se analizó igual.`)
     } else sentences.push('Aviso: no se pudo calcular la antigüedad del estado de cuenta; se analizó igual.')
   }
 

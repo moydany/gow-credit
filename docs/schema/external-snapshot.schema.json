@@ -192,7 +192,7 @@
                 ],
                 "additionalProperties": false
               },
-              "description": "Índice de plataforma por HMAC(UUID): solo la fecha en que otro prestamista lo vio (docs/09 §9.2)"
+              "description": "Índice de plataforma por HMAC(UUID): solo la fecha en que otra institución crediticia lo vio (docs/09 §9.2)"
             }
           },
           "required": [
@@ -237,7 +237,7 @@
         },
         "past_due_amount": {
           "default": null,
-          "description": "Monto vencido; null si el core del prestamista no lo informa",
+          "description": "Monto vencido; null si el core de la institución crediticia no lo informa",
           "anyOf": [
             {
               "type": "number",

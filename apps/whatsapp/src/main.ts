@@ -33,7 +33,7 @@ const tenantId = await resolveTenantId({
   db: db.db,
   configured: process.env.WHATSAPP_TENANT_ID,
   onWaiting: () => {
-    line({ tenant: 'esperando', hint: 'crea al prestamista en el backoffice (primer inicio); con varios prestamistas define WHATSAPP_TENANT_ID' })
+    line({ tenant: 'esperando', hint: 'crea la institución crediticia en el backoffice (primer inicio); con varias instituciones crediticias define WHATSAPP_TENANT_ID' })
   },
 })
 line({ tenant: process.env.WHATSAPP_TENANT_ID?.trim() ? 'configurado' : 'descubierto' })

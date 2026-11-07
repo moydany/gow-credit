@@ -113,7 +113,7 @@ export async function queueVerdict(tx: Tx, ctx: AppContext, status: typeof appli
   const [tenant] = await tx.select({ name: tenants.name }).from(tenants)
   const request = requestOf(ctx)
   const failure = status === 'failed' ? describeFailure(failureReason) : null
-  const verdict = renderVerdict({ status: status as VerdictStatus, limit, request, tenantName: tenant?.name ?? 'el prestamista', failure, reasons: status === 'not_qualified' ? notQualifiedReasons(decision) : [] })
+  const verdict = renderVerdict({ status: status as VerdictStatus, limit, request, tenantName: tenant?.name ?? 'la institución crediticia', failure, reasons: status === 'not_qualified' ? notQualifiedReasons(decision) : [] })
   // Sin monto pedido y con línea, el aviso termina preguntando cuánto quiere adelantar (ADR 0053).
   const offer = await offerAmount(tx, { tenantId: ctx.tenantId, applicationId: ctx.application.id, status, limit, request, channel: 'whatsapp', address: contact.address })
   const body = offer ? `${verdict}\n\n${offer}` : verdict

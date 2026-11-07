@@ -1,7 +1,7 @@
 /* eslint-disable no-console -- CLI: la llave y el enlace se muestran una sola vez */
 /**
  * pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...] [--policy archivo.json]
- * pnpm tenant user add --tenant <id> --email persona@prestamista.mx [--hours 8]
+ * pnpm tenant user add --tenant <id> --email persona@institucion.mx [--hours 8]
  *
  * Alta de tenant con el rol administrador: clona la política base como activa y emite la primera
  * llave de API (solo se muestra aquí; se guarda como hash). `user add` da de alta al usuario del
@@ -25,7 +25,7 @@ loadRootEnv()
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { name: { type: 'string' }, whatsapp: { type: 'string' }, 'email-from': { type: 'string' }, policy: { type: 'string' }, tenant: { type: 'string' }, email: { type: 'string' }, hours: { type: 'string' } } })
 const usage = () => {
   console.error('uso: pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...] [--policy archivo.json]')
-  console.error('     pnpm tenant user add --tenant <id> --email persona@prestamista.mx [--hours 8]')
+  console.error('     pnpm tenant user add --tenant <id> --email persona@institucion.mx [--hours 8]')
   process.exit(64)
 }
 

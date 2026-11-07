@@ -221,7 +221,7 @@ export type SessionConfig = z.infer<typeof SessionConfig>
  * WhatsApp del tenant es opcional; el que se vincula de verdad es el del QR.
  */
 export const SetupBody = z.strictObject({
-  tenant_name: z.string().trim().min(2, 'Escribe el nombre del prestamista').max(120),
+  tenant_name: z.string().trim().min(2, 'Escribe el nombre de la institución crediticia').max(120),
   email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')),
   whatsapp_number: z
     .string()

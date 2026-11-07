@@ -48,9 +48,9 @@ function existingCredits(ctx: ExternalContext): Entries {
   else ratio = known(round4(payments / fcf), { ...ext, confidence: ctx.statement.free_cash_flow_monthly?.confidence ?? 1, evidence, note: `cuota vigente ${String(payments)} / flujo libre ${String(fcf)}` })
   const pastDue = credits.every((c) => c.days_past_due === 0 || c.past_due_amount !== null)
     ? known(sumMoney(credits.map((c) => (c.days_past_due === 0 ? 0 : (c.past_due_amount ?? 0)))), { ...ext, evidence })
-    : unknown('el core del prestamista no informa el monto vencido de un crédito con atraso', 'external')
+    : unknown('el core de la institución crediticia no informa el monto vencido de un crédito con atraso', 'external')
   return {
-    existing_exposure_balance: known(sumMoney(credits.map((c) => c.balance)), { ...ext, evidence, note: credits.length === 0 ? 'sin créditos vigentes con este prestamista' : null }),
+    existing_exposure_balance: known(sumMoney(credits.map((c) => c.balance)), { ...ext, evidence, note: credits.length === 0 ? 'sin créditos vigentes con esta institución crediticia' : null }),
     existing_exposure_days_past_due: known(credits.reduce((m, c) => Math.max(m, c.days_past_due), 0), { ...ext, evidence }),
     existing_exposure_payment_ratio: ratio,
     existing_exposure_past_due_amount: pastDue,
@@ -140,7 +140,7 @@ function internal(ctx: ExternalContext): Entries {
   out.statement_reuse_count = known(reuse.size, { ...ext, evidence: [...reuse].map((id) => `application:${id}`) })
   const seen = src.seen_elsewhere.filter((s) => uuids.has(s.uuid.toUpperCase())).map((s) => ctx.asOfDay - toDay(s.seen_on))
   out.statement_seen_elsewhere_days =
-    seen.length === 0 ? unknown('ningún otro prestamista ha visto este UUID', 'external') : known(Math.max(0, Math.min(...seen)), { ...ext, note: 'índice de plataforma por HMAC(UUID)' })
+    seen.length === 0 ? unknown('ninguna otra institución crediticia ha visto este UUID', 'external') : known(Math.max(0, Math.min(...seen)), { ...ext, note: 'índice de plataforma por HMAC(UUID)' })
   return out
 }
 

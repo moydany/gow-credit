@@ -58,7 +58,7 @@ case "$cmd" in
     web=${GOW_WEB_PORT:-5173}
     echo
     echo "Listo."
-    echo "  Backoffice  http://127.0.0.1:$web   (la primera vez abre el wizard: crea al prestamista y vincula WhatsApp)"
+    echo "  Backoffice  http://127.0.0.1:$web   (la primera vez abre el wizard: crea la institución crediticia y vincula WhatsApp)"
     echo "  API         http://127.0.0.1:${GOW_API_PORT:-3000}"
     echo "  Studio      http://127.0.0.1:54342"
     echo "  Enlaces de acceso: por $MAIL_VIA"

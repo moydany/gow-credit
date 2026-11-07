@@ -47,7 +47,7 @@ describe('antigüedad del estado de cuenta como ajuste del tenant (ADR 0049)', (
     expect(d.next_steps.map((s) => s.feature)).not.toContain('document_age_days')
     const [w] = warningOf(d)
     expect(w?.features).toEqual(['document_age_days'])
-    expect(w?.message).toBe('Advertencia: el estado de cuenta tiene 120 días desde su corte más reciente, más que la antigüedad máxima de 3 meses (90 días) que fija la configuración del prestamista. Se analizó igual, sin pedir uno más reciente.')
+    expect(w?.message).toBe('Advertencia: el estado de cuenta tiene 120 días desde su corte más reciente, más que la antigüedad máxima de 3 meses (90 días) que fija la configuración de la institución crediticia. Se analizó igual, sin pedir uno más reciente.')
   })
 
   it('el umbral es el del tenant, no el de la política: meses de 30 días', () => {

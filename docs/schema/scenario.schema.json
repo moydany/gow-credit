@@ -941,7 +941,7 @@
         },
         "past_due_amount": {
           "default": null,
-          "description": "Monto vencido; null si el core del prestamista no lo informa",
+          "description": "Monto vencido; null si el core de la institución crediticia no lo informa",
           "anyOf": [
             {
               "type": "number",
