@@ -10,6 +10,7 @@ import { Icon } from '../../ui/icons'
 import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, SegmentBar, Skeleton } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
 import { PageTitle } from '../applications/ApplicationsPage'
+import { PolicyForm, type PolicyDoc } from './PolicyForm'
 
 const STATUS_CHIP = { draft: ['Borrador', 'plain'], shadow: ['En sombra', 'indigo'], active: ['Activa', 'accent'], archived: ['Archivada', 'hatch'] } as const
 const SEG: Record<DecisionStatus, string> = { qualified: 'bg-accent', qualified_with_limit: 'bg-accent-ink', not_qualified: 'bg-ink', needs_clarification: 'bg-indigo', human_review: 'bg-amber' }
@@ -24,6 +25,16 @@ export function PoliciesPage() {
   const selected = data?.find((x) => x.id === v) ?? data?.find((x) => x.status === 'active') ?? data?.[0]
   const [text, setText] = useState('')
   const [confirm, setConfirm] = useState<'activate' | null>(null)
+  const [view, setView] = useState<'form' | 'json'>('form')
+  // The form edits the parsed JSON; with JSON that does not parse, only the JSON view works.
+  const doc = useMemo((): PolicyDoc | null => {
+    try {
+      const v: unknown = JSON.parse(text)
+      return v && typeof v === 'object' && !Array.isArray(v) ? (v as PolicyDoc) : null
+    } catch {
+      return null
+    }
+  }, [text])
 
   // The editor starts from the chosen version's document; editing doesn't change it (versions are immutable).
   useEffect(() => {
@@ -95,7 +106,7 @@ export function PoliciesPage() {
             <Card rise={1}>
               <CardHeader
                 title={`Política v${String(selected?.version)}`}
-                subtitle="Documento JSON validado con el mismo esquema que usa el motor"
+                subtitle="Edítala con el formulario o en JSON: las dos vistas son el mismo documento, validado con el esquema del motor"
                 action={
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button variant="ghost" size="sm" disabled={!check.ok || !dirty || create.isPending} onClick={() => { create.mutate() }}>
@@ -105,10 +116,27 @@ export function PoliciesPage() {
                 }
               />
               <div className="px-6 pb-2 pt-4">
-                <label className="sr-only" htmlFor="policy-json">
-                  Documento de la política en JSON
-                </label>
-                <textarea id="policy-json" spellCheck={false} value={text} onChange={(e) => { setText(e.target.value) }} className="input scroll-thin h-80 resize-y font-mono text-[12.5px] leading-relaxed" aria-invalid={!check.ok} aria-describedby="policy-status" />
+                <div role="tablist" aria-label="Vista del editor" className="mb-3 flex gap-1.5">
+                  {(['form', 'json'] as const).map((k) => (
+                    <button key={k} role="tab" type="button" aria-selected={view === k} onClick={() => { setView(k) }} className={clsx('inline-flex h-9 items-center rounded-full px-4 text-[13.5px] font-medium transition-colors', view === k ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
+                      {k === 'form' ? 'Formulario' : 'JSON'}
+                    </button>
+                  ))}
+                </div>
+                {view === 'form' ? (
+                  doc ? (
+                    <PolicyForm doc={doc} onChange={(next) => { setText(JSON.stringify(next, null, 2)) }} />
+                  ) : (
+                    <p className="rounded-2xl bg-coral-soft px-4 py-3 text-[13px] text-coral-ink">El JSON no se puede leer; corrígelo en la vista JSON para volver al formulario.</p>
+                  )
+                ) : (
+                  <>
+                    <label className="sr-only" htmlFor="policy-json">
+                      Documento de la política en JSON
+                    </label>
+                    <textarea id="policy-json" spellCheck={false} value={text} onChange={(e) => { setText(e.target.value) }} className="input scroll-thin h-80 resize-y font-mono text-[12.5px] leading-relaxed" aria-invalid={!check.ok} aria-describedby="policy-status" />
+                  </>
+                )}
                 <div id="policy-status" className="mt-3" role="status">
                   {check.ok ? (
                     <p className="flex items-center gap-2 text-[13px] font-medium text-accent-ink">
