@@ -9,7 +9,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DOCUMENT_REPLIES } from '@gow/channels'
-import { multipleStatementsReason, notBankStatementReason, Question } from '@gow/contracts'
+import { type Issue, multipleStatementsReason, notBankStatementReason, Question } from '@gow/contracts'
 import { connect, withTenant, type Database } from '@gow/db'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import { basePolicyTemplate } from '@gow/decision'
@@ -659,7 +659,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     // Lo que el estado de cuenta incompleto trae de la extracción: la bandera y el hueco en la paginación.
     const incomplete = (d: SyntheticDocument) => {
       const s = syntheticStatement(d.input, d.holder, d.seed)
-      const issue = { id: 'pm1', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } } as const
+      const issue = { id: 'pm1', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } } satisfies Issue
       return d.seed === 'incompleto' ? { ...s, flags: [...s.flags, 'pages_missing' as const], issues: [...s.issues, issue] } : s
     }
     const complete = Buffer.from('%PDF-1.7\n% estado de cuenta completo\n%%EOF\n')
