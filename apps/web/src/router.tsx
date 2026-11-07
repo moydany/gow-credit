@@ -39,7 +39,12 @@ const clarifications = createRoute({
 const review = createRoute({ getParentRoute: () => shell, path: '/revision', component: ReviewPage })
 const policies = createRoute({ getParentRoute: () => shell, path: '/politicas', component: PoliciesPage, validateSearch: (s: Record<string, unknown>): { v?: string } => ({ v: str(s.v) }) })
 const outcomes = createRoute({ getParentRoute: () => shell, path: '/outcomes', component: OutcomesPage })
-const audit = createRoute({ getParentRoute: () => shell, path: '/bitacora', component: AuditPage })
+const audit = createRoute({
+  getParentRoute: () => shell,
+  path: '/bitacora',
+  component: AuditPage,
+  validateSearch: (s: Record<string, unknown>): { tab?: string; solicitud?: string; resultado?: string; ver?: string } => ({ tab: str(s.tab), solicitud: str(s.solicitud), resultado: str(s.resultado), ver: str(s.ver) }),
+})
 const suppliers = createRoute({ getParentRoute: () => shell, path: '/proveedores', component: SuppliersPage, validateSearch: (s: Record<string, unknown>): { q?: string } => ({ q: str(s.q) }) })
 const supplier = createRoute({ getParentRoute: () => shell, path: '/proveedores/$id', component: SupplierDetailPage })
 const settings = createRoute({ getParentRoute: () => shell, path: '/configuracion', component: SettingsPage })

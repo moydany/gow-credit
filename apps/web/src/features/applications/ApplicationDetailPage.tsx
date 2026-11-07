@@ -136,11 +136,17 @@ export function ApplicationDetailPage() {
               ) : null}
             </p>
           </div>
-          {doc ? (
-            <a href={documentUrl(doc.id)} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
-              Abrir PDF <Icon name="arrow" size={14} />
-            </a>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {/* Prompts y respuestas tal cual de esta solicitud (ADR 0064). */}
+            <Link to="/bitacora" search={{ tab: 'modelo', solicitud: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
+              <Icon name="bolt" size={14} /> Llamadas al modelo
+            </Link>
+            {doc ? (
+              <a href={documentUrl(doc.id)} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
+                Abrir PDF <Icon name="arrow" size={14} />
+              </a>
+            ) : null}
+          </div>
         </div>
       </div>
 

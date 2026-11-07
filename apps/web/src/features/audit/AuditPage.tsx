@@ -1,7 +1,10 @@
+import clsx from 'clsx'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { dateTime } from '../../lib/format'
 import { useAudit } from '../../lib/queries'
-import { Card, EmptyState, ErrorState, Skeleton } from '../../ui/primitives'
+import { Card, EmptyState, ErrorState, TableSkeleton } from '../../ui/primitives'
 import { PageTitle } from '../applications/ApplicationsPage'
+import { LlmExchanges } from './LlmExchanges'
 
 const ACTION: Record<string, string> = {
   'application.viewed': 'Abrió una solicitud',
@@ -28,6 +31,10 @@ const ACTION: Record<string, string> = {
   'application.discarded': 'Descartó un documento',
   'contact.created': 'Agregó un contacto',
   'tenant.created': 'Se creó el tenant',
+  'supplier.deleted': 'Borró un proveedor',
+  'whatsapp.qr_viewed': 'Vio el QR de WhatsApp',
+  'whatsapp.unlink_requested': 'Pidió desvincular WhatsApp',
+  'llm_exchange.viewed': 'Vio una llamada al modelo',
 }
 
 function who(actor: string, label: string | null): { name: string; kind: string } {
@@ -37,20 +44,46 @@ function who(actor: string, label: string | null): { name: string; kind: string 
   return { name: actor, kind: '' }
 }
 
+const TABS = [
+  { key: 'movimientos', label: 'Movimientos' },
+  { key: 'modelo', label: 'Llamadas al modelo' },
+] as const
+
 export function AuditPage() {
-  const { data, isPending, isError, error, refetch } = useAudit()
+  const { tab = 'movimientos' } = useSearch({ from: '/shell/bitacora' })
+  const navigate = useNavigate({ from: '/bitacora' })
+  const current = tab === 'modelo' ? 'modelo' : 'movimientos'
   return (
     <div>
       <PageTitle title="Bitácora" muted="solo lectura" />
+      <div role="tablist" aria-label="Qué ver" className="mb-4 flex gap-1.5">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            type="button"
+            aria-selected={current === t.key}
+            // Cambiar de pestaña limpia los filtros de la otra.
+            onClick={() => void navigate({ search: { tab: t.key === 'movimientos' ? undefined : t.key } })}
+            className={clsx('inline-flex h-10 items-center rounded-full px-5 text-[14px] font-medium transition-colors', current === t.key ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel">{current === 'modelo' ? <LlmExchanges /> : <Movements />}</div>
+    </div>
+  )
+}
+
+function Movements() {
+  const { data, isPending, isError, error, refetch } = useAudit()
+  return (
       <Card rise={0} className="overflow-hidden pb-2">
         {isError ? (
           <ErrorState message={error.message} onRetry={() => void refetch()} />
         ) : isPending ? (
-          <div className="space-y-2 p-4">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-12" />
-            ))}
-          </div>
+          <TableSkeleton />
         ) : data.length === 0 ? (
           <EmptyState icon="list" title="Sin movimientos">Aquí queda quién hizo qué.</EmptyState>
         ) : (
@@ -85,6 +118,5 @@ export function AuditPage() {
           </div>
         )}
       </Card>
-    </div>
   )
 }

@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApiKeyCreated, ApiKeyItem, ApiKeyScope, ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -38,6 +38,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return json as T
 }
 
+function queryString(q: Record<string, string | undefined>): string {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(q)) if (v) p.set(k, v)
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
 export const api = {
   signIn: (token: string, refreshToken: string | null) => request<BackofficeMe>('POST', '/session', { token, ...(refreshToken ? { refresh_token: refreshToken } : {}) } satisfies SessionCreateBody),
   sessionConfig: () => request<SessionConfig>('GET', '/session/config'),
@@ -58,6 +65,8 @@ export const api = {
   recordOutcome: (body: { application_id: string; outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }) => request<{ ok: true }>('POST', '/outcomes', body),
   audit: () => request<AuditEntry[]>('GET', '/audit'),
   suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),
+  llmExchanges: (q: LlmExchangeListQuery) => request<LlmExchangeRow[]>('GET', `/llm-exchanges${queryString(q)}`),
+  llmExchange: (id: string) => request<LlmExchangeDetail>('GET', `/llm-exchanges/${id}`),
   supplier: (id: string) => request<SupplierDetail>('GET', `/suppliers/${id}`),
   createSupplier: (body: SupplierCreateBody) => request<{ id: string }>('POST', '/suppliers', body),
   updateSupplier: (id: string, body: SupplierUpdateBody) => request<{ id: string; fields: string[] }>('PATCH', `/suppliers/${id}`, body),

@@ -103,6 +103,17 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={clsx('skeleton', className)} aria-hidden="true" />
 }
 
+/** Filas de espera de una tabla mientras carga. */
+export function TableSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="space-y-2 p-4">
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} className="h-12" />
+      ))}
+    </div>
+  )
+}
+
 export function EmptyState({ icon = 'file', title, children }: { icon?: IconName; title: string; children?: ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
