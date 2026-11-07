@@ -15,7 +15,7 @@ export function SuppliersPage() {
   const navigate = useNavigate({ from: '/proveedores' })
   const [creating, setCreating] = useState(false)
   const needle = q.trim().toLowerCase()
-  const rows = (data ?? []).filter((s) => !needle || [s.legal_name, s.rfc, s.external_ref].some((t) => t?.toLowerCase().includes(needle)))
+  const rows = (data ?? []).filter((s) => !needle || [s.legal_name, s.rfc].some((t) => t?.toLowerCase().includes(needle)))
   const withApps = (data ?? []).filter((s) => s.applications > 0).length
 
   return (
@@ -32,7 +32,7 @@ export function SuppliersPage() {
           subtitle={data ? `${String(withApps)} con al menos una solicitud` : 'Cargando…'}
           action={
             <label className="relative block w-full max-w-60">
-              <span className="sr-only">Buscar por razón social, RFC o referencia</span>
+              <span className="sr-only">Buscar por razón social o RFC</span>
               <Icon name="search" size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
               <input
                 type="search"
@@ -65,7 +65,7 @@ export function SuppliersPage() {
           </div>
         ) : rows.length === 0 ? (
           <EmptyState icon="user" title={data.length === 0 ? 'Aún no hay proveedores' : 'Nadie con esa búsqueda'}>
-            {data.length === 0 ? 'Llegan por la API de integración junto con su primera solicitud, o dalos de alta aquí.' : 'Prueba con otra razón social, RFC o referencia.'}
+            {data.length === 0 ? 'Llegan por la API de integración junto con su primera solicitud, o dalos de alta aquí.' : 'Prueba con otra razón social o RFC.'}
           </EmptyState>
         ) : (
           <ul className="px-3" aria-label="Proveedores">
@@ -92,7 +92,8 @@ function Row({ s }: { s: SupplierRow }) {
     >
       <div className="min-w-0">
         <p className="truncate text-[15px] font-medium">{s.legal_name}</p>
-        <p className="mt-0.5 truncate text-[13px] text-muted">{s.external_ref ? `Ref. ${s.external_ref}` : 'Sin referencia externa'}</p>
+        {/* En pantallas chicas la columna del RFC no se ve: va debajo del nombre. */}
+        <p className="mt-0.5 truncate font-mono text-[13px] text-muted lg:hidden">{s.rfc ?? <span className="font-sans">Sin RFC</span>}</p>
       </div>
       <p className="hidden truncate font-mono text-[13px] text-ink-2 lg:block">{s.rfc ?? <span className="font-sans text-muted">Sin RFC</span>}</p>
       <p className="tnum justify-self-end text-[14.5px] lg:justify-self-start">

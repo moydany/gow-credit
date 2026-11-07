@@ -10,7 +10,7 @@ import { api, ApiError } from '../../lib/api'
 import { Button, Modal } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
 
-type Field = 'legal_name' | 'rfc' | 'external_ref' | 'clabes'
+type Field = 'legal_name' | 'rfc' | 'clabes'
 
 const splitClabes = (text: string): string[] => text.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean)
 
@@ -19,7 +19,7 @@ function issuesByField(issues: { path: string; message: string }[]): Partial<Rec
   const out: Partial<Record<Field, string>> = {}
   for (const i of issues) {
     const [field, index] = i.path.split('.') as [string, string | undefined]
-    const key = (['legal_name', 'rfc', 'external_ref', 'clabes'] as const).find((f) => f === field)
+    const key = (['legal_name', 'rfc', 'clabes'] as const).find((f) => f === field)
     if (!key || out[key]) continue
     out[key] = key === 'clabes' && index !== undefined ? `Renglón ${String(Number(index) + 1)}: ${i.message}` : i.message
   }
@@ -30,7 +30,6 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
   const editing = supplier !== undefined
   const [name, setName] = useState('')
   const [rfc, setRfc] = useState('')
-  const [ref, setRef] = useState('')
   const [clabes, setClabes] = useState('')
   const [tried, setTried] = useState(false)
   const [server, setServer] = useState<Partial<Record<Field, string>>>({})
@@ -41,14 +40,13 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
     if (!open) return
     setName(supplier?.legal_name ?? '')
     setRfc(supplier?.rfc ?? '')
-    setRef(supplier?.external_ref ?? '')
     setClabes((supplier?.clabes ?? []).join('\n'))
     setTried(false)
     setServer({})
   }, [open, supplier])
 
   const input = { legal_name: name, rfc: rfc.trim() ? rfc : null, clabes: splitClabes(clabes) }
-  const parsed = editing ? SupplierUpdateBody.safeParse(input) : SupplierCreateBody.safeParse({ ...input, external_ref: ref.trim() ? ref : null })
+  const parsed = editing ? SupplierUpdateBody.safeParse(input) : SupplierCreateBody.safeParse(input)
   const local = parsed.success ? {} : issuesByField(parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
 
   // En la edición, lo que de verdad cambió respecto a lo guardado (ya normalizado).
@@ -85,7 +83,6 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
   const show = (f: Field, dirty: boolean): string | undefined => server[f] ?? (tried || dirty ? local[f] : undefined)
   const errName = show('legal_name', name !== (supplier?.legal_name ?? ''))
   const errRfc = show('rfc', rfc.trim() !== '' && rfc !== (supplier?.rfc ?? ''))
-  const errRef = show('external_ref', false)
   const errClabes = show('clabes', clabes.trim() !== '' && clabes !== (supplier?.clabes ?? []).join('\n'))
 
   return (
@@ -103,7 +100,6 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
         {!editing ? <p className="text-[13.5px] leading-relaxed text-muted">Los contactos de WhatsApp y correo verificados entran por la API de integración, con el KYC de la institución crediticia.</p> : null}
         <TextField label="Razón social" value={name} onChange={(v) => { setName(v); setServer((s) => ({ ...s, legal_name: undefined })) }} error={errName} autoComplete="organization" />
         <TextField label="RFC" hint="Opcional. 12 posiciones persona moral, 13 persona física." value={rfc} onChange={(v) => { setRfc(v); setServer((s) => ({ ...s, rfc: undefined })) }} error={errRfc} mono />
-        {!editing ? <TextField label="Referencia externa" hint="Opcional. El id del proveedor en tu sistema; no se repite." value={ref} onChange={(v) => { setRef(v); setServer((s) => ({ ...s, external_ref: undefined })) }} error={errRef} mono /> : null}
         <label className="block">
           <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">CLABEs</span>
           <textarea className="input min-h-24 py-2.5 font-mono" rows={3} value={clabes} onChange={(e) => { setClabes(e.target.value); setServer((s) => ({ ...s, clabes: undefined })) }} aria-invalid={errClabes !== undefined} aria-describedby="clabes-hint" spellCheck={false} autoComplete="off" />
