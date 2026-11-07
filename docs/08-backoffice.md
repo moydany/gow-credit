@@ -253,3 +253,10 @@ muestra personalización y el loop de aprendizaje.
   secciones de Configuración, junto a General (usuarios, canales y análisis), con un submenú arriba:
   `/configuracion/politicas`, `/configuracion/prompts` y `/configuracion/bitacora`. Las rutas anteriores
   (`/politicas`, `/prompts`, `/bitacora`) redirigen a las nuevas con sus filtros.
+
+- **Recorrido de una solicitud (ADR 0067, 2026-11-07).** El detalle de la solicitud tiene el enlace
+  "Ver recorrido", que abre `/solicitudes/$id/recorrido`: una vista 3D con una placa por capa (proveedor,
+  canal, cola, workflow, modelos, motor y analista) y una línea de tiempo con capítulos para avanzar paso
+  a paso. Se reconstruye al pedirla con lo que ya hay, sin datos nuevos; los eventos sólidos son exactos,
+  los punteados derivados y los rayados inferidos. Los tramos sin actividad se comprimen y se rotulan con
+  su duración real. No muestra textos, teléfonos ni montos, y sin WebGL queda la línea de tiempo 2D.
