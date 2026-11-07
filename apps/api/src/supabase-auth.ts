@@ -19,6 +19,8 @@ export interface AuthDirectory {
    */
   ensureUser(email: string, preferredId?: string): Promise<string>
   /** true if GoTrue sent the email; false if no account has that email (none is created). */
+  /** Deletes the account (reset of a demo). A missing account is not an error. */
+  deleteUser?(id: string): Promise<void>
   sendMagicLink(email: string, redirectTo: string): Promise<boolean>
   /**
    * New tokens, or null if GoTrue rejected the refresh token (expired, already used outside the
@@ -106,6 +108,10 @@ export function supabaseAuth(cfg: SupabaseAuthConfig): AuthDirectory {
       throw new AuthDirectoryError(r.status)
     },
 
+    async deleteUser(id) {
+      const r = await admin('DELETE', `/admin/users/${encodeURIComponent(id)}`)
+      if (r.status !== 200 && r.status !== 204 && r.status !== 404) throw new AuthDirectoryError(r.status)
+    },
     async sendMagicLink(rawEmail, redirectTo) {
       const email = rawEmail.trim().toLowerCase()
       const r = await call('POST', `/otp?redirect_to=${encodeURIComponent(redirectTo)}`, { key: publicKey, body: { email, create_user: false } })

@@ -28,6 +28,7 @@
     "tenant": "pnpm -F @gow/api tenant",
     "whatsapp": "pnpm -F @gow/whatsapp start",
     "demo:load": "pnpm -F @gow/api demo",
+    "demo:reset": "pnpm -F @gow/api reset",
     "corrections:export": "pnpm -F @gow/api corrections export",
     "web": "pnpm -F @gow/web dev",
     "supabase:env": "sh scripts/supabase-env.sh",

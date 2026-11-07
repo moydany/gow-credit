@@ -9,7 +9,7 @@ import { audit, HttpError, parse } from '../ops.ts'
 import { actorOf, iso, PENDING_SUPPLIER_NAME, SUPPLIER_NOT_FOUND, uniqueViolation, who, type BackofficeDeps } from './shared.ts'
 
 /** The supplier has a request in progress (`app.purge_supplier`, 55006 object_in_use). */
-function inUse(e: unknown): boolean {
+export function inUse(e: unknown): boolean {
   for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
     if ((x as { code?: unknown }).code === '55006') return true
   }

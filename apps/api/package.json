@@ -12,7 +12,8 @@
     "start": "tsx src/main.ts",
     "tenant": "tsx src/cli/tenant.ts",
     "demo": "tsx src/cli/demo.ts",
-    "corrections": "tsx src/cli/corrections.ts"
+    "corrections": "tsx src/cli/corrections.ts",
+    "reset": "tsx src/cli/reset.ts"
   },
   "dependencies": {
     "@gow/channels": "workspace:*",
