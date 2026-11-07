@@ -123,3 +123,46 @@ describe('router de modelos (ADR 0011)', () => {
     expect(planModels({ googleAvailable: true, retryEffort: 'medium' }).doubleRead).toBe('claude-haiku-5-5')
   })
 })
+
+describe('corte temprano del modo full (ADR 0002 y 0042)', () => {
+  const tdc = (confidence: number): Classifier => ({
+    classify: async (input) => ({ ...(await classifier.classify(input)), documentType: 'credit_card_statement', confidence }),
+  })
+
+  it('con el umbral, una TDC segura no se extrae: solo se paga la clasificación', async () => {
+    const llm = fakeLlm(() => new Error('no debió extraerse'))
+    const doc = await extractStatement(pdfPath, { llm, classifier: tdc(0.95) }, { ...opts, rejectNotStatementAbove: 0.9 })
+    expect(StatementExtraction.safeParse(doc).success).toBe(true)
+    expect(llm.models).toEqual([])
+    expect(doc.extraction.status).toBe('failed')
+    expect(doc.flags).toContain('not_a_bank_statement')
+    expect(doc.classification).toMatchObject({ document_type: 'credit_card_statement', confidence: 0.95 })
+    expect(doc.extraction.calls.map((c) => c.purpose)).toEqual(['classify'])
+  })
+
+  it('por debajo del umbral, o sin umbral (standalone), se extrae igual', async () => {
+    const low = fakeLlm((req) => (req.purpose === 'summary' ? SUMMARY : TRANSACTIONS))
+    await extractStatement(pdfPath, { llm: low, classifier: tdc(0.6) }, { ...opts, rejectNotStatementAbove: 0.9 })
+    expect(low.models.length).toBeGreaterThan(0)
+    const none = fakeLlm((req) => (req.purpose === 'summary' ? SUMMARY : TRANSACTIONS))
+    await extractStatement(pdfPath, { llm: none, classifier: tdc(1) }, opts)
+    expect(none.models.length).toBeGreaterThan(0)
+  })
+})
+
+describe('RFC del titular sin homoclave (ADR 0044)', () => {
+  const withRfc = (rfc: string): ExtractionChunk => ({
+    ...SUMMARY,
+    summary: SUMMARY.summary ? { ...SUMMARY.summary, values: [...SUMMARY.summary.values, cited('holder_rfc', rfc, `RFC: ${rfc}`)] } : null,
+  })
+
+  it('una raíz válida no se marca como error ni baja la confianza; un RFC roto sí', async () => {
+    const root = await extractStatement(pdfPath, { llm: fakeLlm((req) => (req.purpose === 'summary' ? withRfc('PEGJ850301') : TRANSACTIONS)), classifier }, opts)
+    expect(root.holder.rfc.value).toBe('PEGJ850301')
+    expect(root.holder.rfc.confidence).toBeGreaterThan(0.3)
+    expect(root.issues.find((i) => i.code === 'invalid_rfc')?.severity).toBe('info')
+    const broken = await extractStatement(pdfPath, { llm: fakeLlm((req) => (req.purpose === 'summary' ? withRfc('PEGJ85') : TRANSACTIONS)), classifier }, opts)
+    expect(broken.holder.rfc.verification).toBe('unverified')
+    expect(broken.issues.find((i) => i.code === 'invalid_rfc')?.severity).toBe('warning')
+  })
+})

@@ -13,6 +13,8 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import {
+  PDF_PASSWORD_FAILURE,
+  PDF_UNREADABLE_PREFIX,
   STATEMENT_SCHEMA_VERSION,
   StatementExtraction,
   type DocumentFlag,
@@ -30,10 +32,10 @@ import { IssueSink } from './issues.ts'
 import { ExtractionChunk, EXTRACTION_SCHEMA_NAME, type SummaryOut } from './llm-schema.ts'
 import { daysBetween } from './normalize.ts'
 import { PageText, textUsable } from './page-text.ts'
-import { loadPdf, type LoadedPdf } from './pdf.ts'
+import { isPdfPasswordError, loadPdf, type LoadedPdf } from './pdf.ts'
 import { pagesWithBreaks, printedOf, reconcilePeriod, reconciliationScore, type PeriodReconciliation } from './reconcile.ts'
 import { isProviderFailure, planModels, supportsServerFallback, type ModelPlan } from './router.ts'
-import { checkClabe, checkRfc } from './validators.ts'
+import { checkClabe, checkRfc, rfcRoot } from './validators.ts'
 
 export interface ExtractOptions {
   /** Fuerza el modelo principal (experimentos). Sin él decide el router (ADR 0011). */
@@ -50,6 +52,12 @@ export interface ExtractOptions {
   maxRetryPages: number
   limit: Limiter
   onProgress?: (message: string) => void
+  /**
+   * Solo el modo full (ADR 0002 y 0042): si el clasificador dice que no es un estado de cuenta
+   * bancario con al menos esta confianza, no se extrae. Sin él (standalone, `evaluate`), la
+   * clasificación etiqueta y no bloquea.
+   */
+  rejectNotStatementAbove?: number
 }
 
 interface Classified {
@@ -121,7 +129,8 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     pdf = await loadPdf(path)
   } catch (err) {
     const bytes = await readFile(path).catch(() => Buffer.alloc(0))
-    return finalizeFailed(path, bytes, started, `no se pudo leer el PDF: ${errorText(err)}`)
+    // Un PDF con contraseña de apertura falla con su motivo propio (ADR 0049).
+    return finalizeFailed(path, bytes, started, isPdfPasswordError(err) ? PDF_PASSWORD_FAILURE : `${PDF_UNREADABLE_PREFIX}: ${errorText(err)}`)
   }
   const text = new PageText(pdf)
   const route = pdf.textLayer === 'corrupt' || pdf.textLayer === 'absent' ? 'vision_only' : 'text_and_vision'
@@ -160,6 +169,14 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     classified = { documentType, classConfidence, classifierBank, classifier, flags: [...flags].filter((f) => f === 'classifier_fallback' || f === 'possible_prompt_injection') }
   } catch (err) {
     issues.add({ code: 'block_failed', severity: 'warning', message: `Falló la clasificación (${errorText(err)}); se continúa con la extracción.` })
+  }
+
+  // ---------- Corte temprano del modo full (ADR 0002 y 0042): un documento que con seguridad no es
+  // estado de cuenta no se extrae. Sin clasificación (falló) siempre se extrae.
+  if (classified && opts.rejectNotStatementAbove !== undefined && documentType !== 'bank_statement' && classConfidence >= opts.rejectNotStatementAbove) {
+    flags.add('not_a_bank_statement')
+    issues.add({ code: 'block_failed', severity: 'info', message: `El clasificador lo marcó como ${documentType} con confianza ${classConfidence.toFixed(2)}; no se extrajo.` })
+    return build({ extractionModel: plan.primary, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason: `no es un estado de cuenta bancario (${documentType}); no se extrajo`, status: 'failed' })
   }
 
   // ---------- Pasada 1
@@ -435,6 +452,11 @@ function checkAccountFormats(acc: StatementExtraction['accounts'][number], issue
 
 function checkRfcField(rfc: FieldOf<string>, issues: IssueSink): void {
   const r = checkRfc(rfc.value)
+  // Varios bancos imprimen el RFC sin homoclave: es una raíz válida, no un error de lectura (ADR 0044).
+  if (r.result === 'invalid' && rfcRoot(rfc.value) !== null) {
+    issues.add({ code: 'invalid_rfc', severity: 'info', message: 'El RFC del titular viene sin homoclave (solo letras y fecha).', page: rfc.source?.page ?? null })
+    return
+  }
   if (r.result === 'invalid') {
     rfc.verification = 'unverified'
     rfc.confidence = Math.min(rfc.confidence, 0.3)

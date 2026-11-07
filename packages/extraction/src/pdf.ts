@@ -110,6 +110,54 @@ export function assessTextLayer(pageTexts: string[]): { layer: TextLayer; repair
   return { layer: 'corrupt', repaired: false, texts: pageTexts }
 }
 
+/** pdfjs rechaza con `PasswordException` un PDF que pide contraseña para abrirse. */
+export function isPdfPasswordError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'PasswordException'
+}
+
+const ENCRYPT_KEY = Buffer.from('/Encrypt', 'latin1')
+/** Delimitadores y espacios de PDF: tras `/Encrypt` va uno de estos, no otra letra (`/EncryptMetadata`). */
+const NAME_END = new Set([0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20, 0x28, 0x29, 0x2f, 0x3c, 0x3e, 0x5b, 0x5d, 0x7b, 0x7d, 0x25])
+
+/**
+ * ¿Trae el PDF un diccionario de cifrado? La llave `/Encrypt` vive en el trailer o en el
+ * diccionario del xref stream, que nunca van comprimidos: basta buscarla en los bytes. Barato y sin
+ * abrir el documento; no distingue si pide contraseña para abrirse o solo restringe permisos.
+ */
+export function hasEncryptDictionary(bytes: Uint8Array): boolean {
+  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  for (let at = buf.indexOf(ENCRYPT_KEY); at >= 0; at = buf.indexOf(ENCRYPT_KEY, at + 1)) {
+    const next = buf[at + ENCRYPT_KEY.length]
+    if (next === undefined || NAME_END.has(next)) return true
+  }
+  return false
+}
+
+/**
+ * - `none`: sin cifrado.
+ * - `permissions_only`: cifrado sin contraseña de apertura (solo restringe imprimir, copiar…); se
+ *   abre y se lee normal. También si pdfjs falla por otra cosa: que la extracción lo decida.
+ * - `password`: pide contraseña para abrirse; no se puede leer (ADR 0049).
+ *
+ * pdfjs solo corre si los bytes traen `/Encrypt`: casi todos los PDFs se resuelven con la búsqueda.
+ */
+export type PdfProtection = 'none' | 'permissions_only' | 'password'
+
+export async function pdfProtection(bytes: Uint8Array): Promise<PdfProtection> {
+  if (!hasEncryptDictionary(bytes)) return 'none'
+  let task: ReturnType<typeof getDocument> | null = null
+  try {
+    // Copia como Uint8Array: pdfjs no acepta un Buffer y se queda con los bytes que recibe.
+    task = getDocument({ data: new Uint8Array(bytes), verbosity: 0, useSystemFonts: false })
+    await task.promise
+    return 'permissions_only'
+  } catch (err) {
+    return isPdfPasswordError(err) ? 'password' : 'permissions_only'
+  } finally {
+    await task?.destroy()
+  }
+}
+
 export async function loadPdf(path: string): Promise<LoadedPdf> {
   const buf = await readFile(path)
   const bytes = new Uint8Array(buf)
