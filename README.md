@@ -376,6 +376,7 @@ confidence below 0.7 doesn't count toward the score.
 | `.env` | `LLM_CACHE_MODE` | `readwrite` (default) or `read`: with `read` no model is ever called and a rerun costs nothing |
 | `.env` | `WORKER_MODEL_CONCURRENCY` | Model calls in flight at once (default 3) |
 | `.env` | `WHATSAPP_SELF_REGISTRATION` | `true` (default) or `false` |
+| `.env` | `SETUP_PASSWORD` | With it, the first-run wizard asks for this password before creating the lender (a shared demo). Without it, whoever opens the page first creates it |
 | `.env` | `GOW_TIME_ZONE` | Business calendar time zone (default `America/Mexico_City`) |
 | At startup | `GOW_WEB_PORT`, `GOW_API_PORT` | Backoffice and API ports |
 

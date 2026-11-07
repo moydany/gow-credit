@@ -376,6 +376,7 @@ ingreso con dinero propio es el truco más común en un estado de cuenta. Un dat
 | `.env` | `LLM_CACHE_MODE` | `readwrite` (por defecto) o `read`: con `read` nunca se llama a un modelo y repetir cuesta cero |
 | `.env` | `WORKER_MODEL_CONCURRENCY` | Llamadas a modelos en paralelo (por defecto 3) |
 | `.env` | `WHATSAPP_SELF_REGISTRATION` | `true` (por defecto) o `false` |
+| `.env` | `SETUP_PASSWORD` | Con ella, el wizard del primer inicio pide esa contraseña antes de crear la institución (demo compartida). Sin ella, la crea quien abra la página primero |
 | `.env` | `GOW_TIME_ZONE` | Zona del calendario de negocio (por defecto `America/Mexico_City`) |
 | Al levantar | `GOW_WEB_PORT`, `GOW_API_PORT` | Puertos del backoffice y la API |
 

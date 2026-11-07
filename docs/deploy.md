@@ -338,5 +338,21 @@ Railway está en `infra/railway/`.
    sola vez la llave de API del tenant) y `pnpm tenant user add --tenant <id> --email <correo>`.
 8. Probar el acceso con un correo propio antes de dar de alta a la persona.
 
+### Compartir la demo y empezar de cero
+
+- `SETUP_PASSWORD` en `app` (secreto, a mano en el panel de Railway): el wizard del primer inicio pide
+  esa contraseña antes de crear la institución. Sin ella, quien abra la página primero se queda con la
+  demo. Se compara en tiempo constante, nunca se guarda ni va a la bitácora, y van 10 intentos por
+  minuto por IP.
+- `railway run --service app -- pnpm demo:reset --yes` borra la institución (la única, o `--tenant`)
+  con todo lo suyo: proveedores, solicitudes, estados de cuenta, decisiones, mensajes, usuarios y sus
+  cuentas de Supabase Auth, políticas, llaves de API y bitácora. Los PDFs, los trabajos de la cola y el
+  estado de Mastra los borra el worker con el mismo trabajo `supplier.purge` de borrar un proveedor. No
+  toca los prompts ni la sesión de WhatsApp del volumen (`WHATSAPP_AUTH_DIR=/data/whatsapp` no depende
+  de la institución). No corre mientras una solicitud está en proceso.
+- Después, reiniciar `whatsapp` (`railway redeploy --service whatsapp`): el proceso se quedó con la
+  institución borrada y, al arrancar sin ninguna, espera a que el wizard cree la nueva. El número sigue
+  vinculado y no pide QR.
+
 Huecos de la demo: TLS hacia Supabase sin verificar el certificado, API y worker escalan juntos y
 `WHATSAPP_SELF_REGISTRATION` queda con su valor por defecto (encendido).
