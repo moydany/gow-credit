@@ -33,7 +33,7 @@ export interface MessageInterpreter {
   interpret(input: InterpretInput): Promise<Interpretation | null>
 }
 
-const PROMPT = { name: 'interpret_whatsapp_reply', version: 1 } as const
+const PROMPT = { name: 'interpret_whatsapp_reply' } as const
 
 export class HaikuInterpreter implements MessageInterpreter {
   readonly #llm: StructuredLlm
@@ -46,7 +46,7 @@ export class HaikuInterpreter implements MessageInterpreter {
 
   async interpret(input: InterpretInput): Promise<Interpretation | null> {
     const options = input.options?.length ? input.options.map((o, i) => `  ${String(i + 1)}) ${o}`).join('\n') : '  (no aplica)'
-    const prompt = loadPrompt(PROMPT.name, PROMPT.version, { field: input.field, question: input.question, options, today: input.today, message: input.message.slice(0, 1000) })
+    const prompt = loadPrompt(PROMPT.name, { field: input.field, question: input.question, options, today: input.today, message: input.message.slice(0, 1000) })
     try {
       const res = await this.#llm.call({
         purpose: 'interpret_reply',

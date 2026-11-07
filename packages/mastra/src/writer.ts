@@ -4,7 +4,7 @@
  * Un texto que cite una cifra fuera de sus hechos se regenera una vez; si vuelve a fallar, o si
  * el modelo no está disponible, queda la plantilla del código, que siempre pasa el filtro.
  */
-import { FEATURE_CATALOG, type DecisionStatus, type FeatureName, type NextStep, type Question, type QuestionFact } from '@gow/contracts'
+import { FEATURE_CATALOG, type DecisionStatus, type FeatureName, type PromptName, type NextStep, type Question, type QuestionFact } from '@gow/contracts'
 import { LIGHT_MODEL, loadPrompt, type StructuredLlm, type StructuredResult } from '@gow/llm'
 import { z } from 'zod'
 import { checkFigures, pesos } from './figures.ts'
@@ -126,7 +126,7 @@ export class Writer {
   }
 
   /** Redacta un lote; devuelve por id el texto aceptado (o null → plantilla) y las llamadas hechas. */
-  async #draft(purpose: string, promptName: string, varName: string, drafts: readonly Draft[], promptVersion = 1): Promise<{ texts: Map<string, string>; calls: CallRecord[]; errors: string[] }> {
+  async #draft(purpose: string, promptName: PromptName, varName: string, drafts: readonly Draft[]): Promise<{ texts: Map<string, string>; calls: CallRecord[]; errors: string[] }> {
     const texts = new Map<string, string>()
     const calls: CallRecord[] = []
     const errors: string[] = []
@@ -135,7 +135,7 @@ export class Writer {
     let rejected = new Map<string, string[]>()
     for (let attempt = 0; attempt < 2 && pending.length > 0; attempt++) {
       const payload = pending.map((d) => ({ id: d.id, ...d.context, hechos: d.facts, borrador: d.template, ...(rejected.has(d.id) ? { cifras_rechazadas: rejected.get(d.id) } : {}) }))
-      const prompt = loadPrompt(promptName, promptVersion, { [varName]: JSON.stringify(payload, null, 1) })
+      const prompt = loadPrompt(promptName, { [varName]: JSON.stringify(payload, null, 1) })
       let res: StructuredResult<z.infer<typeof Texts>>
       try {
         const llm = this.#llm
@@ -198,8 +198,7 @@ export class Writer {
    * texto no pasa el filtro de cifras dos veces, o no hay modelo, queda la plantilla.
    */
   async explanation(draft: { facts: QuestionFact[]; template: string; context: Record<string, unknown> }): Promise<{ text: string; source: 'template' | 'writer'; calls: CallRecord[]; errors: string[] }> {
-    // v2: un nombre por dimensión, lo no evaluado por diseño aparte, tipo de titular (ADR 0045).
-    const { texts, calls, errors } = await this.#draft('explanation', 'explain_decision', 'decision', [{ id: 'e1', ...draft }], 2)
+    const { texts, calls, errors } = await this.#draft('explanation', 'explain_decision', 'decision', [{ id: 'e1', ...draft }])
     const text = texts.get('e1')
     return text === undefined ? { text: draft.template, source: 'template', calls, errors } : { text, source: 'writer', calls, errors }
   }

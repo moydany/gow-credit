@@ -145,7 +145,7 @@ export class ClaudeTransactionClassifier implements TransactionClassifier {
   }
 
   async classifyBatch(rows: readonly TransactionRow[], ctx: { bank: string | null }): Promise<TransactionBatchResult> {
-    const prompt = loadPrompt('classify_transactions', 1, {
+    const prompt = loadPrompt('classify_transactions', {
       bank: ctx.bank ?? 'banco desconocido',
       rows: JSON.stringify(rows.map((r) => ({ id: r.id, type: r.type, date: r.date, amount: r.amount, description: r.reference ? `${r.description} ${r.reference}` : r.description }))),
     })

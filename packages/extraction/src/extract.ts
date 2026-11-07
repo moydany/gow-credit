@@ -86,8 +86,6 @@ export const DEFAULT_OPTIONS = {
   maxRetryPages: 4,
 } as const satisfies Partial<ExtractOptions>
 
-const PROMPTS = { system: 1, summary: 2, transactions: 2, retry: 1 } as const
-
 function chunkPages(pages: readonly number[], size: number): number[][] {
   const blocks: number[][] = []
   for (let i = 0; i < pages.length; i += size) blocks.push(pages.slice(i, i + size))
@@ -192,7 +190,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   }
 
   // ---------- Pasada 1
-  const system = loadPrompt('extract_system', PROMPTS.system).text
+  const system = loadPrompt('extract_system').text
   const extractionModel = plan.primary
   const visionNote = route === 'vision_only' ? '\n\nLa capa de texto de este PDF está corrupta: lee las imágenes de las páginas.' : ''
   const callChunk = async (purpose: string, promptId: string, instruction: string, effort: Effort, pages: number[], maxOutputTokens: number, model: string = extractionModel) => {
@@ -218,7 +216,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     return res.object
   }
 
-  const summaryPrompt = loadPrompt('extract_summary', PROMPTS.summary, { page_count: pdf.pageCount })
+  const summaryPrompt = loadPrompt('extract_summary', { page_count: pdf.pageCount })
   let summaryOut: SummaryOut | null = null
   for (let attempt = 1; attempt <= 2 && summaryOut === null; attempt++) {
     try {
@@ -271,7 +269,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   const runBlock = async (blockPages: number[], orderBase: number, depth = 0): Promise<PlacedRow[]> => {
     const first = blockPages[0] ?? 1
     const last = blockPages.at(-1) ?? first
-    const prompt = loadPrompt('extract_transactions', PROMPTS.transactions, { first_page: first, last_page: last, accounts: listing })
+    const prompt = loadPrompt('extract_transactions', { first_page: first, last_page: last, accounts: listing })
     try {
       progress(`bloque páginas ${String(first)}-${String(last)}`)
       const chunk = await callChunk('transactions', prompt.id, prompt.text, opts.transactionsEffort, blockPages, 32_000)
@@ -336,7 +334,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     }
   for (const [page, problem] of [...problems.entries()].slice(0, opts.maxRetryPages)) {
     retried.add(page)
-    const prompt = loadPrompt('extract_retry_page', PROMPTS.retry, { page, accounts: listing, problem })
+    const prompt = loadPrompt('extract_retry_page', { page, accounts: listing, problem })
     try {
       progress(`relectura página ${String(page)}`)
       // Doble lectura con otra familia de modelos (ADR 0011): menos sesgos compartidos.

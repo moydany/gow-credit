@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Classification, Classifier, ClassifierInput } from './classifier.ts'
+import { promptCacheTag } from './prompts.ts'
 
 export class CachedClassifier implements Classifier {
   readonly #inner: Classifier | null
@@ -21,7 +22,10 @@ export class CachedClassifier implements Classifier {
   }
 
   #key(input: ClassifierInput): string {
-    return createHash('sha256').update(JSON.stringify({ v: 1, label: this.#label, text: input.textSample, pdf: input.pdf.sha256 })).digest('hex')
+    // Con un prompt de clasificación distinto al del código (activado en el backoffice, ADR 0065), su id
+    // entra en la llave: la clasificación guardada con otro prompt no se reutiliza. Sin él, la llave de siempre.
+    const prompt = promptCacheTag('classify_document')
+    return createHash('sha256').update(JSON.stringify({ v: 1, label: this.#label, text: input.textSample, pdf: input.pdf.sha256, ...(prompt ? { prompt } : {}) })).digest('hex')
   }
 
   async classify(input: ClassifierInput): Promise<Classification> {
