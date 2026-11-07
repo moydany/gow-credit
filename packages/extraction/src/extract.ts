@@ -568,7 +568,7 @@ function round6(n: number): number {
 
 async function finalizeFailed(path: string, bytes: Buffer, started: Date, reason: string): Promise<StatementExtraction> {
   const sha = createHash('sha256').update(bytes).digest('hex')
-  const pdf: LoadedPdf = { fileName: basename(path), bytes: new Uint8Array(), base64: '', sha256: sha, sizeBytes: bytes.byteLength, pageCount: 1, pageTexts: [''], textLayer: 'absent', textRepaired: false }
+  const pdf: LoadedPdf = { fileName: basename(path), bytes: new Uint8Array(), base64: '', sha256: sha, sizeBytes: bytes.byteLength, pageCount: 1, pageTexts: [''], textLayer: 'absent', textRepaired: false, pagination: [{ page: 1, printed: null, total: null }], duplicatePages: [], duplicates: [], rotatedPages: [], straightened: false }
   const issues = new IssueSink()
   issues.add({ code: 'page_unreadable', severity: 'error', message: reason })
   return Promise.resolve(
