@@ -27,6 +27,7 @@ import {
 } from '@gow/contracts'
 import { addUsage, EXTRACTION_MODEL, LlmCallError, loadPrompt, readGoogleEnv, ZERO_USAGE, type Classifier, type Effort, type Limiter, type StructuredLlm } from '@gow/llm'
 import { assembleSummary, materialize, placeRows, type AssembledSummary, type FieldOf, type PlacedRow } from './assemble.ts'
+import { applyHeaderDoubleRead, headerDoubleRead } from './double-read.ts'
 import { assembleFiscal, crossCheckFiscal } from './fiscal.ts'
 import { IssueSink } from './issues.ts'
 import { ExtractionChunk, EXTRACTION_SCHEMA_NAME, type SummaryOut } from './llm-schema.ts'
@@ -247,6 +248,11 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     }
   }
   const summary = assembleSummary(summaryOut, text)
+  // Sin texto local no hay contra qué verificar el encabezado: lo relee la otra familia (docs/04 §3.6, ADR 0011).
+  if (route === 'vision_only') {
+    const read = await headerDoubleRead(deps, summaryOut, pdfInput, { text, model: plan.doubleRead, firstModel: extractionModel, system, instruction: summaryPrompt.text + visionNote, promptVersion: summaryPrompt.id, limit: opts.limit, record })
+    if (applyHeaderDoubleRead(read, summary, issues)) flags.add('header_double_read')
+  }
   const fiscal = assembleFiscal(summaryOut.fiscal_documents, text, issues)
   if (fiscal.length > 0) flags.add('fiscal_document_present')
   if (summary.accounts.length > 1) flags.add('multi_account')
