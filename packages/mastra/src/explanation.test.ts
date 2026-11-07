@@ -1,10 +1,10 @@
-import { emptyExternalSnapshot, type ApplicationRequest, type ExternalSnapshot, type SupplierIdentity } from '@gow/contracts'
+import { Decision, emptyExternalSnapshot, type ApplicationRequest, type ExternalSnapshot, type SupplierIdentity } from '@gow/contracts'
 import { basePolicyTemplate, decide } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
 import { ZERO_USAGE, type StructuredLlm, type StructuredRequest, type StructuredResult } from '@gow/llm'
 import { describe, expect, it } from 'vitest'
 import { explanationDraft } from './explanation.ts'
-import { checkFigures } from './figures.ts'
+import { checkFigures, pesos } from './figures.ts'
 import { Writer } from './writer.ts'
 
 const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
@@ -72,6 +72,46 @@ describe('explicación del resultado (ADR 0045)', () => {
     // Persona física: se dice al principio, con lo que implica.
     expect(draft.template).toMatch(/El titular es persona física\./)
     expect(draft.template).toMatch(/gastos y créditos personales/)
+    expect(checkFigures(draft.template, draft.facts).unsupported).toEqual([])
+  })
+
+  it('con monto que cabe en la línea se aprueba el monto; el monto es un hecho y el filtro lo permite (ADR 0053)', () => {
+    const fits = decideFor(healthy, { ...request, amount: 50000 })
+    expect(fits.limit).not.toBeNull()
+    const limit = fits.limit ?? 0
+    expect(limit).toBeGreaterThan(50000)
+    const draft = explanationDraft(fits)
+    expect(draft.template).toContain(`Se aprueba el monto solicitado de ${pesos(50000)}; la línea disponible llega a ${pesos(limit)}.`)
+    expect(draft.template).not.toMatch(/La línea aprobada es de/)
+    expect(draft.facts).toContainEqual({ name: 'monto_solicitado', value: 50000 })
+    expect(checkFigures(draft.template, draft.facts)).toEqual({ ok: true, unsupported: [] })
+    // Sin el hecho, el filtro rechazaría el monto: por eso se registra.
+    const withoutFact = checkFigures(draft.template, draft.facts.filter((f) => f.name !== 'monto_solicitado'))
+    expect(withoutFact.unsupported).toContain('50,000.00')
+    // Pedir justo la línea también cabe.
+    expect(explanationDraft(decideFor(healthy, { ...request, amount: limit })).template).toContain('Se aprueba el monto solicitado de')
+  })
+
+  it('con monto mayor a la línea se aprueba la línea, menor al monto solicitado', () => {
+    const over = decideFor(healthy, { ...request, amount: 300000 })
+    expect(over.limit).not.toBeNull()
+    const limit = over.limit ?? 0
+    expect(limit).toBeLessThan(300000)
+    const draft = explanationDraft(over)
+    expect(draft.template).toContain(`Se aprueba una línea de ${pesos(limit)}, menor al monto solicitado de ${pesos(300000)}.`)
+    expect(draft.template).not.toMatch(/Se aprueba el monto solicitado/)
+    expect(draft.facts).toContainEqual({ name: 'monto_solicitado', value: 300000 })
+    expect(checkFigures(draft.template, draft.facts)).toEqual({ ok: true, unsupported: [] })
+  })
+
+  it('sin monto pedido (evaluado con la línea máxima) la frase sigue siendo "La línea aprobada"', () => {
+    // Como el workflow (ADR 0045): el monto del perfil es la línea máxima, no una petición.
+    const atLine = decideFor(healthy, { ...request, amount: decideFor(healthy, { ...request, amount: 50000 }).limit ?? 0 })
+    const noAmount = Decision.parse({ ...atLine, reasons: [{ code: 'evaluated_at_max_line', message: 'Sin monto solicitado: se evaluó con la línea máxima.', features: ['requested_amount'] }, ...atLine.reasons] })
+    const draft = explanationDraft(noAmount)
+    expect(draft.template).toContain(`La línea aprobada es de ${pesos(noAmount.limit ?? 0)}.`)
+    expect(draft.template).not.toMatch(/monto solicitado/)
+    expect(draft.facts.some((f) => f.name === 'monto_solicitado')).toBe(false)
     expect(checkFigures(draft.template, draft.facts).unsupported).toEqual([])
   })
 

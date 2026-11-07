@@ -167,7 +167,19 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
   }
   if (decision.limit !== null && (decision.status === 'qualified' || decision.status === 'qualified_with_limit')) {
     fact('linea', decision.limit)
-    sentences.push(`La línea aprobada es de ${pesos(decision.limit)}.`)
+    // Con monto pedido se aprueba el monto si cabe en la línea; si no, la línea (ADR 0053). El monto va
+    // como hecho para que el filtro de cifras lo permita. Si se evaluó con la línea máxima, el monto del
+    // perfil es esa línea, no una petición del proveedor.
+    const requested = codes.has('evaluated_at_max_line') ? null : (request?.amount ?? null)
+    if (requested === null) sentences.push(`La línea aprobada es de ${pesos(decision.limit)}.`)
+    else {
+      fact('monto_solicitado', requested)
+      sentences.push(
+        requested <= decision.limit + 0.005
+          ? `Se aprueba el monto solicitado de ${pesos(requested)}; la línea disponible llega a ${pesos(decision.limit)}.`
+          : `Se aprueba una línea de ${pesos(decision.limit)}, menor al monto solicitado de ${pesos(requested)}.`,
+      )
+    }
   }
 
   // 2. El flujo del periodo, si se conoce.
