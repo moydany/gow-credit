@@ -29,7 +29,12 @@ env:
 jobs:
   deploy:
     name: demo en Railway
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only a green ci from a push or a manual run on this repository: a PR from a fork whose branch is
+    # also called main must never run its own deploy.sh with RAILWAY_TOKEN (the repository is public).
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+      && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
+      && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
