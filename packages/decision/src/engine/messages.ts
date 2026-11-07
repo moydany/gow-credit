@@ -32,11 +32,14 @@ export const EXCLUSION_TEXT: Record<ExclusionReason, string> = {
 
 export const ASK_TEXT: Record<AskTopic, string> = {
   recent_statement: 'un estado de cuenta reciente',
-  identity_fields: 'confirmar titular, RFC y CLABE',
+  identity_fields: 'confirmar titular y RFC',
   deposit_classification: 'aclarar el origen de abonos',
   reconciliation_gap: 'aclarar un descuadre',
   additional_months: 'más meses de estados de cuenta',
   missing_pages: 'páginas faltantes',
+  charge_classification: 'aclarar qué fueron algunos cargos',
+  main_buyer: 'saber quién es su cliente principal',
+  account_use: 'saber si la cuenta también es personal',
 }
 
 /** Código estable a partir de un id de la política (que admite `-` y `.`). */

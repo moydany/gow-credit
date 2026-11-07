@@ -17,22 +17,6 @@
       }
     },
     {
-      "id": "identity",
-      "description": "Titular, RFC y CLABE coinciden con el proveedor registrado",
-      "when": {
-        "feature": "identity_match",
-        "op": "in",
-        "value": [
-          "match"
-        ]
-      },
-      "onFail": {
-        "status": "needs_clarification",
-        "ask": "identity_fields"
-      },
-      "onUnknown": "ask"
-    },
-    {
       "id": "integrity",
       "description": "El estado de cuenta cuadra",
       "when": {

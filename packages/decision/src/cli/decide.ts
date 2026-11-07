@@ -9,7 +9,7 @@
  * versiona). En consola solo se imprime lo que no identifica a nadie: cobertura, clasificación,
  * features desconocidas, estado y códigos de razón.
  */
-import { parsePolicy, StatementExtraction, type Policy } from '@gow/contracts'
+import { calendarToday, parsePolicy, StatementExtraction, type Policy } from '@gow/contracts'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { decide } from '../decide.ts'
@@ -26,7 +26,7 @@ if (files.length === 0) {
   console.error('uso: pnpm decide <extracción.json>... [--as-of AAAA-MM-DD] [--policy <json>|base] [--amount N] [--out <carpeta>]')
   process.exit(2)
 }
-const asOf = flag('as-of') ?? new Date().toISOString().slice(0, 10)
+const asOf = flag('as-of') ?? calendarToday()
 const policyRef = flag('policy') ?? 'base'
 let policy: Policy = basePolicyTemplate()
 let policyId = BASE_POLICY_ID

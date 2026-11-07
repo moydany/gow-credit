@@ -28,26 +28,25 @@ describe('políticas de ejemplo', () => {
     expect(load(file).version).toBeGreaterThan(0)
   })
 
-  it('evaluación standalone: es la base salvo la compuerta de identidad', () => {
+  it('evaluación standalone: es la base con otro nombre (ADR 0052: ninguna compara identidad para decidir)', () => {
     const policy = load('standalone-evaluation.v1.json')
     const base = basePolicyTemplate()
-    expect({ ...policy, name: base.name, description: base.description, gates: base.gates }).toEqual(base)
-    expect(policy.gates.find((g) => g.id === 'identity')?.onUnknown).toBe('pass')
-    expect(policy.gates.filter((g) => g.id !== 'identity')).toEqual(base.gates.filter((g) => g.id !== 'identity'))
+    expect({ ...policy, name: base.name, description: base.description }).toEqual(base)
+    for (const p of [policy, base, load('fiscal-anchors.v1.json')]) expect(p.gates.some((g) => g.when.feature === 'identity_match')).toBe(false)
   })
 
-  it('sin proveedor registrado, la base pregunta y la de evaluación decide', () => {
+  it('sin proveedor registrado no se pregunta la identidad', () => {
     const input = { statements: [statement], request, supplier: null, external: noCredits, computedAt: AT }
-    expect(decide({ ...input, policy: basePolicyTemplate() }).decision.clarification?.topics).toContain('identity_fields')
-    const d = decide({ ...input, policy: load('standalone-evaluation.v1.json') }).decision
-    expect(d.evaluation.gates.find((g) => g.id === 'identity')).toMatchObject({ outcome: 'unknown', effect: 'none' })
+    const d = decide({ ...input, policy: basePolicyTemplate() }).decision
+    expect(d.clarification?.topics ?? []).not.toContain('identity_fields')
     expect(d.status).toBe('qualified_with_limit')
   })
 
-  it('una identidad que se compara y no coincide sigue pidiendo aclaración', () => {
+  it('una identidad que no coincide se informa pero no cambia la decisión', () => {
     const other = { legal_name: 'Otra Empresa SA de CV', rfc: 'OEM900101AB1', clabes: [] }
-    const d = decide({ statements: [statement], request, supplier: other, external: noCredits, computedAt: AT, policy: load('standalone-evaluation.v1.json') }).decision
-    expect(d.status).toBe('needs_clarification')
-    expect(d.clarification?.topics).toContain('identity_fields')
+    const d = decide({ statements: [statement], request, supplier: other, external: noCredits, computedAt: AT, policy: basePolicyTemplate() }).decision
+    expect(d.profile.features.identity_match.value).toBe('mismatch')
+    expect(d.status).toBe('qualified_with_limit')
+    expect(d.clarification?.topics ?? []).not.toContain('identity_fields')
   })
 })

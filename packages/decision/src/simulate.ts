@@ -3,7 +3,7 @@
  * solicitudes pasadas con una versión borrador, comparada contra la vigente. Puro: los perfiles
  * ya guardados entran tal cual, así que el diff solo refleja el cambio de política.
  */
-import { SimulationReport, type DecisionStatus, type Policy, type SimulationCase } from '@gow/contracts'
+import { SimulationReport, type DecisionStatus, type Policy, type SimulationCase, type StatementAgeSetting } from '@gow/contracts'
 import { DECISION_STATUS_RANK } from './engine/core.ts'
 import { evaluate } from './engine/evaluate.ts'
 
@@ -15,10 +15,12 @@ export interface PolicyRef {
 const BAD = new Set(['late', 'default', 'fraud'])
 const STATUSES: readonly DecisionStatus[] = ['qualified', 'qualified_with_limit', 'not_qualified', 'needs_clarification', 'human_review']
 
-export function simulatePolicy(draft: PolicyRef, cases: readonly SimulationCase[], baseline: PolicyRef | null = null): SimulationReport {
+/** `statementAge`: el ajuste de antigüedad del tenant (ADR 0049), para simular como decide el modo full. */
+export function simulatePolicy(draft: PolicyRef, cases: readonly SimulationCase[], baseline: PolicyRef | null = null, opts: { statementAge?: StatementAgeSetting } = {}): SimulationReport {
+  const age = opts.statementAge ? { statementAge: opts.statementAge } : {}
   const rows = cases.map((c) => {
-    const d = evaluate(draft.policy, c.profile, { policyId: draft.id, counterfactuals: false })
-    const b = baseline ? evaluate(baseline.policy, c.profile, { policyId: baseline.id, counterfactuals: false }) : null
+    const d = evaluate(draft.policy, c.profile, { policyId: draft.id, counterfactuals: false, ...age })
+    const b = baseline ? evaluate(baseline.policy, c.profile, { policyId: baseline.id, counterfactuals: false, ...age }) : null
     return {
       id: c.id,
       outcome: c.outcome,

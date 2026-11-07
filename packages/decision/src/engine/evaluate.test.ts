@@ -8,6 +8,15 @@ import { evaluate } from './evaluate.ts'
 
 const policy = basePolicyTemplate()
 
+/** La base ya no tiene compuerta de identidad (ADR 0052); las pruebas del motor la agregan para probar `onUnknown` y lo no verificado. */
+function withIdentityGate() {
+  const raw = structuredClone(basePolicyTemplate()) as unknown as { gates: unknown[] }
+  raw.gates.splice(1, 0, { id: 'identity', when: { feature: 'identity_match', op: 'in', value: ['match'] }, onFail: { status: 'needs_clarification', ask: 'identity_fields' }, onUnknown: 'ask' })
+  const parsed = parsePolicy(raw)
+  if (!parsed.ok) throw new Error('política de prueba inválida')
+  return parsed.policy
+}
+
 type Values = Parameters<typeof sampleProfile>[0]
 
 /** Perfil sano para la política base: puntaje 100, sin topes. */
@@ -66,7 +75,7 @@ describe('evaluate(policy, profile) con la política base', () => {
     })
 
     it('identidad desconocida → onUnknown ask', () => {
-      const d = evaluate(policy, profile({ identity_match: null }))
+      const d = evaluate(withIdentityGate(), profile({ identity_match: null }))
       expect(d.clarification?.topics).toEqual(['identity_fields'])
       expect(d.evaluation.gates.find((g) => g.id === 'identity')).toMatchObject({ outcome: 'unknown', effect: 'needs_clarification', ask: 'identity_fields' })
     })
@@ -187,7 +196,7 @@ describe('evaluate(policy, profile) con la política base', () => {
     it('una compuerta sobre un dato no verificado ni pasa ni reprueba', () => {
       const d = evaluate(policy, profile({}, { integrity_ok: { verification: 'unverified' } }))
       expect(d.status).toBe('human_review')
-      const idd = evaluate(policy, profile({}, { identity_match: { verification: 'conflict' } }))
+      const idd = evaluate(withIdentityGate(), profile({}, { identity_match: { verification: 'conflict' } }))
       expect([idd.status, idd.clarification?.topics]).toEqual(['needs_clarification', ['identity_fields']])
     })
 
@@ -198,7 +207,7 @@ describe('evaluate(policy, profile) con la política base', () => {
   })
 
   it('sin rondas de aclaración disponibles → revisión humana', () => {
-    const d = evaluate(policy, profile({ document_age_days: 120 }), { clarificationRoundsUsed: 1 })
+    const d = evaluate(policy, profile({ document_age_days: 120 }), { clarificationRoundsUsed: 2 })
     expect(d.status).toBe('human_review')
     expect(codes(d)).toContain('clarification_rounds_exhausted')
   })
@@ -221,7 +230,7 @@ describe('plantilla y políticas versionadas', () => {
   it('clonar la plantilla no la modifica', () => {
     const tenant = clonePolicy(basePolicyTemplate(), { version: 2, name: 'Fintech Demo v2' })
     tenant.gates.pop()
-    expect(basePolicyTemplate().gates).toHaveLength(5)
+    expect(basePolicyTemplate().gates).toHaveLength(4)
     expect(tenant.version).toBe(2)
   })
 

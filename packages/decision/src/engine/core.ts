@@ -51,15 +51,15 @@ export const DECISION_STATUS_RANK: Readonly<Record<DecisionStatus, number>> = {
 
 /**
  * Qué se le puede pedir al proveedor cuando una feature no alcanza para decidir. Lo que
- * depende de la clasificación de abonos se aclara preguntando por ellos; identidad,
- * antigüedad e historia, pidiendo el dato o el documento.
+ * depende de la clasificación de abonos se aclara preguntando por ellos; el servicio de deuda,
+ * por los cargos (ADR 0050); identidad, antigüedad e historia, pidiendo el dato o el documento.
  */
 export const FEATURE_ASK: Readonly<Partial<Record<FeatureName, AskTopic>>> = {
   operating_income_monthly: 'deposit_classification',
   free_cash_flow_monthly: 'deposit_classification',
   payment_capacity_pct: 'deposit_classification',
   debt_capacity: 'deposit_classification',
-  debt_service_monthly: 'deposit_classification',
+  debt_service_monthly: 'charge_classification',
   new_debt_in_period: 'deposit_classification',
   external_debt_signal: 'deposit_classification',
   income_trend: 'deposit_classification',
@@ -303,6 +303,9 @@ function computeLimit(policy: Policy, profile: Profile, band: Band): LimitResult
   }
 }
 
+/** Una dimensión con dato que suma menos de esta fracción de su peso se explica en `reasons`. */
+const LOW_DIMENSION = 0.5
+
 function worstGate(effects: readonly GateEffect[]): GateEffect['status'] | null {
   if (effects.some((e) => e.status === 'not_qualified')) return 'not_qualified'
   if (effects.some((e) => e.status === 'human_review')) return 'human_review'
@@ -329,9 +332,22 @@ export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions
   for (const d of scored.dimensions) {
     if (d.used) continue
     const reason = d.excluded_reason ?? 'unknown'
+    // Qué dato falta o no sirve: el de la dimensión o aquel contra el que se compara (ADR 0045).
+    const missing = readFeature(profile, d.feature, policy.score.minConfidence).exclusion !== null || d.relative_to === null ? d.feature : d.relative_to
     reasons.push({
       code: codeOf('dimension', d.id, reason === 'unknown' ? 'without_data' : reason),
-      message: `La dimensión "${d.id}" no suma puntos: ${EXCLUSION_TEXT[reason]}.`,
+      message: `La dimensión "${d.id}" no suma puntos: ${reason === 'unknown' ? `sin dato de ${missing}` : `${missing}: ${EXCLUSION_TEXT[reason]}`}.`,
+      features: d.relative_to ? [d.feature, d.relative_to] : [d.feature],
+    })
+  }
+  // Lo que sí tiene dato pero suma poco también explica el puntaje (ADR 0045): menos de la mitad.
+  for (const d of scored.dimensions) {
+    if (!d.used || d.normalized === null || d.normalized >= LOW_DIMENSION) continue
+    const def = policy.score.dimensions.find((x) => x.id === d.id)
+    const what = d.relative_to ? `${d.feature} / ${d.relative_to}` : d.feature
+    reasons.push({
+      code: codeOf('dimension', d.id, 'low'),
+      message: `La dimensión "${d.id}" suma ${fmt(round2(d.points))} de ${fmt(d.weight)}: ${what} = ${fmt(d.value)}${def ? ` (cero puntos en ${fmt(def.zeroAt)}, completos en ${fmt(def.fullAt)})` : ''}.`,
       features: d.relative_to ? [d.feature, d.relative_to] : [d.feature],
     })
   }
@@ -345,9 +361,14 @@ export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions
     if (!c.applied) return
     const cap = policy.decision.caps[c.index]
     const f = readFeature(profile, c.feature)
+    const max = `máximo "${STATUS_TEXT[c.max_status]}"`
     reasons.push({
       code: codeOf('cap', c.feature),
-      message: `Tope: ${c.feature} ${cap?.when.op ?? ''} ${fmt(cap?.when.value)} (valor: ${fmt(f.value)}${f.exclusion && f.exclusion !== 'unknown' ? `, ${EXCLUSION_TEXT[f.exclusion]}` : ''}) → máximo "${STATUS_TEXT[c.max_status]}".`,
+      // Sin dato el tope aplica por precaución: decirlo así, no como si el valor cumpliera la condición.
+      message:
+        f.exclusion === 'unknown'
+          ? `Tope: sin dato de ${c.feature}, por precaución aplica ${max}.`
+          : `Tope: ${c.feature} ${cap?.when.op ?? ''} ${fmt(cap?.when.value)} (valor: ${fmt(f.value)}${f.exclusion ? `, ${EXCLUSION_TEXT[f.exclusion]}` : ''}) → ${max}.`,
       features: [c.feature],
     })
   })

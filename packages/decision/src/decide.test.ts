@@ -58,7 +58,7 @@ describe('decide: abonos grandes inciertos (docs/03 §7)', () => {
   })
 
   it('sin rondas disponibles va a revisión humana', () => {
-    const d = decide(input([stmt([...WEAK, { kind: 'cash_deposit', amount: 150000 }])], { clarificationRoundsUsed: 1 })).decision
+    const d = decide(input([stmt([...WEAK, { kind: 'cash_deposit', amount: 150000 }])], { clarificationRoundsUsed: 2 })).decision
     expect(d.status).toBe('human_review')
     expect(d.reasons.map((x) => x.code)).toEqual(expect.arrayContaining(['deposit_clarification', 'clarification_rounds_exhausted']))
   })

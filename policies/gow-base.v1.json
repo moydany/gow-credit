@@ -10,13 +10,6 @@
       "onFail": { "status": "needs_clarification", "ask": "recent_statement" }
     },
     {
-      "id": "identity",
-      "description": "Titular, RFC y CLABE coinciden con el proveedor registrado",
-      "when": { "feature": "identity_match", "op": "in", "value": ["match"] },
-      "onFail": { "status": "needs_clarification", "ask": "identity_fields" },
-      "onUnknown": "ask"
-    },
-    {
       "id": "integrity",
       "description": "El estado de cuenta cuadra",
       "when": { "feature": "integrity_ok", "op": "==", "value": true },
@@ -57,5 +50,5 @@
     ],
     "limitFormula": "min(band, debt_capacity - existing_exposure_balance, program_available_limit)"
   },
-  "clarification": { "maxRounds": 1, "askWhenAmountAbovePctOfIncome": 30 }
+  "clarification": { "maxRounds": 2, "askWhenAmountAbovePctOfIncome": 30 }
 }

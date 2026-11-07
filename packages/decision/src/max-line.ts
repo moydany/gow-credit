@@ -8,7 +8,7 @@
  * (`conditional_on`). Una compuerta que rechaza o manda a revisión, o un resultado que depende
  * de datos dudosos, sí: entonces no hay línea máxima que ofrecer.
  */
-import type { FinalDecisionStatus, MaxLine, Policy, Profile } from '@gow/contracts'
+import type { FinalDecisionStatus, MaxLine, Policy, Profile, StatementAgeSetting } from '@gow/contracts'
 import { withFeatures } from './engine/counterfactuals.ts'
 import { evaluate } from './engine/evaluate.ts'
 import { floor2 } from './util/num.ts'
@@ -23,14 +23,15 @@ interface Probe {
   score: number | null
 }
 
-export function maxLine(policy: Policy, profile: Profile): MaxLine | null {
-  const base = evaluate(policy, profile, { counterfactuals: false })
+export function maxLine(policy: Policy, profile: Profile, opts: { statementAge?: StatementAgeSetting } = {}): MaxLine | null {
+  const age = opts.statementAge ? { statementAge: opts.statementAge } : {}
+  const base = evaluate(policy, profile, { counterfactuals: false, ...age })
   if (base.evaluation.gates.some((g) => g.effect === 'not_qualified' || g.effect === 'human_review')) return null
   const pending = base.evaluation.gates.filter((g) => g.effect === 'needs_clarification').map((g) => g.id)
   const relaxed: Policy = { ...policy, gates: policy.gates.filter((g) => !pending.includes(g.id)) }
 
   const probe = (amount: number): Probe => {
-    const d = evaluate(relaxed, withFeatures(profile, [{ feature: 'requested_amount', value: amount }]), { counterfactuals: false })
+    const d = evaluate(relaxed, withFeatures(profile, [{ feature: 'requested_amount', value: amount }]), { counterfactuals: false, ...age })
     const ok = QUALIFYING.has(d.status) && d.limit !== null && d.limit >= amount
     return { ok, status: d.status, limit: d.limit, score: d.score }
   }

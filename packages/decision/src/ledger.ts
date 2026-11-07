@@ -8,8 +8,11 @@
  * - Clasificación efectiva: la que trae el movimiento (Jev, Haiku, respuesta del dueño) si
  *   alcanza la confianza mínima; si no, el comprador reconocido por RFC o nombre; si no, la que
  *   traiga; y si no trae ninguna, las reglas (ADR 0013).
+ * - Cuenta de uso mixto declarada por el dueño (ADR 0050): un abono que solo se presume pago de
+ *   cliente (sin RFC, sin el comprador y con confianza menor a `PRESUMPTION_CONFIDENCE`) baja a
+ *   `MIXED_PRESUMED_CONFIDENCE` y deja de contar como ingreso.
  */
-import type { ApplicationRequest, Period, Provenance, StatementExtraction, Transaction, TransactionClassification, TransactionRef } from '@gow/contracts'
+import type { AccountUse, ApplicationRequest, Period, Provenance, StatementExtraction, Transaction, TransactionClassification, TransactionRef } from '@gow/contracts'
 import { bankTokens, buyerMatch, classifyByRules, type RuleContext } from './classify/rules.ts'
 import { toDay } from './util/dates.ts'
 import { normalizeText } from './util/text.ts'
@@ -52,6 +55,8 @@ export interface LedgerRow {
   rule: string | null
   buyerMatch: 'rfc' | 'name' | null
   provenance: Provenance
+  /** Abono que se presumía pago de cliente y no cuenta por ser cuenta de uso mixto (ADR 0050). */
+  mixedUseDiscount: boolean
 }
 
 export interface Ledger {
@@ -65,6 +70,32 @@ export interface Ledger {
 export interface LedgerOptions {
   request: ApplicationRequest | null
   minConfidence: number
+  /** Uso de la cuenta declarado por el dueño (ADR 0050); null o ausente: no se sabe. */
+  accountUse?: AccountUse | null
+}
+
+/** Debajo de esta confianza un pago de cliente sin RFC ni comprador es una presunción (transferencia de un tercero). */
+export const PRESUMPTION_CONFIDENCE = 0.8
+/** Confianza de una presunción en una cuenta de uso mixto: la de "nada reconocible" de las reglas. */
+export const MIXED_PRESUMED_CONFIDENCE = 0.5
+
+/**
+ * ¿Este abono solo se presume pago de cliente? Lo es una transferencia de un tercero que nadie
+ * reconoció (ni RFC impreso, ni el comprador, ni una respuesta de una persona) y con confianza
+ * menor a `PRESUMPTION_CONFIDENCE`: las reglas le dan 0.75 a "SPEI RECIBIDO" (ADR 0013).
+ */
+export function isPresumedCustomerPayment(row: Pick<LedgerRow, 'type' | 'internal' | 'classification' | 'buyerMatch'>): boolean {
+  const c = row.classification
+  return (
+    row.type === 'credit' &&
+    !row.internal &&
+    c.category === 'customer_payment' &&
+    c.confidence < PRESUMPTION_CONFIDENCE &&
+    row.buyerMatch === null &&
+    c.counterparty_rfc === null &&
+    c.classifier !== 'owner_answer' &&
+    c.classifier !== 'analyst_answer'
+  )
 }
 
 export function evidenceRef(row: Pick<LedgerRow, 'doc' | 'tx'>): string {
@@ -172,6 +203,9 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
             rule = rules.rule
             buyer = rules.buyerMatch
           }
+          const internal = t.internal_transfer
+          const mixedUseDiscount = opts.accountUse === 'mixed' && isPresumedCustomerPayment({ type: t.type, internal, classification, buyerMatch: buyer })
+          if (mixedUseDiscount) classification = { ...classification, confidence: Math.min(classification.confidence, MIXED_PRESUMED_CONFIDENCE) }
           rows.push({
             ref: { document_sha256: sha, transaction_id: t.id },
             doc,
@@ -180,13 +214,14 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
             day: toDay(t.date),
             amount: t.amount,
             type: t.type,
-            internal: t.internal_transfer,
+            internal,
             verified: t.verification === 'verified',
             classification,
             classifiedBy,
             rule,
             buyerMatch: buyer,
             provenance: provenanceOf(t, classification),
+            mixedUseDiscount,
           })
         }
       }

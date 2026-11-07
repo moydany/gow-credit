@@ -9,7 +9,7 @@
  * - La confianza de una feature que depende de la clasificación es la confianza media de los
  *   movimientos que la alimentan, ponderada por monto.
  */
-import { checkClabe, checkRfc, FISCAL_REGIMES, type ApplicationRequest, type ProfileParameters, type SupplierIdentity, type Verification } from '@gow/contracts'
+import { checkRfc, FISCAL_REGIMES, rfcRoot, type ApplicationRequest, type ProfileParameters, type SupplierIdentity, type Verification } from '@gow/contracts'
 import { evidenceRef, type Ledger, type LedgerRow } from '../ledger.ts'
 import { AVG_MONTH_DAYS, intervalDays, toDay, unionIntervals, type Interval } from '../util/dates.ts'
 import { clamp01, round2, round4, sumMoney, weightedMean } from '../util/num.ts'
@@ -22,6 +22,8 @@ export interface StatementContext {
   supplier: SupplierIdentity | null
   params: ProfileParameters
   asOfDay: number
+  /** El comprador lo dijo el dueño al aclarar; la solicitud no lo traía (ADR 0050). */
+  buyerDeclared?: boolean
 }
 
 /** Un mes con tolerancia de unos 3 días: febrero o un corte a mitad de mes cuentan como mes completo. */
@@ -126,7 +128,8 @@ function documentAgeDays(ctx: StatementContext): Entry {
   return known(age, { verification: latestVerification, evidence, note: null })
 }
 
-type FieldResult = 'match' | 'partial' | 'mismatch' | null
+/** `root`: el RFC del documento viene sin homoclave y su raíz coincide con la del registrado (ADR 0043). */
+type FieldResult = 'match' | 'partial' | 'root' | 'mismatch' | null
 
 const MASK_CHARS = /[*•#]/
 
@@ -150,19 +153,12 @@ function compareMasked(doc: string, registered: string): FieldResult {
 export function compareRfc(docRfc: string, registered: string): FieldResult {
   const a = cleanId(docRfc)
   const b = cleanId(registered)
+  // Sin homoclave: se compara la raíz (letras y fecha) contra el inicio del RFC registrado.
+  const root = rfcRoot(a)
+  if (root !== null) return checkRfc(b).result === 'valid' && b.length === root.length + 3 ? (b.startsWith(root) ? 'root' : 'mismatch') : null
   const check = checkRfc(a)
   if (check.result === 'valid') return check.kind === 'generic' ? null : a === b ? 'match' : 'mismatch'
   if (check.result === 'masked') return compareMasked(a, b)
-  return null
-}
-
-export function compareClabe(docClabe: string, registered: readonly string[]): FieldResult {
-  if (registered.length === 0) return null
-  const a = docClabe.replace(/[\s-]/g, '')
-  const check = checkClabe(a)
-  const regs = registered.map((r) => r.replace(/[\s-]/g, ''))
-  if (check === 'valid') return regs.includes(a) ? 'match' : 'mismatch'
-  if (check === 'masked') return regs.some((r) => compareMasked(a, r) === 'partial') ? 'partial' : 'mismatch'
   return null
 }
 
@@ -175,7 +171,9 @@ export function compareName(docName: string, registered: string): FieldResult {
 function identityMatch(ctx: StatementContext): Entry {
   const supplier = ctx.supplier
   if (supplier === null) return unknown('sin proveedor registrado contra el cual comparar')
-  const results: { field: 'rfc' | 'name' | 'clabe'; result: FieldResult; verification: Verification; where: string }[] = []
+  // Solo nombre y RFC (ADR 0044). La CLABE se extrae, pero no sirve para saber de quién es la cuenta:
+  // quien manda el documento puede dar la misma CLABE que trae impresa.
+  const results: { field: 'rfc' | 'name'; result: FieldResult; verification: Verification; where: string }[] = []
   for (const doc of ctx.ledger.documents) {
     const s = doc.statement
     if (supplier.rfc !== null) {
@@ -186,18 +184,16 @@ function identityMatch(ctx: StatementContext): Entry {
       }
     }
     if (s.holder.name.value !== null) results.push({ field: 'name', result: compareName(s.holder.name.value, supplier.legal_name), verification: s.holder.name.verification, where: `${doc.tag}:holder.name` })
-    for (const a of s.accounts) {
-      if (a.clabe.value !== null) results.push({ field: 'clabe', result: compareClabe(a.clabe.value, supplier.clabes), verification: a.clabe.verification, where: `${doc.tag}:${a.id}.clabe` })
-    }
   }
   const compared = results.filter((r) => r.result !== null)
-  if (compared.length === 0) return unknown('titular, RFC y CLABE no vienen en el documento o no se pueden comparar (redactados o enmascarados)')
+  if (compared.length === 0) return unknown('titular y RFC no vienen en el documento o no se pueden comparar (redactados o enmascarados)')
   const verification = worst(...compared.map((r) => r.verification))
   const evidence = compared.map((r) => `${r.where}=${r.result ?? ''}`)
   const has = (field: string, result: FieldResult) => compared.some((r) => r.field === field && r.result === result)
   let value: 'match' | 'partial' | 'mismatch'
   if (compared.some((r) => r.result === 'mismatch')) value = 'mismatch'
-  else if (has('rfc', 'match') || (has('name', 'match') && has('clabe', 'match'))) value = 'match'
+  // El RFC completo, o el nombre más la raíz del RFC (sin homoclave, ADR 0043 y 0044).
+  else if (has('rfc', 'match') || (has('name', 'match') && has('rfc', 'root'))) value = 'match'
   else value = 'partial'
   return known(value, { verification, evidence, note: `campos comparados: ${[...new Set(compared.map((r) => r.field))].join(', ')}` })
 }
@@ -464,10 +460,13 @@ function buyerFeatures(ctx: StatementContext): Entries {
   }
   const rows = ctx.ledger.rows.filter((r) => r.type === 'credit' && !r.internal && r.verified && r.buyerMatch !== null)
   const byRfc = rows.length > 0 && rows.every((r) => r.buyerMatch === 'rfc')
+  const declared = ctx.buyerDeclared === true
   const meta = {
     confidence: byRfc ? 1 : 0.9,
     evidence: topRefs(rows),
-    note: rows.length > 0 ? `reconocidos por ${byRfc ? 'RFC' : 'nombre o alias'}` : `ningún abono menciona a ${buyer.name}${buyer.rfc ? ' ni su RFC' : ''}`,
+    // El nombre lo dio el dueño; los pagos salen del documento (ADR 0050).
+    provenance: declared ? ('owner_answer' as const) : ('extracted' as const),
+    note: `${rows.length > 0 ? `reconocidos por ${byRfc ? 'RFC' : 'nombre o alias'}` : `ningún abono menciona a ${buyer.name}${buyer.rfc ? ' ni su RFC' : ''}`}${declared ? '; comprador declarado por el dueño como su cliente principal' : ''}`,
   }
   return {
     buyer_payments_count: known(rows.length, meta),
