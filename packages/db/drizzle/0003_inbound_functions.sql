@@ -1,8 +1,8 @@
--- Dos funciones security definer más, revisadas a mano (docs/05 §2): solo devuelven ids, nunca
--- contenido, y cada una se otorga a un solo rol.
+-- Two more security definer functions, reviewed by hand: they return only ids, never content,
+-- and each is granted to a single role.
 --
--- El worker barre los mensajes entrantes sin procesar de todos los tenants y después procesa cada
--- uno dentro de su tenant con RLS. Así el proceso de WhatsApp solo inserta; no encola nada.
+-- The worker sweeps unprocessed incoming messages across all tenants, then processes each one
+-- inside its own tenant under RLS. That way the WhatsApp process only inserts; it enqueues nothing.
 CREATE OR REPLACE FUNCTION app.pending_inbound(p_limit integer)
   RETURNS TABLE (id uuid, tenant_id uuid)
   LANGUAGE sql STABLE SECURITY DEFINER
@@ -13,7 +13,7 @@ REVOKE ALL ON FUNCTION app.pending_inbound(integer) FROM PUBLIC;
 --> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app.pending_inbound(integer) TO gow_worker;
 --> statement-breakpoint
--- El webhook de correo entrante llega sin tenant: el destinatario lo identifica (un remitente por tenant).
+-- The inbound email webhook arrives with no tenant: the recipient identifies it (one sender per tenant).
 CREATE OR REPLACE FUNCTION app.tenant_by_email(p_address text)
   RETURNS uuid
   LANGUAGE sql STABLE SECURITY DEFINER

@@ -1,12 +1,13 @@
 /**
- * Prompts en la base (ADR 0065): siembra desde prompts/ y lectura de las versiones activas.
+ * Prompts in the database: seeding from prompts/ and reading the active versions.
  *
- * La siembra corre con el dueño de la migración al final de cada `pnpm db:migrate` y es idempotente:
- * - cada `prompts/<nombre>.v<N>.md` del catálogo entra una sola vez como versión `file`;
- * - un prompt nuevo queda activo en la versión de archivo que usa el código (`PROMPT_CATALOG`);
- * - si el código cambió de versión por defecto y la activa era la anterior por defecto, la activa
- *   pasa a la nueva; si una persona eligió otra en el backoffice, se respeta y queda un aviso;
- * - un archivo ya sembrado que cambió de texto no se toca (las versiones son inmutables): aviso.
+ * The seed runs as the migration owner at the end of every `pnpm db:migrate` and is idempotent:
+ * - each catalog `prompts/<name>.v<N>.md` is inserted once as a `file` version;
+ * - a new prompt becomes active on the file version the code uses (`PROMPT_CATALOG`);
+ * - if the code's default version changed and the active one was the previous default, the active
+ *   one moves to the new default; if someone picked another in the backoffice, that is kept and a
+ *   warning is reported;
+ * - an already-seeded file whose text changed is left alone (versions are immutable): warning.
  */
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -28,7 +29,7 @@ export interface PromptFile {
 
 export const sha256Hex = (text: string) => createHash('sha256').update(text).digest('hex')
 
-/** Los archivos de prompts/ que pertenecen al catálogo (`nombre.vN.md`). */
+/** The prompts/ files that belong to the catalog (`name.vN.md`). */
 export function readPromptFiles(dir: string = PROMPTS_DIR): PromptFile[] {
   const out: PromptFile[] = []
   for (const file of readdirSync(dir)) {
@@ -48,9 +49,9 @@ export function readPromptFiles(dir: string = PROMPTS_DIR): PromptFile[] {
 }
 
 export interface PromptSyncReport {
-  /** Ids de las versiones de archivo que entraron (`extract_summary.v3`). */
+  /** Ids of the file versions inserted (`extract_summary.v3`). */
   inserted: string[]
-  /** Prompts cuya versión activa cambió, con la versión de archivo que quedó. */
+  /** Prompts whose active version changed, with the file version now active. */
   activated: string[]
   warnings: string[]
 }
@@ -58,7 +59,7 @@ export interface PromptSyncReport {
 type VersionRow = typeof promptVersions.$inferSelect
 type PromptRow = typeof prompts.$inferSelect
 
-/** Inserta los archivos que faltan, con el número siguiente de la base; devuelve todas las versiones. */
+/** Inserts missing files, numbered after the database's latest; returns all versions. */
 async function insertMissingFiles(tx: Tx, name: PromptName, files: PromptFile[], report: PromptSyncReport): Promise<VersionRow[]> {
   const versions = await tx.select().from(promptVersions).where(eq(promptVersions.promptName, name)).orderBy(asc(promptVersions.version))
   let next = versions.reduce((max, v) => Math.max(max, v.version), 0) + 1
@@ -78,7 +79,7 @@ async function insertMissingFiles(tx: Tx, name: PromptName, files: PromptFile[],
   return versions
 }
 
-/** ¿La activa debe pasar a la versión de archivo del código? */
+/** Should the active version move to the code's file version? */
 function shouldMoveToDefault(name: PromptName, prompt: PromptRow, active: VersionRow | undefined, report: PromptSyncReport): boolean {
   const def = PROMPT_CATALOG[name].version
   if (!active) return true
@@ -98,7 +99,7 @@ async function syncOne(tx: Tx, name: PromptName, files: PromptFile[], report: Pr
     report.warnings.push(`falta prompts/${filePromptId(name, def)}.md, la versión que usa el código`)
     return
   }
-  // El prompt se crea sin versión activa; la llave foránea compuesta acepta null.
+  // The prompt is created with no active version; the composite foreign key accepts null.
   await tx.insert(prompts).values({ name, codeDefaultFileVersion: def }).onConflictDoNothing()
   const [prompt] = await tx.select().from(prompts).where(eq(prompts.name, name)).for('update')
   if (!prompt) return
@@ -112,11 +113,11 @@ async function syncOne(tx: Tx, name: PromptName, files: PromptFile[], report: Pr
   if (prompt.codeDefaultFileVersion !== def) await tx.update(prompts).set({ codeDefaultFileVersion: def }).where(eq(prompts.name, name))
 }
 
-/** Siembra idempotente; necesita el rol dueño de la migración (las versiones `file` solo las inserta él). */
+/** Idempotent seed; needs the migration owner role (only it inserts `file` versions). */
 export async function syncPromptFiles(db: Db, files: PromptFile[] = readPromptFiles()): Promise<PromptSyncReport> {
   const report: PromptSyncReport = { inserted: [], activated: [], warnings: [] }
   await db.transaction(async (tx) => {
-    // Dos migraciones a la vez (la pila y una terminal) no deben numerar dos veces la misma versión.
+    // Two concurrent migrations (the stack and a terminal) must not number the same version twice.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('app.sync_prompt_files'))`)
     for (const name of PROMPT_NAMES) await syncOne(tx, name, files.filter((f) => f.name === name), report)
   })
@@ -132,7 +133,7 @@ export interface ActivePromptRow {
   sha256: string
 }
 
-/** Versión activa de cada prompt. Global: no necesita `withTenant`. */
+/** Active version of each prompt. Global, so no `withTenant` needed. */
 export async function loadActivePrompts(db: Db): Promise<ActivePromptRow[]> {
   return db
     .select({ name: promptVersions.promptName, version: promptVersions.version, source: promptVersions.source, fileVersion: promptVersions.fileVersion, text: promptVersions.text, sha256: promptVersions.sha256 })

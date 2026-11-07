@@ -1,7 +1,7 @@
--- Corrige 0020 (ADR 0065): `app.sole_tenant()` devuelve el id del único tenant y es solo del rol de
--- WhatsApp (0018, con prueba que lo exige). La API solo necesita saber si la instalación tiene una sola
--- institución crediticia para permitir editar prompts sin BACKOFFICE_PROMPT_EDITORS: si hay una sola,
--- es la del usuario. Función propia que devuelve un booleano y nada más.
+-- Fixes 0020: `app.sole_tenant()` returns the only tenant's id and belongs to the WhatsApp role alone
+-- (0018, with a test enforcing it). The API only needs to know whether the install has a single
+-- lender, to allow editing prompts without BACKOFFICE_PROMPT_EDITORS: if there is one, it is the
+-- user's. A separate function that returns a boolean and nothing else.
 REVOKE EXECUTE ON FUNCTION app.sole_tenant() FROM gow_api;
 --> statement-breakpoint
 CREATE OR REPLACE FUNCTION app.single_tenant_installation()

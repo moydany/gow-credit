@@ -1,9 +1,9 @@
 /**
- * El tenant de este proceso de WhatsApp. Con `WHATSAPP_TENANT_ID` se usa ese (varios prestamistas, o
- * Cloud Run). Sin él, el proceso lo descubre: si existe exactamente un tenant, es ese; si todavía no
- * existe ninguno (primer inicio: el wizard del backoffice aún no lo crea), espera a que aparezca. Con
- * más de uno no adivina: se detiene y pide la variable. El rol de WhatsApp no lee `tenants`; pregunta
- * a `app.sole_tenant()` (ADR 0060).
+ * The tenant for this WhatsApp process. `WHATSAPP_TENANT_ID` wins (several lenders, or Cloud Run).
+ * Without it the process discovers one: exactly one tenant means that one; none yet (first run,
+ * before the backoffice wizard creates it) means wait for it to appear; more than one it won't
+ * guess, so it stops and asks for the variable. The WhatsApp role can't read `tenants`; it calls
+ * `app.sole_tenant()`.
  */
 import type { Db } from '@gow/db'
 import { sql } from 'drizzle-orm'
@@ -12,11 +12,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface ResolveTenantOptions {
   db: Db
-  /** `WHATSAPP_TENANT_ID`, si está definida. */
+  /** `WHATSAPP_TENANT_ID`, if set. */
   configured?: string | undefined
-  /** Cada cuánto vuelve a preguntar mientras no exista el tenant. */
+  /** How often to ask again while no tenant exists. */
   pollMs?: number
-  /** Avisos de estado (sin datos): "esperando", "descubierto". */
+  /** Status notices (no data): "waiting", "discovered". */
   onWaiting?: () => void
   signal?: AbortSignal
 }

@@ -27,13 +27,13 @@ CREATE TABLE "app"."prompts" (
 ALTER TABLE "app"."prompt_versions" ADD CONSTRAINT "prompt_versions_prompt_name_prompts_name_fk" FOREIGN KEY ("prompt_name") REFERENCES "app"."prompts"("name") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."prompts" ADD CONSTRAINT "prompts_active_version_fk" FOREIGN KEY ("name","active_version_id") REFERENCES "app"."prompt_versions"("prompt_name","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "prompt_versions_name_file" ON "app"."prompt_versions" USING btree ("prompt_name","file_version");--> statement-breakpoint
--- Prompts en la base (ADR 0065). Globales: sin tenant_id, los mismos para todas las instituciones
--- crediticias. RLS forzada como todo `app`, con políticas que no separan por tenant:
--- - gow_api, gow_worker y gow_readonly leen todo (el worker carga las versiones activas).
--- - Solo gow_api escribe: inserta versiones del backoffice y cambia cuál está activa. Quién puede
---   hacerlo lo decide la API (BACKOFFICE_PROMPT_EDITORS); la base solo acota qué columnas.
--- - Las versiones de archivo las siembra el dueño de la migración (`syncPromptFiles`).
--- - Ninguna versión se modifica ni se borra, ni siquiera como administrador: un trigger lo rechaza.
+-- Prompts in the database. Global: no tenant_id, the same for every lender. Forced RLS like all of
+-- `app`, with policies that don't split by tenant:
+-- - gow_api, gow_worker and gow_readonly read everything (the worker loads the active versions).
+-- - Only gow_api writes: it inserts backoffice versions and changes which is active. Who may do so
+--   is decided by the API (BACKOFFICE_PROMPT_EDITORS); the database only limits the columns.
+-- - File versions are seeded by the migration owner (`syncPromptFiles`).
+-- - No version is modified or deleted, not even by an admin: a trigger rejects it.
 ALTER TABLE app.prompts ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.prompts FORCE ROW LEVEL SECURITY;
@@ -68,6 +68,6 @@ $$;
 CREATE TRIGGER prompt_versions_immutable BEFORE UPDATE OR DELETE ON app.prompt_versions
   FOR EACH ROW EXECUTE FUNCTION app.prompt_versions_immutable();
 --> statement-breakpoint
--- Sin BACKOFFICE_PROMPT_EDITORS, editar prompts se permite solo en una instalación con una sola
--- institución crediticia (la demo local): la API tiene que poder saberlo sin leer `tenants`.
+-- Without BACKOFFICE_PROMPT_EDITORS, editing prompts is allowed only on an install with a single
+-- lender (the local demo): the API has to be able to tell without reading `tenants`.
 GRANT EXECUTE ON FUNCTION app.sole_tenant() TO gow_api;

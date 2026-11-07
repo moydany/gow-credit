@@ -1,7 +1,7 @@
 /**
- * El QR para vincular el número (Baileys 7 ya no lo dibuja). Va en la terminal y también como
- * imagen, porque algunas terminales deforman los bloques y el teléfono no lo lee. El código no tiene
- * datos personales: es el reto de vinculación, que caduca en segundos y se renueva solo.
+ * The QR for linking the number (Baileys 7 no longer draws it). Rendered in the terminal and as an
+ * image, since some terminals distort the blocks and the phone can't read them. The code holds no
+ * personal data: it is the linking challenge, which expires in seconds and renews itself.
  */
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'

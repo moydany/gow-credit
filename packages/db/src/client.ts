@@ -1,7 +1,7 @@
 /**
- * Conexión por rol (docs/05 §2): cada proceso usa el rol que le toca y nunca el de migraciones.
- * Toda consulta de negocio va dentro de `withTenant`, que fija `app.tenant_id` para la
- * transacción; sin él las políticas RLS no devuelven filas aunque el código tenga un bug.
+ * Per-role connections: each process uses its own role and never the migration role. Every business
+ * query goes through `withTenant`, which sets `app.tenant_id` for the transaction; without it the
+ * RLS policies return no rows, even if the code has a bug.
  */
 import { sql } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
@@ -10,7 +10,7 @@ import * as schema from './schema.ts'
 
 export type DbRole = 'admin' | 'api' | 'worker' | 'whatsapp' | 'readonly' | 'queue' | 'mastra'
 
-/** Postgres local de docker compose (puerto 54330); en Supabase cada URL viene del entorno. */
+/** Local docker compose Postgres (port 54330); on Supabase each URL comes from the environment. */
 export const LOCAL_DATABASE = 'postgres://127.0.0.1:54330/gow'
 
 const LOCAL_CREDENTIALS: Record<DbRole, string> = {
@@ -33,7 +33,7 @@ const ENV_NAME: Record<DbRole, string> = {
   mastra: 'DATABASE_URL_MASTRA',
 }
 
-/** URL de un rol contra una base: la del entorno, o la local de desarrollo con esa base. */
+/** URL for a role against a database: the one from the environment, or the local dev one. */
 export function databaseUrl(role: DbRole, opts: { database?: string; env?: NodeJS.ProcessEnv } = {}): string {
   const env = opts.env ?? process.env
   const fromEnv = env[ENV_NAME[role]]?.trim()
@@ -56,15 +56,15 @@ export interface Database {
   close(): Promise<void>
 }
 
-/** Registro por omisión de un error en una conexión inactiva: solo el código de Postgres, sin datos. */
+/** Default log for an idle-connection error: the Postgres code only, no data. */
 function logIdleError(err: Error & { code?: string }): void {
   process.stderr.write(`${JSON.stringify({ level: 'warn', event: 'db_idle_client_error', code: err.code ?? null })}\n`)
 }
 
 /**
- * Pool de un rol. Una conexión inactiva puede morir del lado del servidor (reinicio, failover,
- * `pg_terminate_backend`, `DROP DATABASE ... WITH (FORCE)` en las pruebas): el pool la descarta y
- * reemite el error. Sin este manejador ese `error` no tiene quién lo escuche y tumba el proceso.
+ * Pool for one role. An idle connection can die server-side (restart, failover,
+ * `pg_terminate_backend`, `DROP DATABASE ... WITH (FORCE)` in tests): the pool drops it and re-emits
+ * the error. Without this handler nothing listens for that `error` and it crashes the process.
  */
 export function connect(url: string, opts: { max?: number; onIdleError?: (err: Error & { code?: string }) => void } = {}): Database {
   const pool = new pg.Pool({ connectionString: url, max: opts.max ?? 5 })
@@ -73,7 +73,7 @@ export function connect(url: string, opts: { max?: number; onIdleError?: (err: E
   return { db, pool, close: () => pool.end() }
 }
 
-/** Corre `fn` en una transacción con `app.tenant_id` fijado: es la única forma de leer o escribir datos de negocio. */
+/** Runs `fn` in a transaction with `app.tenant_id` set: the only way to read or write business data. */
 export async function withTenant<T>(db: Db, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`)

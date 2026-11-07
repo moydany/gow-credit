@@ -1,13 +1,13 @@
 /**
- * Aislamiento por tenant (docs/05 §2, §2b y §8). Dos tenants con una fila en cada tabla:
- * - el catálogo: toda tabla de `app` tiene RLS habilitada y forzada, con política, y está en
- *   TENANT_TABLES o en GLOBAL_TABLES (una tabla nueva sin política hace fallar esta prueba);
- * - las tablas globales (prompts, ADR 0065): todos leen, solo la API escribe y las versiones son inmutables;
- * - tabla por tabla: A no ve, no actualiza ni inserta filas de B;
- * - sin `app.tenant_id` no hay filas;
- * - el rol de WhatsApp no puede leer documentos ni nada fuera de su buzón y del estado de su sesión;
- * - la API lee ese estado y solo puede pedir desvincular.
- * Necesita el Postgres de docker compose; sin él se salta.
+ * Tenant isolation. Two tenants with a row in each table:
+ * - catalog: every `app` table has RLS enabled and forced, with a policy, and is in TENANT_TABLES
+ *   or GLOBAL_TABLES (a new table without a policy fails this test);
+ * - global tables (prompts): everyone reads, only the API writes, and versions are immutable;
+ * - table by table: A can't see, update or insert B's rows;
+ * - without `app.tenant_id` there are no rows;
+ * - the WhatsApp role can't read documents or anything outside its outbox and session status;
+ * - the API reads that status and can only request an unlink.
+ * Needs the docker compose Postgres; skipped without it.
  */
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
@@ -26,7 +26,7 @@ async function client(url: string): Promise<pg.Client> {
   return c
 }
 
-/** Una fila por tabla para un tenant, como administrador. */
+/** One row per table for a tenant, as admin. */
 async function seed(admin: pg.Client, tenant: string, label: string): Promise<void> {
   const q = (text: string, values: unknown[]) => admin.query(text, values)
   const sup = randomUUID()
@@ -60,7 +60,7 @@ async function seed(admin: pg.Client, tenant: string, label: string): Promise<vo
   await q("INSERT INTO app.audit_log (tenant_id, actor, action) VALUES ($1, 'test', 'seed')", [tenant])
 }
 
-/** Corre `fn` en una transacción con el tenant fijado (o sin él). */
+/** Runs `fn` in a transaction with the tenant set (or without it). */
 async function asTenant<T>(c: pg.Client, tenant: string | null, fn: () => Promise<T>): Promise<T> {
   await c.query('BEGIN')
   try {
@@ -71,7 +71,7 @@ async function asTenant<T>(c: pg.Client, tenant: string | null, fn: () => Promis
   }
 }
 
-/** La consulta o el error que lanzó: un permiso denegado también es un resultado esperado. */
+/** The query result or the error it threw: a permission denied is also an expected outcome. */
 async function attempt(c: pg.Client, text: string, values: unknown[] = []): Promise<pg.QueryResult | Error> {
   try {
     return await c.query(text, values)
@@ -163,7 +163,7 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
 
   it.each([...TENANT_TABLES])('%s: sin app.tenant_id no hay filas', async (table) => {
     const seen = await asTenant(worker, null, () => attempt(worker, `SELECT 1 FROM app.${table}`))
-    // El worker no puede leer llaves de API: permiso denegado también cuenta como cero filas.
+    // The worker can't read API keys: permission denied also counts as zero rows.
     if (seen instanceof Error) expect(seen.message).toMatch(/permission denied/)
     else expect(seen.rows).toHaveLength(0)
   })
@@ -179,7 +179,7 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
 
   it.each([...TENANT_TABLES])('%s: A no inserta filas a nombre de B', async (table) => {
     const col = tenantColumn(table)
-    // Copia de una fila de B con id nuevo: la política la rechaza antes que cualquier restricción.
+    // Copy of a B row with a new id: the policy rejects it before any constraint does.
     const { rows } = await admin.query<{ row: Record<string, unknown> }>(`SELECT to_jsonb(t) AS row FROM app.${table} t WHERE ${col} = $1 LIMIT 1`, [B])
     const row = { ...rows[0]?.row }
     if ('id' in row) row.id = randomUUID()
@@ -247,7 +247,7 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
     expect((workerRead as Error).message).toMatch(/permission denied/)
   })
 
-  it('la API cambia solo la antigüedad máxima del estado de cuenta de su tenant (ADR 0049)', async () => {
+  it('la API cambia solo la antigüedad máxima del estado de cuenta de su tenant', async () => {
     const own = await asTenant(api, A, () => api.query('UPDATE app.tenants SET statement_max_age_months = 6'))
     expect(own.rowCount).toBe(1)
     const other = await asTenant(api, A, () => api.query('UPDATE app.tenants SET statement_max_age_months = 6 WHERE id = $1', [B]))

@@ -1,8 +1,8 @@
 /**
- * Custom access token hook de Supabase Auth (0008_access_token_hook.sql, ADR 0035): qué claims
- * devuelve y quién puede ejecutarlo. Corre contra el Postgres disponible (docker-compose.yml, o el
- * Supabase local con infra/supabase/app.env cargado); sin Postgres se salta. Las comprobaciones de
- * permisos de supabase_auth_admin, anon y authenticated solo corren si esos roles existen (Supabase).
+ * Supabase Auth custom access token hook (0008_access_token_hook.sql): which claims it returns and
+ * who can run it. Runs against whatever Postgres is available (docker-compose.yml, or local
+ * Supabase with infra/supabase/app.env loaded); skipped without Postgres. The permission checks for
+ * supabase_auth_admin, anon and authenticated only run if those roles exist (Supabase).
  */
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
@@ -36,7 +36,7 @@ describe.skipIf(!available)('Hook de Supabase Auth: tenant_id en el access token
     supabase = (await admin.query("SELECT 1 FROM pg_roles WHERE rolname = 'supabase_auth_admin'")).rowCount === 1
     await admin.query('INSERT INTO app.tenants (id, name) VALUES ($1, $2), ($3, $4)', [tenantA, 'Tenant A', tenantB, 'Tenant B'])
     await admin.query('INSERT INTO app.tenant_users (tenant_id, user_id, email) VALUES ($1, $2, $3)', [tenantA, member, 'miembro@prestamista.test'])
-    // Mismo id en dos tenants (solo posible a mano): gana la pertenencia más antigua.
+    // Same id in two tenants (only possible by hand): the oldest membership wins.
     await admin.query("INSERT INTO app.tenant_users (tenant_id, user_id, email, created_at) VALUES ($1, $2, $3, now() - interval '1 day'), ($4, $2, $5, now())", [tenantB, twice, 'antes@prestamista.test', tenantA, 'despues@prestamista.test'])
   }, 60_000)
 
@@ -83,12 +83,12 @@ describe.skipIf(!available)('Hook de Supabase Auth: tenant_id en el access token
       expect(await can('supabase_auth_admin', fn)).toBe(true)
       for (const role of ['anon', 'authenticated', 'service_role']) expect(await can(role, fn), `${role} sobre ${fn}`).toBe(false)
     }
-    // Usar el esquema no da acceso a ninguna tabla.
+    // Having schema usage doesn't grant access to any table.
     const tables = await admin.query<{ ok: boolean }>("SELECT has_table_privilege('supabase_auth_admin', 'app.tenant_users', 'SELECT') AS ok")
     expect(tables.rows[0]?.ok).toBe(false)
-    // La función que lee la pertenencia corre como su dueño, que salta RLS (BYPASSRLS de `postgres`
-    // en Supabase): sin eso, GoTrue no vería ninguna fila. `postgres` no puede hacer SET ROLE a
-    // supabase_auth_admin, así que la llamada real de GoTrue se prueba de punta a punta (ADR 0035).
+    // The function that reads membership runs as its owner, which skips RLS (`postgres` has
+    // BYPASSRLS on Supabase); without that GoTrue would see no rows. `postgres` can't SET ROLE to
+    // supabase_auth_admin, so GoTrue's real call is tested end to end.
     const owner = await admin.query<{ definer: boolean; bypass: boolean }>("SELECT p.prosecdef AS definer, r.rolbypassrls OR r.rolsuper AS bypass FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.oid = 'app.backoffice_tenant_of(uuid)'::regprocedure")
     expect(owner.rows[0]).toEqual({ definer: true, bypass: true })
   })

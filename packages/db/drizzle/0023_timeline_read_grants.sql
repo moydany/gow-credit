@@ -1,9 +1,10 @@
--- Recorrido de una solicitud (ADR 0067): la API reconstruye la línea de tiempo con filas ya guardadas, y
--- entre ellas los mensajes salientes. Hasta ahora `gow_api` no leía `app.outbound_messages` (docs/05 §2b:
--- el buzón de salida es del proceso de WhatsApp y del worker).
+-- Request timeline: the API rebuilds the timeline from stored rows, including outgoing messages.
+-- Until now `gow_api` didn't read `app.outbound_messages` (the outbox belongs to the WhatsApp process
+-- and the worker).
 --
--- Privilegio POR COLUMNA y solo metadatos: nunca `body` (el texto que recibe el proveedor) ni
--- `destination` (su número o correo). Sin SELECT de tabla completa, `SELECT *` o esas columnas fallan con
--- "permission denied" aunque el código de la API tuviera un error. La política `tenant_isolation` de
--- 0001 no se limita por rol (FOR ALL, sin TO) y está forzada: ya aplica a gow_api, así que no hace falta otra.
+-- Column-level privilege, metadata only: never `body` (the text the supplier receives) or
+-- `destination` (their number or email). Without a whole-table SELECT, `SELECT *` or those columns
+-- fail with "permission denied" even if the API code had a bug. The `tenant_isolation` policy from
+-- 0001 isn't limited by role (FOR ALL, no TO) and is forced: it already applies to gow_api, so no
+-- other is needed.
 GRANT SELECT (id, tenant_id, clarification_id, kind, channel, status, attempts, created_at, sent_at) ON app.outbound_messages TO gow_api;

@@ -1,7 +1,7 @@
 /**
- * Una conexión inactiva que el servidor termina (reinicio, failover, DROP ... WITH (FORCE)) no
- * debe tumbar el proceso: el pool la descarta, avisa por `onIdleError` y la siguiente consulta abre
- * otra. Sin Postgres se salta.
+ * An idle connection the server terminates (restart, failover, DROP ... WITH (FORCE)) must not
+ * crash the process: the pool drops it, reports via `onIdleError`, and the next query opens a new
+ * one. Skipped without Postgres.
  */
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'

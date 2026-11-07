@@ -1,6 +1,6 @@
 /**
- * El relay con el rol `gow_whatsapp` contra Postgres real y un transporte falso: entrega solo el
- * buzón de su tenant, inserta entrantes una vez y no puede leer nada más.
+ * The relay as the `gow_whatsapp` role against real Postgres and a fake transport: delivers only
+ * its tenant's outbox, inserts incoming messages once, and can read nothing else.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync } from 'node:fs'
@@ -93,7 +93,7 @@ describe.skipIf(!available)('relay de WhatsApp (necesita el Postgres de docker c
     const t = new FakeTransport()
     t.open = false
     t.failNext = true
-    // Esperando el QR: no se intenta ni se gasta un intento.
+    // Waiting for the QR: no send is attempted and no attempt is spent.
     expect(await deliverPending(wa.db, A, t)).toBe(0)
     expect((await admin.query<{ attempts: number }>('SELECT attempts FROM app.outbound_messages WHERE tenant_id = $1', [A])).rows).toEqual([{ attempts: 0 }])
     t.open = true
@@ -114,17 +114,17 @@ describe.skipIf(!available)('relay de WhatsApp (necesita el Postgres de docker c
     expect(rows.rows).toEqual([{ tenant_id: A }])
   })
 
-  it('un documento se guarda con sus bytes aunque no traiga texto (ADR 0037)', async () => {
+  it('un documento se guarda con sus bytes aunque no traiga texto', async () => {
     const bytes = Buffer.from('%PDF-1.7\n%%EOF\n')
     await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.doc', text: '', document: { bytes, fileName: 'estado.pdf', mediaType: 'application/pdf' } })
     const rows = await admin.query<{ attachment: Buffer; attachment_name: string; attachment_media_type: string }>("SELECT attachment, attachment_name, attachment_media_type FROM app.inbound_messages WHERE external_id = 'wamid.doc'")
     expect(rows.rows).toEqual([{ attachment: bytes, attachment_name: 'estado.pdf', attachment_media_type: 'application/pdf' }])
-    // Sin texto ni documento no se guarda nada.
+    // No text and no document: nothing is stored.
     await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.vacio', text: '  ' })
     expect((await admin.query("SELECT 1 FROM app.inbound_messages WHERE external_id = 'wamid.vacio'")).rowCount).toBe(0)
   })
 
-  it('una foto o nota de voz se guarda solo con su tipo, sin bytes ni texto obligatorio (ADR 0051)', async () => {
+  it('una foto o nota de voz se guarda solo con su tipo, sin bytes ni texto obligatorio', async () => {
     await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.foto', text: '', media: 'image' })
     await storeIncoming(wa.db, A, { from: '+521551111001', id: 'wamid.voz', text: '', media: 'audio' })
     const rows = await admin.query<{ external_id: string; media_kind: string; body: string; attachment: Buffer | null }>("SELECT external_id, media_kind, body, attachment FROM app.inbound_messages WHERE external_id IN ('wamid.foto', 'wamid.voz') ORDER BY external_id")
@@ -132,7 +132,7 @@ describe.skipIf(!available)('relay de WhatsApp (necesita el Postgres de docker c
       { external_id: 'wamid.foto', media_kind: 'image', body: '', attachment: null },
       { external_id: 'wamid.voz', media_kind: 'audio', body: '', attachment: null },
     ])
-    // La columna solo acepta los tipos conocidos.
+    // The column only accepts the known kinds.
     await expect(admin.query("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, media_kind) VALUES ($1, 'whatsapp', '+521', '', 'pdf')", [A])).rejects.toThrow(/media_kind/)
   })
 })
@@ -147,7 +147,7 @@ describe('documentos entrantes de Baileys', () => {
     expect(documentOf(undefined)).toBeNull()
   })
 
-  it('fotos, notas de voz, videos y stickers pasan solo con su tipo; lo demás se ignora (ADR 0051)', () => {
+  it('fotos, notas de voz, videos y stickers pasan solo con su tipo; lo demás se ignora', () => {
     expect(mediaKindOf({ imageMessage: { mimetype: 'image/jpeg', caption: 'mi estado' } })).toEqual({ kind: 'image', caption: 'mi estado' })
     expect(mediaKindOf({ audioMessage: { ptt: true } })).toEqual({ kind: 'audio', caption: '' })
     expect(mediaKindOf({ videoMessage: {} })).toEqual({ kind: 'video', caption: '' })

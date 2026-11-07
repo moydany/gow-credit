@@ -32,11 +32,11 @@ ALTER TABLE "app"."llm_exchanges" ADD CONSTRAINT "llm_exchanges_inbound_message_
 CREATE INDEX "llm_exchanges_tenant_at" ON "app"."llm_exchanges" USING btree ("tenant_id","created_at");--> statement-breakpoint
 CREATE INDEX "llm_exchanges_application" ON "app"."llm_exchanges" USING btree ("tenant_id","application_id","created_at");
 --> statement-breakpoint
--- RLS forzada y privilegios mínimos (docs/05 §2), como `extractions`: lleva prompts y respuestas con
--- datos del documento (ADR 0064).
--- - gow_worker solo inserta: graba cada llamada al modelo mientras procesa.
--- - gow_api y gow_readonly leen; ver el detalle desde el backoffice se audita.
--- - Nadie actualiza ni borra; solo `app.purge_supplier` (security definer) al borrar el proveedor.
+-- Forced RLS and minimal privileges, like `extractions`: it holds prompts and responses containing
+-- document data.
+-- - gow_worker only inserts: it records each model call while processing.
+-- - gow_api and gow_readonly read; viewing the detail from the backoffice is audited.
+-- - Nobody updates or deletes; only `app.purge_supplier` (security definer) when deleting a supplier.
 ALTER TABLE app.llm_exchanges ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.llm_exchanges FORCE ROW LEVEL SECURITY;
@@ -47,8 +47,8 @@ GRANT SELECT ON app.llm_exchanges TO gow_api, gow_readonly;
 --> statement-breakpoint
 GRANT INSERT ON app.llm_exchanges TO gow_worker;
 --> statement-breakpoint
--- Borrar un proveedor (ADR 0059) también borra sus intercambios con el modelo. Misma función que en
--- 0016 con un DELETE más, antes de los mensajes entrantes (llave foránea).
+-- Deleting a supplier also deletes its model exchanges. Same function as in 0016 with one more
+-- DELETE, before the incoming messages (foreign key).
 CREATE OR REPLACE FUNCTION app.purge_supplier(p_supplier uuid)
   RETURNS jsonb
   LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -97,7 +97,7 @@ BEGIN
   SELECT coalesce(array_agg(c.id), '{}') INTO v_clar
     FROM app.clarifications c WHERE c.tenant_id = v_tenant AND (c.application_id = ANY (v_apps) OR c.supplier_id = p_supplier);
 
-  -- Intercambios con el modelo (ADR 0064): de sus solicitudes y de los mensajes que se borran aquí.
+  -- Model exchanges: from its requests and from the messages deleted here.
   DELETE FROM app.llm_exchanges x
    WHERE x.tenant_id = v_tenant
      AND (x.application_id = ANY (v_apps)

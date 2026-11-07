@@ -9,8 +9,8 @@ CREATE TABLE "app"."tenant_users" (
 --> statement-breakpoint
 ALTER TABLE "app"."tenant_users" ADD CONSTRAINT "tenant_users_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "app"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "tenant_users_email" ON "app"."tenant_users" USING btree ("email");--> statement-breakpoint
--- RLS forzada como en el resto de las tablas (docs/05 §2). La API lee la pertenencia en cada
--- petición del backoffice (así quitar un usuario surte efecto de inmediato) y puede invitar.
+-- Forced RLS like the other tables. The API reads membership on every backoffice request (so
+-- removing a user takes effect immediately) and can invite.
 ALTER TABLE app.tenant_users ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.tenant_users FORCE ROW LEVEL SECURITY;

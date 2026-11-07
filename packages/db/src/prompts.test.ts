@@ -1,8 +1,8 @@
 /**
- * Siembra de prompts (ADR 0065) contra Postgres real: la migración deja cada prompt del catálogo
- * activo en la versión de archivo del código; volver a sembrar no duplica; un cambio de versión por
- * defecto mueve la activa solo si nadie eligió otra; un archivo editado después de sembrarse no
- * cambia la base. Necesita el Postgres de docker compose; sin él se salta.
+ * Prompt seeding against real Postgres: the migration leaves each catalog prompt active on the
+ * code's file version; reseeding doesn't duplicate; a default-version change moves the active one
+ * only if nobody picked another; a file edited after seeding doesn't change the database. Needs the
+ * docker compose Postgres; skipped without it.
  */
 import { PROMPT_CATALOG, PROMPT_NAMES } from '@gow/contracts'
 import { eq } from 'drizzle-orm'
@@ -41,9 +41,9 @@ describe.skipIf(!available)('siembra de prompts (necesita el Postgres de docker 
     const rows = await admin.db.select().from(promptVersions)
     expect(rows).toHaveLength(files.length)
     for (const name of PROMPT_NAMES) expect(await activeOf(name)).toMatchObject({ fileVersion: PROMPT_CATALOG[name].version, source: 'file' })
-    // Los números de la base siguen a los de los archivos al sembrar desde cero.
+    // Database version numbers follow the files' when seeding from scratch.
     expect(rows.every((r) => r.version === r.fileVersion)).toBe(true)
-    // La nota sale del bloque de metadatos (`changes:`).
+    // The note comes from the metadata block (`changes:`).
     expect(rows.find((r) => r.promptName === 'extract_summary' && r.fileVersion === 2)?.note).toMatch(/bloque fiscal/)
   })
 
@@ -89,7 +89,7 @@ describe.skipIf(!available)('siembra de prompts (necesita el Postgres de docker 
     if (!v1) throw new Error('falta clarification_questions.v1')
     const report = await syncPromptFiles(admin.db, [...base, { ...v1, fileVersion: 2, text: `${v1.text}\nOtra regla.`, sha256: sha256Hex(`${v1.text}\nOtra regla.`), note: 'otra regla' }])
     expect(report.inserted).toEqual(['clarification_questions.v2'])
-    // El código sigue en v1: la activa no cambia.
+    // The code is still on v1: the active version doesn't change.
     expect(report.activated).toEqual([])
     const rows = await admin.db.select().from(promptVersions).where(eq(promptVersions.promptName, 'clarification_questions')).orderBy(promptVersions.version)
     expect(rows.map((r) => [r.version, r.fileVersion])).toEqual([[1, 1], [2, 2]])

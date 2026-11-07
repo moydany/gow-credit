@@ -1,5 +1,5 @@
-/* eslint-disable no-console -- CLI */
-/** pnpm db:migrate: aplica las migraciones con DATABASE_ADMIN_URL (o el Postgres local de docker compose). */
+/* eslint-disable no-console -- CLI output */
+/** `pnpm db:migrate`: applies migrations with DATABASE_ADMIN_URL (or the local docker compose Postgres). */
 import { databaseUrl } from '../client.ts'
 import { runMigrations } from '../migrate.ts'
 

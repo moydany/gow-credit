@@ -1,10 +1,10 @@
 /**
- * Esquema de negocio (docs/02 §1, docs/05 §2 y §2b). Todo vive en el esquema `app`, cada tabla
- * lleva `tenant_id` y tiene RLS forzada con la política `tenant_isolation` (migración
- * 0001_rls.sql). pg-boss y Mastra viven en sus propios esquemas con sus propios roles.
+ * Business schema. Everything lives in the `app` schema; each table carries `tenant_id` and has
+ * forced RLS with the `tenant_isolation` policy (migration 0001_rls.sql). pg-boss and Mastra live in
+ * their own schemas with their own roles.
  *
- * Los estados son los canónicos de docs/README.md. Los JSON grandes (extracción, veredicto,
- * política) se guardan tal cual sus contratos Zod; las columnas sueltas son lo que se consulta.
+ * Statuses are the canonical ones. Large JSON blobs (extraction, verdict, policy) are stored as
+ * their Zod contracts define them; the plain columns are what gets queried.
  */
 import { sql } from 'drizzle-orm'
 import { bigint, boolean, check, customType, foreignKey, index, integer, jsonb, numeric, pgSchema, primaryKey, text, timestamp, unique, uniqueIndex, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
@@ -31,23 +31,23 @@ const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull(
 export const tenants = app.table('tenants', {
   id: id(),
   name: text('name').notNull(),
-  /** Nuestro número de WhatsApp para este tenant: el par (este número, el del proveedor) lo identifica (docs/05 §2b). */
+  /** Our WhatsApp number for this tenant; the pair (this number, the supplier's) identifies a link. */
   whatsappNumber: text('whatsapp_number').unique(),
-  /** Remitente de correo de este tenant. */
+  /** This tenant's email sender. */
   emailFrom: text('email_from'),
   /**
-   * Antigüedad máxima del estado de cuenta en meses (ADR 0049): uno más viejo se analiza igual y el
-   * veredicto lleva una advertencia. NULL = sin límite, que es el valor por defecto (ADR 0054): la
-   * antigüedad del documento no decide ni advierte hasta que el tenant fija un límite.
+   * Maximum statement age in months: an older one is still analysed and the verdict carries a
+   * warning. NULL = no limit (the default): document age neither decides nor warns until the tenant
+   * sets a limit.
    */
   statementMaxAgeMonths: integer('statement_max_age_months'),
   createdAt: createdAt(),
 })
 
 /**
- * Usuarios del backoffice (docs/08 §1): un rol, varios usuarios por tenant. `user_id` es el `sub`
- * del JWT (Supabase Auth en producción); la pertenencia al tenant es la autorización completa.
- * El correo es único: un usuario pertenece a un solo tenant.
+ * Backoffice users: one role, several users per tenant. `user_id` is the JWT `sub` (Supabase Auth
+ * in production); tenant membership is the whole authorization. Email is unique, so a user belongs
+ * to a single tenant.
  */
 export const tenantUsers = app.table(
   'tenant_users',
@@ -66,7 +66,7 @@ export const apiKeys = app.table(
   {
     id: id(),
     tenantId: tenantId().references(() => tenants.id),
-    /** Parte visible de la llave (`gowk_xxxxxxxx`); la llave completa solo se muestra al crearla. */
+    /** Visible part of the key (`gowk_xxxxxxxx`); the full key is shown only at creation. */
     prefix: text('prefix').notNull().unique(),
     keyHash: text('key_hash').notNull(),
     scopes: text('scopes').array().notNull(),
@@ -83,18 +83,18 @@ export const suppliers = app.table(
     tenantId: tenantId().references(() => tenants.id),
     externalRef: text('external_ref'),
     /**
-     * Null solo mientras un proveedor que se registra por WhatsApp no confirma los datos de su estado
-     * de cuenta (ADR 0047): sin identidad declarada no hay contra qué comparar al titular.
+     * Null only while a supplier registering over WhatsApp hasn't confirmed the details read from
+     * their statement: without a declared identity there is nothing to compare the holder against.
      */
     legalName: text('legal_name'),
-    /** Cifrado de columna planeado (docs/05 §3); hoy en claro y protegido por RLS. */
+    /** Column encryption is planned; for now stored in clear and protected by RLS. */
     rfc: text('rfc'),
     clabes: text('clabes').array().notNull().default(sql`'{}'::text[]`),
-    /** Representante legal de una persona moral, si el proveedor lo dio (ADR 0047). No entra a la decisión. */
+    /** Legal representative of a persona moral, if the supplier gave one. Not part of the decision. */
     representativeName: text('representative_name'),
     /**
-     * Domicilio del titular tal como lo trae su estado de cuenta más reciente que lo incluye (ADR 0066). Dato
-     * personal: protegido por RLS, nunca en logs ni en la bitácora.
+     * Holder address from the latest statement that includes one. Personal data: protected by RLS,
+     * never in logs or the audit log.
      */
     address: text('address'),
     createdAt: createdAt(),
@@ -102,7 +102,7 @@ export const suppliers = app.table(
   (t) => [uniqueIndex('suppliers_tenant_ref').on(t.tenantId, t.externalRef)],
 )
 
-/** Vínculo verificado tenant–proveedor–dirección (docs/05 §2b). Sin `verified_at` no se envía ni se acepta nada. */
+/** Verified tenant-supplier-address link. Without `verified_at` nothing is sent or accepted. */
 export const supplierContacts = app.table(
   'supplier_contacts',
   {
@@ -119,10 +119,10 @@ export const supplierContacts = app.table(
 )
 
 /**
- * Registro de un proveedor que escribe por primera vez (ADR 0038 y 0047, solo con
- * `WHATSAPP_SELF_REGISTRATION`): la conversación pide primero el estado de cuenta; al leerlo, el
- * proveedor confirma o corrige el titular y el RFC, completa lo que falte y, si es persona moral, da
- * su representante legal. Solo entonces sale el resultado. Una fila por dirección y tenant.
+ * Registration of a supplier writing for the first time (only with `WHATSAPP_SELF_REGISTRATION`):
+ * the conversation asks for the statement first; once it's read, the supplier confirms or corrects
+ * the holder and RFC, fills in what's missing and, for a persona moral, gives a legal
+ * representative. Only then does the result go out. One row per address and tenant.
  */
 export const supplierRegistrations = app.table(
   'supplier_registrations',
@@ -133,16 +133,16 @@ export const supplierRegistrations = app.table(
     address: text('address').notNull(),
     /** statement | reading | confirm | name | rfc | representative | done */
     step: text('step').notNull(),
-    /** Lo que el proveedor confirmó o escribió. */
+    /** What the supplier confirmed or typed. */
     legalName: text('legal_name'),
     rfc: text('rfc'),
-    /** Lo que se leyó del estado de cuenta, para preguntar si es correcto. */
+    /** What was read from the statement, to ask whether it is correct. */
     holderName: text('holder_name'),
     holderRfc: text('holder_rfc'),
-    /** El proveedor dijo que los datos leídos no son los suyos: el RFC se pide aunque venga completo. */
+    /** The supplier said the data read isn't theirs: the RFC is asked for even if it came complete. */
     corrected: boolean('corrected').notNull().default(false),
     supplierId: uuid('supplier_id').references(() => suppliers.id),
-    /** La solicitud del primer estado de cuenta, cuyo resultado espera a que termine el registro. */
+    /** The request for the first statement, whose result waits until registration finishes. */
     applicationId: uuid('application_id').references(() => applications.id),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -173,9 +173,9 @@ export const applications = app.table(
     supplierId: uuid('supplier_id').notNull().references(() => suppliers.id),
     status: applicationStatus('status').notNull().default('received'),
     failureReason: text('failure_reason'),
-    /** ApplicationRequest (monto, vencimiento, comprador). */
+    /** ApplicationRequest (amount, maturity, buyer). */
     request: jsonb('request'),
-    /** Run de Mastra y paso suspendido, para reanudar desde otro proceso (spike 4). */
+    /** Mastra run and suspended step, to resume from another process. */
     runId: text('run_id'),
     suspendedStep: jsonb('suspended_step'),
     asOf: text('as_of'),
@@ -197,8 +197,8 @@ export const applicationDocuments = app.table(
 )
 
 /**
- * Datos de la factura que se piden por el chat antes de analizar un estado de cuenta recibido por
- * WhatsApp (ADR 0039). Al terminar, `draft` pasa a `applications.request` y se encola el análisis.
+ * Invoice details asked over chat before analysing a statement received on WhatsApp. When done,
+ * `draft` becomes `applications.request` and the analysis is enqueued.
  */
 export const invoiceIntakes = app.table(
   'invoice_intakes',
@@ -209,9 +209,9 @@ export const invoiceIntakes = app.table(
     address: text('address').notNull(),
     /** amount | buyer | maturity | done */
     step: text('step').notNull(),
-    /** Lo contestado hasta ahora: `{ amount?, buyer?, maturity? }`. */
+    /** Answers so far: `{ amount?, buyer?, maturity? }`. */
     draft: jsonb('draft').notNull().default(sql`'{}'::jsonb`),
-    /** Clave de idempotencia del análisis que se encola al terminar. */
+    /** Idempotency key for the analysis enqueued at the end. */
     documentSha256: text('document_sha256').notNull(),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -250,16 +250,16 @@ export const policyVersions = app.table(
     policyId: uuid('policy_id').notNull().references(() => policies.id),
     version: integer('version').notNull(),
     status: policyVersionStatus('status').notNull().default('draft'),
-    /** Policy validada con parsePolicy; inmutable una vez creada. */
+    /** Policy validated with parsePolicy; immutable once created. */
     document: jsonb('document').notNull(),
-    /** SimulationReport contra la versión activa al momento de crearla o simularla. */
+    /** SimulationReport against the active version at the time it was created or simulated. */
     simulation: jsonb('simulation'),
     createdAt: createdAt(),
     activatedAt: timestamp('activated_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('policy_versions_number').on(t.policyId, t.version),
-    // Una sola versión activa y una sola en sombra por tenant.
+    // One active and one shadow version per tenant.
     uniqueIndex('policy_versions_one_active').on(t.tenantId).where(sql`status = 'active'`),
     uniqueIndex('policy_versions_one_shadow').on(t.tenantId).where(sql`status = 'shadow'`),
   ],
@@ -276,7 +276,7 @@ export const decisions = app.table(
     status: decisionStatus('status').notNull(),
     limitAmount: numeric('limit_amount', { precision: 14, scale: 2 }),
     score: numeric('score', { precision: 6, scale: 2 }),
-    /** Decision completa con el perfil: es lo que reevalúa la simulación. */
+    /** Full Decision with the profile: what the simulation re-evaluates. */
     payload: jsonb('payload').notNull(),
     createdAt: createdAt(),
   },
@@ -293,19 +293,19 @@ export const clarifications = app.table(
     round: integer('round').notNull(),
     status: clarificationStatus('status').notNull().default('open'),
     channel: channel('channel').notNull(),
-    /** Copiado del vínculo verificado al crearla: el adaptador no acepta destinatarios (docs/05 §2b). */
+    /** Copied from the verified link at creation: the adapter never accepts recipients. */
     destination: text('destination'),
     contactId: uuid('contact_id').references(() => supplierContacts.id),
-    /** Question[] ya redactadas y filtradas. */
+    /** Question[] already worded and filtered. */
     questions: jsonb('questions').notNull(),
-    /** OwnerAnswer[] acumuladas. */
+    /** Accumulated OwnerAnswer[]. */
     answers: jsonb('answers').notNull().default(sql`'[]'::jsonb`),
-    /** Índice de la pregunta que se está esperando por un canal conversacional. */
+    /** Index of the question awaited on a conversational channel. */
     currentQuestion: integer('current_question').notNull().default(0),
     /**
-     * Paso de la conversación (ADR 0051): `asking` (se espera la pregunta actual), `revising` (se
-     * repregunta una respuesta que el proveedor quiere cambiar), `confirming` (se mostró el resumen y
-     * se espera el sí) o `confirmed` (confirmó; quedan preguntas para el analista).
+     * Conversation step: `asking` (waiting on the current question), `revising` (re-asking an answer
+     * the supplier wants to change), `confirming` (summary shown, waiting for the yes) or
+     * `confirmed` (confirmed; remaining questions go to the analyst).
      */
     step: text('step').notNull().default('asking'),
     createdAt: createdAt(),
@@ -313,18 +313,18 @@ export const clarifications = app.table(
   },
   (t) => [
     index('clarifications_open').on(t.tenantId, t.status),
-    // Una por ronda: si el job se reintenta tras enviar, no se duplica la pregunta.
+    // One per round: if the job retries after sending, the question isn't duplicated.
     uniqueIndex('clarifications_round').on(t.applicationId, t.round),
   ],
 )
 
-/** Buzón de salida: lo único que lee el proceso de WhatsApp (docs/05 §2b, radio de daño). */
+/** Outbox: the only thing the WhatsApp process reads, to limit the blast radius. */
 export const outboundMessages = app.table(
   'outbound_messages',
   {
     id: id(),
     tenantId: tenantId().references(() => tenants.id),
-    /** Null en las respuestas fijas a un número sin vínculo o sin aclaración abierta (docs/05 §2b). */
+    /** Null for the fixed replies to a number with no link or no open clarification. */
     clarificationId: uuid('clarification_id').references(() => clarifications.id),
     /** question | reask | generic */
     kind: text('kind').notNull().default('question'),
@@ -339,7 +339,7 @@ export const outboundMessages = app.table(
   (t) => [index('outbound_pending').on(t.tenantId, t.channel, t.status)],
 )
 
-/** Mensajes entrantes tal como llegan; la resolución al vínculo verificado la hace el worker. */
+/** Incoming messages as they arrive; the worker resolves them to the verified link. */
 export const inboundMessages = app.table(
   'inbound_messages',
   {
@@ -347,20 +347,20 @@ export const inboundMessages = app.table(
     tenantId: tenantId().references(() => tenants.id),
     channel: channel('channel').notNull(),
     fromAddress: text('from_address').notNull(),
-    /** Id del mensaje en el canal: idempotencia ante reentregas (docs/05 §5). */
+    /** Message id on the channel, for idempotency on redelivery. */
     externalId: text('external_id'),
     body: text('body').notNull(),
     /**
-     * Documento adjunto (ADR 0037): el proceso de WhatsApp no tiene acceso al almacenamiento de
-     * documentos, así que deja aquí los bytes tal como llegaron. El worker los valida, los mueve al
-     * almacenamiento del tenant y vacía la columna; nunca se guardan dos veces.
+     * Attached document: the WhatsApp process has no access to document storage, so it leaves the
+     * bytes here as received. The worker validates them, moves them to the tenant's storage and
+     * clears the column; they are never kept twice.
      */
     attachment: bytea('attachment'),
     attachmentName: text('attachment_name'),
     attachmentMediaType: text('attachment_media_type'),
     /**
-     * Foto, nota de voz, video o sticker (ADR 0051): `image` | `audio` | `video` | `sticker`. Solo el
-     * tipo, para contestar que se necesita el PDF; los bytes nunca se descargan ni se guardan.
+     * Photo, voice note, video or sticker: `image` | `audio` | `video` | `sticker`. Type only, to
+     * reply that the PDF is needed; the bytes are never downloaded or stored.
      */
     mediaKind: text('media_kind'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
@@ -382,9 +382,9 @@ export const outcomes = app.table('outcomes', {
 })
 
 /**
- * Correcciones del analista en revisión humana (docs/08 §2, ADR 0020): el par (valor leído, valor
- * correcto) sobre un valor de la extracción. Inmutables: la extracción guardada no cambia, las
- * correcciones se aplican encima al leer y al reevaluar, y alimentan el dataset de evals.
+ * Analyst corrections from human review: the pair (value read, correct value) on one extraction
+ * value. Immutable: the stored extraction doesn't change, corrections are applied on top when
+ * reading and re-evaluating, and they feed the evals dataset.
  */
 export const corrections = app.table(
   'corrections',
@@ -393,7 +393,7 @@ export const corrections = app.table(
     tenantId: tenantId().references(() => tenants.id),
     applicationId: uuid('application_id').notNull().references(() => applications.id),
     documentId: uuid('document_id').notNull().references(() => documents.id),
-    /** CorrectionTarget: qué valor de la extracción se corrige. */
+    /** CorrectionTarget: which extraction value is being corrected. */
     target: jsonb('target').notNull(),
     readValue: jsonb('read_value'),
     value: jsonb('value').notNull(),
@@ -405,34 +405,34 @@ export const corrections = app.table(
 )
 
 /**
- * Estado de la sesión de WhatsApp de cada tenant (ADR 0033): lo publica el proceso de WhatsApp y lo
- * lee el backoffice para vincular el número escaneando el QR desde Configuración. Una fila por tenant.
- * `gow_whatsapp` escribe todo; `gow_api` lee y solo puede pedir desvincular (`unlink_requested_at`).
+ * Each tenant's WhatsApp session status: published by the WhatsApp process and read by the
+ * backoffice to link the number by scanning the QR in settings. One row per tenant. `gow_whatsapp`
+ * writes everything; `gow_api` reads and can only request an unlink (`unlink_requested_at`).
  */
 export const whatsappSessions = app.table('whatsapp_sessions', {
   tenantId: tenantId()
     .primaryKey()
     .references(() => tenants.id),
   status: whatsappSessionStatus('status').notNull().default('starting'),
-  /** Reto de vinculación vigente; se borra en cuanto la sesión abre. Nunca va a registros. */
+  /** Current linking challenge; cleared as soon as the session opens. Never logged. */
   qr: text('qr'),
   qrExpiresAt: timestamp('qr_expires_at', { withTimezone: true }),
-  /** Número vinculado (+52...), derivado de la cuenta de la sesión abierta. */
+  /** Linked number (+52...), taken from the open session's account. */
   linkedNumber: text('linked_number'),
-  /** Latido del proceso (reloj de la base); null tras un apagado limpio. */
+  /** Process heartbeat (database clock); null after a clean shutdown. */
   heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
-  /** Lo pide un usuario del backoffice; el proceso lo atiende si es más nuevo que `unlink_handled_at`. */
+  /** Set by a backoffice user; the process handles it if newer than `unlink_handled_at`. */
   unlinkRequestedAt: timestamp('unlink_requested_at', { withTimezone: true }),
   unlinkHandledAt: timestamp('unlink_handled_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 /**
- * Cada intercambio con un modelo tal cual (ADR 0064): system prompt, instrucción, parámetros, la
- * huella del PDF y lo que volvió (objeto, salida cruda si no validó, error, uso y costo). Para
- * analizar un caso que falló sin volver a llamar al modelo. Lleva datos del documento, por eso no
- * va en la bitácora de movimientos: el worker inserta, la API lee y ver el detalle se audita. Se
- * borra con el proveedor (`app.purge_supplier`).
+ * Every model exchange verbatim: system prompt, instruction, parameters, the PDF fingerprint and
+ * what came back (object, raw output if it didn't validate, error, usage and cost). Lets a failed
+ * case be analysed without calling the model again. It holds document data, so it stays out of the
+ * movements log: the worker inserts, the API reads, and viewing the detail is audited. Deleted
+ * along with the supplier (`app.purge_supplier`).
  */
 export const llmExchanges = app.table(
   'llm_exchanges',
@@ -468,20 +468,19 @@ export const llmExchanges = app.table(
 )
 
 /**
- * Prompts de los modelos (ADR 0065). Globales, no por tenant: los mismos para todas las
- * instituciones crediticias, porque de ellos depende la precisión que miden las evals. Una fila por
- * prompt del catálogo (`PROMPT_CATALOG` de @gow/contracts) con la versión activa. La siembra
- * (`syncPromptFiles`, en cada `pnpm db:migrate`) la llena desde prompts/.
+ * Model prompts. Global, not per tenant: the same for every lender, since the accuracy the evals
+ * measure depends on them. One row per catalog prompt (`PROMPT_CATALOG` in @gow/contracts) with the
+ * active version. The seed (`syncPromptFiles`, on every `pnpm db:migrate`) fills it from prompts/.
  */
 export const prompts = app.table(
   'prompts',
   {
     name: text('name').primaryKey(),
-    /** Versión de archivo que usa el código sin base; la siembra la actualiza. */
+    /** File version used by code running without a database; the seed updates it. */
     codeDefaultFileVersion: integer('code_default_file_version').notNull(),
     activeVersionId: uuid('active_version_id'),
     activatedAt: timestamp('activated_at', { withTimezone: true }),
-    /** Correo de quien la activó en el backoffice; null si la activó la siembra. */
+    /** Email of whoever activated it in the backoffice; null if the seed did. */
     activatedBy: text('activated_by'),
     createdAt: createdAt(),
   },
@@ -489,9 +488,9 @@ export const prompts = app.table(
 )
 
 /**
- * Versiones inmutables de un prompt: editar crea una nueva (un trigger rechaza UPDATE y DELETE).
- * `source = 'file'` las siembra el dueño de la migración desde prompts/; `backoffice` las crea
- * `gow_api` a nombre de un usuario.
+ * Immutable prompt versions: editing creates a new one (a trigger rejects UPDATE and DELETE).
+ * `source = 'file'` rows are seeded by the migration owner from prompts/; `backoffice` rows are
+ * created by `gow_api` on behalf of a user.
  */
 export const promptVersions = app.table(
   'prompt_versions',
@@ -520,7 +519,7 @@ export const promptVersions = app.table(
   ],
 )
 
-/** Bitácora inmutable: los roles de aplicación solo pueden insertar (docs/05 §7). */
+/** Immutable audit log: the application roles can only insert. */
 export const auditLog = app.table(
   'audit_log',
   {
@@ -531,13 +530,13 @@ export const auditLog = app.table(
     subject: text('subject'),
     details: jsonb('details').notNull().default(sql`'{}'::jsonb`),
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
-    /** Sin PII: ids y códigos, no RFC, CLABE ni montos. */
+    /** No PII: ids and codes, not RFC, CLABE or amounts. */
     redacted: boolean('redacted').notNull().default(true),
   },
   (t) => [index('audit_tenant_at').on(t.tenantId, t.at)],
 )
 
-/** Todas las tablas de negocio: la prueba de RLS las recorre y el chequeo de catálogo exige que no falte ninguna. */
+/** All business tables: the RLS test walks them and the catalog check requires that none is missing. */
 export const TENANT_TABLES = [
   'tenants',
   'api_keys',
@@ -564,7 +563,7 @@ export const TENANT_TABLES = [
 ] as const
 
 /**
- * Tablas globales de `app` (sin `tenant_id`): también con RLS forzada, pero sus políticas no
- * separan por tenant. La prueba de RLS exige que cada tabla de `app` esté en una de las dos listas.
+ * Global `app` tables (no `tenant_id`): also forced RLS, but their policies don't split by tenant.
+ * The RLS test requires every `app` table to be in one of the two lists.
  */
 export const GLOBAL_TABLES = ['prompts', 'prompt_versions'] as const

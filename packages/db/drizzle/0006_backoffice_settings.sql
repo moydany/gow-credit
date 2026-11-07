@@ -1,9 +1,9 @@
--- Configuración del backoffice (docs/08 §2): el usuario del prestamista lista, crea y revoca llaves
--- de API y quita usuarios. Privilegios mínimos para `gow_api`:
--- - api_keys: lee todo menos `key_hash` (el hash nunca sale de la base salvo por resolve_api_key) y
---   solo puede escribir `revoked_at`; la llave nunca se borra, queda revocada con su fecha.
--- - tenant_users: puede borrar la pertenencia; la sesión de quien se quita se corta en la siguiente
---   petición. RLS forzada sigue aplicando a ambas.
+-- Backoffice settings: the lender's user lists, creates and revokes API keys and removes users.
+-- Minimal privileges for `gow_api`:
+-- - api_keys: reads everything except `key_hash` (the hash never leaves the database except through
+--   resolve_api_key) and can only write `revoked_at`; a key is never deleted, just revoked with a date.
+-- - tenant_users: can delete membership; the removed user's session is cut on the next request.
+-- Forced RLS still applies to both.
 GRANT SELECT (id, tenant_id, prefix, scopes, created_at, revoked_at) ON app.api_keys TO gow_api;
 --> statement-breakpoint
 GRANT UPDATE (revoked_at) ON app.api_keys TO gow_api;

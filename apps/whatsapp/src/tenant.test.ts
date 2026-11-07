@@ -1,7 +1,7 @@
 /**
- * Descubrir el tenant sin `WHATSAPP_TENANT_ID` (ADR 0060) con el rol `gow_whatsapp` contra Postgres
- * real: un solo tenant se descubre, ninguno hace esperar hasta que aparezca el del wizard, y con varios
- * no se adivina. El rol no puede leer `tenants`: solo conoce la función.
+ * Discovering the tenant without `WHATSAPP_TENANT_ID`, as the `gow_whatsapp` role against real
+ * Postgres: a single tenant is found, none makes it wait for the wizard's, and with several it
+ * doesn't guess. The role can't read `tenants`; it only knows the function.
  */
 import { randomUUID } from 'node:crypto'
 import { connect, type Database } from '@gow/db'

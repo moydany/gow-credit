@@ -1,6 +1,6 @@
 /**
- * Bases de prueba: una base nueva por suite en el Postgres de docker compose, migrada desde cero.
- * Si no hay Postgres (`docker compose up`), las suites que la usan se saltan con aviso.
+ * Test databases: a fresh database per suite on the docker compose Postgres, migrated from scratch.
+ * Without Postgres (`docker compose up`), the suites that use it are skipped with a warning.
  */
 import { randomBytes } from 'node:crypto'
 import pg from 'pg'
@@ -13,7 +13,7 @@ export interface TestDatabase {
   drop(): Promise<void>
 }
 
-/** ¿Hay Postgres local? Para `describe.skipIf`. */
+/** Is local Postgres available? For `describe.skipIf`. */
 export async function postgresAvailable(): Promise<boolean> {
   const client = new pg.Client({ connectionString: databaseUrl('admin'), connectionTimeoutMillis: 1500 })
   try {

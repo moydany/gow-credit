@@ -1,9 +1,9 @@
--- Aislamiento por tenant (docs/05 §2 y §2b, ADR 0016). Migración escrita a mano: roles, RLS
--- forzada en todas las tablas de `app`, privilegios mínimos por rol y la única función
--- security definer (resolver una llave de API antes de conocer el tenant).
+-- Tenant isolation. Hand-written migration: roles, forced RLS on every `app` table, minimal
+-- privileges per role, and the only security definer function (resolving an API key before the
+-- tenant is known).
 --
--- Los roles se crean sin login si no existen. En local, docker compose los crea antes con login
--- y contraseña de desarrollo (infra/postgres/init); en Supabase la contraseña se asigna aparte.
+-- Roles are created without login if missing. Locally, docker compose creates them first with login
+-- and a dev password (infra/postgres/init); on Supabase the password is set separately.
 DO $$
 DECLARE r text;
 BEGIN
@@ -15,7 +15,7 @@ BEGIN
 END
 $$;
 --> statement-breakpoint
--- pg-boss y Mastra en sus propios esquemas, con roles que no alcanzan `app`.
+-- pg-boss and Mastra in their own schemas, with roles that can't reach `app`.
 CREATE SCHEMA IF NOT EXISTS pgboss AUTHORIZATION gow_queue;
 --> statement-breakpoint
 CREATE SCHEMA IF NOT EXISTS mastra AUTHORIZATION gow_mastra;
@@ -24,8 +24,8 @@ REVOKE ALL ON SCHEMA app FROM PUBLIC;
 --> statement-breakpoint
 REVOKE ALL ON ALL TABLES IN SCHEMA app FROM PUBLIC;
 --> statement-breakpoint
--- El tenant de la transacción: lo fija cada request o job con set_config('app.tenant_id', ..., true).
--- Sin él, las políticas comparan contra NULL y no hay filas.
+-- The transaction's tenant: each request or job sets it with set_config('app.tenant_id', ..., true).
+-- Without it the policies compare against NULL and no rows come back.
 CREATE OR REPLACE FUNCTION app.current_tenant() RETURNS uuid
   LANGUAGE sql STABLE
   AS $$ SELECT nullif(current_setting('app.tenant_id', true), '')::uuid $$;
@@ -144,13 +144,13 @@ GRANT INSERT ON app.documents, app.application_documents, app.extractions, app.d
 --> statement-breakpoint
 GRANT UPDATE ON app.applications, app.clarifications, app.outbound_messages, app.inbound_messages TO gow_worker;
 --> statement-breakpoint
--- WhatsApp solo ve su buzón de salida y solo puede encolar entrantes (docs/05 §2b, radio de daño).
+-- WhatsApp sees only its outbox and can only enqueue incoming messages, to limit the blast radius.
 GRANT SELECT, UPDATE (status, attempts, sent_at) ON app.outbound_messages TO gow_whatsapp;
 --> statement-breakpoint
 GRANT SELECT (id), INSERT ON app.inbound_messages TO gow_whatsapp;
 --> statement-breakpoint
--- La API recibe una llave antes de saber el tenant: esta función (revisada a mano) devuelve el
--- tenant y el hash para que la API compare en tiempo constante. No expone otras filas.
+-- The API receives a key before it knows the tenant: this function (reviewed by hand) returns the
+-- tenant and the hash so the API can compare in constant time. It exposes no other rows.
 CREATE OR REPLACE FUNCTION app.resolve_api_key(p_prefix text)
   RETURNS TABLE (tenant_id uuid, key_hash text, scopes text[])
   LANGUAGE sql STABLE SECURITY DEFINER

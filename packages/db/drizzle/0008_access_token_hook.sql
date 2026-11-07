@@ -1,19 +1,19 @@
--- Login del backoffice con Supabase Auth (ADR 0035). GoTrue llama a un "custom access token hook"
--- al emitir cada access token; este agrega el claim `tenant_id` cuando el usuario de Auth
--- (`auth.users.id` = `sub`) es miembro de un tenant en app.tenant_users. Sin pertenencia no hay
--- claim y la API rechaza el token (401), como cualquier token sin tenant.
+-- Backoffice login with Supabase Auth. GoTrue calls a "custom access token hook" when issuing each
+-- access token; this one adds the `tenant_id` claim when the Auth user (`auth.users.id` = `sub`) is a
+-- member of a tenant in app.tenant_users. Without membership there is no claim and the API rejects
+-- the token (401), like any token without a tenant.
 --
--- Mismo patrón que las otras funciones security definer (ADR 0016, 0003_inbound_functions.sql):
--- la única que salta RLS devuelve solo un id, y se otorga a un solo rol. El hook en sí es security
--- invoker y solo arma los claims.
+-- Same pattern as the other security definer functions (0003_inbound_functions.sql): the only one
+-- that skips RLS returns just an id, and is granted to a single role. The hook itself is security
+-- invoker and only builds the claims.
 --
--- Vive en una migración, no en un script aparte, para que un proyecto de Supabase alojado lo reciba
--- con el mismo `pnpm db:migrate` que el resto. Las funciones se crean siempre (en el Postgres simple
--- no estorban y las pruebas las usan); los GRANT a supabase_auth_admin, el rol con el que GoTrue
--- corre el hook, solo se dan si ese rol existe, así que el Postgres de docker-compose.yml no se rompe.
+-- It lives in a migration, not a separate script, so a hosted Supabase project gets it with the same
+-- `pnpm db:migrate` as everything else. The functions are always created (they're harmless on plain
+-- Postgres and tests use them); the GRANTs to supabase_auth_admin, the role GoTrue runs the hook as,
+-- are only made if that role exists, so the docker-compose.yml Postgres doesn't break.
 
--- Tenant de un usuario del backoffice. El correo es único entre tenants, así que en la práctica hay
--- una pertenencia por usuario; si hubiera varias (mismo id, insertado a mano), gana la más antigua.
+-- A backoffice user's tenant. Email is unique across tenants, so in practice there is one membership
+-- per user; if there were several (same id, inserted by hand), the oldest wins.
 CREATE OR REPLACE FUNCTION app.backoffice_tenant_of(p_user uuid)
   RETURNS uuid
   LANGUAGE sql STABLE SECURITY DEFINER
@@ -22,8 +22,8 @@ CREATE OR REPLACE FUNCTION app.backoffice_tenant_of(p_user uuid)
 --> statement-breakpoint
 REVOKE ALL ON FUNCTION app.backoffice_tenant_of(uuid) FROM PUBLIC;
 --> statement-breakpoint
--- Entrada y salida: el evento de GoTrue ({user_id, claims, authentication_method}) con los claims
--- reemplazados. Un `tenant_id` que viniera en los claims se descarta siempre: solo lo pone esta función.
+-- Input and output: the GoTrue event ({user_id, claims, authentication_method}) with the claims
+-- replaced. Any `tenant_id` already in the claims is always dropped: only this function sets it.
 CREATE OR REPLACE FUNCTION app.custom_access_token_hook(event jsonb)
   RETURNS jsonb
   LANGUAGE plpgsql STABLE
@@ -45,10 +45,10 @@ $$;
 --> statement-breakpoint
 REVOKE ALL ON FUNCTION app.custom_access_token_hook(jsonb) FROM PUBLIC;
 --> statement-breakpoint
--- Solo en Supabase: GoTrue conecta como supabase_auth_admin. USAGE sobre el esquema no da acceso a
--- ninguna tabla (no hay GRANT de tablas para ese rol). anon, authenticated y service_role no
--- heredan nada: REVOKE ... FROM PUBLIC ya los deja fuera y los privilegios por defecto de Supabase
--- solo aplican en public y storage; aun así se revoca explícito por si un proyecto los cambió.
+-- Supabase only: GoTrue connects as supabase_auth_admin. USAGE on the schema grants no table access
+-- (there is no table GRANT for that role). anon, authenticated and service_role inherit nothing:
+-- REVOKE ... FROM PUBLIC already excludes them and Supabase's default privileges only apply to
+-- public and storage; the revoke is explicit anyway in case a project changed them.
 DO $$
 DECLARE
   r text;

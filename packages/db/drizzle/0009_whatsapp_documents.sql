@@ -1,8 +1,8 @@
 ALTER TABLE "app"."inbound_messages" ADD COLUMN "attachment" "bytea";--> statement-breakpoint
 ALTER TABLE "app"."inbound_messages" ADD COLUMN "attachment_name" text;--> statement-breakpoint
 ALTER TABLE "app"."inbound_messages" ADD COLUMN "attachment_media_type" text;--> statement-breakpoint
--- Estados de cuenta por WhatsApp (ADR 0037). gow_whatsapp ya inserta entrantes (todas las columnas,
--- incluidas las del adjunto) y sigue sin leer nada de negocio ni el almacenamiento de documentos.
--- El worker, que ya lee y actualiza entrantes e inserta documentos, ahora también abre la solicitud
--- de un documento recibido de un vínculo verificado (como hace la API con una llave de ingesta).
+-- Statements over WhatsApp. gow_whatsapp already inserts incoming messages (all columns, including
+-- the attachment ones) and still reads no business data or document storage. The worker, which
+-- already reads and updates incoming messages and inserts documents, now also opens the request for
+-- a document received from a verified link (as the API does with an ingest key).
 GRANT INSERT ON app.applications TO gow_worker;

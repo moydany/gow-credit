@@ -1,11 +1,9 @@
 /**
- * Transporte con Baileys (WhatsApp Web, sesión por QR; ADR 0017). Es el único archivo que importa
- * Baileys: si la cuenta se suspende o Baileys cambia, se reemplaza por Cloud API sin tocar el
- * relay, la publicación del estado ni el worker (docs/02 §3).
+ * Baileys transport (WhatsApp Web, linked by QR). The only file that imports Baileys, so it can be
+ * swapped for the Cloud API without touching the relay, the status publisher or the worker.
  *
- * Pendiente declarado: la sesión vive en un directorio local (`useMultiFileAuthState`). docs/05 §5
- * pide guardarla cifrada en Storage; es del plan de despliegue. No se probó contra WhatsApp real:
- * hace falta un número dedicado y escanear el QR.
+ * Known gap: the session lives in a local directory (`useMultiFileAuthState`); it should be stored
+ * encrypted in Storage. Not tested against real WhatsApp: that needs a dedicated number and a QR scan.
  */
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -19,16 +17,16 @@ export function jidToNumber(jid: string): string | null {
   return m?.[1] ? `+${m[1]}` : null
 }
 
-/** La cuenta propia trae el dispositivo: 5215511110001:12@s.whatsapp.net → +5215511110001 */
+/** The linked account's own JID includes the device: 5215511110001:12@s.whatsapp.net → +5215511110001 */
 export function accountJidToNumber(jid: string): string | null {
   const m = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(jid)
   return m?.[1] ? `+${m[1]}` : null
 }
 
 /**
- * Número del remitente de un chat uno a uno. Desde Baileys 7, WhatsApp identifica muchos chats con un
- * LID (`…@lid`, un id anónimo) en lugar del número: se prueba el JID, luego el alterno que trae la
- * llave y, si ninguno es un número, el mapa LID→número de la sesión. Grupos y estados devuelven null.
+ * Sender number of a one-to-one chat. Since Baileys 7 many chats use an anonymous LID (`...@lid`)
+ * instead of the number, so try the JID, then the alternate JID on the key, then the session's
+ * LID-to-number map. Groups and statuses return null.
  */
 export async function senderNumber(key: { remoteJid?: string | null; remoteJidAlt?: string | null }, lidToPn: (lid: string) => Promise<string | null>): Promise<string | null> {
   const jids = [key.remoteJid, key.remoteJidAlt].filter((j): j is string => typeof j === 'string' && j.length > 0)
@@ -51,8 +49,8 @@ export function numberToJid(number: string): string {
 }
 
 /**
- * Borra el estado de autenticación que escribe `useMultiFileAuthState` (archivos `.json`) y el QR
- * guardado. No es recursivo ni borra otra cosa: un `WHATSAPP_AUTH_DIR` mal puesto no se lleva nada más.
+ * Deletes the `.json` files written by `useMultiFileAuthState` plus the saved QR. Not recursive and
+ * touches nothing else, so a wrong `WHATSAPP_AUTH_DIR` can't wipe unrelated files.
  */
 export async function clearAuthState(dir: string): Promise<number> {
   let names: string[]
@@ -68,17 +66,16 @@ export async function clearAuthState(dir: string): Promise<number> {
 
 const LOGOUT_TIMEOUT_MS = 10_000
 
-/** Por qué no se guardó un mensaje entrante; va a la consola, sin datos del remitente. */
+/** Why an incoming message was not stored. Goes to the console, with no sender data. */
 export type IgnoredReason = 'group_or_status' | 'unknown_sender' | 'unsupported_type'
 
 /**
- * Tope de descarga de un documento entrante (ADR 0037): el mismo de `MAX_DOCUMENT_BYTES` en
- * @gow/platform, que este proceso no importa porque no toca el almacenamiento. El worker vuelve a
- * validar tamaño y formato antes de aceptarlo.
+ * Download cap for an incoming document. Same value as `MAX_DOCUMENT_BYTES` in @gow/platform, which
+ * this process doesn't import because it never touches storage. The worker re-checks size and format.
  */
 export const MAX_INBOUND_DOCUMENT_BYTES = 40 * 1024 * 1024
 
-/** El documento de un mensaje, con o sin pie de foto (Baileys los envuelve distinto). */
+/** The document in a message, with or without a caption (Baileys wraps them differently). */
 export function documentOf(message: WAMessage['message']): { caption: string; fileName: string | null; mediaType: string | null; size: number } | null {
   const doc = message?.documentMessage ?? message?.documentWithCaptionMessage?.message?.documentMessage
   if (!doc) return null
@@ -86,8 +83,8 @@ export function documentOf(message: WAMessage['message']): { caption: string; fi
 }
 
 /**
- * Foto, nota de voz, video o sticker (ADR 0051): se contesta que hace falta el PDF. Lo demás que no es
- * texto ni documento (reacciones, ubicaciones, contactos, avisos del protocolo) se sigue ignorando.
+ * Photo, voice note, video or sticker: the sender is told a PDF is needed. Anything else that isn't
+ * text or a document (reactions, locations, contacts, protocol notices) is still ignored.
  */
 export function mediaKindOf(message: WAMessage['message']): { kind: InboundMediaKind; caption: string } | null {
   const inner = message?.viewOnceMessage?.message ?? message?.viewOnceMessageV2?.message ?? message?.ephemeralMessage?.message ?? message
@@ -101,9 +98,8 @@ export function mediaKindOf(message: WAMessage['message']): { kind: InboundMedia
 
 type BaileysLogger = NonNullable<Parameters<typeof makeWASocket>[0]['logger']>
 /**
- * Baileys registra por defecto con pino en nivel `info`, y lo que registra trae el número de la
- * cuenta (el `username` del login) y nodos del protocolo. Sin PII en registros: se calla. El
- * estado de la conexión sale por los eventos, que solo llevan códigos.
+ * Baileys logs through pino at `info` by default, and those logs include the account number and
+ * protocol nodes. No PII in logs, so it stays silent; connection state comes from events instead.
  */
 const silent: BaileysLogger = {
   level: 'silent',
@@ -149,7 +145,7 @@ export class BaileysTransport implements LinkableTransport {
     this.#sock = sock
     sock.ev.on('creds.update', () => void saveCreds())
     sock.ev.on('connection.update', (u) => {
-      // Un socket viejo (reemplazado al reconectar o al desvincular) ya no reporta nada.
+      // A stale socket (replaced on reconnect or unlink) reports nothing.
       if (sock !== this.#sock || this.#stopped) return
       if (u.connection) this.#open = u.connection === 'open'
       if (u.qr) this.#emit({ type: 'qr', qr: u.qr })
@@ -159,8 +155,8 @@ export class BaileysTransport implements LinkableTransport {
         const code = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode
         const loggedOut = code === DisconnectReason.loggedOut
         this.#emit({ type: 'close', loggedOut })
-        // Reconecta salvo que la sesión se haya cerrado desde el teléfono: ahí hace falta un QR nuevo,
-        // que se pide desde el backoffice (desvincular) para no reintentar con credenciales muertas.
+        // Reconnect unless the session was closed from the phone: that needs a fresh QR (unlink
+        // in the backoffice) rather than retrying with dead credentials.
         if (!loggedOut) void this.#connect()
       }
     })
@@ -171,10 +167,10 @@ export class BaileysTransport implements LinkableTransport {
   }
 
   /**
-   * Solo chats uno a uno: texto y documentos (ADR 0037). Fotos, notas de voz, videos y stickers pasan
-   * solo con su tipo, sin descargarlos, para que el worker conteste que hace falta el PDF (ADR 0051).
-   * Grupos y estados se ignoran. Un documento se descarga aquí porque el enlace del medio caduca; si
-   * excede el tope o la descarga falla, se pasa vacío para que el worker le conteste a quien lo mandó.
+   * One-to-one chats only: text and documents. Photos, voice notes, videos and stickers are passed
+   * on by type without downloading, so the worker can ask for the PDF. Groups and statuses are
+   * ignored. Documents are downloaded here because the media link expires; if one is over the cap
+   * or the download fails, empty bytes go through so the worker can reply to the sender.
    */
   async #receive(sock: WASocket, m: WAMessage): Promise<void> {
     const onMessage = this.#onMessage
@@ -203,7 +199,7 @@ export class BaileysTransport implements LinkableTransport {
         const got = await downloadMediaMessage(m, 'buffer', {}, { logger: silent, reuploadRequest: sock.updateMediaMessage })
         if (got.length <= MAX_INBOUND_DOCUMENT_BYTES) bytes = got
       } catch {
-        // Sin bytes: el worker contesta que no se pudo recibir.
+        // No bytes: the worker replies that it couldn't be received.
       }
     }
     await onMessage({ from, id: m.key.id, text: doc.caption, document: { bytes, fileName: doc.fileName, mediaType: doc.mediaType } })
@@ -219,9 +215,9 @@ export class BaileysTransport implements LinkableTransport {
   }
 
   /**
-   * Desvincular: avisa a WhatsApp (el teléfono deja de listar este dispositivo), borra el estado
-   * local y arranca una sesión nueva, que emite un QR nuevo para vincular este u otro número.
-   * Si la sesión ya estaba cerrada, el aviso falla o vence y se sigue igual.
+   * Unlink: tells WhatsApp (the phone stops listing this device), wipes local state and starts a
+   * fresh session that emits a new QR for this or another number. If the session was already
+   * closed, the logout fails or times out and we carry on.
    */
   async unlink(): Promise<void> {
     const sock = this.#sock

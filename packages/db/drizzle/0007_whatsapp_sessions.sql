@@ -12,11 +12,11 @@ CREATE TABLE "app"."whatsapp_sessions" (
 );
 --> statement-breakpoint
 ALTER TABLE "app"."whatsapp_sessions" ADD CONSTRAINT "whatsapp_sessions_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "app"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
--- Vinculación de WhatsApp desde el backoffice (ADR 0033). RLS forzada como en el resto (docs/05 §2):
--- - gow_whatsapp publica el estado de la sesión de su tenant: lee, inserta y actualiza su fila;
---   sigue sin ver nada de negocio.
--- - gow_api lee el estado (incluido el QR, que solo se entrega a usuarios del tenant) y solo puede
---   escribir `unlink_requested_at`: pedir que el proceso cierre la sesión y muestre un QR nuevo.
+-- WhatsApp linking from the backoffice. Forced RLS like the rest:
+-- - gow_whatsapp publishes its tenant's session status: reads, inserts and updates its row; it
+--   still sees no business data.
+-- - gow_api reads the status (including the QR, which is only handed to tenant users) and can only
+--   write `unlink_requested_at`: ask the process to close the session and show a new QR.
 ALTER TABLE app.whatsapp_sessions ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.whatsapp_sessions FORCE ROW LEVEL SECURITY;

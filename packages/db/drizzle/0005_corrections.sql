@@ -16,8 +16,8 @@ ALTER TABLE "app"."corrections" ADD CONSTRAINT "corrections_application_id_appli
 ALTER TABLE "app"."corrections" ADD CONSTRAINT "corrections_document_id_documents_id_fk" FOREIGN KEY ("document_id") REFERENCES "app"."documents"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "corrections_application" ON "app"."corrections" USING btree ("tenant_id","application_id","created_at");
 --> statement-breakpoint
--- RLS forzada y privilegios mínimos (docs/05 §2): la API inserta y lee las correcciones del analista;
--- el worker solo las lee para reevaluar; nadie las actualiza ni las borra.
+-- Forced RLS and minimal privileges: the API inserts and reads analyst corrections; the worker only
+-- reads them to re-evaluate; nobody updates or deletes them.
 ALTER TABLE app.corrections ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.corrections FORCE ROW LEVEL SECURITY;

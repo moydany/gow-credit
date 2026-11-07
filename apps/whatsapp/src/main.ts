@@ -1,13 +1,12 @@
-/* eslint-disable no-console -- punto de entrada: estado de la conexión y el QR para vincular, sin PII */
+/* eslint-disable no-console -- entry point: connection status and the linking QR, no PII */
 /**
- * pnpm whatsapp: una sesión de Baileys para un tenant. Sin configurar nada, el tenant es el único que
- * exista (se espera a que se cree en el primer inicio); `WHATSAPP_TENANT_ID` lo fija cuando hay varios,
- * o en producción. El número se vincula
- * escaneando el QR desde el backoffice (Configuración, ADR 0033): este proceso publica el estado de
- * la sesión en `app.whatsapp_sessions` y atiende "Desvincular". En una terminal interactiva el QR
- * también se dibuja aquí (y se guarda como qr.png junto a la sesión); sin terminal (Cloud Run) no
- * se imprime, para que nunca llegue a los registros. Después la sesión queda guardada y no se
- * vuelve a pedir.
+ * `pnpm whatsapp`: one Baileys session for one tenant. With no config the tenant is the only one
+ * that exists (it waits for first-run setup to create it); `WHATSAPP_TENANT_ID` pins it when there
+ * are several, or in production. The number is linked by scanning the QR from the backoffice
+ * settings: this process publishes session status to `app.whatsapp_sessions` and handles "Unlink".
+ * On an interactive terminal the QR is also drawn here (and saved as qr.png next to the session);
+ * without a TTY (Cloud Run) it is never printed, so it can't reach the logs. Once linked, the
+ * session is stored and not asked for again.
  */
 import { join, resolve } from 'node:path'
 import { connect, databaseUrl } from '@gow/db'
@@ -27,8 +26,8 @@ const line = (fields: Record<string, string>) => {
 
 startHealthListener((m) => { line({ health: m }) })
 
-// Sin WHATSAPP_TENANT_ID, el proceso descubre su tenant (el único que exista) y espera a que el wizard
-// del backoffice lo cree si todavía no hay ninguno (ADR 0060).
+// Without WHATSAPP_TENANT_ID the process finds its tenant (the only one) and waits for the
+// backoffice setup wizard to create it if none exists yet.
 const tenantId = await resolveTenantId({
   db: db.db,
   configured: process.env.WHATSAPP_TENANT_ID,
@@ -51,7 +50,7 @@ transport.onLinkEvent((e) => {
     line({ connection: e.type === 'close' ? (e.loggedOut ? 'logged_out' : 'close') : e.type })
     return
   }
-  // El código caduca en segundos y Baileys manda uno nuevo: cada vez se redibuja y se reescribe la imagen.
+  // The code expires in seconds and Baileys sends a new one: redraw and rewrite the image each time.
   if (!interactive) {
     line({ connection: 'qr', hint: 'escanéalo desde el backoffice: Configuración > Canales > WhatsApp' })
     return

@@ -1,7 +1,7 @@
 /**
- * Publicación del estado de la sesión (ADR 0033) con el rol `gow_whatsapp` contra Postgres real y un
- * transporte falso: QR con caducidad, sesión abierta con el número, latido, desvincular una sola vez
- * por petición y apagado limpio. Solo toca la fila de su tenant.
+ * Session status publishing as the `gow_whatsapp` role against real Postgres and a fake transport:
+ * QR with expiry, open session with the number, heartbeat, one unlink per request and clean
+ * shutdown. Touches only its own tenant's row.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
@@ -118,9 +118,9 @@ describe.skipIf(!available)('estado de la sesión de WhatsApp (necesita el Postg
     t.number = '+5215500000001'
     await p.handle({ type: 'open' })
     expect(await row(A)).toMatchObject({ status: 'open', qr: null, qr_ttl: null, linked_number: '+5215500000001' })
-    // Los registros llevan el estado, nunca el QR ni el número.
+    // Logs carry the status, never the QR or the number.
     expect(statuses).toEqual(['starting', 'waiting_qr', 'waiting_qr', 'open'])
-    // La fila del otro tenant no se tocó.
+    // The other tenant's row was not touched.
     expect(await row(B)).toMatchObject({ status: 'open', linked_number: '+5215500000002' })
     expect(errors).toEqual([])
   })
@@ -145,12 +145,12 @@ describe.skipIf(!available)('estado de la sesión de WhatsApp (necesita el Postg
     await p.heartbeat()
     expect(t.unlinks).toBe(1)
     expect(await row(A)).toMatchObject({ status: 'waiting_qr', qr: '2@reto-nuevo', linked_number: null, handled: true })
-    // Otro proceso (un reinicio) no vuelve a atender la misma petición.
+    // Another process (a restart) doesn't handle the same request again.
     const restarted = new SessionPublisher({ db: wa.db, tenantId: A, transport: new FakeLinkable() })
     expect(await restarted.checkUnlink()).toBe(false)
     expect(await p.checkUnlink()).toBe(false)
     expect(t.unlinks).toBe(1)
-    // La petición del otro tenant no la ve este proceso.
+    // This process doesn't see the other tenant's request.
     await admin.query('UPDATE app.whatsapp_sessions SET unlink_requested_at = now() WHERE tenant_id = $1', [B])
     expect(await p.checkUnlink()).toBe(false)
     expect(errors).toEqual([])
@@ -164,7 +164,7 @@ describe.skipIf(!available)('estado de la sesión de WhatsApp (necesita el Postg
     t.emit({ type: 'qr', qr: '2@reto-tarde' })
     await p.heartbeat()
     expect(await row(A)).toMatchObject({ status: 'closed', qr: null })
-    // Tras el apagado no hay latido: el backoffice ve de inmediato que el proceso no corre.
+    // No heartbeat after shutdown: the backoffice sees right away that the process is down.
     const r = await admin.query<{ beat: Date | null }>('SELECT heartbeat_at AS beat FROM app.whatsapp_sessions WHERE tenant_id = $1', [A])
     expect(r.rows[0]?.beat).toBeNull()
   })

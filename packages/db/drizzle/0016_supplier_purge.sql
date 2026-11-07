@@ -1,18 +1,18 @@
--- Borrar un proveedor desde el backoffice (ADR 0059): sus solicitudes, documentos, extracciones,
--- decisiones, aclaraciones, resultados de crédito, correcciones, registro, oferta y mensajes. El rol de
--- la API no recibe DELETE sobre esas tablas: solo puede borrar por esta función, que se revisa a mano
--- (docs/05 §2) y se otorga a un solo rol.
+-- Deleting a supplier from the backoffice: its requests, documents, extractions, decisions,
+-- clarifications, credit results, corrections, registration, offer and messages. The API role gets no
+-- DELETE on those tables: it can only delete through this function, which is reviewed by hand and
+-- granted to a single role.
 --
--- - Corre con el tenant de la transacción (`app.current_tenant()`); con FORCE ROW LEVEL SECURITY las
---   políticas siguen aplicando y, además, cada DELETE filtra por tenant.
--- - Un proveedor con una solicitud en proceso (received, extracting, extracted, deciding) no se borra:
---   el worker la está tocando. Error 55006 (object_in_use); la API contesta 409.
--- - Los mensajes se borran por la dirección de sus contactos solo si ningún otro proveedor del tenant
---   la usa, y siempre los de sus aclaraciones.
--- - Un documento que también use una solicitud de otro proveedor se queda.
--- - La bitácora no se toca: es el registro de quién hizo qué, sin contenido.
--- - Devuelve solo ids, rutas y conteos: la API encola la limpieza fuera de la base (PDFs, trabajos de
---   la cola y estado de Mastra) para el worker. Null si el proveedor no existe en este tenant.
+-- - Runs under the transaction's tenant (`app.current_tenant()`); with FORCE ROW LEVEL SECURITY the
+--   policies still apply, and each DELETE also filters by tenant.
+-- - A supplier with a request in progress (received, extracting, extracted, deciding) isn't deleted:
+--   the worker is touching it. Error 55006 (object_in_use); the API answers 409.
+-- - Messages are deleted by their contacts' address only if no other supplier in the tenant uses it,
+--   and always those of its clarifications.
+-- - A document also used by another supplier's request stays.
+-- - The audit log is untouched: it records who did what, with no content.
+-- - Returns only ids, paths and counts: the API enqueues cleanup outside the database (PDFs, queue
+--   jobs and Mastra state) for the worker. Null if the supplier doesn't exist in this tenant.
 CREATE OR REPLACE FUNCTION app.purge_supplier(p_supplier uuid)
   RETURNS jsonb
   LANGUAGE plpgsql VOLATILE SECURITY DEFINER

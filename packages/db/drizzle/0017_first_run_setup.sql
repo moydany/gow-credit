@@ -1,15 +1,15 @@
--- Primer inicio (ADR 0060): el backoffice da de alta al primer tenant y a su administrador sin pasar
--- por `pnpm tenant create`. El rol de la API no puede crear tenants ni ver los de otros, así que
--- las dos funciones security definer (mismo patrón que `resolve_api_key` y `tenant_by_email`, ADR
--- 0016) se otorgan solo a `gow_api` y hacen una sola cosa:
+-- First run: the backoffice creates the first tenant and its administrator without going through
+-- `pnpm tenant create`. The API role can't create tenants or see others', so the two security
+-- definer functions (same pattern as `resolve_api_key` and `tenant_by_email`) are granted only to
+-- `gow_api` and do one thing each:
 --
--- - `setup_pending()` dice si todavía no existe ningún tenant. No devuelve nada más.
--- - `setup_first_tenant(...)` crea el tenant, su política base activa y su primer usuario, y solo si no
---   existe ningún tenant. Un candado consultivo de transacción serializa dos llamadas simultáneas:
---   la segunda ve el tenant de la primera y devuelve NULL. Una vez que hay un tenant, ya no hace nada.
+-- - `setup_pending()` says whether no tenant exists yet. Returns nothing else.
+-- - `setup_first_tenant(...)` creates the tenant, its active base policy and its first user, only if
+--   no tenant exists. A transaction-level advisory lock serializes two simultaneous calls: the
+--   second sees the first's tenant and returns NULL. Once a tenant exists it does nothing.
 --
--- No emite llave de API: esa se crea después desde Configuración. Corre con el dueño de la migración,
--- que salta RLS (superusuario en local, BYPASSRLS en Supabase), igual que las otras dos.
+-- It issues no API key: that is created later from settings. Runs as the migration owner, which skips
+-- RLS (superuser locally, BYPASSRLS on Supabase), like the other two.
 CREATE OR REPLACE FUNCTION app.setup_pending()
   RETURNS boolean
   LANGUAGE sql STABLE SECURITY DEFINER
