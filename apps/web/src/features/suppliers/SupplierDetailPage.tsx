@@ -1,10 +1,13 @@
-import type { SupplierApplicationItem, SupplierContactItem } from '@gow/contracts'
-import { Link, useParams } from '@tanstack/react-router'
+import type { SupplierApplicationItem, SupplierContactItem, SupplierDetail } from '@gow/contracts'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
+import { ApiError, api } from '../../lib/api'
 import { CHANNEL_LABEL, date, money, OUTCOME_LABEL } from '../../lib/format'
 import { useSupplier } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
-import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, SegmentBar, Skeleton, StatusChip } from '../../ui/primitives'
+import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, SegmentBar, Skeleton, StatusChip } from '../../ui/primitives'
+import { useToast } from '../../ui/toast'
 import { SupplierFormModal } from './SupplierForm'
 
 const OUTCOME_TONE = { paid: 'lime', late: 'amber', default: 'coral', fraud: 'coral' } as const
@@ -14,6 +17,7 @@ export function SupplierDetailPage() {
   const { id } = useParams({ from: '/shell/proveedores/$id' })
   const { data, isPending, isError, error, refetch } = useSupplier(id)
   const [editing, setEditing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   if (isError) {
     return (
@@ -51,9 +55,14 @@ export function SupplierDetailPage() {
               Alta {date(data.created_at)} · {apps.length === 1 ? '1 solicitud' : `${String(apps.length)} solicitudes`}
             </p>
           </div>
-          <Button variant="ghost" onClick={() => { setEditing(true) }}>
-            <Icon name="edit" size={16} /> Editar
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => { setEditing(true) }}>
+              <Icon name="edit" size={16} /> Editar
+            </Button>
+            <Button variant="danger" onClick={() => { setDeleting(true) }}>
+              <Icon name="trash" size={16} /> Borrar
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -129,7 +138,61 @@ export function SupplierDetailPage() {
       </div>
 
       <SupplierFormModal open={editing} onClose={() => { setEditing(false) }} supplier={data} />
+      <DeleteSupplierModal open={deleting} onClose={() => { setDeleting(false) }} supplier={data} />
     </div>
+  )
+}
+
+const IN_PROGRESS = new Set<SupplierApplicationItem['status']>(['received', 'extracting', 'extracted', 'deciding'])
+
+const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`
+
+/**
+ * Borrar al proveedor con todo lo suyo (ADR 0059). Dice qué se va a borrar con lo que ya muestra la
+ * página; con una solicitud en proceso no deja (la API también contesta 409).
+ */
+function DeleteSupplierModal({ open, onClose, supplier }: { open: boolean; onClose: () => void; supplier: SupplierDetail }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const apps = supplier.applications
+  const outcomes = apps.reduce((n, a) => n + a.outcomes.length, 0)
+  const busy = apps.some((a) => IN_PROGRESS.has(a.status))
+  const remove = useMutation({
+    mutationFn: () => api.deleteSupplier(supplier.id),
+    onSuccess: (r) => {
+      toast.ok(`Proveedor borrado con ${plural(r.counts.applications, 'solicitud', 'solicitudes')} y ${plural(r.counts.documents, 'documento', 'documentos')}`)
+      onClose()
+      qc.removeQueries({ queryKey: ['supplier', supplier.id] })
+      for (const key of ['suppliers', 'applications', 'clarifications', 'audit']) void qc.invalidateQueries({ queryKey: [key] })
+      void navigate({ to: '/proveedores' })
+    },
+    onError: (e: unknown) => { toast.error(e instanceof ApiError ? e.message : 'No se pudo borrar') },
+  })
+  return (
+    <Modal open={open} onClose={onClose} title="Borrar proveedor">
+      <div className="space-y-3 text-[14px] leading-relaxed text-ink-2">
+        <p>
+          Se borra <span className="font-medium text-ink">{supplier.legal_name}</span> con todo lo suyo:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>{plural(apps.length, 'solicitud', 'solicitudes')}, con sus estados de cuenta, extracciones y decisiones</li>
+          <li>{outcomes ? `${plural(outcomes, 'resultado', 'resultados')} de crédito registrados` : 'Sus resultados de crédito, si hay'}</li>
+          <li>Sus aclaraciones, su registro y los mensajes de WhatsApp o correo</li>
+          <li>{plural(supplier.contacts.length, 'contacto', 'contactos')}: si vuelve a escribir, empieza desde cero</li>
+        </ul>
+        <p>No se puede deshacer. La bitácora conserva solo que se borró y cuántas cosas.</p>
+        {busy ? <p className="hatch-amber rounded-2xl px-4 py-3 text-[13px] text-amber-ink">Tiene una solicitud en proceso. Espera a que termine para borrarlo.</p> : null}
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button variant="danger" disabled={busy || remove.isPending} onClick={() => { remove.mutate() }}>
+          <Icon name="trash" size={15} /> {remove.isPending ? 'Borrando…' : 'Borrar todo'}
+        </Button>
+      </div>
+    </Modal>
   )
 }
 
