@@ -321,7 +321,8 @@ Railway está en `infra/railway/`.
    - `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `RESEND_API_KEY` y `RESEND_FROM` (`Nombre <correo@dominio>`).
 5. `sh infra/railway/deploy.sh`: sube el commit (`git archive`, nada sin versionar) a `app`, `web` y
    `whatsapp`. El pre-deploy de `app` corre `db:roles` y `db:migrate`.
-6. Auth en el panel de Supabase:
+6. Auth: `sh infra/railway/supabase-auth.sh` lo aplica todo por la Management API con un token personal
+   de Supabase (el MCP de Supabase no cambia la configuración de Auth). A mano, en el panel:
    - Authentication → Hooks → Customize Access Token (JWT) Claims: Postgres, `app.custom_access_token_hook`.
    - Authentication → Sign In / Providers: apagar "Allow new users to sign up".
    - Authentication → URL Configuration: Site URL = `BACKOFFICE_URL`; Redirect URLs =
