@@ -251,18 +251,18 @@ prioridad, para discutirlo en la llamada.
 
 ## Cambios durante la implementación
 
-### Fase 2 (2026-11-04)
+### 2026-11-04
 
 - **Excepción planeada al aislamiento por tenant** (`docs/09` §9.2): índice de plataforma
   de `HMAC(UUID del CFDI)` con llave de plataforma, fuera del RLS de los tenants, de solo
   escritura para ellos, cuya lectura devuelve únicamente "visto en otro prestamista hace N
   días". Detecta solicitudes simultáneas a varios prestamistas sin revelar RFC, montos ni
-  quién. Línea de corte: **si alcanza**; se diseña en la fase 6.
-- **Sellos del CFDI fuera del contrato** (ADR 0008): ni se piden al modelo ni se guardan.
+  quién. Línea de corte: **si alcanza**; se diseña con el modo full.
+- **Sellos del CFDI fuera del contrato**: ni se piden al modelo ni se guardan.
 - **Sin PII en logs**: el logger de Mastra se silencia porque imprime el error crudo con
   headers y partes del request; los errores salen saneados con código estable.
 
-### Fase 6 (2026-11-05, ADR 0016 y 0017)
+### 2026-11-05
 
 - **§2, RLS**: forzada en las 16 tablas de `app` con `tenant_id = app.current_tenant()`, que lee
   `app.tenant_id` de la transacción. No usa `auth.uid()` porque en local no hay Supabase Auth; en
@@ -282,13 +282,12 @@ prioridad, para discutirlo en la llamada.
   fijado en 7.0.0-rc14 con sus scripts de instalación negados; su sesión vive en disco y no cifrada
   en Storage (pendiente).
 
-### Fase 8 (2026-11-05): Google y TypeSafe como encargados (ADR 0011 y 0022)
+### 2026-11-05: Google y TypeSafe como encargados
 
 - **Google es encargado de datos junto a Anthropic.** Con `GEMINI_API_KEY`, el PDF completo va a
-  la Gemini API para extraer (ADR 0011). Anthropic sigue recibiendo el PDF en la doble lectura y
+  la Gemini API para extraer. Anthropic sigue recibiendo el PDF en la doble lectura y
   en la emergencia, y en la extracción cuando no hay llave de Google. Con Haiku, recibe el texto
-  de las primeras páginas y las descripciones de los movimientos. El README lo dice en
-  "Privacidad del dataset", antes del primer comando.
+  de las primeras páginas y las descripciones de los movimientos.
 - **Términos de la Gemini API de pago**, en
   [aistudio.google.com/docs/terms](https://aistudio.google.com/docs/terms) ("Effective March 23,
   2026"; consultados el 2026-11-05):
@@ -314,12 +313,12 @@ prioridad, para discutirlo en la llamada.
      retención: 55 días en Google; el de los términos comerciales en Anthropic.
   2. La transferencia internacional se declara sin región fija para Google.
   3. Un tenant que exija retención cero o región fija se configura sin `GEMINI_API_KEY`, con
-     extracción en Claude, a unas 5 veces el costo (README, "Costo estimado").
+     extracción en Claude, a unas 5 veces el costo.
 - **TypeSafe AI (Jev)** recibe, con `TYPESAFE_API_KEY`, el texto de las primeras páginas y las
-  descripciones de los movimientos (ADR 0022). Sus términos de uso de datos **no están
+  descripciones de los movimientos. Sus términos de uso de datos **no están
   verificados**. Hasta revisarlos, en producción Jev se habilita por tenant y no por defecto.
 
-### Fase 8 (2026-11-06): vinculación de WhatsApp desde el backoffice (ADR 0033)
+### 2026-11-06: vinculación de WhatsApp desde el backoffice
 
 - **§2b, un número por tenant**:
   - El QR para vincular el número se muestra en Configuración, solo a usuarios del tenant, y
@@ -332,7 +331,7 @@ prioridad, para discutirlo en la llamada.
   pruebas de RLS cubren ambos privilegios y el aislamiento entre tenants.
 - **El proceso tiene que estar corriendo** para vincular: en Cloud Run, 1 instancia fija.
 
-### Fase 8 (2026-11-06): login del backoffice con Supabase Auth (ADR 0035)
+### 2026-11-06: login del backoffice con Supabase Auth
 
 - **§2, `tenant_id` como claim firmado**: lo agrega un custom access token hook (migración 0008).
   La única función que salta RLS es `security definer` y devuelve solo el id del tenant. El hook
@@ -348,7 +347,7 @@ prioridad, para discutirlo en la llamada.
   usa, y la API cierra su sesión de GoTrue al crear la cookie. Ni el correo ni los tokens van a
   los registros.
 
-### Fase 8 (2026-11-06): sesión del backoffice que se renueva sola (ADR 0036)
+### 2026-11-06: sesión del backoffice que se renueva sola
 
 - **Ajusta el punto anterior**: el refresh token ya se usa, pero nunca lo guarda JavaScript. La
   API lo recibe una vez de `/entrar` y lo guarda en una segunda cookie (`gow_refresh`, `HttpOnly;
@@ -367,7 +366,7 @@ prioridad, para discutirlo en la llamada.
 - Ni los tokens ni el correo van a los registros: la llave del mapa de renovaciones es el hash
   del refresh token, y un error de GoTrue registra solo el código.
 
-### Fase 8 (2026-11-06): estados de cuenta por WhatsApp (ADR 0037)
+### 2026-11-06: estados de cuenta por WhatsApp
 
 §2b decía que el canal es de una sola dirección en cuanto a datos. Ahora acepta una cosa más: un
 estado de cuenta en PDF desde un **vínculo verificado**, que abre una solicitud igual que la API.
@@ -383,16 +382,16 @@ estado de cuenta en PDF desde un **vínculo verificado**, que abre una solicitud
   nombre. Lo acotan el cotejo de identidad del titular, el CFDI y la política. Pendiente: límite
   de documentos por número.
 
-### Fase 8 (2026-11-06): registro de proveedores por WhatsApp en la demo (ADR 0038)
+### 2026-11-06: registro de proveedores por WhatsApp en la demo
 
-Con `WHATSAPP_SELF_REGISTRATION=true` (encendido por defecto desde la ADR 0062; `false` lo apaga), un número sin vínculo verificado no
+Con `WHATSAPP_SELF_REGISTRATION=true` (encendido por defecto; `false` lo apaga), un número sin vínculo verificado no
 recibe la respuesta fija: el bot le pide razón social y RFC y crea el proveedor con su contacto
 verificado **por posesión del número** (`whatsapp_self_registration`), que no equivale a un KYC.
 Solo es para demos: cualquiera puede registrar cualquier razón social y disparar extracciones.
 El cotejo del RFC del titular del documento y la política siguen aplicando. `gow_worker` gana
 `INSERT` en `suppliers` y `supplier_contacts`; la tabla `supplier_registrations` tiene RLS forzada.
 
-### Fase 8 (2026-11-06): factura y veredicto por WhatsApp (ADR 0039)
+### 2026-11-06: factura y veredicto por WhatsApp
 
 - Opcional (`askInvoice`, apagado en la demo): antes de analizar un estado de cuenta recibido por
   WhatsApp, el bot pide monto, cadena compradora y vencimiento de la factura
@@ -402,7 +401,7 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
   monto. **Nunca** saldos, RFC, CLABE ni los motivos del motor, que pueden citar cifras del
   documento. El destino sale del vínculo verificado, como el resto del buzón.
 
-### Fase 8 (2026-11-06): intérprete con Haiku y nombres con typos (ADR 0040)
+### 2026-11-06: intérprete con Haiku y nombres con typos
 
 - Las respuestas por WhatsApp que las reglas no leen, y siempre la razón social y el comprador,
   pasan por Haiku, que clasifica el mensaje y propone el dato. El dato vuelve a pasar por el mismo
@@ -412,7 +411,7 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
 - El cotejo del nombre del titular tolera un typo por palabra (dos desde 10 letras). El RFC sigue
   siendo la prueba fuerte de identidad.
 
-### Fase 8 (2026-11-06): fotos y notas de voz por WhatsApp (ADR 0051)
+### 2026-11-06: fotos y notas de voz por WhatsApp
 
 - Una foto, nota de voz, video o sticker se guarda en `inbound_messages.media_kind` solo con su tipo
   (`image`, `audio`, `video`, `sticker`, con CHECK en la base). El proceso de WhatsApp nunca descarga
@@ -421,12 +420,12 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
   `app.pending_inbound` solo devuelve ids.
 - El resumen para confirmar las respuestas de la aclaración repite las cifras de los hechos de cada
   pregunta (monto y fecha del abono), las mismas que ya llevaba la pregunta, al mismo número.
-- Borrar un proveedor (ADR 0059) no le da a `gow_api` DELETE sobre las tablas: borra solo por
+- Borrar un proveedor no le da a `gow_api` DELETE sobre las tablas: borra solo por
   `app.purge_supplier(uuid)`, una función `SECURITY DEFINER` revisada a mano, con RLS forzado, filtro
   por tenant en cada DELETE y otorgada solo a `gow_api`. El trabajo `supplier.purge` lleva ids y rutas,
   y el worker solo borra rutas bajo el tenant del trabajo.
 
-### Fase 8 (2026-11-07): prompts y respuestas crudos para analizar un caso (ADR 0064)
+### 2026-11-07: prompts y respuestas crudos para analizar un caso
 
 - Cada llamada a un modelo queda en `app.llm_exchanges` con el prompt y la respuesta tal cual, que
   llevan datos del documento. No es un log ni la bitácora de movimientos, que siguen sin PII: es una

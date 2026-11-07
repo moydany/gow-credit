@@ -1,7 +1,6 @@
 # Spec en una página
 
-Qué hace el sistema, qué se supuso y dónde está cada decisión. El detalle está en `00-brief.md` y
-`02` a `09`; el porqué de cada decisión, en `adr/`.
+Qué hace el sistema, qué se supuso y dónde está cada decisión. El detalle está en `02` a `09`.
 
 ## Qué hace
 
@@ -9,51 +8,52 @@ Un proveedor pide pronto pago a un prestamista (tenant) y entrega su estado de c
 en PDF. El sistema hace cinco cosas:
 
 1. **Extrae** cuentas, periodos, movimientos y el CFDI que el banco timbra. Cada valor trae su
-   página y su fragmento. Modelo: Gemini 3.8 Flash; Claude Opus de emergencia (ADR 0011).
+   página y su fragmento. Modelo: Gemini 3.8 Flash; Claude Opus de emergencia.
 2. **Verifica** la extracción contra la aritmética del propio banco:
    - cuadre global, totales y conteos, y saldo corrido;
    - CLABE, RFC y fechas;
    - cruces del CFDI.
 
-   Lo que no cuadra se relee por página y, si sigue sin cuadrar, se marca (ADR 0005, 0007, 0008
-   y 0009).
-3. **Calcula un perfil** con un catálogo fijo de features (ADR 0013).
+   Lo que no cuadra se relee por página y, si sigue sin cuadrar, se marca.
+3. **Calcula un perfil** con un catálogo fijo de features.
 4. **Aplica la política JSON del tenant** con un motor puro. El veredicto trae su diagnóstico
-   completo y contrafactuales (ADR 0014 y 0023).
+   completo y contrafactuales.
 5. **Pregunta al proveedor** cuando un dato dudoso puede cambiar el resultado. Es una sola ronda,
-   por consola o archivo en standalone, o por WhatsApp o correo en full (ADR 0015, 0017 y 0024).
+   por consola o archivo en standalone, o por WhatsApp o correo en full.
    Después decide.
 
 Estados: `qualified`, `qualified_with_limit`, `not_qualified`, `needs_clarification`,
-`human_review` y `failed` (`README.md` de esta carpeta).
+`human_review` y `failed`. Los tres primeros son veredictos finales; `needs_clarification` y
+`human_review` piden algo antes de decidir (una respuesta del proveedor o la revisión de un
+analista); `failed` es un error no recuperable de la solicitud.
 
 ## Supuestos
 
-| Supuesto | Consecuencia | Dónde |
-|---|---|---|
-| Los documentos son estados de cuenta, no facturas: el "CFDI" del enunciado es el que trae el propio estado de cuenta | El bloque fiscal se extrae siempre y sirve de ancla, pero los sellos nunca se transcriben | `09`, ADR 0008 |
-| Los documentos de evaluación vienen redactados como los de desarrollo (titular, RFC, CLABE) | En standalone, la identidad que no se puede comparar no bloquea; un desajuste real sí | ADR 0015 |
-| Los PDFs no traen datos de la solicitud (monto, plazo, comprador) | Sin ellos la salida es perfil, estado y **línea máxima**; con `--request`, veredicto completo | ADR 0015 |
-| Los documentos de evaluación son de fecha desconocida: la antigüedad del estado de cuenta no decide | La política por defecto de standalone no tiene la compuerta de 90 días (`--policy base` la conserva) y `document_age_days` queda en el perfil y en el reporte; `--as-of` fija la fecha de cálculo, por defecto hoy | ADR 0054, README |
-| Los periodos se extraen como los imprime el banco (Mercado Pago: uno de tres meses) | Los meses los cuenta el perfil, no la extracción | ADR 0006 |
-| Los traspasos internos (apartados, cajitas de Nu) no son ingreso | Se marcan `internal_transfer` y se excluyen del cuadre consolidado | ADR 0009 |
-| Una respuesta del dueño no se adivina: lo que no se entiende se declina | Las categorías se eligen de una lista; nunca hay texto libre en standalone | ADR 0015 y 0017 |
-| Ningún modelo decide | Los modelos extraen, clasifican y redactan; el veredicto sale del motor | ADR 0023, `04` §5 |
+| Supuesto | Consecuencia |
+|---|---|
+| Los documentos son estados de cuenta, no facturas: el "CFDI" del enunciado es el que trae el propio estado de cuenta | El bloque fiscal se extrae siempre y sirve de ancla, pero los sellos nunca se transcriben (`09`) |
+| Los documentos de evaluación vienen redactados como los de desarrollo (titular, RFC, CLABE) | En standalone, la identidad que no se puede comparar no bloquea; un desajuste real sí |
+| Los PDFs no traen datos de la solicitud (monto, plazo, comprador) | Sin ellos la salida es perfil, estado y **línea máxima**; con `--request`, veredicto completo |
+| Los documentos de evaluación son de fecha desconocida: la antigüedad del estado de cuenta no decide | La política por defecto de standalone no tiene la compuerta de 90 días (`--policy base` la conserva) y `document_age_days` queda en el perfil y en el reporte; `--as-of` fija la fecha de cálculo, por defecto hoy |
+| Los periodos se extraen como los imprime el banco (Mercado Pago: uno de tres meses) | Los meses los cuenta el perfil, no la extracción |
+| Los traspasos internos (apartados, cajitas de Nu) no son ingreso | Se marcan `internal_transfer` y se excluyen del cuadre consolidado |
+| Una respuesta del dueño no se adivina: lo que no se entiende se declina | Las categorías se eligen de una lista; nunca hay texto libre en standalone |
+| Ningún modelo decide | Los modelos extraen, clasifican y redactan; el veredicto sale del motor (`04` §5) |
 
 ## Decisiones principales
 
-| Tema | Decisión | ADR |
-|---|---|---|
-| Modelo de extracción | Gemini 3.8 Flash. Por proveedor caído, Opus rehace el documento; por calidad, Opus relee el bloque. Doble lectura con Claude | 0011, 0003 |
-| Esquema del modelo | Distinto del contrato: montos como texto y valores citados en listas, por los límites de la API; el código traduce | 0007, 0005 |
-| Ground truth | Parser determinístico por banco sobre la capa de texto, arbitrado por la aritmética del banco, sin pasar por el modelo medido | 0001, 0012 |
-| Orquestación | Mastra con suspend y resume; SDK directo como salida de emergencia | 0021 |
-| Clasificación | Reglas primero; Jev o Haiku solo para lo que las reglas no resuelven | 0022, 0013 |
-| Decisión | Catálogo cerrado, política JSON validada, motor puro con contrafactuales | 0023, 0014 |
-| Modo full | Express 5, Postgres con RLS forzada, pg-boss y el mismo workflow | 0016, 0018, 0025, 0026, 0028 |
-| Backoffice | React y Vite, un rol por tenant, correcciones del analista como pares inmutables | 0019, 0020, 0029 |
-| Calidad | Evals con umbral por banco antes de cambiar prompts o modelos; inyección en CI sin llaves | 0012, 0032 |
-| Despliegue | Cloud Run, Supabase y Vercel (plan, no ejecutado) | 0030, `deploy.md` |
+| Tema | Decisión |
+|---|---|
+| Modelo de extracción | Gemini 3.8 Flash. Por proveedor caído, Opus rehace el documento; por calidad, Opus relee el bloque. Doble lectura con Claude |
+| Esquema del modelo | Distinto del contrato: montos como texto y valores citados en listas, por los límites de la API; el código traduce |
+| Ground truth | Parser determinístico por banco sobre la capa de texto, arbitrado por la aritmética del banco, sin pasar por el modelo medido |
+| Orquestación | Mastra con suspend y resume; SDK directo como salida de emergencia |
+| Clasificación | Reglas primero; Jev o Haiku solo para lo que las reglas no resuelven |
+| Decisión | Catálogo cerrado, política JSON validada, motor puro con contrafactuales |
+| Modo full | Express 5, Postgres con RLS forzada, pg-boss y el mismo workflow |
+| Backoffice | React y Vite, un rol por tenant, correcciones del analista como pares inmutables |
+| Calidad | Evals con umbral por banco antes de cambiar prompts o modelos; inyección en CI sin llaves |
+| Despliegue | Cloud Run, Supabase y Vercel (plan, no ejecutado; ver `deploy.md`) |
 
 ## Resultado en desarrollo
 
@@ -63,8 +63,6 @@ Sobre los 9 documentos de desarrollo:
   encabezado y 104 de 107 del CFDI.
 - **Cuadre**: los 9 documentos cuadran.
 - **Costo**: USD 1.80 en total con Gemini, unos USD 0.20 por documento.
-
-Detalle por banco en `experiments/2026-11-04-phase3-ground-truth-eval.md`.
 
 ## Fuera de alcance o pendiente
 

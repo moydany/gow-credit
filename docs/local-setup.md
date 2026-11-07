@@ -2,7 +2,7 @@
 
 Guía para pasar el worksample a una computadora nueva y dejarlo funcionando: modo standalone,
 evals, escenarios y modo full con el Supabase local. El código llega con `git clone`. Lo demás no
-está en git a propósito (`CLAUDE.md`: llaves, PDFs y ground truth nunca se versionan) y se pasa
+está en git a propósito (llaves, PDFs y ground truth nunca se versionan) y se pasa
 aparte.
 
 ## Qué viaja y cómo
@@ -79,7 +79,7 @@ pnpm install --frozen-lockfile
 ## 3. Copiar tu `.env`
 
 Ponlo en la raíz del repositorio, junto a `.env.example`. Es el único archivo de secretos que
-copias. Si empiezas sin él, `cp .env.example .env` y llena las llaves (README, tabla de llaves).
+copias. Si empiezas sin él, `cp .env.example .env` y llena las llaves (README, "Requisitos").
 
 ## 4. Desempacar los datos
 
@@ -106,9 +106,6 @@ tar -xzf gow-data.tar.gz
 ```bash
 rm gow-data.tar.gz
 ```
-
-Si trabajas con Claude Code en la máquina nueva, `CLAUDE.md` le dice dónde buscar el paquete y
-cómo desempacarlo.
 
 Si solo necesitas los PDFs y el enlace compartido sigue vivo, `scripts/download-dev-data.sh` los
 baja; el ground truth y la caché solo vienen en el paquete.
@@ -150,12 +147,11 @@ modelo. Sin `--cache read`, `evaluate` sobre documentos nuevos sí paga (README,
 ## 7. Modo full con el Supabase local
 
 **Un comando.** Con Docker abierto, `pnpm stack:up` levanta Supabase, migra y arranca la API, el worker,
-WhatsApp y el backoffice (ADR 0061). Abre `http://127.0.0.1:5173`: el wizard crea al prestamista y al
+WhatsApp y el backoffice. Abre `http://127.0.0.1:5173`: el wizard crea al prestamista y al
 administrador y muestra el QR de WhatsApp. `pnpm stack:down` lo detiene y `pnpm stack:reset` borra los
 datos. Lo que sigue es la forma manual, para desarrollar con cada proceso en su terminal.
 
-Abre Docker Desktop y sigue estos pasos desde la raíz del repositorio. El detalle está en el
-README, "Modo full con Supabase local".
+Abre Docker Desktop y sigue estos pasos desde la raíz del repositorio.
 
 1. Genera los secretos locales y levanta el stack:
 

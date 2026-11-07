@@ -215,7 +215,7 @@ reentrena; lo que se aprende son umbrales y pesos de una política explicable.
 
 ## Cambios durante la implementación
 
-### Fase 1 (2026-11-04): contratos en `packages/contracts`
+### 2026-11-04: contratos en `packages/contracts`
 
 Nada de lo que sigue cambia el criterio; son precisiones que el esquema necesitaba para
 poder validarse.
@@ -241,29 +241,28 @@ poder validarse.
   ("perfil sano sin pagos del comprador → máximo `qualified_with_limit`"); con solo la
   dimensión `buyer` ese escenario podía salir `qualified`.
 
-### Fase 2 (2026-11-04)
+### 2026-11-04
 
 - `docs/09` §5 agrega `fiscal_regime` y `cfdi_sat_status` al catálogo, y hace que
   `identity_match` tome el RFC del receptor del CFDI cuando el encabezado viene
-  enmascarado. Se implementa en la fase 4 (`FEATURE_CATALOG_VERSION` 1.1.0); en la fase 2
-  solo se extrae y se cruza el bloque fiscal.
-- `docs/09` §9 agrega al catálogo, para la fase 4: `fiscal_anchor_ok` (comisiones del CFDI
+  enmascarado. Se implementa en `FEATURE_CATALOG_VERSION` 1.1.0; antes
+  solo se extraía y se cruzaba el bloque fiscal.
+- `docs/09` §9 agrega al catálogo: `fiscal_anchor_ok` (comisiones del CFDI
   contra las filas `fee`), `statement_reuse_count`, `statement_seen_elsewhere_days`,
   `sat_list_status`, `income_from_listed_rfc_share` y `regime_income_plausible`; y que
   `buyer_payments_*` y `top_payer_concentration` agrupen por `counterparty_rfc` cuando
-  existe. En la fase 2 ya quedan `TransactionClassification.counterparty_rfc` en el contrato
+  existe. Ya quedan `TransactionClassification.counterparty_rfc` en el contrato
   y `findCounterpartyRfc` (regex validada) listos para la clasificación de movimientos.
 
-### Fase 4 (2026-11-04): perfil y motor en `packages/decision`
+### 2026-11-04: perfil y motor en `packages/decision`
 
-Las definiciones de §3 y la semántica de §4 a §7 quedaron precisadas en las ADR 0013 y 0014.
 Lo que cambia o se precisa respecto a este documento:
 
 - **Clasificación**: se agrega `loan_payment` (pago a un crédito) a la clasificación canónica;
   `debt_service_monthly` son esos pagos más intereses cobrados.
 - **Gastos operativos**: todo cargo que no sea traspaso propio ni pago de crédito, no solo
   proveedores, nómina, impuestos y comisiones. Un cargo sin clasificar es dinero que sale.
-- **Meses e ingresos mensuales**: desde los días cubiertos (ADR 0006).
+- **Meses e ingresos mensuales**: desde los días cubiertos.
 - **`debt_capacity`**: flujo libre mensual positivo × 3 meses (`debt_capacity_months`, guardado
   en el perfil).
 - **Catálogo 1.1.0**: además de lo de `docs/09`, `existing_exposure_past_due_amount`, para que
@@ -283,11 +282,11 @@ Lo que cambia o se precisa respecto a este documento:
 - **§5, simulación**: `simulatePolicy` reevalúa perfiles guardados y reporta transiciones y mora
   observada por estado. `pnpm simulate` la corre.
 
-### Fase 5 (2026-11-05): workflow y respuestas (ADR 0015)
+### 2026-11-05: workflow y respuestas
 
 - **§6, línea máxima.** Sin monto solicitado, la salida incluye el mayor monto que la política
   aprobaría pedido tal cual (`max_line`), con las compuertas de aclaración pendientes como
-  condición (`docs/07` A).
+  condición.
 - **§6, `next_steps`.** Haiku los redacta solo cuando el veredicto es final; mientras la solicitud
   está pausada llevan la plantilla del código. Ambos pasan el filtro de cifras.
 - **§7, respuestas.** Son cerradas:
@@ -299,7 +298,7 @@ Lo que cambia o se precisa respecto a este documento:
   manda a revisión humana (`owner_answer_contradicts_document`). Si el motor pide aclarar y no
   hay pregunta concreta, también va a revisión humana (`no_concrete_question`).
 
-### Fase 8 (2026-11-06): el nombre del titular tolera typos (ADR 0040)
+### 2026-11-06: el nombre del titular tolera typos
 
 El cotejo de identidad comparaba las palabras significativas del nombre de forma exacta (después de
 quitar acentos, mayúsculas, puntuación y sufijos societarios). Ahora cada palabra admite un error de
@@ -308,20 +307,20 @@ typo en una razón social de una sola palabra significativa ya no da `mismatch`,
 RFC coincidente. Los umbrales de `match` y `partial` no cambian. `evaluate` da los mismos estados
 sobre los 9 documentos de desarrollo.
 
-### Fase 8 (2026-11-06): RFC sin homoclave y pregunta de identidad específica (ADR 0043)
+### 2026-11-06: RFC sin homoclave y pregunta de identidad específica
 
 Un RFC impreso sin homoclave (raíz de 9 o 10 posiciones) se compara contra el inicio del RFC
 registrado (`root`). La identidad es `match` con el RFC completo, o con el nombre más la CLABE o la
 raíz del RFC. La pregunta de identidad dice qué coincidió, qué no y qué no se pudo comparar, y pide
 solo eso.
 
-### Fase 8 (2026-11-06): la identidad se verifica solo con nombre y RFC (ADR 0044)
+### 2026-11-06: la identidad se verifica solo con nombre y RFC
 
 La CLABE sale del cotejo de identidad y de la pregunta al proveedor: quien manda el documento puede
 dar la misma CLABE que trae impresa, así que no prueba de quién es la cuenta. La identidad es `match`
 con el RFC completo, o con el nombre más la raíz del RFC. La CLABE se sigue extrayendo y midiendo.
 
-### Fase 8 (2026-11-06): veredicto sin monto, motivos y explicación en prosa (ADR 0045)
+### 2026-11-06: veredicto sin monto, motivos y explicación en prosa
 
 - Sin monto solicitado, un veredicto final se decide con la línea máxima (el mayor monto que la
   política aprueba) y el motivo `evaluated_at_max_line` lo dice; si no hay ninguno,
@@ -331,7 +330,7 @@ con el RFC completo, o con el nombre más la raíz del RFC. La CLABE se sigue ex
 - `Decision.explanation`: el resultado en prosa para el analista, redactado por Haiku sobre los hechos
   de la decisión y con el filtro de cifras de docs/04 §4; sin modelo, una plantilla.
 
-### Fase 8 (2026-11-06): la antigüedad del estado de cuenta advierte, no detiene (ADR 0049)
+### 2026-11-06: la antigüedad del estado de cuenta advierte, no detiene
 
 En el modo full, la antigüedad máxima del estado de cuenta es un ajuste del tenant
 (`statement_max_age_months`: 1 a 24 meses de 30 días, o sin límite; 3 por defecto) y reemplaza a las
@@ -339,7 +338,7 @@ compuertas sobre `document_age_days` de la política. Un corte más viejo se ana
 lleva el motivo `document_age_warning`; ya no se pide un estado reciente. El modo standalone no tiene
 ajustes de tenant y aplica `doc_recent` como está arriba.
 
-### Fase 8 (2026-11-06): dos rondas de aclaración en la plantilla (ADR 0051)
+### 2026-11-06: dos rondas de aclaración en la plantilla
 
 `clarification.maxRounds` pasa de 1 a 2 en la plantilla: si al aclarar un abono otro abono dudoso
 pasa a mover el resultado, se pregunta en una segunda ronda en lugar de mandar el caso a revisión. Lo
@@ -347,7 +346,7 @@ que ya se preguntó en una ronda anterior no se repite; si es lo único que falt
 `clarification_already_asked`. Antes de evaluar, el proveedor confirma un resumen de sus respuestas.
 Las versiones de política ya activas no cambian.
 
-### Fase 8 (2026-11-06): más preguntas al proveedor (ADR 0050)
+### 2026-11-06: más preguntas al proveedor
 
 - Se preguntan también los cargos grandes dudosos (en especial pagos a créditos con confianza menor
   a 0.8) si como traspaso propio cambiarían el resultado; el cliente principal, si la solicitud no
@@ -359,12 +358,12 @@ Las versiones de política ya activas no cambian.
 - Una cuenta en otra moneda con movimientos manda la solicitud a revisión humana
   (`foreign_currency_statement`); varias cuentas en MXN de un documento se siguen agregando.
 
-### Fase 8 (2026-11-06): la identidad no decide (ADR 0052)
+### 2026-11-06: la identidad no decide
 
 La compuerta `identity` sale de la plantilla base y de las políticas de ejemplo. `identity_match` se
 sigue calculando y se informa, pero no cambia el estado ni se pregunta al proveedor.
 
-### Robustez documental (2026-11-07): las señales de la extracción llegan al motor (ADR 0058)
+### Robustez documental (2026-11-07): las señales de la extracción llegan al motor
 
 - **Catálogo 1.2.0.** Dos features de fuente `statement`: `document_pages_missing` (bool: algún documento trae
   la bandera `pages_missing`) y `document_tamper_signals` (lista cerrada: `prompt_injection`,
@@ -381,6 +380,6 @@ sigue calculando y se informa, pero no cambia el estado ni se pregunta al provee
   impreso negativo o por `SOBREGIRO` en la descripción no cambia.
 - **Escenarios.** El 19 (PDF con instrucciones ocultas) espera `human_review`; el 28 (`pagina-faltante`, modo
   unit) espera `needs_clarification` con `missing_pages`.
-- **Catálogo 1.3.0 (ADR 0066).** `holder_address_present` (bool): algún estado de cuenta trae el domicilio del
+- **Catálogo 1.3.0.** `holder_address_present` (bool): algún estado de cuenta trae el domicilio del
   titular. La plantilla base no la usa; una política que la exija pide `statement_with_address`, un PDF que
   traiga el domicilio. El domicilio queda en `suppliers.address`, nunca en el perfil.

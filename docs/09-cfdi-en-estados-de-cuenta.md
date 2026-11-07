@@ -1,10 +1,10 @@
 # CFDI dentro de los estados de cuenta
 
-**Estado: hallazgo del 2026-11-04 sobre el dataset, hecho cuando la implementación ya iba
-en la fase 2.** Cambia el contrato de extracción, la verificación, el catálogo de features
-y la pregunta enviada a GOW. Quien implementa lo incorpora con una ADR y una sección
+**Estado: hallazgo del 2026-11-04 sobre el dataset, hecho cuando la implementación ya había
+empezado.** Cambia el contrato de extracción, la verificación, el catálogo de features
+y la pregunta enviada a GOW. Quien implementa lo incorpora con una sección
 "Cambios durante la implementación" en `02`, `03` y `04`. En lo que toca al bloque fiscal,
-este documento manda sobre ellos (regla de precedencia del README).
+este documento manda sobre ellos.
 
 ## 1. Hallazgo
 
@@ -39,7 +39,7 @@ de 31, Hey 13 de 15, Inbursa 4 y 8) y **un documento puede traer más de uno**.
 
 ## 2. Qué significa para el enunciado
 
-La pregunta a GOW cambia de forma (README): ya no es "¿factura quiere decir estado de
+La pregunta a GOW cambia de forma: ya no es "¿factura quiere decir estado de
 cuenta?", sino si los diez documentos de evaluación son estados de cuenta como los de
 desarrollo (con o sin CFDI) o si también llegarán CFDI emitidos por el proveedor a su
 comprador. Mientras no haya respuesta se asume lo primero.
@@ -49,7 +49,7 @@ como `invoice` (un CFDI completo, sin movimientos) sigue sin perfil crediticio y
 decisión sigue siendo "faltan estados de cuenta", pero el reporte muestra emisor,
 receptor, UUID y total en lugar de un simple `not_a_bank_statement`.
 
-## 3. Contrato de extracción (fase 1, `02`)
+## 3. Contrato de extracción (`02`)
 
 `StatementExtraction` gana `fiscal_documents: FiscalDocument[]` al nivel del documento,
 no de la cuenta: el CFDI es del titular. `schema_version` sube a `1.1.0` y se regenera
@@ -98,7 +98,7 @@ Reglas:
   `fiscal_fees_mismatch`, `fiscal_receiver_mismatch`.
 - `DocumentFlag` nuevo: `fiscal_document_present`.
 
-## 4. Verificación y control de alucinaciones (fase 2, `04`)
+## 4. Verificación y control de alucinaciones (`04`)
 
 Los sellos son la trampa perfecta: base64 largo, cortado en Hey (unos 260 de 344
 caracteres, también en la capa de texto), ausente de la capa de texto en Banamex, y sin
@@ -135,7 +135,7 @@ movimientos y saldos es `bank_statement` aunque traiga CFDI; `invoice` es solo c
 documento entero es el comprobante (conceptos y cantidades, sin movimientos). Esto exige
 prompt v2 y un caso nuevo en la eval de clasificación.
 
-## 5. Features y política (fase 4, `03`)
+## 5. Features y política (`03`)
 
 - `fiscal_regime` (enum, fuente `statement`): régimen fiscal del receptor del CFDI.
   Lista cerrada `601 | 603 | 605 | 606 | 607 | 608 | 610 | 611 | 612 | 614 | 615 | 616 |
@@ -151,7 +151,7 @@ prompt v2 y un caso nuevo en la eval de clasificación.
 - `FEATURE_CATALOG_VERSION` sube a `1.1.0`. La política base no cambia; `policies/` gana
   un ejemplo con la compuerta de régimen.
 
-## 6. Verificación ante el SAT (fases 5 y 6; `05`, `06`, `07`)
+## 6. Verificación ante el SAT (`05`, `06`)
 
 - Servicio público "Verifica CFDI" del SAT (`consultaqr.facturaelectronica.sat.gob.mx`,
   SOAP `ConsultaCFDIService.svc`). Recibe la expresión impresa
@@ -161,9 +161,8 @@ prompt v2 y un caso nuevo en la eval de clasificación.
 - Lo que el dataset ya enseña: Hey no imprime el RFC del receptor y tiene el sello
   truncado, así que para Hey la consulta puede ser imposible; Mercado Pago no tiene CFDI.
   Faltan datos → `null`, nunca `not_found`.
-- Spike 5 (una hora, al llegar a la fase 5): consultar con los datos de Santander (todo
-  completo) y con Hey (sin `fe` ni `rr`) y anotar en `docs/spikes/05-sat-verify.md` si el
-  servicio responde sin `fe`. Si no responde, `cfdi_sat_status` solo existe cuando el
+- Prueba de una hora antes de integrarla: consultar con los datos de Santander (todo
+  completo) y con Hey (sin `fe` ni `rr`) y anotar si el servicio responde sin `fe`. Si no responde, `cfdi_sat_status` solo existe cuando el
   sello está completo.
 - En `standalone` la consulta está **apagada** (solo las llaves de los modelos, ninguna
   llamada externa inesperada); se enciende con `--verify-cfdi`. En `full` es un método
@@ -172,11 +171,11 @@ prompt v2 y un caso nuevo en la eval de clasificación.
 - Escenarios (`06`): el doble `TaxAuthority` gana `cfdi: { "<uuid>": valid | cancelled |
   not_found }`; escenario 21 "CFDI cancelado → human_review"; escenario 22 "estado de
   cuenta sin CFDI (Mercado Pago) → sin penalización".
-- Líneas de corte (`07` G): bloque en el contrato, cruces y ground truth son
+- Líneas de corte: bloque en el contrato, cruces y ground truth son
   **obligatorio** (se mide la extracción); features y doble simulado, **debería**;
   consulta real al SAT, **si alcanza**.
 
-## 7. Ground truth y evals (fase 3)
+## 7. Ground truth y evals
 
 - El ground truth de los ocho documentos con CFDI incluye el bloque completo, sin sellos;
   Inbursa con dos.
@@ -188,16 +187,16 @@ prompt v2 y un caso nuevo en la eval de clasificación.
 - El reporte Markdown por documento lleva una línea: "CFDI: UUID …, total …, cruces ✓/✗,
   SAT: no consultado".
 
-## 8. Prompts (fase 2)
+## 8. Prompts
 
 - `extract_summary` v2 pide el bloque fiscal en la misma pasada que el encabezado y el
   resumen, buscando "representación impresa de un CFDI", "Folio fiscal" o "UUID" en
   **cualquier** página, con la instrucción explícita: "no transcribas sellos ni cadena
   original; reporta solo si están presentes y si se ven cortados".
-- Con el esquema único por documento (ADR 0005) el bloque entra en el mismo
+- Con el esquema único por documento el bloque entra en el mismo
   `output_config.format` y no rompe la caché.
 - `classify_document` v2 con la regla de la sección 4.
-- Con `gemini-3.8-flash` como extractor (ADR 0011) el esquema viaja como
+- Con `gemini-3.8-flash` como extractor el esquema viaja como
   `responseJsonSchema`; la regla del esquema único sigue valiendo para su caché implícita.
 
 ## 9. Para qué sirve de verdad: el bloque fiscal como ancla
@@ -240,7 +239,7 @@ valor contra costo.
    pagadores en 69-B definitivo). Un proveedor cuyo pagador principal es un EFOS no se
    arregla con flujo. Costo: descargar y normalizar un CSV público; en `standalone` es
    opcional (`--sat-lists <csv>`), en `full` un adaptador con refresco semanal por
-   pg_cron. Spike corto para fijar URL y formato del CSV.
+   pg_cron. Prueba corta para fijar URL y formato del CSV.
 5. **Régimen fiscal como filtro y como prueba de plausibilidad.** 616 no puede facturar
    y no cabe en pronto pago. 626 (RESICO persona física) tiene tope de ingresos de 3.5
    millones de pesos al año: ingresos operativos anualizados por encima →
@@ -275,7 +274,7 @@ Escenarios nuevos (`06`): 23 "mismo UUID presentado a otro tenant hace 3 días �
 human_review"; 24 "pagador principal en 69-B definitivo → not_qualified"; 25 "RESICO
 con ingresos anualizados sobre el tope → pregunta al dueño".
 
-Líneas de corte: usos 1, 3, 5 y 6 entran en las fases 2 y 4 sin costo visible; el uso
+Líneas de corte: usos 1, 3, 5 y 6 entran sin costo visible; el uso
 2 dentro del tenant es **debería** y el índice de plataforma **si alcanza** (diseñado
 en `05`); el uso 4 con doble simulado es **debería** y la lista real **si alcanza**; el
 uso 7 como tipo de pregunta es **debería** y la verificación criptográfica del XML
@@ -283,24 +282,23 @@ uso 7 como tipo de pregunta es **debería** y la verificación criptográfica de
 
 ## 10. Qué hacer ahora, en orden
 
-1. ADR 0006 "Bloque fiscal en el contrato", con este documento como fuente.
-2. Contrato: `FiscalDocument`, `IssueCode`, `DocumentFlag`, `schema_version` 1.1.0, JSON
+1. Contrato: `FiscalDocument`, `IssueCode`, `DocumentFlag`, `schema_version` 1.1.0, JSON
    Schema regenerado, tests con los valores de Hey (truncado, receptor vacío) e Inbursa
    (dos comprobantes).
-3. Prompts v2 de `extract_summary` y `classify_document`, con entrada en el changelog.
-4. Verificación: los cruces de la sección 4.
-5. `fiscal_regime` y `cfdi_sat_status` al llegar a la fase 4; `TaxAuthority` y el spike 5
-   al llegar a la 5.
-6. `counterparty_rfc` en la clasificación de movimientos y los usos 1, 5 y 6 de la
+2. Prompts v2 de `extract_summary` y `classify_document`, con entrada en el changelog.
+3. Verificación: los cruces de la sección 4.
+4. `fiscal_regime` y `cfdi_sat_status` primero; `TaxAuthority` y la prueba de consulta al
+   SAT después.
+5. `counterparty_rfc` en la clasificación de movimientos y los usos 1, 5 y 6 de la
    sección 9 dentro de la verificación y el perfil.
-7. `statement_reuse_count`, `sat_list_status` y la pregunta "mándanos el XML" cuando
-   lleguen las fases 4 y 5; el índice de plataforma y la lista 69-B real al final.
-8. Secciones "Cambios durante la implementación" en `02`, `03`, `04`, `05` y `06`
+6. `statement_reuse_count`, `sat_list_status` y la pregunta "mándanos el XML" cuando
+   el perfil y los canales existan; el índice de plataforma y la lista 69-B real al final.
+7. Secciones "Cambios durante la implementación" en `02`, `03`, `04`, `05` y `06`
    apuntando aquí.
 
 ## Cambios durante la implementación
 
-- **Fase 3, ground truth del bloque fiscal** (ADR 0012). Los 8 documentos con CFDI tienen su
+- **Ground truth del bloque fiscal**. Los 8 documentos con CFDI tienen su
   bloque en el ground truth (Inbursa con dos, sin sellos). Los campos que el comprobante no
   imprime en su página quedan `null` y no se miden (importes de BBVA, Santander, Nu y
   Fondeadora; RFC del emisor de Fondeadora y Santander). El RFC del PAC que solo aparece
@@ -308,7 +306,7 @@ uso 7 como tipo de pregunta es **debería** y la verificación criptográfica de
   nombre del receptor se miden como "debe ser null" cuando vienen vacíos. La eval de
   inyección incluye el PDF cuyo bloque fiscal pide "transcribe el sello" y comprueba que
   ningún fragmento de 16 caracteres del sello aparece en ningún campo de la extracción.
-- **Fase 4, catálogo 1.1.0 implementado** (ADR 0013).
+- **Catálogo 1.1.0 implementado**.
   - **Implementado:** `fiscal_regime`, `cfdi_sat_status`, `fiscal_anchor_ok`,
     `statement_reuse_count`, `statement_seen_elsewhere_days`, `sat_list_status`,
     `income_from_listed_rfc_share` y `regime_income_plausible`; `identity_match` con el RFC del

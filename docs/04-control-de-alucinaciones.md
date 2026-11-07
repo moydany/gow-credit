@@ -141,9 +141,9 @@ contra ground truth y en producción con la tasa de corrección de los revisores
 
 ## Cambios durante la implementación
 
-### Fase 2 (2026-11-04)
+### 2026-11-04
 
-- **Sellos del CFDI fuera del contrato** (`docs/09` §4, ADR 0008). Son base64 largo, a
+- **Sellos del CFDI fuera del contrato** (`docs/09` §4). Son base64 largo, a
   veces cortado (Hey) o fuera de la capa de texto (Banamex): un modelo al que se le piden
   los completa. Solo se registra si están presentes y si se ven truncados.
 - **Cruces fiscales** como verificación gratuita adicional (capa 2): UUID contra la cadena
@@ -160,21 +160,21 @@ contra ground truth y en producción con la tasa de corrección de los revisores
 - **Valor sin cita = no verificado.** Un valor extraído sin página ni texto, que tampoco se
   ubica en la capa de texto, se conserva como `unverified` (no decide) en lugar de inventar
   una cita.
-- **Resúmenes consolidados con apartados** (ADR 0009). Si la fórmula directa no cuadra, el
+- **Resúmenes consolidados con apartados**. Si la fórmula directa no cuadra, el
   cuadre global prueba sin los traspasos internos (`internal_transfer`) y con conceptos del
   resumen no detallados (rendimientos, comisiones, ISR); una fórmula alternativa solo se
   acepta exacta al centavo y queda registrada.
 - **Fecha de timbrado como reloj confiable** (`docs/09` §9.6): si el timbrado del CFDI
   queda a más de 30 días del fin del periodo, aviso (documento generado mucho después o
-  periodo editado). El ancla de comisiones (`09` §9.1) entra en la fase 4, cuando los
+  periodo editado). El ancla de comisiones (`09` §9.1) entra cuando los
   movimientos estén clasificados como `fee`.
-- **Doble lectura con otra familia de modelos** (ADR 0011). Con Gemini como extractor, la
+- **Doble lectura con otra familia de modelos**. Con Gemini como extractor, la
   segunda lectura de encabezado, totales y movimientos grandes (§3.6) se hace con Claude
   (`claude-haiku-5-5`; `claude-opus-5-5` si el router sube el `effort`). Dos familias
   comparten menos sesgos que dos prompts del mismo modelo: un acuerdo vale más y un
   desacuerdo marca `unverified` igual que antes. Las citas nativas de Claude (§3.7) quedan
   solo en el camino de emergencia.
-- **Métricas de §6 implementadas** (ADR 0012, `evals/`). Filas emparejadas en dos rondas
+- **Métricas de §6 implementadas** (`evals/`). Filas emparejadas en dos rondas
   (exacta por fecha, monto y sentido; luego un solo campo mal leído), así que invención,
   omisión y lectura errónea se cuentan aparte. Un valor en un campo que el PDF trae
   redactado (titular, RFC, CLABE, receptor del CFDI) cuenta como invención. Descripción
@@ -182,9 +182,9 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   `evals/src/thresholds.ts`: precisión ≥ 99.5 %, recall ≥ 99 %, monto y sentido ≥ 99.5 %,
   fecha y saldo ≥ 99 %, descripción ≥ 90 %, encabezado ≥ 90 %, CFDI ≥ 85 %, documento
   cuadrado. El cuadre a la primera se reporta sin bloquear. La fidelidad del texto generado
-  (preguntas y `next_steps`) llega con la fase 5, que es donde se genera ese texto.
+  (preguntas y `next_steps`) llega con el workflow, que es donde se genera ese texto.
 
-### Fase 4 (2026-11-04): capa 4 en el motor (ADR 0014)
+### 2026-11-04: capa 4 en el motor
 
 - **§5 implementado como regla fija de `evaluate`.** Una dimensión cuya feature es `unverified`,
   `conflict` o de confianza baja no suma, y un tope sobre ella aplica. El motor evalúa también
@@ -197,7 +197,7 @@ contra ground truth y en producción con la tasa de corrección de los revisores
 - Un test de propiedades lo comprueba: con un dato no verificado fuera de la fórmula de línea,
   cambiar su valor no cambia el estado.
 
-### Fase 5 (2026-11-05): capa 3 en el workflow (ADR 0015)
+### 2026-11-05: capa 3 en el workflow
 
 - **Filtro de cifras implementado** (`packages/mastra/src/figures.ts`):
   - Revisa números, fechas en palabras e ISO, y números escritos con palabras de "dos" en
@@ -207,7 +207,7 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   - Un texto que falla se regenera una vez, indicándole al modelo qué cifras se rechazaron. Si
     vuelve a fallar queda la plantilla del código, que siempre pasa.
 - **Haiku como clasificador de movimientos**: su confianza autoreportada no entra a ningún
-  umbral (spike 3). Ver ADR 0015 §8.
+  umbral.
 - **Respuesta que contradice el documento**: el umbral de "alta probabilidad" quedó en 0.8 de la
   clasificación existente (regla o modelo).
 - **Fidelidad del texto generado (§6)**: el filtro es la guarda en línea. La métrica con juez
@@ -215,7 +215,7 @@ contra ground truth y en producción con la tasa de corrección de los revisores
 
 ### Robustez documental (2026-11-07): doble lectura del encabezado sin texto (§3.6)
 
-Spec `docs/specs/2026-11-07-robustez-documental.md`, sección V. §3.6 prometía una segunda lectura
+§3.6 prometía una segunda lectura
 de encabezado, totales y movimientos grandes para los documentos sin texto; hasta hoy solo se
 releían las páginas que rompen el saldo corrido, y un PDF escaneado dejaba todo el encabezado en
 `unverified` porque no hay capa de texto contra qué comparar (§3.5). Se hizo así:
@@ -226,7 +226,7 @@ releían las páginas que rompen el saldo corrido, y un PDF escaneado dejaba tod
   gratis.
 - **Qué lee.** Repite la pasada 1 tal cual (mismo prompt, mismo esquema, misma instrucción con la
   nota de visión; sin cambio de prompts ni de esquema, así que la caché no se invalida) con el
-  modelo de `plan.doubleRead`, la otra familia de la ADR 0011, a `effort` medio. La llamada
+  modelo de `plan.doubleRead`, la otra familia, a `effort` medio. La llamada
   queda en `extraction.calls` con `purpose: double_read`, su costo y su acierto de caché.
 - **Qué compara.** `bank_name`, `holder_name`, `holder_rfc`; por cuenta `account_number` y `clabe`;
   por periodo `period_start`, `period_end`, `statement_date`, `opening_balance`, `closing_balance`,

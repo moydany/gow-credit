@@ -145,7 +145,7 @@ muestra personalización y el loop de aprendizaje.
 
 ## Cambios durante la implementación
 
-- **Fase 7, backoffice (ADR 0019).** `apps/web` y `/bo/v1` en `apps/api`:
+- **Backoffice.** `apps/web` y `/bo/v1` en `apps/api`:
   - **Hecho.** Solicitudes (bandeja con filtros y búsqueda), Detalle en tres paneles (PDF con
     resaltado del fragmento citado, extracción con valores sin verificar rayados, decisión con
     compuertas, dimensiones, contrafactuales y perfil), Aclaraciones con respuesta manual, Revisión
@@ -155,12 +155,12 @@ muestra personalización y el loop de aprendizaje.
     producción, enlace de `pnpm tenant user add` en desarrollo); el PDF se sirve por la API; las listas
     se refrescan por sondeo y no por Realtime.
   - **Pendiente.** Formulario de política generado del esquema, Proveedores, Configuración y modo oscuro.
-- **Fase 7, corrección en revisión humana (ADR 0020).** El analista corrige titular, CLABE, cifras del
+- **Corrección en revisión humana.** El analista corrige titular, CLABE, cifras del
   resumen y movimientos con el PDF al lado; cada corrección se guarda como par (leído, correcto, página) y la
   solicitud se reevalúa sin modelos con las correcciones aplicadas encima de la extracción inmutable.
   Descartar un documento y exportar los pares al ground truth de las evals quedan pendientes.
 
-- **Fase 8, pantallas que faltaban (ADR 0019 y 0020, "Cambios").**
+- **Pantallas que faltaban.**
   - **Proveedores.** Lista con número de solicitudes y la última; detalle con RFC, CLABEs,
     contactos por canal con su verificación, historial de solicitudes y outcomes. Alta y edición
     de razón social, RFC y CLABEs, validadas con los mismos contratos que la API. Abrir un
@@ -181,7 +181,7 @@ muestra personalización y el loop de aprendizaje.
     medirlas contra el modelo actual (`pnpm -F @gow/evals corrections`).
   - **Sigue pendiente**: el formulario de política generado del esquema, la vinculación de
     WhatsApp por QR desde la pantalla y el modo oscuro.
-  - **WhatsApp por QR desde Configuración (ADR 0033, 2026-11-06).** Ya no es de solo lectura.
+  - **WhatsApp por QR desde Configuración (2026-11-06).** Ya no es de solo lectura.
     La tarjeta muestra, según el estado:
     - el QR para escanear, con los pasos en el teléfono, actualizado cada 2 s;
     - el número vinculado, con "Desvincular", que cierra la sesión y deja un QR nuevo para
@@ -191,7 +191,7 @@ muestra personalización y el loop de aprendizaje.
 
     Ver el QR y pedir desvincular quedan en la bitácora. El menú de usuario, Solicitudes y
     Aclaraciones usan el número vinculado. Sale de "Sigue pendiente".
-  - **Login con Supabase Auth (ADR 0035, 2026-11-06).** Con `SUPABASE_URL` y
+  - **Login con Supabase Auth (2026-11-06).** Con `SUPABASE_URL` y
     `SUPABASE_SERVICE_ROLE_KEY`, la pantalla de acceso pide el correo y Supabase Auth manda el
     enlace. La respuesta es la misma tenga o no cuenta. Un custom access token hook agrega
     `tenant_id` al token de quien es miembro. Cambios:
@@ -201,7 +201,7 @@ muestra personalización y el loop de aprendizaje.
     - La sesión dura lo que el access token (una hora por defecto) y no se refresca.
 
     Sin Supabase sigue el enlace con el JWT de `pnpm tenant user add`.
-  - **La sesión se renueva sola (ADR 0036, 2026-11-06).** Con Supabase Auth, `/entrar` manda
+  - **La sesión se renueva sola (2026-11-06).** Con Supabase Auth, `/entrar` manda
     también el refresh token; la API lo guarda cifrado en una cookie `HttpOnly` y renueva el
     access token cuando le quedan menos de 5 min o ya venció. Las consultas que se refrescan solas
     mantienen viva la sesión. Cambios:
@@ -213,7 +213,7 @@ muestra personalización y el loop de aprendizaje.
 
     Sin Supabase nada cambia.
 
-- **Fase 8, antigüedad máxima del estado de cuenta (ADR 0049).**
+- **Antigüedad máxima del estado de cuenta.**
   - **Configuración → Análisis**: 1, 2, 3, 6 o 12 meses, o sin límite (3 por defecto). Se cambia con
     `PATCH /bo/v1/settings`, queda en la bitácora y aplica a lo que se analice desde ese momento y a
     las reevaluaciones.
@@ -221,25 +221,25 @@ muestra personalización y el loop de aprendizaje.
     antiguo" con la antigüedad y el límite, y la lista de solicitudes lo etiqueta "Estado antiguo".
   - Una solicitud fallida por PDF con contraseña o por un escaneado ilegible lo dice en su motivo.
 
-- **Borrar un proveedor (ADR 0059).** Proveedores → detalle → Borrar se lleva al proveedor con sus
+- **Borrar un proveedor.** Proveedores → detalle → Borrar se lleva al proveedor con sus
   solicitudes, documentos, decisiones, aclaraciones, resultados de crédito, registro y mensajes
   (`DELETE /bo/v1/suppliers/:id`). Con una solicitud en proceso contesta 409. Los PDFs, el estado de
   Mastra y los trabajos de la cola los borra el worker con `supplier.purge`. La bitácora guarda solo
   los conteos.
 
-- **Wizard del primer inicio (ADR 0060).** Con el sistema vacío, `/entrar` lleva a
+- **Wizard del primer inicio.** Con el sistema vacío, `/entrar` lleva a
   `/configuracion-inicial`: crea el tenant, su política base y al administrador (`POST /bo/v1/setup`) y
   sigue con la tarjeta de WhatsApp de Configuración. Sin código ni límites: pensado para correr solo en
-  local; antes de exponer la API hay que cerrarlo (ADR 0060, "Seguridad").
+  local; antes de exponer la API hay que cerrarlo.
 
-- **Llamadas al modelo en la bitácora (ADR 0064).** Bitácora tiene dos pestañas: Movimientos (quién
+- **Llamadas al modelo en la bitácora.** Bitácora tiene dos pestañas: Movimientos (quién
   hizo qué) y Llamadas al modelo. La segunda lista cada llamada con propósito, modelo, resultado,
   tokens, costo y tiempo, filtrable por solicitud y por error; el detalle muestra el system prompt, la
   instrucción, la respuesta o la salida cruda y el error, y se copia o descarga como JSON. Abrir un
   detalle queda en Movimientos como "Vio una llamada al modelo". El detalle de una solicitud tiene el
   botón "Llamadas al modelo".
 
-- **Prompts (ADR 0065).** Página nueva "Prompts", después de Políticas y con el mismo patrón:
+- **Prompts.** Página nueva "Prompts", después de Políticas y con el mismo patrón:
   - Lista de los diez prompts del catálogo con su versión activa.
   - Versiones de cada uno con origen (`prompts/` o backoffice), autor, nota y la marca "Sin evals".
   - Editor que guarda una versión nueva, nunca cambia una existente.
@@ -254,11 +254,11 @@ muestra personalización y el loop de aprendizaje.
   `/configuracion/politicas`, `/configuracion/prompts` y `/configuracion/bitacora`. Las rutas anteriores
   (`/politicas`, `/prompts`, `/bitacora`) redirigen a las nuevas con sus filtros.
 
-- **Domicilio del proveedor (ADR 0066).** El detalle del proveedor muestra el domicilio que trae su estado de
+- **Domicilio del proveedor.** El detalle del proveedor muestra el domicilio que trae su estado de
   cuenta más reciente que lo incluye; la extracción lo muestra en el bloque del titular. La referencia externa
   ya no se muestra en el backoffice (sigue en la base y en la API de integración).
 
-- **Recorrido de una solicitud (ADR 0067, 2026-11-07).** El detalle de la solicitud tiene el enlace
+- **Recorrido de una solicitud (2026-11-07).** El detalle de la solicitud tiene el enlace
   "Ver recorrido", que abre `/solicitudes/$id/recorrido`: una vista 3D con una placa por capa (proveedor,
   canal, cola, workflow, modelos, motor y analista) y una línea de tiempo con capítulos para avanzar paso
   a paso. Se reconstruye al pedirla con lo que ya hay, sin datos nuevos; los eventos sólidos son exactos,

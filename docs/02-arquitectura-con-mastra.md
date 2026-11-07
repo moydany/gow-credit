@@ -1,8 +1,8 @@
 # Arquitectura con Mastra
 
 > **Estado: arquitectura vigente.** Es la que se construye. `01` conserva la comparación
-> de opciones; `03` a `08` detallan criterio, alucinaciones, seguridad, escenarios,
-> pendientes y backoffice. Glosario y estados canónicos en `README.md`.
+> de opciones; `03` a `08` detallan criterio, alucinaciones, seguridad, escenarios
+> y backoffice.
 
 Fecha: 2026-11-04. Arquitectura basada en `01-investigacion-arquitectura.md`
 usando Mastra como capa de agentes y workflows. Lo que Mastra reemplaza: la máquina de
@@ -38,7 +38,7 @@ evals/
 scenarios/          escenarios YAML de `06` y el runner `pnpm scenario`
 prompts/            prompts versionados (`extract_summary.v1.md`, ...) con CHANGELOG
 data/               PDFs de desarrollo; ignorado por git, con script de descarga
-docs/               estos documentos, `adr/`, `schema/` (JSON Schema publicado), `harness.md`
+docs/               estos documentos y `schema/` (JSON Schema publicado)
 ```
 
 ### Modos de ejecución
@@ -51,7 +51,7 @@ El mismo código corre en dos modos, elegidos por configuración:
 | `full` | demo y producción | PostgresStore en Supabase | pg-boss | Baileys, Resend, backoffice | reales o simuladas por escenario |
 
 `standalone` solo necesita `ANTHROPIC_API_KEY`; sin `TYPESAFE_API_KEY` el clasificador
-usa Haiku y lo indica en el reporte. Detalle en `07`, sección A.
+usa Haiku y lo indica en el reporte.
 
 Mastra crea sus propias tablas (snapshots de workflows, scores, observabilidad) en el
 mismo Postgres de Supabase, en un esquema `mastra` separado del esquema de negocio. Las
@@ -94,7 +94,7 @@ evals `strict`; en producción `fallback` con `fallbackValue` que marca la extra
 fallida y la manda a revisión, para que un JSON inválido nunca produzca una decisión.
 
 Caché de prompt entre las dos pasadas de extracción vía `providerOptions.anthropic`
-(`cacheControl` sobre el bloque del documento). Esto hay que verificarlo en un spike de
+(`cacheControl` sobre el bloque del documento). Esto hay que verificarlo con una prueba de
 una hora: es la única pieza donde la capa de Mastra se interpone entre el código y una
 feature del SDK que importa para el costo.
 
@@ -126,7 +126,7 @@ export const processApplication = createWorkflow({
     [async ({ inputData }) => inputData.isStatement, extractStatement],
   ])
   .then(reconcile)             // código puro: cuadre aritmético, produce issues[]
-  .then(decide)                // packages/decision: veredicto (ver estados canónicos en README.md)
+  .then(decide)                // packages/decision: veredicto
   .dountil(clarificationLoop, async ({ inputData }) => inputData.status !== 'needs_clarification')
   .then(notifySupplier)
   .commit()
@@ -188,8 +188,9 @@ Notas de diseño para Baileys:
   tocar el workflow. Esto queda registrado como decisión y riesgo.
 
 Estados visibles para la API y el backoffice: los del run de Mastra (`running`,
-`suspended`, `success`, `failed`) más la columna `status` propia de `applications` (lista
-canónica en `README.md`) que se actualiza en cada paso, para que RLS y el backoffice no
+`suspended`, `success`, `failed`) más la columna `status` propia de `applications` (`received`, `extracting`, `extracted`, `deciding`,
+`needs_clarification`, `human_review`, `qualified`, `qualified_with_limit`, `not_qualified` y
+`failed`) que se actualiza en cada paso, para que RLS y el backoffice no
 dependan del esquema interno de Mastra.
 
 ---
@@ -254,7 +255,7 @@ worker. Se limita por tenant con un contador en Postgres (máximo de jobs activo
 
 **Timeouts y memoria.** Cada job tiene `expireInSeconds` acorde a páginas (por ejemplo
 60 s base más 5 s por página). El worker corre con límite de memoria en Cloud Run y no
-renderiza páginas a imagen por su cuenta: eso lo hace el proveedor. Si en el spike se
+renderiza páginas a imagen por su cuenta: eso lo hace el proveedor. Si se
 necesita render propio para algún caso, se hace página por página en streaming, nunca el
 PDF completo en memoria.
 
@@ -403,7 +404,7 @@ de datos, y personalizable por prestamista sin tocar código.
 | Scorers vivos y Studio para la demo | Mastra está en 1.x con cambios frecuentes: fijar versión |
 | Agentes y workflows tipados con Zod de punta a punta | Dos motores en juego (pg-boss y el engine de Mastra): pg-boss decide cuándo y cuántos; Mastra ejecuta (sección 4) |
 
-Riesgo a cerrar en el primer spike: confirmar que el PDF como `file` part llega como
+Riesgo a cerrar en la primera prueba: confirmar que el PDF como `file` part llega como
 bloque `document` a Anthropic, que `cacheControl` reduce tokens en la segunda pasada, y
 que `structuredOutput` usa el modo nativo del proveedor (`jsonPromptInjection: 'auto'`).
 Si alguna de las tres falla, el paso de extracción llama al SDK de Anthropic directamente
@@ -414,54 +415,53 @@ no cambia el resto del diseño.
 
 ## Cambios durante la implementación
 
-### Fase 0 (2026-11-04), a partir de los spikes de `docs/spikes/`
+### 2026-11-04, verificaciones iniciales
 
 - **Modelo como instancia del proveedor, no como string del router.** Los agentes reciben
   `createAnthropic()(...)` de `@ai-sdk/anthropic` en lugar de `'anthropic/claude-opus-5-5'`.
   Así se fija la versión del proveedor, se puede apuntar a un servidor de pruebas y no se
-  hereda un `ANTHROPIC_BASE_URL` ajeno. (Spike 1)
+  hereda un `ANTHROPIC_BASE_URL` ajeno.
 - **Salida estructurada nativa.** La sección 9 menciona `jsonPromptInjection: 'auto'`; en
   Mastra 1.81 lo nativo es el default (sin `jsonPromptInjection`) y además se fuerza con
   `providerOptions.anthropic.structuredOutputMode: 'outputFormat'`. Verificado en el cable:
-  llega `output_config.format`. (Spike 1)
+  llega `output_config.format`.
 - **`maxOutputTokens` siempre explícito y `agent.stream()` en las pasadas largas.** Sin
-  `maxOutputTokens`, AI SDK manda `max_tokens: 128000` en una llamada no streaming. (Spike 1)
+  `maxOutputTokens`, AI SDK manda `max_tokens: 128000` en una llamada no streaming.
 - **Guarda en `askOwner`.** `.dountil()` corre el cuerpo al menos una vez, así que
   `clarificationLoop` se ejecuta aunque la decisión ya sea final. `askOwner` regresa sin
   suspender si `status !== 'needs_clarification'`. Sin la guarda se le preguntaría al
-  proveedor sin motivo. (Spike 4)
+  proveedor sin motivo.
 - **Errores de esquema en la entrada del workflow.** `run.start()` lanza `MastraError`
   (`WORKFLOW_SCHEMA_VALIDATION_FAILED`) en lugar de devolver `failed`; quien lo llama lo
-  convierte en `application.status = failed` con razón. (Spike 2)
+  convierte en `application.status = failed` con razón.
 - **`exactOptionalPropertyTypes`** se apaga solo en `packages/mastra` por incompatibilidad
-  de tipos de Mastra con sub-workflows. ADR 0004. (Spikes 2 y 4)
+  de tipos de Mastra con sub-workflows.
 - **Jev y las imágenes.** `@typesafe-ai/sdk` 0.7 ya acepta imágenes (experimental). Se
-  mantiene "Jev solo texto" de la sección 4c mientras sea experimental. (Spike 3)
+  mantiene "Jev solo texto" de la sección 4c mientras sea experimental.
 
-### Fase 2 (2026-11-04)
+### 2026-11-04
 
 - **Un solo esquema de salida por documento.** `output_config.format` forma parte del
   prefijo cacheado: con un esquema distinto por pasada, cada pasada vuelve a escribir el
   documento en caché. Todas las llamadas de extracción usan el mismo esquema y solo cambia
-  la instrucción final. Medido en vivo en el spike 1; ADR 0005.
+  la instrucción final. Medido en vivo.
 - **`ANTHROPIC_WORKSPACE_ID` opcional.** Las llaves de usuario sin workspace exigen el
   header `anthropic-workspace-id`; si la variable existe, el cliente lo manda.
-- **Bloque fiscal (CFDI) en la pasada 1** (`docs/09`, ADR 0008). `StatementExtraction`
+- **Bloque fiscal (CFDI) en la pasada 1** (`docs/09`). `StatementExtraction`
   1.1.0 gana `fiscal_documents`; el esquema del modelo pasa a `extraction_chunk.v2` con los
-  campos fiscales en la misma lista citada, así que no rompe la caché (ADR 0005). Los sellos
+  campos fiscales en la misma lista citada, así que no rompe la caché. Los sellos
   y la cadena original completa no se piden ni se guardan.
 
-### Modelo de extracción (2026-11-04, ADR 0011)
+### Modelo de extracción (2026-11-04)
 
 - **`statementExtractor` corre en `gemini-3.8-flash`**, no en `claude-opus-5-5`. Mismo
   puerto `StructuredLlm`, mismo prompt y esquema (`extraction_chunk.v2`), misma
   verificación; cambia `EXTRACTION_MODEL` y Gemini deja de ser experimental: desaparece
-  `--allow-third-party` y mandar el documento a Google es el comportamiento por defecto,
-  dicho en el README. Evidencia en `docs/experiments/2026-11-04-gemini-extraction.md`.
+  `--allow-third-party` y mandar el documento a Google es el comportamiento por defecto.
 - **Emergencia en dos niveles**: `gemini-4-carbon` repite el bloque cuando Flash falla por
   calidad (salida que no valida dos veces seguidas, descuadre que el reintento dirigido no
   resuelve); `claude-opus-5-5` toma el documento cuando falla el proveedor (cuota, error o
-  caída tras los reintentos). Lo decide el router (ADR 0003), no un flag, y cada bloque
+  caída tras los reintentos). Lo decide el router, no un flag, y cada bloque
   registra qué modelo lo produjo.
 - **Lo que era de Anthropic y ya no aplica a la extracción por defecto**: `cacheControl`,
   `fallbacks: "default"`, thinking adaptativo por `effort` (Gemini usa `thinkingLevel`),
@@ -469,30 +469,30 @@ no cambia el resto del diseño.
 - **`standalone` necesita dos llaves**: `GOOGLE_GENERATIVE_AI_API_KEY` y
   `ANTHROPIC_API_KEY` (clasificación de respaldo, aclaraciones, doble lectura, emergencia).
 
-### Fase 4 (2026-11-04, ADR 0013 y 0014)
+### 2026-11-04
 
 - **`packages/decision` está construido** como dice la sección 5: puro, sin Mastra. El paso
-  `decide` del workflow (fase 5) llamará a `decide()`, que arma el perfil, aplica la política y
+  `decide` del workflow llamará a `decide()`, que arma el perfil, aplica la política y
   agrega la pregunta por abonos grandes inciertos de `docs/03` §7.
-- **`classifyTransactions` (sección 4c)** sigue siendo de la fase 5. Mientras tanto, el perfil
+- **`classifyTransactions` (sección 4c)** sigue pendiente. Mientras tanto, el perfil
   clasifica con reglas (`rules-v1`) lo que llegue sin clasificar; Jev entra encima. La lista de
   4c gana `loan_payment` (pago a un crédito).
 - **Puertos de fuentes externas** (`ExistingCredits`, `CreditBureau`, `TaxAuthority`,
   `Program`, `ApplicationHistory`) y sus dobles simulados viven en
-  `packages/decision/src/external/` hasta que exista `packages/channels` (fase 6). El perfil
+  `packages/decision/src/external/` hasta que exista `packages/channels` El perfil
   recibe un `ExternalSnapshot` ya armado, así que sigue siendo puro.
 - **`scenarios/`** es un paquete del workspace (`@gow/scenarios`) con el runner del modo `unit`.
 
-### Fase 5 (2026-11-05, ADR 0015)
+### 2026-11-05
 
 - **`packages/mastra` existe en modo standalone.** Tiene el workflow, los canales, la redacción,
   el reporte y el CLI `evaluate`. La instancia de §2 (PostgresStore, agentes registrados,
-  scorers, Langfuse) es de la fase 6. Aquí Mastra corre con libSQL en
+  scorers, Langfuse) llega con el modo full. Aquí Mastra corre con libSQL en
   `<salida>/.state/mastra.db` y las llamadas a modelos pasan por el puerto `StructuredLlm` de
   `packages/llm`, no por agentes registrados.
 - **§3, forma real del workflow**: `extract → classify-transactions → decide →
   dountil(ask-owner → apply-answers → re-decide) → explain`. No hay `reconcile` aparte: la
-  verificación está dentro de la extracción. `notifySupplier` es de la fase 6.
+  verificación está dentro de la extracción. `notifySupplier` es del modo full.
 - **§3, el estado viaja en el snapshot.** Lleva extracciones clasificadas, veredicto, preguntas
   y respuestas. Al reanudar, `ask-owner` parte del payload de suspensión.
 - **§3, canales**: `OutboxChannel` (archivo con el mensaje) y la consola interactiva del CLI. La
@@ -500,22 +500,22 @@ no cambia el resto del diseño.
 - **§4c, `classifyTransactions`**:
   - Solo van al modelo los movimientos que las reglas dejan bajo 0.85. Lotes de 25, opciones
     por sentido.
-  - La confianza de Jev se usa. La de Haiku no (spike 3): queda en 0.8 si coincide con una regla
+  - La confianza de Jev se usa. La de Haiku no: queda en 0.8 si coincide con una regla
     con palabra clave y en 0.6 si no.
   - Las respuestas de Jev quedan en caché en `data/llm-cache/transactions`.
   - La caché de clasificación de documentos pasó a `packages/llm`.
 - **§4c, filas de la tabla sin construir.** No existen Jev para `reconcile` (`ask_owner`,
   `auto_resolve`, `human_review`), el Noul de recurrencia ni la correlación de respuestas de
-  WhatsApp. Las dos últimas llegan con la fase 6.
+  WhatsApp. Las dos últimas llegan con el modo full.
 
-### Fase 6 (2026-11-05, ADR 0016 a 0018)
+### 2026-11-05
 
 - **§1**: existen `packages/db` (Drizzle), `packages/channels` (conversación, Resend, Svix),
   `packages/platform` (pg-boss y almacenamiento), `apps/api`, `apps/worker` y `apps/whatsapp`.
-  `packages/channels` no tiene los dobles externos: siguen en `packages/decision` (fase 4).
+  `packages/channels` no tiene los dobles externos: siguen en `packages/decision`.
 - **§2, instancia de Mastra**: el worker usa `PostgresStore` en el esquema `mastra` con su propio
   rol, compartido entre trabajos. Los agentes siguen siendo el puerto `StructuredLlm`.
-- **§3, canales**: una pregunta a la vez y solo abonos por WhatsApp o correo (ADR 0017). La
+- **§3, canales**: una pregunta a la vez y solo abonos por WhatsApp o correo. La
   correlación de respuestas es determinística (número, opción o palabras clave, y si no, se
   repregunta); Jev para eso queda para cuando haya varias preguntas abiertas por número.
 - **§3, correo entrante**: en `POST /v1/webhooks/resend` de la API, con firma Svix, no en una Edge

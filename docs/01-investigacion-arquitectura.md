@@ -10,7 +10,7 @@
 > | 2.2 Haiku para clasificar | **Jev** (TypeSafe AI) con fallback automático a Haiku | `02`, sección 4c |
 > | 2.3 Reglas en tabla `rule_sets` | **Perfil de features + política JSON por tenant** en tabla `policies` | `03` |
 > | 2.6 Edge Functions reciben webhooks de WhatsApp | WhatsApp por **Baileys** en proceso propio (socket, no webhook); Edge Functions solo para Resend | `02`, sección 3 |
-> | 2.7 Estados `rejected` etc. | Lista canónica de estados en `README.md` de esta carpeta | `README.md` |
+> | 2.7 Estados `rejected` etc. | Lista canónica de estados de la solicitud: `received`, `extracting`, `extracted`, `deciding`, `needs_clarification`, `human_review`, `qualified`, `qualified_with_limit`, `not_qualified`, `failed` | `02` |
 > | 2.9 Consola mínima | **Backoffice** con un rol y varios usuarios | `08` |
 >
 > Lo demás (modelo y forma de llamar, Express 5, Supabase con Drizzle, pg-boss, Evalite,
@@ -58,7 +58,7 @@ Opciones evaluadas:
 | **Mastra** | Workflows con `suspend()` / `resume()` persistidos en Postgres, que calzan con el loop de aclaración. Scorers y Studio. Modelos Anthropic soportados. | Capa extra entre el código y el SDK: oculta structured outputs, caching y PDF nativo. Tablas propias en la base. Para dos personas es una dependencia grande que hay que justificar en la llamada. |
 | **Vercel AI SDK** | Multi-proveedor, buen DX en apps Next.js. | La API de objetos estructurados está en transición (`generateObject` vs `Output`), y es agnóstico de proveedor cuando el JD pide Claude específicamente. |
 | **LangChain.js / LangGraph.js** | Grafos de estado para multi-agente complejo. | Abstracción pesada, herencia Python-first, poco valor para un pipeline lineal con un punto de pausa. |
-| **Claude Agent SDK** | Harness completo de Claude Code. | Orientado a agentes con filesystem y shell. No es un pipeline de extracción. |
+| **Claude Agent SDK** | Harness de agentes de Anthropic. | Orientado a agentes con filesystem y shell. No es un pipeline de extracción. |
 
 **Decisión:** Anthropic SDK directo. El problema es un **workflow determinístico con un
 punto de pausa**, no un agente abierto. La máquina de estados se escribe en TypeScript puro,
