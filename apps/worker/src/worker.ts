@@ -14,7 +14,7 @@ import type { Transport } from '@gow/channels'
 import { calendarToday, describeFailure, emptyExternalSnapshot, type ExternalSnapshot, type StatementExtraction, type SyntheticStatement } from '@gow/contracts'
 import type { Db } from '@gow/db'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
-import type { Classifier, Limiter, StructuredLlm, TransactionClassifier } from '@gow/llm'
+import { withLlmScope, type Classifier, type Limiter, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
 import { CLARIFICATION_LOOP_ID, createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
 import { deleteApplicationJobs, enqueueProcess, enqueueRedecide, enqueueResume, pathBelongsTo, ProcessJob, PurgeJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
 import type { MastraCompositeStore } from '@mastra/core/storage'
@@ -146,7 +146,10 @@ export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<s
 export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<number> {
   const pending = await pendingInbound(s.db)
   for (const m of pending) {
-    const r = await resolveInbound(s.db, m.tenant_id, m.id, { storage: s.storage, selfRegistration: s.selfRegistration === true, ...(s.today ? { today: s.today } : {}), ...(s.interpreter ? { interpreter: s.interpreter } : {}) })
+    // Lo que lea Haiku de este mensaje queda atribuido a él (ADR 0064).
+    const r = await withLlmScope({ tenantId: m.tenant_id, inboundMessageId: m.id }, () =>
+      resolveInbound(s.db, m.tenant_id, m.id, { storage: s.storage, selfRegistration: s.selfRegistration === true, ...(s.today ? { today: s.today } : {}), ...(s.interpreter ? { interpreter: s.interpreter } : {}) }),
+    )
     s.logger.info(`entrante ${m.id} → ${r.resolution}${r.interpreted ? ' (Haiku)' : ''}`)
     if (r.resume) await enqueueResume(boss, r.resume)
     // Monto pedido después de la oferta (ADR 0053): se decide de nuevo con él, sin modelos.
@@ -179,6 +182,11 @@ export async function handlePurge(s: WorkerServices, boss: PgBoss, job: PurgeJob
   return { files, runs: job.run_ids.length, jobs }
 }
 
+/** Cada llamada al modelo de un trabajo queda atribuida a su solicitud (ADR 0064). */
+function scopeOf(job: { tenant_id: string; application_id: string }): { tenantId: string; applicationId: string } {
+  return { tenantId: job.tenant_id, applicationId: job.application_id }
+}
+
 export interface RunningWorker {
   stop(): Promise<void>
 }
@@ -189,7 +197,8 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
   await boss.work<ProcessJob>(QUEUES.process, polling, async ([job]) => {
     if (!job) return
     try {
-      await handleProcess(s, ProcessJob.parse(job.data))
+      const data = ProcessJob.parse(job.data)
+      await withLlmScope(scopeOf(data), () => handleProcess(s, data))
     } catch (err) {
       s.logger.error(`process ${job.id}: ${errorText(err)}`)
       throw err
@@ -198,7 +207,8 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
   await boss.work<ResumeJob>(QUEUES.resume, polling, async ([job]) => {
     if (!job) return
     try {
-      await handleResume(s, ResumeJob.parse(job.data))
+      const data = ResumeJob.parse(job.data)
+      await withLlmScope(scopeOf(data), () => handleResume(s, data))
     } catch (err) {
       s.logger.error(`resume ${job.id}: ${errorText(err)}`)
       throw err
@@ -207,7 +217,8 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
   await boss.work<RedecideJob>(QUEUES.redecide, polling, async ([job]) => {
     if (!job) return
     try {
-      await handleRedecide(s, RedecideJob.parse(job.data))
+      const data = RedecideJob.parse(job.data)
+      await withLlmScope(scopeOf(data), () => handleRedecide(s, data))
     } catch (err) {
       s.logger.error(`redecide ${job.id}: ${errorText(err)}`)
       throw err

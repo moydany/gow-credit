@@ -9,11 +9,12 @@ import { join, resolve } from 'node:path'
 import { ResendEmailTransport } from '@gow/channels'
 import { BUSINESS_TIME_ZONE, calendarToday } from '@gow/contracts'
 import { connect, databaseUrl } from '@gow/db'
-import { CachedClassifier, CachingStructuredLlm, createClassifier, createLimiter, createTransactionClassifier, JsonFileCache, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, readGoogleEnv, type CacheMode } from '@gow/llm'
+import { CachedClassifier, CachingStructuredLlm, createClassifier, createLimiter, createTransactionClassifier, JsonFileCache, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, readGoogleEnv, RecordingStructuredLlm, type CacheMode } from '@gow/llm'
 import { Writer } from '@gow/mastra'
 import { LocalDocumentStorage, startQueue } from '@gow/platform'
 import { PostgresStore } from '@mastra/pg'
 import { HaikuInterpreter } from './interpret.ts'
+import { DbLlmExchangeSink } from './llm-exchanges.ts'
 import { startWorker } from './worker.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
@@ -50,8 +51,14 @@ if (!secret) {
   process.exit(2)
 }
 const limit = createLimiter(Number(env.WORKER_MODEL_CONCURRENCY ?? 3))
-const llm = new CachingStructuredLlm(cacheMode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, cacheMode)
 const business = connect(databaseUrl('worker'), { max: 5 })
+// Cada intercambio con el modelo, crudo, queda en app.llm_exchanges para analizar un caso (ADR 0064).
+// Por fuera de la caché: también quedan las respuestas que salieron de ella.
+const llm = new RecordingStructuredLlm(
+  new CachingStructuredLlm(cacheMode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, cacheMode),
+  new DbLlmExchangeSink(business.db),
+  { onError: (m) => { log('error', m) } },
+)
 const mastraStore = new PostgresStore({ id: 'gow-full', connectionString: databaseUrl('mastra'), schemaName: 'mastra' })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } })
 const email = env.RESEND_API_KEY && env.RESEND_FROM ? new ResendEmailTransport({ apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM }) : undefined
