@@ -79,7 +79,7 @@ pnpm install --frozen-lockfile
 ## 3. Copiar tu `.env`
 
 Ponlo en la raíz del repositorio, junto a `.env.example`. Es el único archivo de secretos que
-copias. Si empiezas sin él, `cp .env.example .env` y llena las llaves (README, "Requisitos").
+copias. Si empiezas sin él, `cp .env.example .env` y llena las llaves ([README](../README.es.md), "Requisitos").
 
 ## 4. Desempacar los datos
 

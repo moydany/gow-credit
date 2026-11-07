@@ -2,104 +2,126 @@
 
 # GOW Credit
 
-**Diagnóstico crediticio sobre estados de cuenta bancarios, por WhatsApp.**
+### Early payment decisions from a bank statement, over WhatsApp.
 
-Un proveedor manda su estado de cuenta en PDF y, en minutos, sabe hasta cuánto le pueden adelantar
-del pago de sus facturas. Si un dato dudoso puede cambiar el resultado, el sistema le pregunta antes
-de decidir.
+A supplier sends their bank statement as a PDF. A few minutes later they know how much of their
+invoices they can get paid early, and why. If something in the statement is unclear and could
+change the answer, the system asks them first.
 
 [![ci](https://github.com/moydany/gow-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/ci.yml)
 
-| 1,513 / 1,513 | 0 | 9 / 9 | USD 0.20 |
-|:---:|:---:|:---:|:---:|
-| movimientos extraídos | inventados u omitidos | estados de cuenta que cuadran | por documento |
+**English** · [Español](README.es.md)
 
-<sub>Sobre los 9 estados de cuenta de desarrollo, con Gemini 3.8 Flash.</sub>
+<br/>
+
+| **1,513 / 1,513** | **0** | **9 / 9** | **USD 0.20** |
+|:---:|:---:|:---:|:---:|
+| transactions extracted | invented or missed | statements that reconcile | per document |
+
+<sub>On the 9 development statements, with Gemini 3.8 Flash.</sub>
 
 </div>
 
 ---
 
-## Contenido
+## Contents
 
-- [Para quien evalúa](#para-quien-evalúa)
-- [Qué hace](#qué-hace)
-- [Requisitos](#requisitos)
-- [Levantarlo con Docker Compose](#levantarlo-con-docker-compose)
-- [Configuración inicial](#configuración-inicial)
-- [Cómo opera la demo](#cómo-opera-la-demo)
-- [Cómo se decide el crédito](#cómo-se-decide-el-crédito)
-- [Qué se puede configurar](#qué-se-puede-configurar)
-- [Arquitectura](#arquitectura)
-- [Precisión y control de errores del modelo](#precisión-y-control-de-errores-del-modelo)
-- [CI/CD y despliegue](#cicd-y-despliegue)
-- [Límites y pendientes](#límites-y-pendientes)
-- [Estructura del repositorio](#estructura-del-repositorio)
-- [English summary](#english-summary)
+1. [For reviewers](#for-reviewers)
+2. [The problem in one minute](#the-problem-in-one-minute)
+3. [What it does](#what-it-does)
+4. [Requirements](#requirements)
+5. [Run it with Docker Compose](#run-it-with-docker-compose)
+6. [First-run setup](#first-run-setup)
+7. [How the demo works](#how-the-demo-works)
+8. [How credit is decided](#how-credit-is-decided)
+9. [What you can configure](#what-you-can-configure)
+10. [Architecture](#architecture)
+11. [Accuracy and keeping the model honest](#accuracy-and-keeping-the-model-honest)
+12. [CI/CD and deployment](#cicd-and-deployment)
+13. [Known limits](#known-limits)
+14. [Repository map](#repository-map)
 
-## Para quien evalúa
+## For reviewers
 
-| Entregable | Dónde |
+| Deliverable | Where |
 |---|---|
-| Código y cómo correrlo | Este README, [Levantarlo con Docker Compose](#levantarlo-con-docker-compose) |
-| Lo que entendimos, supuestos y alcance | [`docs/00-spec.md`](docs/00-spec.md) |
-| Decisiones de diseño y por qué | [Arquitectura](#arquitectura), [Cómo se decide el crédito](#cómo-se-decide-el-crédito) y el diseño completo en `docs/01` a `docs/09` |
-| Prompts | [`prompts/`](prompts/), versionados, con su [changelog](prompts/CHANGELOG.md) |
-| Contratos de datos | [`docs/schema/`](docs/schema/): JSON Schema generado desde Zod |
-| CI/CD | [`.github/workflows/`](.github/workflows/) y [CI/CD y despliegue](#cicd-y-despliegue) |
-| Plan de despliegue | [`docs/deploy.md`](docs/deploy.md): Cloud Run, Supabase y Vercel |
+| Code and how to run it | This README, starting at [Run it with Docker Compose](#run-it-with-docker-compose) |
+| What we understood, assumptions and scope | [`docs/00-spec.md`](docs/00-spec.md) |
+| Design decisions and why | [Architecture](#architecture), [How credit is decided](#how-credit-is-decided), and the full design in `docs/01` to `docs/09` |
+| Prompts | [`prompts/`](prompts/), versioned, with a [changelog](prompts/CHANGELOG.md) |
+| Data contracts | [`docs/schema/`](docs/schema/), JSON Schema generated from the Zod contracts |
+| CI/CD | [`.github/workflows/`](.github/workflows/) and [CI/CD and deployment](#cicd-and-deployment) |
+| Deployment | Running demo on Railway + Supabase; production plan in [`docs/deploy.md`](docs/deploy.md) |
 
-## Qué hace
+> [!NOTE]
+> The design documents under `docs/` are written in Spanish, like the messages the system sends to
+> suppliers. Code, identifiers and comments are in English.
+
+## The problem in one minute
+
+Suppliers in a distribution chain wait weeks to get paid. A lender can pay their invoices early,
+but deciding who qualifies is done by hand: someone opens the bank statement, reads it line by line
+and guesses which deposits are real sales. That takes days.
+
+GOW Credit turns that into minutes, without asking anyone to trust a black box:
+
+- **Every number is traceable.** Each value carries the page and the snippet it came from.
+- **The bank's own math is the referee.** If the extraction doesn't add up, the system notices.
+- **No model makes the decision.** Models read and write text. A deterministic engine applies the
+  lender's own policy.
+- **A "no" comes with a way forward.** The answer says what would change it.
+- **When in doubt, it asks.** A short WhatsApp question beats a wrong rejection.
+
+## What it does
 
 ```mermaid
 flowchart LR
-    pdf([PDF del estado de cuenta]) --> ext[1 · Extrae]
-    ext --> ver[2 · Verifica]
-    ver --> per[3 · Perfil crediticio]
-    per --> pol[4 · Política del prestamista]
-    pol --> res{¿Un dato dudoso<br/>cambia el resultado?}
-    res -- sí --> ask[5 · Pregunta al proveedor]
+    pdf([Bank statement PDF]) --> ext[1 · Extract]
+    ext --> ver[2 · Verify]
+    ver --> per[3 · Credit profile]
+    per --> pol[4 · Lender policy]
+    pol --> res{Could a doubtful value<br/>change the outcome?}
+    res -- yes --> ask[5 · Ask the supplier]
     ask --> per
-    res -- no --> out([Veredicto, línea máxima<br/>y qué lo cambiaría])
+    res -- no --> out([Verdict, maximum line<br/>and what would change it])
 ```
 
-1. **Extrae** encabezado, resumen, movimientos y el CFDI que timbra el banco. Cada valor trae la
-   página y el fragmento de donde salió.
-2. **Verifica** la extracción contra la aritmética del propio banco: saldo inicial más abonos menos
-   cargos igual a saldo final, totales y conteos impresos, saldo corrido, CLABE, RFC y fechas. Lo que
-   no cuadra se relee página por página.
-3. **Calcula un perfil**: ingresos operativos, capacidad de pago, servicio de deuda, recurrencia,
-   pagos del comprador, alertas.
-4. **Aplica la política del prestamista** (el tenant) con un motor determinista. Ningún modelo decide.
-5. **Pregunta al proveedor** por WhatsApp cuando un movimiento ambiguo puede cambiar el resultado.
-   Con su respuesta, decide.
+1. **Extract** the header, summary, every transaction and the CFDI the bank stamps on the statement,
+   each with its page and snippet.
+2. **Verify** against the bank's arithmetic: opening balance plus credits minus debits equals the
+   closing balance, printed totals and counts, the running balance, CLABE, RFC and dates. Anything
+   that doesn't add up is re-read page by page.
+3. **Build a profile**: operating income, payment capacity, debt service, recurring income, payments
+   from the buyer, red flags.
+4. **Apply the lender's policy** (each lender is a tenant) with a pure engine.
+5. **Ask the supplier** over WhatsApp when an ambiguous deposit could change the result, then decide.
 
-Cada solicitud termina en uno de seis estados:
+Every request ends in one of six states:
 
-| Estado | Significa |
+| State | Meaning |
 |---|---|
-| `qualified` | Califica con la línea completa de su banda |
-| `qualified_with_limit` | Califica con una línea menor o con tope |
-| `not_qualified` | No califica; el diagnóstico dice qué lo cambiaría |
-| `needs_clarification` | Falta una respuesta del proveedor antes de decidir |
-| `human_review` | Un analista confirma antes de responder |
-| `failed` | No se pudo leer el documento; el motivo queda registrado |
+| `qualified` | Qualifies for the full line of its score band |
+| `qualified_with_limit` | Qualifies with a smaller or capped line |
+| `not_qualified` | Doesn't qualify; the diagnosis says what would change that |
+| `needs_clarification` | Waiting for an answer from the supplier |
+| `human_review` | An analyst confirms before anyone gets an answer |
+| `failed` | The document couldn't be read; the reason is recorded |
 
-## Requisitos
+## Requirements
 
-| Necesitas | Para qué |
+| You need | Why |
 |---|---|
-| **Docker** con **Docker Compose v2** (Docker Desktop en Mac o Windows) | Todo corre en contenedores. Compose necesita soportar `--wait` |
-| **Node 24+** y **pnpm** (`corepack enable`) | Solo para lanzar `pnpm stack:up` y generar los secretos locales la primera vez. No hace falta `pnpm install` |
-| Unos **8 GB de disco** libres | Las imágenes de Supabase (unos 6.5 GB) y la imagen de la app |
-| Puertos libres en `127.0.0.1` | `5173` (backoffice), `3000` (API), `54340` a `54343` (Postgres, gateway, Studio, correo) |
-| **`ANTHROPIC_API_KEY`** (obligatoria) | Doble lectura, extracción de emergencia, clasificación de respaldo y redacción de mensajes |
-| **`GEMINI_API_KEY`** (recomendada) | Extracción con Gemini 3.8 Flash. Sin ella extrae Claude Opus 5.5, unas 5 veces más caro |
-| `TYPESAFE_API_KEY` (opcional) | Clasificación con Jev. Sin ella clasifica Claude Haiku 5.5 |
-| `RESEND_API_KEY` y `RESEND_FROM` (opcional) | Correos de acceso al backoffice por Resend. Sin ellas llegan al buzón local |
-| Un **teléfono con WhatsApp** | Para vincular el número del prestamista escaneando un QR. Conviene un número de prueba |
+| **Docker** with **Compose v2** (Docker Desktop on macOS or Windows) | Everything runs in containers. Compose must support `--wait` |
+| **Node 24+** and **pnpm** (`corepack enable`) | Only to launch `pnpm stack:up` and generate local secrets the first time. No `pnpm install` needed |
+| About **8 GB of free disk** | Supabase images (about 6.5 GB) plus the app image |
+| Free ports on `127.0.0.1` | `5173` (backoffice), `3000` (API), `54340`–`54343` (Postgres, gateway, Studio, mail) |
+| **`ANTHROPIC_API_KEY`** (required) | Double read, fallback extraction, fallback classification and supplier messages |
+| **`GEMINI_API_KEY`** (recommended) | Extraction with Gemini 3.8 Flash. Without it Claude Opus 5.5 extracts, about 5× the cost |
+| `TYPESAFE_API_KEY` (optional) | Classification with Jev. Without it Claude Haiku 5.5 classifies |
+| `RESEND_API_KEY` and `RESEND_FROM` (optional) | Backoffice sign-in emails through Resend. Without them they land in the local inbox |
+| A **phone with WhatsApp** | To link the lender's number by scanning a QR. A test number is best |
 
-## Levantarlo con Docker Compose
+## Run it with Docker Compose
 
 ```bash
 git clone https://github.com/moydany/gow-credit.git
@@ -113,242 +135,245 @@ cd gow-credit
 cp .env.example .env
 ```
 
-Abre `.env` y pon al menos `ANTHROPIC_API_KEY` y `GEMINI_API_KEY`. Después:
+Open `.env` and fill in at least `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. Then:
 
 ```bash
 pnpm stack:up
 ```
 
-La primera vez genera los secretos de desarrollo, descarga Supabase y construye la imagen de la app;
-tarda varios minutos. Termina cuando todos los servicios están sanos e imprime las direcciones:
+The first run generates development secrets, pulls Supabase and builds the app image, so give it a
+few minutes. It returns once every service is healthy and prints where everything lives:
 
-| Dirección | Qué es |
+| Address | What it is |
 |---|---|
-| http://127.0.0.1:5173 | **Backoffice**. La primera vez abre el asistente de configuración |
+| http://127.0.0.1:5173 | **Backoffice.** Opens the setup wizard the first time |
 | http://127.0.0.1:3000 | API |
-| http://127.0.0.1:54342 | Supabase Studio, para ver la base |
-| http://127.0.0.1:54343 | Buzón local con los correos de acceso |
+| http://127.0.0.1:54342 | Supabase Studio, to look at the database |
+| http://127.0.0.1:54343 | Local inbox with the sign-in emails |
 
-| Comando | Qué hace |
+| Command | What it does |
 |---|---|
-| `pnpm stack:up` | Genera los secretos si faltan, construye y levanta todo |
-| `pnpm stack:ps` | Estado de cada servicio |
-| `pnpm stack:logs` | Registros de la API, el worker y WhatsApp |
-| `pnpm stack:down` | Detiene todo y conserva los datos |
-| `pnpm stack:reset` | Detiene y borra la base, la sesión de WhatsApp y los documentos |
+| `pnpm stack:up` | Generates missing secrets, builds and starts everything |
+| `pnpm stack:ps` | Status of each service |
+| `pnpm stack:logs` | Follows the API, worker and WhatsApp logs |
+| `pnpm stack:down` | Stops everything and keeps the data |
+| `pnpm stack:reset` | Stops and wipes the database, the WhatsApp session and the documents |
 
 > [!TIP]
-> Si los puertos 5173 o 3000 están ocupados: `GOW_WEB_PORT=8080 GOW_API_PORT=3100 pnpm stack:up`.
+> Ports 5173 or 3000 taken? `GOW_WEB_PORT=8080 GOW_API_PORT=3100 pnpm stack:up`.
 
 > [!NOTE]
-> Todo escucha solo en `127.0.0.1`. Los secretos que genera `pnpm stack:up` son de desarrollo y
-> viven en `infra/supabase/.env`, fuera de git.
+> Everything listens on `127.0.0.1` only. The secrets `pnpm stack:up` generates are for development
+> and live in `infra/supabase/.env`, outside git.
 
-## Configuración inicial
+## First-run setup
 
-Con el sistema vacío, el backoffice abre un asistente de dos pasos. No hace falta la terminal.
+On an empty system the backoffice opens a two-step wizard. No terminal needed.
 
-1. **Cuenta.** Escribe el nombre del prestamista y el correo del administrador. Se crean el
-   prestamista, su política base activa y el administrador, y entras directo con una sesión de 8 h.
-2. **WhatsApp.** Aparece un QR. En el teléfono: *WhatsApp → Dispositivos vinculados → Vincular un
-   dispositivo* y escanéalo. En unos segundos el backoffice muestra el número vinculado. Puedes
-   *Omitir por ahora* y vincularlo después en **Configuración → General → Canales**; mientras tanto, las
-   aclaraciones se responden a mano desde el backoffice.
+1. **Account.** Enter the lender's name and the admin's email. This creates the lender, its active
+   base policy and the admin, and signs you in for 8 hours.
+2. **WhatsApp.** A QR appears. On the phone: *WhatsApp → Linked devices → Link a device*, then scan
+   it. The backoffice shows the linked number a few seconds later. You can pick *Omitir por ahora* (skip for now) and link it
+   later under **Configuración → General → Canales**; until then, clarifications are answered by hand
+   in the backoffice.
 
-Después, desde **Configuración**:
+From then on, under **Configuración**:
 
-- **Usuarios**: invitar a más personas. Les llega un enlace de acceso por correo (al buzón local en
-  `:54343` si no configuraste Resend).
-- **Volver a entrar**: en `/entrar`, escribe tu correo y abre el enlace que llega.
+- **Users**: invite people. They get a sign-in link by email (in the local inbox at `:54343` if
+  Resend isn't set up).
+- **Signing back in**: go to `/entrar`, type your email and open the link you receive.
 
-## Cómo opera la demo
+## How the demo works
 
-El prestamista vincula su número; los proveedores le escriben a ese número. Cualquier número
-desconocido puede registrarse mandando su estado de cuenta (se apaga con
-`WHATSAPP_SELF_REGISTRATION=false`).
+The lender links a number, and suppliers message it. Any unknown number can register by sending its
+statement (turn that off with `WHATSAPP_SELF_REGISTRATION=false`).
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor P as Proveedor
-    participant W as WhatsApp del prestamista
+    actor P as Supplier
+    participant W as Lender's WhatsApp
     participant S as GOW Credit
-    actor A as Analista (backoffice)
+    actor A as Analyst (backoffice)
 
-    P->>W: Hola
-    W-->>P: Te escribe el asistente de… Mándame tu estado de cuenta en PDF
-    P->>W: estado-de-cuenta.pdf
-    W-->>P: Recibí tu estado de cuenta y lo estoy leyendo
-    S->>S: Extrae, verifica, calcula el perfil
-    W-->>P: Está a nombre de X, con RFC Y. ¿Son correctos?
-    P->>W: sí
-    opt Un movimiento dudoso puede cambiar el resultado
-        W-->>P: Pregunta 1 de 2. Abono de $150,000 del 15 de septiembre… 1) Pago de un cliente 2) Préstamo 3) Traspaso entre mis cuentas…
+    P->>W: Hi
+    W-->>P: Send me your latest bank statement as a PDF
+    P->>W: statement.pdf
+    W-->>P: Got it, reading it now
+    S->>S: Extract, verify, build the profile
+    W-->>P: It's in the name of X, RFC Y. Is that right?
+    P->>W: yes
+    opt A doubtful deposit could change the outcome
+        W-->>P: Question 1 of 2. $150,000 deposit on Sep 15… 1) Customer payment 2) Loan 3) Transfer between my accounts…
         P->>W: 1, 3
-        W-->>P: Esto es lo que entendí… ¿Es correcto?
-        P->>W: sí
-        S->>S: Decide con las respuestas
+        W-->>P: Here's what I understood… Is that right?
+        P->>W: yes
+        S->>S: Decide with the answers
     end
-    alt Califica
-        W-->>P: Buenas noticias: calificas hasta por $X. ¿Cuánto quieres adelantar?
-        P->>W: 180 mil
-        S->>S: Vuelve a decidir con el monto, sin llamar a modelos
-        W-->>P: Revisamos tu solicitud de adelanto de $180,000…
-    else No califica
-        W-->>P: Por ahora no calificas, porque… Si tu situación cambia, mándanos uno más reciente
-    else Necesita revisión
-        W-->>P: Un analista necesita confirmar algunos datos. Te avisaremos por aquí
-        A->>S: Revisa, corrige o responde y reevalúa
-        W-->>P: Resultado final
+    alt Qualifies
+        W-->>P: Good news: you qualify for up to $X. How much would you like to advance?
+        P->>W: 180k
+        S->>S: Decide again with the amount, no model calls
+        W-->>P: We reviewed your request for $180,000…
+    else Doesn't qualify
+        W-->>P: For now you don't qualify, because… Send a newer statement if things change
+    else Needs review
+        W-->>P: An analyst needs to confirm a few details. We'll let you know here
+        A->>S: Review, correct or answer, then re-evaluate
+        W-->>P: Final answer
     end
 ```
 
-**Lo que hace el bot en cada paso:**
+<sub>The bot speaks Spanish; the messages above are translated.</sub>
 
-- **Registro.** Lee el titular y el RFC del estado de cuenta y pide confirmarlos. Si no son
-  correctos, pide nombre y RFC; si el RFC es de persona moral, también el representante legal. El RFC
-  que escribe tiene que empezar como la raíz impresa.
-- **Documentos que no sirven.** Un PDF con contraseña, un escaneo ilegible, algo que no es estado de
-  cuenta o varios estados de cuenta en un PDF reciben una respuesta concreta, y el bot vuelve a
-  esperar un PDF.
-- **Preguntas.** Una a la vez, con opciones numeradas. Acepta varias respuestas en un mensaje
-  (`1, 3`), correcciones libres ("me equivoqué, la 2 era préstamo") y "no sé". Antes de evaluar
-  muestra un resumen para confirmar. Lo que no entiende con reglas lo interpreta Claude Haiku, pero
-  solo eligiendo entre las opciones; nunca inventa una respuesta.
-- **Monto.** Primero ofrece la línea máxima y luego pregunta cuánto quiere adelantar ("180000",
-  "180 mil", "1.2 millones" u "omitir"). Más que la línea se repregunta.
-- **Lo que nunca sale por el chat:** saldos, CLABE, ni los motivos internos del motor.
+**What the bot does at each step**
 
-**En el backoffice** (http://127.0.0.1:5173):
+- **Registration.** It reads the holder and RFC from the statement and asks the supplier to
+  confirm. If they're wrong, it asks for name and RFC; for a company RFC it also asks for the legal
+  representative. A typed RFC must start like the one printed on the statement.
+- **Documents that won't work.** A password-protected PDF, an unreadable scan, something that isn't
+  a bank statement, or several statements in one PDF each get a specific reply, and the bot waits
+  for a new PDF.
+- **Questions.** One at a time, with numbered options. It accepts several answers in one message
+  (`1, 3`), free corrections ("my bad, number 2 was a loan") and "I don't know". Before evaluating it
+  shows a summary to confirm. What rules can't parse, Claude Haiku reads, but only by picking one of
+  the offered options; it never makes up an answer.
+- **Amount.** It offers the maximum line first, then asks how much to advance ("180000", "180 mil",
+  "1.2 millones" or "omitir"). Anything above the line gets asked again.
+- **Never in the chat:** balances, CLABE, or the engine's internal reasons.
 
-| Pantalla | Para qué |
+**In the backoffice** (http://127.0.0.1:5173)
+
+| Screen | What it's for |
 |---|---|
-| Solicitudes | Cada solicitud con su estado, línea y alertas |
-| Detalle | El PDF junto a la extracción: un clic en un valor salta a su página y fragmento. Perfil, veredicto con diagnóstico completo y contrafactuales |
-| Recorrido | La solicitud paso a paso en 3D: mensajes, lecturas, llamadas a modelos y decisiones |
-| Aclaraciones | Preguntas pendientes; se responden a mano si el proveedor no tiene WhatsApp |
-| Revisión | Correcciones del analista sobre la extracción; se guardan como pares inmutables y reevalúan |
-| Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo |
-| Outcomes | Si cada crédito se pagó o cayó en mora, para medir la política |
-| Bitácora | Quién hizo qué, y cada llamada a un modelo con su costo |
-| Configuración | General (antigüedad del estado de cuenta, WhatsApp, usuarios), Políticas y Prompts |
+| Solicitudes | Every request with its state, line and flags |
+| Detalle | The PDF next to the extraction: click a value to jump to its page and snippet. Profile, verdict with the full diagnosis and counterfactuals |
+| Recorrido | The request step by step in 3D: messages, reads, model calls and decisions |
+| Aclaraciones | Pending questions, answered by hand when the supplier has no WhatsApp |
+| Revisión | Analyst corrections to the extraction, stored as immutable pairs and re-evaluated |
+| Proveedores | Add, search and remove suppliers with everything that belongs to them |
+| Outcomes | Whether each credit was repaid or defaulted, to measure the policy |
+| Bitácora | Who did what, and every model call with its cost |
+| Configuración | General (statement age, WhatsApp, users), policies and prompts |
 
-## Cómo se decide el crédito
+## How credit is decided
 
-GOW Credit no presta: da la infraestructura para que cada prestamista aplique **su** política. Por
-eso la decisión está separada en tres capas.
+GOW Credit doesn't lend. It gives each lender the infrastructure to apply **their own** policy, so
+the decision lives in three separate layers.
 
 ```mermaid
 flowchart LR
-    subgraph GOW["Lo controla GOW"]
-        F["Perfil<br/>catálogo fijo de features,<br/>mismas reglas para todos"]
+    subgraph GOW["GOW owns"]
+        F["Profile<br/>closed feature catalog,<br/>same rules for everyone"]
     end
-    subgraph T["Lo controla cada prestamista"]
-        P["Política JSON<br/>compuertas, puntaje,<br/>bandas, topes"]
+    subgraph T["Each lender owns"]
+        P["JSON policy<br/>gates, score,<br/>bands, caps"]
     end
-    F --> M["Motor determinista<br/>sin modelos"] --> D["Veredicto + diagnóstico<br/>+ qué lo cambiaría"]
+    F --> M["Deterministic engine<br/>no models"] --> D["Verdict + diagnosis<br/>+ what would change it"]
     P --> M
 ```
 
-**¿Por qué así?** Un "no" sin explicación no le sirve al proveedor ni al prestamista. El motor da
-el resultado, cada razón y los **contrafactuales**: el cambio mínimo que movería el estado o la línea
-("con dos pagos más del comprador pasarías a `qualified`"). Es el "motor de segunda oportunidad": un
-rechazo se convierte en un camino. Y como el motor es puro, la misma extracción, la misma política y
-la misma fecha dan siempre el mismo veredicto.
+**Why this shape.** A bare "no" helps neither the supplier nor the lender. The engine returns the
+result, every reason behind it and **counterfactuals**: the smallest change that would move the state
+or the line ("two more payments from the buyer would get you to `qualified`"). A rejection becomes a
+path. And because the engine is pure, the same extraction, policy and date always give the same
+verdict.
 
-### 1. Compuertas: lo que detiene antes de puntuar
+### 1. Gates: what stops a request before scoring
 
-| Compuerta | Pasa si | Si no pasa | Por qué |
+| Gate | Passes when | Otherwise | Why |
 |---|---|---|---|
-| Documento reciente | El corte tiene 90 días o menos | Pide uno reciente | Un estado de cuenta viejo no describe el flujo actual. En el backoffice se cambia por una alerta que no bloquea |
-| Páginas completas | Trae todas las páginas que imprime su paginación | Pide las que faltan | Una página omitida puede esconder cargos |
-| Integridad | Cuadra contra los saldos y totales del banco | `human_review` | Si no cuadra, la extracción o el documento tienen un problema |
-| Sin alertas | No hay sobregiro, cheque devuelto, embargo, orden judicial ni requerimiento fiscal | `human_review` | Son señales de riesgo que un analista debe ver |
-| Sin manipulación | Ningún texto dirigido al sistema, cadena fiscal coherente, sin páginas repetidas | `human_review` | Protege contra documentos alterados o instrucciones escondidas |
-| Sin atraso | Sin días de atraso en créditos vigentes con este prestamista | `not_qualified` | Un atraso actual pesa más que cualquier puntaje |
+| Recent statement | The statement closed 90 days ago or less | Asks for a newer one | An old statement doesn't describe today's cash flow. The backoffice can turn this into a warning instead |
+| Complete pages | It has every page its own pagination prints | Asks for the missing pages | A missing page can hide debits |
+| Integrity | It reconciles against the bank's balances and totals | `human_review` | If it doesn't add up, either the extraction or the document has a problem |
+| No red flags | No overdraft, bounced check, garnishment, court order or tax demand | `human_review` | Risk signals a person should see |
+| No tampering | No text aimed at the system, a consistent tax stamp, no repeated pages | `human_review` | Guards against altered documents and hidden instructions |
+| No arrears | No days past due on current credits with this lender | `not_qualified` | Being late today outweighs any score |
 
-### 2. Puntaje: cinco dimensiones, de 0 a 100
+### 2. Score: five dimensions, 0 to 100
 
-| Dimensión | Peso | Qué mide | 0 puntos | Completo |
+| Dimension | Weight | What it measures | 0 points at | Full points at |
 |---|---:|---|---|---|
-| Capacidad | 35 | Ingreso operativo mensual frente al monto pedido | 0.5× el monto | 3× el monto |
-| Comprador | 25 | Pagos identificados del comprador (la cadena) | 0 pagos | 2 pagos |
-| Estabilidad | 15 | Capacidad de pago: flujo libre / ingresos | 10 % | 50 % |
-| Deuda | 15 | Servicio de deuda / ingresos (menos es mejor) | 40 % | 10 % |
-| Recurrencia | 10 | Parte de los ingresos que se repite | 20 % | 60 % |
+| Capacity | 35 | Monthly operating income against the requested amount | 0.5× the amount | 3× the amount |
+| Buyer | 25 | Identified payments from the buyer (the chain) | 0 payments | 2 payments |
+| Stability | 15 | Payment capacity: free cash flow / income | 10 % | 50 % |
+| Debt | 15 | Debt service / income (lower is better) | 40 % | 10 % |
+| Recurrence | 10 | Share of income that repeats | 20 % | 60 % |
 
-**¿Por qué estos pesos?** El pronto pago se paga con el flujo del propio proveedor y, sobre todo,
-con la factura que le debe la cadena. Por eso capacidad y comprador suman 60. Los "ingresos
-operativos" excluyen traspasos entre cuentas propias, préstamos recibidos y abonos dudosos: inflar
-ingresos con dinero propio es el engaño más común en un estado de cuenta. Un dato con confianza
-menor a 0.7 no cuenta para el puntaje.
+**Why these weights.** Early payment is repaid from the supplier's own cash flow and, above all,
+from the invoice the chain owes them. That's why capacity and buyer add up to 60. "Operating income"
+leaves out transfers between the supplier's own accounts, loans received and doubtful deposits:
+padding income with your own money is the most common trick in a bank statement. A value with
+confidence below 0.7 doesn't count toward the score.
 
-### 3. Bandas, topes y línea
+### 3. Bands, caps and the line
 
-| Puntaje | Estado | Línea de la banda |
+| Score | State | Band line |
 |---|---|---|
-| 70 o más | `qualified` | 50 % del ingreso operativo mensual |
-| 50 a 69 | `qualified_with_limit` | 25 % del ingreso operativo mensual |
-| Menos de 50 | `not_qualified` | — |
+| 70 or more | `qualified` | 50 % of monthly operating income |
+| 50 to 69 | `qualified_with_limit` | 25 % of monthly operating income |
+| Below 50 | `not_qualified` | — |
 
-- **Topes**: con menos de 3 meses de historia, o sin ningún pago del comprador, lo máximo es
-  `qualified_with_limit`. Poca historia no alcanza para la línea completa.
-- **Línea final** = el menor entre la línea de la banda, la capacidad de endeudamiento menos lo que ya
-  debe con este prestamista, y el cupo disponible del programa del comprador.
-- **Aclaraciones**: hasta 2 rondas de preguntas. Solo se pregunta por abonos dudosos mayores al 30 %
-  de los ingresos del periodo y que puedan cambiar el estado o la línea.
+- **Caps.** With under 3 months of history, or no payment at all from the buyer, the best possible
+  state is `qualified_with_limit`. A short history isn't enough for the full line.
+- **Final line** = the smallest of the band line, the debt capacity minus what the supplier already
+  owes this lender, and what's left in the buyer's program.
+- **Clarifications.** Up to 2 rounds. The system only asks about doubtful deposits larger than 30 %
+  of the period's income that could change the state or the line.
 
-## Qué se puede configurar
+## What you can configure
 
-| Dónde | Qué | Valores |
+| Where | What | Values |
 |---|---|---|
-| Backoffice → Configuración → General | Antigüedad máxima del estado de cuenta | 1, 2, 3 (por defecto), 6 o 12 meses, o sin límite. Fuera del límite queda una alerta, no se bloquea |
-| Backoffice → Configuración → General | Número de WhatsApp | Vincular, desvincular o cambiar escaneando un QR |
-| Backoffice → Configuración → General | Usuarios | Invitar o quitar personas; todas ven y operan las solicitudes del prestamista |
-| Backoffice → Configuración → Políticas | **La política completa** | Un borrador JSON validado con el mismo esquema que el motor. Antes de activarlo, se **simula** contra las solicitudes reales: cuántas mejoran, empeoran o cambian de línea, y la mora observada. Cada versión queda guardada |
-| Backoffice → Configuración → Prompts | Los prompts de los modelos | Editar crea una versión nueva y activarla es otro paso; se comparan versiones. Son los mismos para todos los prestamistas |
-| `.env` | Llaves de modelos y correo | Ver [Requisitos](#requisitos) |
-| `.env` | `LLM_CACHE_MODE` | `readwrite` (por defecto) o `read`: con `read` nunca llama a un modelo y una repetición cuesta cero |
-| `.env` | `WORKER_MODEL_CONCURRENCY` | Llamadas a modelos en paralelo (por defecto 3) |
-| `.env` | `WHATSAPP_SELF_REGISTRATION` | `true` (por defecto) o `false` |
-| `.env` | `GOW_TIME_ZONE` | Zona del calendario de negocio (por defecto `America/Mexico_City`) |
-| Al levantar | `GOW_WEB_PORT`, `GOW_API_PORT` | Puertos del backoffice y la API |
+| Backoffice → Configuración → General | Maximum statement age | 1, 2, 3 (default), 6 or 12 months, or no limit. Past the limit the request gets a warning, not a block |
+| Backoffice → Configuración → General | WhatsApp number | Link, unlink or switch by scanning a QR |
+| Backoffice → Configuración → General | Users | Invite or remove people; everyone sees and works the lender's requests |
+| Backoffice → Configuración → Políticas | **The whole policy** | A JSON draft validated with the engine's own schema. Before activating it, you **simulate** it against real requests: how many improve, get worse or change line, and the observed default rate. Every version is kept |
+| Backoffice → Configuración → Prompts | The model prompts | Editing creates a new version and activating it is a separate step; versions can be compared. They're shared by all lenders |
+| `.env` | Model and email keys | See [Requirements](#requirements) |
+| `.env` | `LLM_CACHE_MODE` | `readwrite` (default) or `read`: with `read` no model is ever called and a rerun costs nothing |
+| `.env` | `WORKER_MODEL_CONCURRENCY` | Model calls in flight at once (default 3) |
+| `.env` | `WHATSAPP_SELF_REGISTRATION` | `true` (default) or `false` |
+| `.env` | `GOW_TIME_ZONE` | Business calendar time zone (default `America/Mexico_City`) |
+| At startup | `GOW_WEB_PORT`, `GOW_API_PORT` | Backoffice and API ports |
 
 <details>
-<summary><b>Qué trae una política</b></summary>
+<summary><b>What a policy contains</b></summary>
 
-La plantilla base está en [`policies/gow-base.v1.json`](policies/gow-base.v1.json) y su esquema en
+<br/>
+
+The base template is [`policies/gow-base.v1.json`](policies/gow-base.v1.json) and its schema is
 [`docs/schema/policy.schema.json`](docs/schema/policy.schema.json).
 
-| Campo | Qué define |
+| Field | Defines |
 |---|---|
-| `gates[]` | Compuertas: `feature`, operador, valor, qué pasa si falla (`onFail`) y si el dato falta (`onUnknown`) |
-| `score.dimensions[]` | Dimensiones con `weight`, `zeroAt`, `fullAt`, `relativeTo` e `inverse` |
-| `score.minConfidence` | Confianza mínima del perfil para decidir solo |
-| `decision.bands[]` | Puntaje mínimo, estado y línea (`pctOf` de una feature) |
-| `decision.caps[]` | Condiciones que limitan el estado máximo |
-| `decision.limitFormula` | Cómo se combina la línea final |
-| `clarification` | Rondas máximas y desde qué monto se pregunta |
+| `gates[]` | Gates: `feature`, operator, value, what happens on failure (`onFail`) and when the value is missing (`onUnknown`) |
+| `score.dimensions[]` | Dimensions with `weight`, `zeroAt`, `fullAt`, `relativeTo` and `inverse` |
+| `score.minConfidence` | Minimum confidence for a value to count |
+| `decision.bands[]` | Minimum score, state and line (`pctOf` a feature) |
+| `decision.caps[]` | Conditions that cap the best possible state |
+| `decision.limitFormula` | How the final line is combined |
+| `clarification` | Maximum rounds and from what size a deposit gets asked about |
 
-Solo se pueden usar features del catálogo cerrado; una política con una feature que no existe no
-valida.
+A policy can only use features from the closed catalog; one that names an unknown feature doesn't
+validate.
 
 </details>
 
-## Arquitectura
+## Architecture
 
 ```mermaid
 flowchart TB
-    prov([Proveedor]) <-->|WhatsApp| wa
-    analista([Analista]) --> web
+    prov([Supplier]) <-->|WhatsApp| wa
+    analyst([Analyst]) --> web
 
     subgraph docker["docker compose · pnpm stack:up"]
-        web["web<br/>backoffice React + Vite<br/>(nginx)"] -->|/bo/v1| api["api<br/>Express 5 + Zod"]
+        web["web<br/>React + Vite backoffice<br/>(nginx)"] -->|/bo/v1| api["api<br/>Express 5 + Zod"]
         wa["whatsapp<br/>Baileys"]
-        worker["worker<br/>pg-boss + workflow Mastra"]
+        worker["worker<br/>pg-boss + Mastra workflow"]
         subgraph supa["Supabase"]
-            db[("Postgres 17<br/>RLS por prestamista")]
-            auth["Auth<br/>enlaces de acceso"]
+            db[("Postgres 17<br/>RLS per lender")]
+            auth["Auth<br/>sign-in links"]
             studio["Studio"]
         end
         api --> db
@@ -357,146 +382,139 @@ flowchart TB
         api --> auth
     end
 
-    worker --> gemini["Gemini 3.8 Flash<br/>extracción"]
-    worker --> claude["Claude Opus 5.5 / Haiku 5.5<br/>doble lectura, emergencia, mensajes"]
-    worker --> jev["Jev<br/>clasificación"]
+    worker --> gemini["Gemini 3.8 Flash<br/>extraction"]
+    worker --> claude["Claude Opus 5.5 / Haiku 5.5<br/>double read, fallback, messages"]
+    worker --> jev["Jev<br/>classification"]
 ```
 
-Una sola imagen corre la API, el worker y WhatsApp; cambia la variable `APP`. Los procesos no se
-llaman entre sí: se coordinan por la base (cola, buzón de salida y estados), así que cualquiera puede
-reiniciarse sin perder trabajo.
+One image runs the API, the worker and WhatsApp; the `APP` variable picks which. The processes never
+call each other: they coordinate through the database (queue, outbox and states), so any of them can
+restart without losing work.
 
-**El recorrido de un PDF:** WhatsApp lo guarda y abre una solicitud → la cola entrega el trabajo al
-worker → el workflow extrae, verifica, calcula el perfil y decide → si hay preguntas, el workflow se
-**suspende** y la pregunta sale por el buzón → la respuesta del proveedor **reanuda** el workflow,
-que decide → el veredicto sale por WhatsApp.
+**A PDF's journey.** WhatsApp stores it and opens a request → the queue hands the job to the worker →
+the workflow extracts, verifies, builds the profile and decides → if there are questions, the
+workflow **suspends** and the question leaves through the outbox → the supplier's answer **resumes**
+the workflow, which decides → the verdict goes out over WhatsApp.
 
-### Por qué cada pieza
+### Why each piece
 
-| Pieza | Para qué | Por qué esta y no otra |
+| Piece | Used for | Why this one |
 |---|---|---|
-| **Gemini 3.8 Flash** | Extraer el estado de cuenta | En los 9 documentos de desarrollo extrajo igual que Claude Opus (1,513 de 1,513 movimientos, 9 de 9 cuadran) a una quinta parte del costo: USD 1.80 contra 9.16. Recibe el PDF completo y el esquema de salida, con caché implícita |
-| **Claude Opus 5.5** | Emergencia y relecturas | Si Google falla, Opus rehace el documento. Si un bloque no cuadra, Opus lo relee. La doble lectura del encabezado usa la otra familia de modelos, para que dos errores iguales sean improbables |
-| **Claude Haiku 5.5** | Mensajes y respuestas del proveedor | Redacta las preguntas en lenguaje simple y lee las respuestas que las reglas no entienden, siempre eligiendo entre opciones cerradas. Es rápido y barato para textos cortos |
-| **Jev** (TypeSafe AI) | Clasificar documentos y movimientos ambiguos | Da probabilidades calibradas por pregunta, no solo una etiqueta: sirve para decidir cuándo preguntar. 32 de 33 en la eval del clasificador, unos USD 0.015 por cada 1,000 movimientos. Las reglas van primero y Jev solo ve lo que ellas no resuelven; sin llave, Haiku lo reemplaza solo |
-| **Mastra** | Orquestar el workflow | El problema es un pipeline con una pausa que puede durar días: esperar al proveedor. Mastra da `suspend()` y `resume()` persistidos en Postgres, salida estructurada y trazas. Hacerlo a mano era escribir una máquina de estados. Donde Mastra oculta algo que hay que medir, se usa el SDK directo |
-| **Supabase** | Base, acceso y archivos | Postgres con **RLS forzada** por prestamista (un error de aislamiento entre prestamistas es el peor incidente posible), Auth para los enlaces de acceso y Storage, en un solo servicio. En local corre autohospedado con los mismos roles que en producción |
-| **pg-boss** | Cola de trabajos | Extraer un PDF largo toma minutos. pg-boss vive en el mismo Postgres (sin otro broker), con reintentos, cola de fallidos y llave de idempotencia por hash del documento: un PDF repetido no se paga dos veces |
-| **Baileys** | WhatsApp | Vincula un número normal con un QR, sin aprobar plantillas con Meta. Suficiente para una demo; producción usaría la API oficial detrás de la misma interfaz |
-| **Zod** | Contratos | Una sola fuente de verdad: los tipos, la validación en la API y el JSON Schema de `docs/schema/` salen del mismo esquema |
-| **Drizzle** | Acceso a datos | SQL primero, con las políticas RLS en el esquema y migraciones versionadas |
-| **React + Vite** | Backoffice | Una app estática que solo habla con `/bo/v1`; en producción va a un CDN |
+| **Gemini 3.8 Flash** | Reading the statement | On the 9 development statements it matched Claude Opus (1,513 of 1,513 transactions, 9 of 9 reconcile) at a fifth of the cost: USD 1.80 against 9.16. It takes the whole PDF and the output schema, with implicit caching |
+| **Claude Opus 5.5** | Fallback and re-reads | If Google is down, Opus redoes the document. If a block doesn't reconcile, Opus re-reads it. The header double read uses the other model family, so two identical mistakes are unlikely |
+| **Claude Haiku 5.5** | Supplier messages and replies | Writes questions in plain language and reads the replies rules can't, always choosing among closed options. Fast and cheap for short text |
+| **Jev** (TypeSafe AI) | Classifying documents and ambiguous transactions | Returns calibrated probabilities per question, not just a label, which is what deciding *when to ask* needs. 32 of 33 on the classifier eval, about USD 0.015 per 1,000 transactions. Rules go first and Jev only sees what they can't settle; without a key, Haiku takes over |
+| **Mastra** | Orchestrating the workflow | The problem is a pipeline with a pause that can last days: waiting for the supplier. Mastra gives persisted `suspend()` and `resume()` in Postgres, structured output and traces. The alternative was hand-writing a state machine. Where Mastra hides something that needs measuring, the code drops to the SDK |
+| **Supabase** | Database, sign-in and files | Postgres with **forced RLS** per lender (leaking data between lenders is the worst possible incident), Auth for sign-in links, and Storage, in one service. Locally it runs self-hosted with the same roles as production |
+| **pg-boss** | Job queue | Reading a long PDF takes minutes. pg-boss lives in the same Postgres (no extra broker), with retries, a dead-letter queue and an idempotency key on the document hash, so a repeated PDF is never paid for twice |
+| **Baileys** | WhatsApp | Links a regular number with a QR, no Meta template approval. Right for a demo; production would use the official API behind the same interface |
+| **Zod** | Contracts | One source of truth: types, API validation and the JSON Schema in `docs/schema/` all come from the same schema |
+| **Drizzle** | Data access | SQL first, with RLS policies in the schema and versioned migrations |
+| **React + Vite** | Backoffice | A static app that only talks to `/bo/v1`; in production it sits on a CDN |
 
-## Precisión y control de errores del modelo
+## Accuracy and keeping the model honest
 
-La extracción es la métrica que más importa, y un modelo puede inventar. Por eso el sistema no le
-cree al modelo: lo **verifica**.
+Extraction is the metric that matters most, and a model can make things up. So the system doesn't
+trust the model: it **checks** it.
 
-| Resultado en los 9 documentos de desarrollo | Gemini 3.8 Flash | Claude Opus 5.5 |
+| On the 9 development statements | Gemini 3.8 Flash | Claude Opus 5.5 |
 |---|---|---|
-| Movimientos extraídos | 1,513 / 1,513 | 1,513 / 1,513 |
-| Inventados / omitidos | 0 / 0 | 0 / 0 |
-| Encabezado y resumen | 120 / 120 campos | 120 / 120 campos |
-| CFDI | 104 / 107 campos | 106 / 107 campos |
-| Estados de cuenta que cuadran | 9 / 9 | 9 / 9 |
-| Costo de los 9 | USD 1.80 | USD 9.16 |
+| Transactions extracted | 1,513 / 1,513 | 1,513 / 1,513 |
+| Invented / missed | 0 / 0 | 0 / 0 |
+| Header and summary | 120 / 120 fields | 120 / 120 fields |
+| CFDI | 104 / 107 fields | 106 / 107 fields |
+| Statements that reconcile | 9 / 9 | 9 / 9 |
+| Cost for all 9 | USD 1.80 | USD 9.16 |
 
-El ground truth sale de un parser determinista por banco sobre la capa de texto del PDF, arbitrado por
-la aritmética del banco, y nunca del modelo que se mide.
+The ground truth comes from a deterministic per-bank parser over the PDF's text layer, refereed by
+the bank's arithmetic, and never from the model being measured.
 
-**Qué protege en documentos que el sistema nunca vio:**
+**What protects documents the system has never seen**
 
-- **Citas.** Cada valor trae página y fragmento. Un valor sin cita queda como no verificado.
-- **La aritmética del banco como ancla.** Saldo inicial + abonos − cargos = saldo final, totales y
-  conteos impresos, saldo corrido movimiento por movimiento. Un error del modelo casi siempre rompe
-  una de estas sumas.
-- **Relectura dirigida.** Lo que no cuadra se relee solo en su página; si sigue sin cuadrar, se marca
-  y el motor lo ve.
-- **Doble lectura** del encabezado con la otra familia de modelos. Si no coinciden, se pregunta.
-- **Validadores**: dígito de control de la CLABE, estructura del RFC, fechas dentro del periodo,
-  cruces con el CFDI.
-- **Inyección de instrucciones.** El texto del PDF es dato, nunca instrucción. Una eval con PDFs
-  adversarios corre en CI y tiene que pasar al 100 %.
-- **Lo que no se puede verificar va marcado**, y si cambia el resultado, se pregunta.
+- **Citations.** Every value carries its page and snippet. A value without one is marked unverified.
+- **The bank's math as the anchor.** Opening + credits − debits = closing, printed totals and
+  counts, and the running balance row by row. A model mistake almost always breaks one of these sums.
+- **Targeted re-reads.** What doesn't reconcile is re-read on its own page; if it still doesn't, it's
+  flagged and the engine sees it.
+- **Double read** of the header with the other model family. If they disagree, the system asks.
+- **Validators**: CLABE check digit, RFC structure, dates inside the period, cross-checks with the
+  CFDI.
+- **Prompt injection.** Text in the PDF is data, never an instruction. An eval with adversarial PDFs
+  runs in CI and must pass at 100 %.
+- **What can't be verified is marked**, and if it could change the result, the supplier is asked.
 
-**Reproducibilidad.** Cada respuesta de un modelo se guarda con una llave que incluye el modelo, el
-prompt, el esquema y el hash del documento: repetir con `LLM_CACHE_MODE=read` da exactamente la misma
-salida y cuesta cero. Los modelos, los prompts y las dependencias están fijados. Una llamada nueva a un
-modelo no es determinista, pero toda extracción pasa por el mismo contrato, los mismos validadores y
-el mismo cuadre; una diferencia entre dos lecturas aparece como alerta o pregunta, nunca en silencio.
+**Reproducibility.** Every model response is cached under a key that includes the model, the prompt,
+the schema and the document hash, so rerunning with `LLM_CACHE_MODE=read` gives exactly the same
+output for free. Models, prompts and dependencies are pinned. A fresh model call isn't deterministic,
+but every extraction goes through the same contract, validators and reconciliation; a difference
+between two reads shows up as a flag or a question, never silently.
 
-## CI/CD y despliegue
+## CI/CD and deployment
 
-| Workflow | Cuándo corre | Qué hace |
+| Workflow | Runs on | What it does |
 |---|---|---|
-| [`ci.yml`](.github/workflows/ci.yml) | Cada push a `main` y cada PR | Typecheck estricto, lint (incluye tamaño, complejidad y duplicados), pruebas unitarias, escenarios de punta a punta con Postgres 17, eval de inyección y del clasificador sin llaves, build del backoffice, imágenes de la API y el worker, gitleaks y osv-scanner |
-| [`eval-extraction.yml`](.github/workflows/eval-extraction.yml) | PRs que tocan prompts, extracción, modelos o contratos | Extracción contra el ground truth con umbral por banco. Restaura los datos privados desde un paquete cifrado y falla si una métrica baja del umbral |
-| [`deploy.yml`](.github/workflows/deploy.yml) | Solo a mano, por entorno (`staging` o `production`) | Imágenes → migración → servicios en Cloud Run, y el backoffice en Vercel. Sin llaves JSON: identidad federada de GitHub a Google, y `production` pide aprobación |
+| [`ci.yml`](.github/workflows/ci.yml) | Every push to `main` and every PR | Strict typecheck, lint (including size, complexity and duplication), unit tests, end-to-end scenarios against Postgres 17, injection and classifier evals without keys, backoffice build, API and worker images, gitleaks and osv-scanner |
+| [`eval-extraction.yml`](.github/workflows/eval-extraction.yml) | PRs that touch prompts, extraction, models or contracts | Extraction against the ground truth with a per-bank threshold. Restores the private data from an encrypted bundle and fails if any metric drops below the threshold |
+| [`deploy.yml`](.github/workflows/deploy.yml) | By hand only, per environment (`staging` or `production`) | Images → migration → Cloud Run services, plus the backoffice on Vercel. No JSON keys: GitHub-to-Google federated identity, and `production` requires approval |
+
+There are two deployment targets:
+
+- **Demo on Railway + Supabase.** Running today. Three Railway services: `app` (API and worker
+  together, since they share the document disk), `web` (the static backoffice behind nginx, which
+  forwards `/bo` over the private network) and `whatsapp` (exactly one instance). Database and Auth
+  live on a hosted Supabase project. `infra/railway/` holds the scripts: `configure.sh` sets up the
+  services, `set-db-passwords.sh` generates a password per database role without printing it, and
+  `deploy.sh` ships exactly one commit with `git archive`, so nothing unversioned ever leaves the
+  machine. Before every `app` deploy the roles and migrations are applied.
+- **Production on Google Cloud.** Prepared, not executed: no cloud accounts were created.
 
 ```mermaid
 flowchart LR
     gh["GitHub Actions"] -->|OIDC| gcp
     subgraph gcp["Google Cloud"]
-        api2["api · Cloud Run<br/>escala a cero"]
-        worker2["worker · Cloud Run<br/>CPU siempre asignada"]
-        wa2["whatsapp · Cloud Run<br/>1 instancia"]
+        api2["api · Cloud Run<br/>scales to zero"]
+        worker2["worker · Cloud Run<br/>CPU always on"]
+        wa2["whatsapp · Cloud Run<br/>1 instance"]
         sm["Secret Manager"]
     end
-    gh --> vercel["Vercel<br/>backoffice estático"]
+    gh --> vercel["Vercel<br/>static backoffice"]
     vercel -->|/bo/*| api2
-    api2 & worker2 & wa2 --> supa2[("Supabase gestionado<br/>Postgres · Auth · Storage")]
+    api2 & worker2 & wa2 --> supa2[("Managed Supabase<br/>Postgres · Auth · Storage")]
 ```
 
-El plan completo, con regiones, parámetros, secretos, costos de operación y lo que falta crear, está
-en [`docs/deploy.md`](docs/deploy.md).
+Both plans, with regions, parameters, secrets, operating costs and what's still missing, are in
+[`docs/deploy.md`](docs/deploy.md).
 
-> [!IMPORTANT]
-> El despliegue está preparado pero no se ejecutó: no se crearon cuentas en la nube.
+## Known limits
 
-## Límites y pendientes
+- **Production isn't deployed.** The Railway demo runs; the Cloud Run pipeline is ready but has never
+  run.
+- **The demo cuts two corners.** TLS to Supabase doesn't verify the certificate, and the API and
+  worker scale together.
+- **WhatsApp through Baileys**, not Meta's official API: fine for a demo, not for production.
+- **No SAT or credit bureau yet.** The profile is designed to take them as new signals without
+  changing the engine, but they aren't connected.
+- **Documents on disk.** Supabase Storage runs, but its adapter isn't wired in; PDFs live on a
+  volume.
+- **Development data stays out of the repository.** Statements, ground truth and cache are never
+  committed.
 
-- **No desplegado.** El pipeline existe; las cuentas no.
-- **WhatsApp por Baileys**, no por la API oficial de Meta: sirve para la demo, no para producción.
-- **Sin SAT ni buró.** El perfil está diseñado para recibirlos como señales nuevas sin cambiar el
-  motor, pero no están conectados.
-- **Documentos en disco.** Supabase Storage corre, pero el adaptador no está conectado; los PDFs se
-  guardan en un volumen de Docker.
-- **Datos de desarrollo fuera del repositorio.** Los estados de cuenta, el ground truth y la caché
-  nunca se versionan.
+## Repository map
 
-## Estructura del repositorio
-
-| Carpeta | Qué hay |
+| Folder | What's inside |
 |---|---|
-| `apps/api` | API HTTP: backoffice, solicitudes, aclaraciones, políticas, asistente inicial |
-| `apps/worker` | Cola y workflow: extracción, decisión, mensajes salientes |
-| `apps/whatsapp` | Canal de WhatsApp (Baileys) |
+| `apps/api` | HTTP API: backoffice, requests, clarifications, policies, first-run wizard |
+| `apps/worker` | Queue and workflow: extraction, decision, outgoing messages |
+| `apps/whatsapp` | WhatsApp channel (Baileys) |
 | `apps/web` | Backoffice (React 19 + Vite) |
-| `packages/contracts` | Contratos Zod: extracción, perfil, política, veredicto, solicitud |
-| `packages/extraction` | Router de modelos, pasadas, validadores, cuadre, bloque fiscal |
-| `packages/llm` | Modelos y precios, cliente estructurado, caché de respuestas, clasificadores |
-| `packages/decision` | Perfil, motor de políticas, contrafactuales y simulación |
-| `packages/mastra` | Workflow `processApplication` |
-| `packages/db`, `packages/platform`, `packages/channels` | Base con RLS, cola y almacenamiento, conversación de WhatsApp |
-| `policies/` | Plantilla base de política |
-| `prompts/` | Prompts versionados y su changelog |
-| `evals/`, `scenarios/` | Evals de extracción e inyección; escenarios de punta a punta |
-| `infra/`, `scripts/` | Supabase local, nginx del backoffice, `stack.sh` |
-| `docs/` | Diseño (`00` a `09`), esquemas, despliegue |
-
-## English summary
-
-GOW Credit reads a supplier's Mexican bank statement (PDF) sent over WhatsApp, extracts every
-transaction with a cited page and snippet, checks it against the bank's own arithmetic, builds a
-credit profile and applies the lender's JSON policy with a deterministic engine. The verdict comes
-with full diagnostics and counterfactuals ("what would change it"). When an ambiguous value could
-change the outcome, it asks the supplier first.
-
-**Run it.** You need Docker with Compose v2, Node 24 with pnpm, an `ANTHROPIC_API_KEY` and
-(recommended) a `GEMINI_API_KEY`. Then `cp .env.example .env`, fill the keys, run `pnpm stack:up`
-and open http://127.0.0.1:5173. A two-step wizard creates the lender and its admin and shows a QR to
-link WhatsApp.
-
-**Accuracy.** On the 9 development statements (1,513 transactions), Gemini 3.8 Flash and Claude Opus
-5.5 both extract every transaction with none invented or missed, and all 9 reconcile. Gemini costs
-about USD 0.20 per document, a fifth of Opus.
+| `packages/contracts` | Zod contracts: extraction, profile, policy, verdict, request |
+| `packages/extraction` | Model routing, passes, validators, reconciliation, tax block |
+| `packages/llm` | Models and prices, structured client, response cache, classifiers |
+| `packages/decision` | Profile, policy engine, counterfactuals and simulation |
+| `packages/mastra` | The `processApplication` workflow |
+| `packages/db`, `packages/platform`, `packages/channels` | Database with RLS, queue and storage, WhatsApp conversation |
+| `policies/` | Base policy template |
+| `prompts/` | Versioned prompts and their changelog |
+| `evals/`, `scenarios/` | Extraction and injection evals; end-to-end scenarios |
+| `infra/`, `scripts/` | Local Supabase, backoffice nginx, Railway, `stack.sh` |
+| `docs/` | Design (`00` to `09`), schemas, deployment |
