@@ -12,18 +12,23 @@ import { Button } from '../../ui/primitives'
  * (implicit flow) or `#error=` if GoTrue rejected the link. With Supabase there is also a
  * `refresh_token`: it goes once to the API, which stores it encrypted in an HttpOnly cookie and
  * renews the session on its own. None of this is kept in the browser.
+ *
+ * The current email link brings `#token_hash=` instead: a one-time code that is only exchanged when
+ * the person presses "Entrar", so opening the link (or a mail scanner opening it) spends nothing.
  */
-function readReturn(): { token: string | null; refreshToken: string | null; failed: boolean } {
+function readReturn(): { token: string | null; refreshToken: string | null; tokenHash: string | null; failed: boolean } {
   const hash = new URLSearchParams(window.location.hash.slice(1))
   const query = new URLSearchParams(window.location.search)
   const supabase = hash.get('access_token')
   const token = supabase ?? hash.get('token')
   const refreshToken = supabase ? hash.get('refresh_token') : null
   const failed = hash.has('error') || hash.has('error_code') || query.has('error')
-  return { token, refreshToken, failed }
+  return { token, refreshToken, tokenHash: hash.get('token_hash'), failed }
 }
 
-type State = { kind: 'idle' } | { kind: 'working' } | { kind: 'error'; message: string } | { kind: 'sent'; email: string }
+const USED_OR_EXPIRED = 'Ese enlace ya se usó o venció'
+
+type State = { kind: 'idle' } | { kind: 'working' } | { kind: 'confirm'; tokenHash: string } | { kind: 'error'; message: string } | { kind: 'sent'; email: string }
 
 export function Enter() {
   const navigate = useNavigate()
@@ -33,11 +38,16 @@ export function Enter() {
 
   useEffect(() => {
     const back = readReturn()
+    // The emailed code: waits for the click; a reload before it still works.
+    if (back.tokenHash) {
+      setState({ kind: 'confirm', tokenHash: back.tokenHash })
+      return
+    }
     if (!back.token && !back.failed) return
     // Out of the address bar and history before anything else.
     window.history.replaceState(null, '', window.location.pathname)
     if (!back.token) {
-      setState({ kind: 'error', message: 'El enlace ya venció o ya se usó' })
+      setState({ kind: 'error', message: USED_OR_EXPIRED })
       return
     }
     setState({ kind: 'working' })
@@ -59,24 +69,32 @@ export function Enter() {
         <h1 className="display mt-8 text-[34px]">
           Entrar al <span className="text-muted">backoffice</span>
         </h1>
-        {state.kind === 'working' ? (
-          <p className="mt-4 text-[15px] text-muted" role="status">
-            Verificando tu enlace…
-          </p>
-        ) : state.kind === 'sent' ? (
-          <Sent email={state.email} onAgain={() => { setState({ kind: 'idle' }) }} />
-        ) : magicLink ? (
-          <EmailForm error={state.kind === 'error' ? state.message : null} onSent={(email) => { setState({ kind: 'sent', email }) }} />
-        ) : config.isPending ? (
-          <p className="mt-4 text-[15px] text-muted" role="status">
-            Cargando…
-          </p>
-        ) : (
-          <DevLink error={state.kind === 'error' ? state.message : null} />
-        )}
+        <Content state={state} setState={setState} magicLink={magicLink} loading={config.isPending} onSignedIn={() => void navigate({ to: '/' })} />
       </div>
     </div>
   )
+}
+
+/** What the card shows for each state: the click to confirm, the form, the sent notice or the dev link. */
+function Content({ state, setState, magicLink, loading, onSignedIn }: { state: State; setState: (s: State) => void; magicLink: boolean; loading: boolean; onSignedIn: () => void }) {
+  const error = state.kind === 'error' ? state.message : null
+  if (state.kind === 'confirm') {
+    return (
+      <Confirm
+        tokenHash={state.tokenHash}
+        onDone={onSignedIn}
+        onFailed={(message) => {
+          window.history.replaceState(null, '', window.location.pathname)
+          setState({ kind: 'error', message })
+        }}
+      />
+    )
+  }
+  if (state.kind === 'working') return <p className="mt-4 text-[15px] text-muted" role="status">Verificando tu enlace…</p>
+  if (state.kind === 'sent') return <Sent email={state.email} onAgain={() => { setState({ kind: 'idle' }) }} />
+  if (magicLink) return <EmailForm error={error} onSent={(email) => { setState({ kind: 'sent', email }) }} />
+  if (loading) return <p className="mt-4 text-[15px] text-muted" role="status">Cargando…</p>
+  return <DevLink error={error} />
 }
 
 /** With Supabase Auth: the email gets the link. The response is the same whether or not an account exists. */
@@ -106,7 +124,13 @@ function EmailForm({ error, onSent }: { error: string | null; onSent: (email: st
       }}
     >
       <p className="text-[15px] leading-relaxed text-muted">
-        {error ? `${error}. ` : ''}Te mandamos un enlace de acceso a tu correo.
+        {error ? (
+          <>
+            <span className="font-medium text-coral-ink">{error}.</span> Pide otro con tu correo.
+          </>
+        ) : (
+          'Escribe tu correo y te mandamos un enlace de acceso.'
+        )}
       </p>
       <label className="mt-6 block">
         <span className="text-[13px] font-medium text-ink-2">Correo</span>
@@ -129,14 +153,50 @@ function EmailForm({ error, onSent }: { error: string | null; onSent: (email: st
   )
 }
 
+const RESEND_SECONDS = 60
+
+/** After asking: what to expect, and another link only after a minute (the email service won't send sooner). */
 function Sent({ email, onAgain }: { email: string; onAgain: () => void }) {
+  const [left, setLeft] = useState(RESEND_SECONDS)
+  useEffect(() => {
+    if (left <= 0) return
+    const t = setTimeout(() => { setLeft((n) => n - 1) }, 1000)
+    return () => { clearTimeout(t) }
+  }, [left])
   return (
     <>
       <p className="mt-4 text-[15px] leading-relaxed text-muted" role="status">
-        Si <span className="font-medium text-ink">{email}</span> tiene acceso, te llegó un enlace. Ábrelo en este navegador: vence pronto y sirve una sola vez.
+        Si <span className="font-medium text-ink">{email}</span> tiene acceso, te llegará un enlace en un minuto. Ábrelo en este navegador y presiona “Entrar”.
       </p>
-      <Button variant="ghost" className="mt-6 w-full" onClick={onAgain}>
-        Usar otro correo
+      <p className="mt-3 text-[13px] leading-relaxed text-muted">Si no llega, revisa spam. Cada enlace nuevo reemplaza al anterior.</p>
+      <Button variant="ghost" className="mt-6 w-full" disabled={left > 0} onClick={onAgain}>
+        {left > 0 ? `Pedir otro en ${String(left)} s` : 'Pedir otro o usar otro correo'}
+      </Button>
+    </>
+  )
+}
+
+/** The emailed link: the code is exchanged only here, on the click. */
+function Confirm({ tokenHash, onDone, onFailed }: { tokenHash: string; onDone: () => void; onFailed: (message: string) => void }) {
+  const [pending, setPending] = useState(false)
+  return (
+    <>
+      <p className="mt-4 text-[15px] leading-relaxed text-muted">Presiona el botón para entrar. El enlace sirve una sola vez.</p>
+      <Button
+        className="mt-6 w-full"
+        disabled={pending}
+        onClick={() => {
+          setPending(true)
+          api
+            .signInWithEmailLink(tokenHash)
+            .then(onDone)
+            .catch((e: unknown) => {
+              setPending(false)
+              onFailed(e instanceof ApiError && e.status === 401 ? USED_OR_EXPIRED : e instanceof ApiError ? e.message : 'No se pudo iniciar sesión')
+            })
+        }}
+      >
+        {pending ? 'Entrando…' : 'Entrar a GOW Credit'} <Icon name="right" size={16} />
       </Button>
     </>
   )

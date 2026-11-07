@@ -59,6 +59,8 @@ export const api = {
   signIn: (token: string, refreshToken: string | null) => request<BackofficeMe>('POST', '/session', { token, ...(refreshToken ? { refresh_token: refreshToken } : {}) } satisfies SessionCreateBody),
   sessionConfig: () => request<SessionConfig>('GET', '/session/config'),
   setup: (body: SetupBody) => request<BackofficeMe>('POST', '/setup', body),
+  /** Exchanges the emailed link's code for the session; only on an explicit click. */
+  signInWithEmailLink: (tokenHash: string) => request<BackofficeMe>('POST', '/session/email-link', { token_hash: tokenHash }),
   requestMagicLink: (email: string) => request<MagicLinkAccepted>('POST', '/session/magic-link', { email }),
   signOut: () => request<undefined>('DELETE', '/session'),
   me: () => request<BackofficeMe>('GET', '/me'),
