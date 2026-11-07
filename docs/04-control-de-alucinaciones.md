@@ -212,3 +212,52 @@ contra ground truth y en producción con la tasa de corrección de los revisores
   clasificación existente (regla o modelo).
 - **Fidelidad del texto generado (§6)**: el filtro es la guarda en línea. La métrica con juez
   LLM sigue pendiente.
+
+### Robustez documental (2026-11-07): doble lectura del encabezado sin texto (§3.6)
+
+Spec `docs/specs/2026-11-07-robustez-documental.md`, sección V. §3.6 prometía una segunda lectura
+de encabezado, totales y movimientos grandes para los documentos sin texto; hasta hoy solo se
+releían las páginas que rompen el saldo corrido, y un PDF escaneado dejaba todo el encabezado en
+`unverified` porque no hay capa de texto contra qué comparar (§3.5). Se hizo así:
+
+- **Dónde.** `packages/extraction/src/double-read.ts`, llamada desde un bloque de `extract.ts`
+  justo después de ensamblar el resumen de la pasada 1. **Solo en la ruta `vision_only`**
+  (capa `corrupt` o `absent`); con texto local no corre, porque §3.5 ya verifica ese encabezado
+  gratis.
+- **Qué lee.** Repite la pasada 1 tal cual (mismo prompt, mismo esquema, misma instrucción con la
+  nota de visión; sin cambio de prompts ni de esquema, así que la caché no se invalida) con el
+  modelo de `plan.doubleRead`, la otra familia de la ADR 0011, a `effort` medio. La llamada
+  queda en `extraction.calls` con `purpose: double_read`, su costo y su acierto de caché.
+- **Qué compara.** `bank_name`, `holder_name`, `holder_rfc`; por cuenta `account_number` y `clabe`;
+  por periodo `period_start`, `period_end`, `statement_date`, `opening_balance`, `closing_balance`,
+  `total_credits`, `total_debits`, `credits_count` y `debits_count`. Ambas lecturas se normalizan con
+  el mismo código (fechas ISO, montos al centavo, conteos enteros); en identificadores se ignoran
+  espacios, puntos y guiones; en el titular, acentos, mayúsculas y puntuación; el nombre del banco
+  puede venir con o sin su razón social. Cuentas y periodos se emparejan por `ref` y, si la segunda
+  lectura los nombró distinto pero trae la misma forma, por posición. Un dígito distinto es
+  desacuerdo.
+- **Resultado por campo.** Coinciden: `verified`, con la página y el `source_snippet` de la primera
+  lectura y confianza de al menos 0.9 (menos que el 0.95 de una cita comprobada en la página). Difieren:
+  `conflict`, confianza máxima 0.3 e issue `header_read_conflict` (`warning`, `path` al campo,
+  `details: { first, second }`; el mensaje nombra el campo y no repite valores). Solo la primera lo
+  leyó: queda como estaba. Un campo sin cita (el contrato exige fuente para un valor
+  `verified`) no se verifica aunque coincida. Bandera de documento `header_double_read` cuando la
+  segunda lectura se hizo.
+- **Quién manda.** Los validadores de formato y el cuadre corren después y no se tocan: una CLABE que
+  no pasa el dígito verificador queda `unverified` aunque las dos lecturas coincidan, y los saldos
+  y totales de un periodo que cuadra exacto quedan `verified` (confianza 1) aunque la segunda lectura
+  haya discrepado, porque la aritmética del propio documento es más fuerte que una segunda opinión.
+  El issue `header_read_conflict` se conserva en ambos casos. Un valor que ya se verificó contra el
+  texto (HSBC con la capa EBCDIC reparada también es `vision_only`) no se vuelve a juzgar, y si todos
+  lo están no se hace la llamada.
+- **Si falla.** Proveedor caído, sin llave, sin respuesta en caché (`--cache read`) o una respuesta
+  sin resumen: issue `block_failed` informativo, sin bandera y sin conflictos; la extracción sigue
+  como antes. Tampoco se llama si el modelo de la segunda lectura es el mismo que leyó primero (sin
+  llave de Google, o tras la caída del proveedor, el principal ya es Opus): con la misma entrada la
+  caché devolvería la primera respuesta y el "acuerdo" no probaría nada. Queda el mismo aviso informativo.
+- **Lo que no hace.** Los movimientos grandes de §3.6 no se releen aquí (siguen releyéndose solo
+  las páginas que rompen el saldo, §3.3) y no hay nota por campo: el contrato `Field` no tiene
+  dónde ponerla, así que la evidencia de que un valor salió de una doble lectura es la bandera
+  `header_double_read` más la llamada `double_read` de `extraction.calls`.
+- **Costo.** Una llamada más del tamaño de la pasada 1 (el PDF y el resumen, sin movimientos) por
+  documento escaneado, en serie después de ella.
