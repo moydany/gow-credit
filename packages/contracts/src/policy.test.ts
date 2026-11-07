@@ -8,7 +8,7 @@ function basePolicy(): PolicyInput {
   return JSON.parse(readFileSync(BASE_POLICY_PATH, 'utf8')) as PolicyInput
 }
 
-/** Copia profunda de la política base con un cambio aplicado. */
+/** Deep copy of the base policy with one change applied. */
 function withChange(change: (p: PolicyInput) => void): PolicyInput {
   const p = basePolicy()
   change(p)
@@ -27,7 +27,7 @@ describe('política base (policies/gow-base.v1.json)', () => {
     expect(res.ok).toBe(true)
     if (!res.ok) return
     expect(res.policy.gates.find((g) => g.id === 'doc_recent')?.onUnknown).toBe('fail')
-    // La identidad no es compuerta: se compara y se informa, pero no decide (ADR 0052).
+    // Identity is not a gate: it is compared and reported, but does not decide.
     expect(res.policy.gates.some((g) => g.id === 'identity')).toBe(false)
     expect(res.policy.score.dimensions.find((d) => d.id === 'capacity')?.inverse).toBe(false)
   })

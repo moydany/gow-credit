@@ -1,9 +1,8 @@
 /**
- * Correcciones del analista en revisión humana (docs/08 §2). Cada una es un par (valor leído,
- * valor correcto) sobre un valor concreto de la extracción, con su página: es lo que alimenta el
- * dataset de evals. El conjunto de blancos es cerrado, no un JSON Pointer libre: solo se corrige
- * lo que el motor usa (titular, CLABE, cifras del resumen y movimientos) y el servidor sabe
- * recalcular el cuadre después.
+ * Analyst corrections during human review. Each is a (read value, correct value) pair on one
+ * extraction value, with its page, and feeds the eval dataset. The set of targets is closed, not
+ * a free JSON Pointer: only what the engine uses can be corrected (holder, CLABE, summary
+ * figures, transactions), and the server can recompute the reconciliation afterwards.
  */
 import { z } from 'zod'
 import { IsoDate, LocalId, Money, SignedMoney } from './primitives.ts'
@@ -24,7 +23,7 @@ export type CorrectionTarget = z.infer<typeof CorrectionTarget>
 
 export const CorrectionValue = z.union([z.string().trim().min(1).max(200), z.number()])
 
-/** Lo que el navegador manda: el blanco, el valor correcto y la página donde se ve. */
+/** What the browser sends: the target, the correct value and the page where it shows. */
 export const CorrectionInput = z.strictObject({
   target: CorrectionTarget,
   value: CorrectionValue,
@@ -34,7 +33,7 @@ export type CorrectionInput = z.infer<typeof CorrectionInput>
 
 export const CorrectionsBody = z.strictObject({ corrections: z.array(CorrectionInput).min(1).max(50) })
 
-/** La corrección guardada: incluye lo que se leyó, para el dataset de evals. */
+/** The stored correction; includes what was read, for the eval dataset. */
 export const Correction = z.strictObject({
   id: z.uuid(),
   target: CorrectionTarget,
@@ -46,7 +45,7 @@ export const Correction = z.strictObject({
 })
 export type Correction = z.infer<typeof Correction>
 
-/** El tipo de valor que acepta cada blanco; el servidor y el formulario validan con lo mismo. */
+/** Value type each target accepts; server and form validate with the same thing. */
 export function correctionValueKind(t: CorrectionTarget): 'text' | 'money' | 'signed_money' | 'count' | 'date' | 'type' | 'holder_type' {
   if (t.kind === 'holder') return t.field === 'holder_type' ? 'holder_type' : 'text'
   if (t.kind === 'account') return 'text'
@@ -54,7 +53,7 @@ export function correctionValueKind(t: CorrectionTarget): 'text' | 'money' | 'si
   return t.field === 'amount' ? 'money' : t.field === 'type' ? 'type' : 'date'
 }
 
-/** Mensaje de error de un valor para ese blanco, o null si sirve. */
+/** Error message for a value on that target, or null if it is valid. */
 export function checkCorrectionValue(t: CorrectionTarget, value: string | number): string | null {
   const kind = correctionValueKind(t)
   const num = typeof value === 'number' ? value : Number(value.replace(/[$,\s]/g, ''))
@@ -77,10 +76,10 @@ export function checkCorrectionValue(t: CorrectionTarget, value: string | number
 }
 
 /**
- * Descartar el documento en revisión humana (docs/08 §2): el analista concluye que no sirve para
- * decidir. Motivo cerrado, sin texto libre: la bitácora y la solicitud no guardan notas que puedan
- * llevar datos del documento. La solicitud termina en `not_qualified` con
- * `failure_reason = document_discarded:<motivo>`; el proveedor puede volver a solicitar con otro.
+ * Discard the document in human review: the analyst concludes it is unusable. Closed reason, no
+ * free text, so the audit log and the request never hold notes that could carry document data.
+ * The request ends `not_qualified` with `failure_reason = document_discarded:<reason>`; the
+ * supplier may apply again with another document.
  */
 export const DiscardReason = z.enum(['wrong_document', 'illegible', 'altered', 'incomplete'])
 export type DiscardReason = z.infer<typeof DiscardReason>
@@ -94,9 +93,9 @@ export const DISCARD_REASON_LABELS: Record<DiscardReason, string> = {
 export const DISCARDED_PREFIX = 'document_discarded:'
 
 /**
- * Correcciones exportadas para las evals (ADR 0020, fase 8): un archivo por documento, llave el
- * sha256 del PDF. Sin usuario, tenant ni solicitud: solo qué se leyó, qué era y en qué página.
- * Vive en `data/corrections/`, que no se versiona, porque los valores son datos del documento.
+ * Corrections exported for evals: one file per document, keyed by the PDF sha256. No user,
+ * tenant or request: only what was read, what it was and on which page. Lives in
+ * `data/corrections/`, which is not versioned because values are document data.
  */
 export const CorrectionsExport = z.strictObject({
   version: z.literal(1),

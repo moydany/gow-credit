@@ -1,8 +1,7 @@
 /**
- * Puerto de llamadas estructuradas. La extracción depende de esta interfaz, no de Mastra ni
- * del SDK: el adaptador por defecto es Mastra (spike 1) y la caché de respuestas por hash es
- * un decorador. Si algún día hay que usar la salida de emergencia, cambia el adaptador y
- * nada más.
+ * Port for structured calls. Extraction depends on this interface, not on Mastra or the SDK: the
+ * default adapter is Mastra and the hash-keyed response cache is a decorator. To use the
+ * emergency output, only the adapter changes.
  */
 import type { TokenUsage } from '@gow/contracts'
 import type { z } from 'zod'
@@ -10,38 +9,38 @@ import type { z } from 'zod'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface PdfInput {
-  /** PDF en base64, sin saltos de línea. */
+  /** Base64 PDF, without line breaks. */
   base64: string
-  /** sha256 del PDF: entra en la llave de la caché de respuestas. */
+  /** sha256 of the PDF: part of the response cache key. */
   sha256: string
-  /** Marca el bloque del documento con cache_control para reutilizarlo entre llamadas. */
+  /** Marks the document block with cache_control so it is reused across calls. */
   cache: boolean
 }
 
 export interface StructuredRequest<T> {
-  /** Para trazas y costo: classify, summary, transactions, retry_page, double_read. */
+  /** For traces and cost: classify, summary, transactions, retry_page, double_read. */
   purpose: string
   model: string
-  /** System prompt estable: mismo texto en todas las llamadas sobre un documento (caché). */
+  /** Stable system prompt: same text on every call about a document (cache). */
   system: string
   document: PdfInput | null
-  /** Va después del documento: es lo único que cambia entre pasadas. */
+  /** Goes after the document: the only thing that changes between passes. */
   instruction: string
   schema: z.ZodType<T>
-  /** Nombre del esquema para la llave de caché y las trazas, con versión (extraction_chunk.v1). */
+  /** Schema name for the cache key and traces, versioned (extraction_chunk.v1). */
   schemaName: string
   promptVersion: string
   effort: Effort
   maxOutputTokens: number
-  /** Fallback del servidor ante refusal; Haiku no lo soporta. */
+  /** Server fallback on refusal; Haiku does not support it. */
   serverFallback: boolean
 }
 
 export interface StructuredResult<T> {
   object: T
-  /** Uso reportado por la API (en un hit de caché local: el de la llamada original). */
+  /** Usage reported by the API (on a local cache hit: that of the original call). */
   usage: TokenUsage
-  /** Costo de esta corrida: 0 si la respuesta salió de la caché local. */
+  /** Cost of this run: 0 if the response came from the local cache. */
   costUsd: number
   latencyMs: number
   model: string
@@ -53,14 +52,14 @@ export interface StructuredLlm {
   call<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>>
 }
 
-/** Error de la llamada al modelo con un código estable para issues y reportes (sin PII). */
+/** Model call error with a stable code for issues and reports (no PII). */
 export class LlmCallError extends Error {
   readonly code: 'missing_api_key' | 'api_error' | 'invalid_output' | 'refusal' | 'max_tokens' | 'timeout'
   readonly retryable: boolean
   readonly status: number | null
   /**
-   * Lo que devolvió el modelo cuando no sirvió (cortado, sin validar). Lleva datos del documento:
-   * solo para la grabación de intercambios (ADR 0064), nunca para el mensaje ni para logs.
+   * What the model returned when it was unusable (truncated, unvalidated). Carries document data:
+   * only for exchange recording, never for the message or logs.
    */
   readonly rawOutput: string | null
 

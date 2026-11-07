@@ -1,11 +1,10 @@
 /**
- * Entrada de `buildTimeline` (ADR 0067): las filas que la API lee del esquema `app` para una solicitud,
- * ya filtradas por tenant (RLS) y por solicitud, con las fechas como `Date`. Es un tipo interno entre la
- * API y el constructor, no un límite de red: por eso son tipos de TypeScript y no un esquema Zod.
+ * Input of `buildTimeline`: the rows the API reads from the `app` schema for one request, already
+ * filtered by tenant (RLS) and request, with dates as `Date`. An internal type between the API
+ * and the builder, not a network boundary, hence TypeScript types and not a Zod schema.
  *
- * Lo que NO viaja aquí, a propósito: el texto de los mensajes, los números de teléfono y correos, el
- * borrador de la factura, los nombres y RFC del registro, el prompt y la respuesta de las llamadas.
- * La API no los selecciona.
+ * Deliberately NOT carried: message text, phone numbers and emails, the invoice draft, registry
+ * names and RFC, the prompt and response of calls. The API does not select them.
  */
 import type { ApplicationStatus } from './enums.ts'
 import type { StatementExtraction } from './statement.ts'
@@ -23,7 +22,7 @@ export interface TimelineDocumentRow {
   origin: 'submitted' | 'owner_answer'
   createdAt: Date
   sha256: string
-  /** La extracción guardada del documento, si ya existe (inmutable). */
+  /** The stored extraction of the document, if it exists (immutable). */
   extraction: { id: string; createdAt: Date; payload: StatementExtraction } | null
 }
 
@@ -54,14 +53,14 @@ export interface TimelineAuditRow {
   actor: string
   action: string
   subject: string | null
-  /** Ya sin PII por construcción de la bitácora: ids, códigos y estados. */
+  /** PII-free by construction of the log: ids, codes and statuses. */
   details: Record<string, unknown>
   at: Date
 }
 
 export interface TimelineExchangeRow {
   id: string
-  /** null si la llamada es de un mensaje entrante (intérprete, ADR 0040) y no de un trabajo. */
+  /** null if the call belongs to an incoming message (interpreter) and not to a job. */
   applicationId: string | null
   inboundMessageId: string | null
   purpose: string
@@ -75,7 +74,7 @@ export interface TimelineExchangeRow {
   usage: { input_tokens: number; output_tokens: number } | null
   costUsd: number
   latencyMs: number
-  /** El instante en que empezó la llamada (`RecordingStructuredLlm` lo toma antes de llamar): fin = createdAt + latencyMs. */
+  /** When the call started (`RecordingStructuredLlm` takes it before calling): end = createdAt + latencyMs. */
   createdAt: Date
 }
 
@@ -84,7 +83,7 @@ export interface TimelineDecisionRow {
   kind: 'active' | 'shadow'
   status: string
   policyVersion: number | null
-  /** `Decision` completa tal como se guardó; el constructor la valida y descarta lo que no lea. */
+  /** Full `Decision` as stored; the builder validates it and discards what it cannot read. */
   payload: unknown
   createdAt: Date
 }
@@ -104,7 +103,7 @@ export interface TimelineClarificationRow {
 export interface TimelineCorrectionRow {
   id: string
   documentId: string
-  /** Solo el tipo de valor corregido (por ejemplo `holder.rfc`, `transaction`), nunca el valor. */
+  /** Only the type of the corrected value (e.g. `holder.rfc`, `transaction`), never the value. */
   target: string
   page: number | null
   createdAt: Date

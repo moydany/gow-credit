@@ -1,6 +1,6 @@
 /**
- * Constructores de objetos válidos para tests (aquí y en packages/decision). Todo es
- * sintético: ningún dato sale de data/.
+ * Builders of valid objects for tests (here and in packages/decision). Everything is synthetic:
+ * nothing comes from data/.
  */
 import type { Provenance } from '../enums.ts'
 import { FEATURE_CATALOG, FEATURE_CATALOG_VERSION, type FeatureName } from '../features.ts'
@@ -77,7 +77,7 @@ export function account(id: string, periods: Period[], type: 'checking' | 'inves
   }
 }
 
-/** CFDI sintético de comisiones (tipo I), con todos sus campos legibles y sellos completos. */
+/** Synthetic fees CFDI (type I), with all fields readable and complete seals. */
 export function fiscalDocument(id = 'f1', page = 3, overrides: Partial<FiscalDocument> = {}): FiscalDocument {
   const uuid = 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B'
   const sat = '00001000000700000001'
@@ -108,7 +108,7 @@ export function fiscalDocument(id = 'f1', page = 3, overrides: Partial<FiscalDoc
   }
 }
 
-/** Estado sintético con dos cuentas (cheques + inversión) y dos periodos en la primera. */
+/** Synthetic statement with two accounts (checking + investment) and two periods in the first. */
 export function sampleStatement(): StatementExtraction {
   const p1 = period('a1.p1', '2026-03-01', '2026-03-31', [tx('a1.p1.t1', '2026-03-05', 5000, 'credit', 15000), tx('a1.p1.t2', '2026-03-12', 1250.5, 'debit', 13749.5)], 10000)
   const p2 = period('a1.p2', '2026-04-01', '2026-04-30', [tx('a1.p2.t1', '2026-04-02', 300, 'debit', 13449.5, 2)], 13749.5)
@@ -141,7 +141,7 @@ export function sampleStatement(): StatementExtraction {
 
 type FeatureOverrides = { [K in FeatureName]?: ProfileFeatures[K]['value'] }
 
-/** Perfil con todas las features desconocidas, salvo las que se pasen (verificadas, confianza 1). */
+/** Profile with every feature unknown, except those passed in (verified, confidence 1). */
 export function sampleProfile(values: FeatureOverrides = {}, provenance: Provenance = 'extracted'): Profile {
   const features = Object.fromEntries(
     (Object.keys(FEATURE_CATALOG) as FeatureName[]).map((name) => {

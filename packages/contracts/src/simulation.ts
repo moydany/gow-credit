@@ -1,15 +1,15 @@
 /**
- * Simulación de una política sobre un conjunto de perfiles (docs/03 §5): antes de activar una
- * versión se reevalúan solicitudes pasadas (cada decisión guarda su perfil completo) y se
- * compara contra la versión vigente: cuántas cambian de estado, en qué dirección y qué mora
- * se observó en las que tienen outcome. Es el replay offline del plan de evaluación.
+ * Simulation of a policy over a set of profiles: before activating a version, past requests are
+ * re-evaluated (each decision stores its full profile) and compared with the current version:
+ * how many change status, in which direction, and what delinquency was observed in those with
+ * an outcome. It is the offline replay.
  */
 import { z } from 'zod'
 import { DecisionStatus } from './enums.ts'
 import { Profile } from './profile.ts'
 import { Count, LocalId, Money, Ratio } from './primitives.ts'
 
-/** Lo que pasó después de financiar (glosario de docs/README.md: pagó, atraso, mora, fraude). */
+/** What happened after funding (paid, delay, default, fraud). */
 export const LoanOutcome = z.enum(['paid', 'late', 'default', 'fraud'])
 export type LoanOutcome = z.infer<typeof LoanOutcome>
 

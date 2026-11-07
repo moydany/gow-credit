@@ -1,17 +1,16 @@
 /**
- * Lo que responden las fuentes externas del perfil (docs/03 §3, docs/06 §2 y §5, docs/09 §9):
- * créditos vigentes con el prestamista, buró, SAT, cupo del programa del comprador e
- * historial interno. Los adaptadores reales (fase 6) y los dobles simulados (escenarios)
- * producen la misma forma, así que el cálculo del perfil no sabe si está en simulación.
+ * What the external profile sources return: existing credits with the lender, bureau, SAT, the
+ * buyer program limit and internal history. Real adapters and simulated doubles produce the same
+ * shape, so the profile calculation does not know whether it is simulating.
  *
- * Una fuente con `available: false` (sin adaptador, caída, sin datos para consultar) deja
- * sus features en `null`; nunca se rellena con un valor por defecto.
+ * A source with `available: false` (no adapter, down, nothing to look up) leaves its features
+ * `null`; they are never filled with a default.
  */
 import { z } from 'zod'
 import { CFDI_SAT_STATUS, PriorApplication, SAT_LIST_STATUS } from './features.ts'
 import { Count, IsoDate, LocalId, Money } from './primitives.ts'
 
-/** Un crédito vigente del proveedor con este prestamista (adaptador `ExistingCredits`). */
+/** An existing credit of the supplier with this lender (`ExistingCredits` adapter). */
 export const ExistingCredit = z
   .strictObject({
     product: z.string().min(1),
@@ -23,7 +22,7 @@ export const ExistingCredit = z
   .meta({ id: 'ExistingCredit' })
 export type ExistingCredit = z.infer<typeof ExistingCredit>
 
-/** Reporte de buró (adaptador `CreditBureau`). */
+/** Bureau report (`CreditBureau` adapter). */
 export const BureauReport = z
   .strictObject({
     score: z.int().nullable(),
@@ -33,7 +32,7 @@ export const BureauReport = z
   .meta({ id: 'BureauReport' })
 export type BureauReport = z.infer<typeof BureauReport>
 
-/** Situación del contribuyente ante el SAT (adaptador `TaxAuthority`). */
+/** Taxpayer status with the SAT (`TaxAuthority` adapter). */
 export const TaxpayerStatus = z
   .strictObject({
     rfc_valid: z.boolean().nullable(),
@@ -43,11 +42,11 @@ export const TaxpayerStatus = z
   .meta({ id: 'TaxpayerStatus' })
 export type TaxpayerStatus = z.infer<typeof TaxpayerStatus>
 
-/** Respuesta de "Verifica CFDI" para un UUID. */
+/** "Verifica CFDI" response for a UUID. */
 export const CfdiCheck = z.strictObject({ uuid: z.string().min(1), status: z.enum(CFDI_SAT_STATUS) }).meta({ id: 'CfdiCheck' })
 export type CfdiCheck = z.infer<typeof CfdiCheck>
 
-/** RFC de una contraparte que aparece en una lista del SAT. */
+/** RFC of a counterparty found on a SAT list. */
 export const ListedRfc = z.strictObject({ rfc: z.string().min(12).max(13), list_status: z.enum(SAT_LIST_STATUS) }).meta({ id: 'ListedRfc' })
 export type ListedRfc = z.infer<typeof ListedRfc>
 
@@ -80,7 +79,7 @@ export const ExternalSnapshot = z
 export type ExternalSnapshot = z.infer<typeof ExternalSnapshot>
 export type ExternalSnapshotInput = z.input<typeof ExternalSnapshot>
 
-/** Ninguna fuente externa disponible: lo que ve `standalone` sin adaptadores. */
+/** No external source available: what `standalone` sees without adapters. */
 export function emptyExternalSnapshot(): ExternalSnapshot {
   const off = { available: false, simulated: false }
   return {

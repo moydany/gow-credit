@@ -38,7 +38,7 @@ const ok: StructuredLlm = {
   call: (req) => Promise.resolve({ object: req.schema.parse({ ok: true }), usage, costUsd: 0.0012, latencyMs: 840, model: 'claude-haiku-5-5', finishReason: 'stop', responseCacheHit: false }),
 }
 
-describe('RecordingStructuredLlm (ADR 0064)', () => {
+describe('RecordingStructuredLlm', () => {
   it('guarda el intercambio tal cual, sin el PDF, y devuelve el resultado sin tocarlo', async () => {
     const sink = new MemorySink()
     const llm = new RecordingStructuredLlm(ok, sink)

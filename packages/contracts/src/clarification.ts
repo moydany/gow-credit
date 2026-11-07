@@ -1,10 +1,10 @@
 /**
- * Aclaración con el dueño del documento (docs/03 §7, docs/04 §4). El motor dice qué temas
- * preguntar (`Decision.clarification`); aquí viven la pregunta ya redactada, con los hechos
- * que puede citar, y la respuesta estructurada que la reanuda.
+ * Clarification with the document owner. The engine says which topics to ask about
+ * (`Decision.clarification`); this holds the drafted question with the facts it may cite, and the
+ * structured answer that resumes the request.
  *
- * Los hechos son la única fuente de cifras de la pregunta: un texto generado que cite un número
- * o una fecha que no esté en `facts` se descarta (filtro de cifras de docs/04 §4).
+ * `facts` is the only source of figures: generated text citing a number or date not in `facts`
+ * is discarded.
  */
 import { z } from 'zod'
 import { TransactionCategory } from './enums.ts'
@@ -13,27 +13,24 @@ import { TransactionRef } from './decision.ts'
 import { LocalId } from './primitives.ts'
 import { AccountUse } from './request.ts'
 
-/**
- * Qué forma tiene la respuesta: un abono o un cargo a clasificar, el cliente principal (texto
- * libre), el uso de la cuenta, datos de identidad o documentos nuevos.
- */
+/** Shape of the answer: a deposit or charge to classify, main client (free text), account use, identity data or new documents. */
 export const QuestionKind = z.enum(['deposit', 'charge', 'buyer', 'account_use', 'identity', 'documents'])
 export type QuestionKind = z.infer<typeof QuestionKind>
 
-/** Dato que la pregunta puede citar. */
+/** A datum the question may cite. */
 export const QuestionFact = z.strictObject({
   name: z.string().min(1),
   value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
 })
 export type QuestionFact = z.infer<typeof QuestionFact>
 
-/** Lo que el dueño puede decir que es un abono. */
+/** What the owner can say a deposit is. */
 export const DepositAnswerCategory = TransactionCategory.extract(['customer_payment', 'loan_disbursement', 'own_transfer', 'interest', 'other'])
 export type DepositAnswerCategory = z.infer<typeof DepositAnswerCategory>
 
 /**
- * Lo que el dueño puede decir que es un cargo (ADR 0050). `personal_expense` se guarda como `other`:
- * sigue siendo salida de dinero (ver ADR), pero no es pago de crédito.
+ * What the owner can say a charge is. `personal_expense` is stored as `other`: it is still money
+ * out, but not a credit payment.
  */
 export const ChargeAnswerCategory = z.enum(['loan_payment', 'supplier_payment', 'own_transfer', 'personal_expense', 'other'])
 export type ChargeAnswerCategory = z.infer<typeof ChargeAnswerCategory>
@@ -99,7 +96,7 @@ export const OwnerAnswer = z
   .meta({ id: 'OwnerAnswer', title: 'Respuesta del dueño del documento' })
 export type OwnerAnswer = z.infer<typeof OwnerAnswer>
 
-/** `pnpm run evaluate --answers <archivo>`: respuestas por solicitud (el nombre del PDF sin extensión). */
+/** `pnpm run evaluate --answers <file>`: answers per request (the PDF name without extension). */
 export const AnswersFile = z
   .strictObject({
     version: z.literal(1),

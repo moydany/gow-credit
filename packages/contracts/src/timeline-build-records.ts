@@ -1,6 +1,6 @@
 /**
- * Regla de aclaraciones, bitácora y analista (ADR 0067): aclaración abierta, espera del proveedor y
- * respuesta; avisos de veredicto en cola; acciones del analista, resultados y correcciones.
+ * Clarification, log and analyst rule: clarification opened, supplier wait and answer; queued
+ * verdict notices; analyst actions, outcomes and corrections.
  */
 import { ApplicationStatus } from './enums.ts'
 import { addEvent, count, cut, ms, SAME_ACTION_MS, type Ctx } from './timeline-build-base.ts'
@@ -14,7 +14,7 @@ function suspendedBody(c: TimelineClarificationRow) {
   return { id: `clarifications:${c.id}:suspended`, kind: 'workflow_suspended', lane: 'workflow', precision: 'exact', label: `Espera la respuesta del proveedor · ronda ${String(c.round)}`, source: { table: 'clarifications', id: c.id }, round: Math.max(1, c.round) } as const
 }
 
-/** Abierta y contestada de cada aclaración; la espera de las contestadas (las abiertas llegan al final, ver `emitOpenWaits`). */
+/** Opened and answered of each clarification; the wait of answered ones (open ones come last, see `emitOpenWaits`). */
 export function emitClarifications(ctx: Ctx): void {
   for (const c of ctx.src.clarifications) {
     const chap = ctx.C.clarification(c.round)
@@ -25,7 +25,7 @@ export function emitClarifications(ctx: Ctx): void {
   }
 }
 
-/** La espera de una aclaración sin contestar llega hasta el final de lo demás en la línea. */
+/** The wait of an unanswered clarification runs to the end of everything else on the line. */
 export function emitOpenWaits(ctx: Ctx): void {
   const lastOther = ctx.drafts.reduce((m, d) => Math.max(m, d.endMs ?? d.startMs), Number.NEGATIVE_INFINITY)
   for (const c of ctx.src.clarifications) {
@@ -52,16 +52,16 @@ function analystLabel(a: TimelineAuditRow): string {
   return ANALYST_ES[a.action] ?? `Acción del analista: ${a.action}`
 }
 
-/** ¿Es una acción de un usuario del backoffice sobre esta solicitud (o sus aclaraciones)? */
+/** Is this a backoffice user action on this request (or its clarifications)? */
 function isAnalystAction(ctx: Ctx, a: TimelineAuditRow): boolean {
   if (!a.actor.startsWith('user:')) return false
   const mine = a.subject === ctx.app.id || a.details.application_id === ctx.app.id || (a.subject !== null && ctx.clarById.has(a.subject))
   if (!mine) return false
-  // El resultado ya sale de su propia fila (`outcomes`).
+  // The outcome already comes from its own row (`outcomes`).
   return !(a.action === OUTCOME_RECORDED && ctx.src.outcomes.some((o) => Math.abs(ms(o.createdAt) - ms(a.at)) <= SAME_ACTION_MS))
 }
 
-/** Avisos de veredicto en cola y acciones del analista, de la bitácora. */
+/** Queued verdict notices and analyst actions, from the log. */
 export function emitAudit(ctx: Ctx): void {
   for (const a of ctx.audit) {
     if (a.action === 'verdict.queued' && a.subject === ctx.app.id) emitVerdictQueued(ctx, a)
@@ -69,7 +69,7 @@ export function emitAudit(ctx: Ctx): void {
   }
 }
 
-/** Resultados registrados y correcciones del analista. */
+/** Recorded outcomes and analyst corrections. */
 export function emitAnalystRows(ctx: Ctx): void {
   for (const o of ctx.src.outcomes) {
     addEvent<'analyst_action'>(ctx, { id: `outcomes:${o.id}`, kind: 'analyst_action', lane: 'analyst', precision: 'exact', label: ANALYST_ES[OUTCOME_RECORDED] ?? 'Resultado registrado', source: { table: 'outcomes', id: o.id }, action: OUTCOME_RECORDED }, ms(o.createdAt), null, ctx.C.analyst())

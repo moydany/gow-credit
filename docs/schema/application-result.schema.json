@@ -1289,7 +1289,7 @@
         },
         "explanation": {
           "default": null,
-          "description": "El resultado en lenguaje natural para quien revisa la solicitud (ADR 0045). Las cifras salen de la decisión.",
+          "description": "El resultado en lenguaje natural para quien revisa la solicitud. Las cifras salen de la decisión.",
           "anyOf": [
             {
               "type": "object",
@@ -1487,7 +1487,7 @@
                 "account_use": null,
                 "answered": []
               },
-              "description": "Lo que el dueño declaró al aclarar (ADR 0050)",
+              "description": "Lo que el dueño declaró al aclarar",
               "$ref": "#/$defs/OwnerDeclarations"
             }
           },

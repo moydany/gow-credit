@@ -1,6 +1,6 @@
 /**
- * Datos de la solicitud que no vienen en el PDF (docs/07 A, docs/06 §3). Sin ellos la
- * salida es línea máxima y perfil, no veredicto completo.
+ * Request data that is not in the PDF. Without it the output is max line and profile, not a full
+ * verdict.
  */
 import { z } from 'zod'
 import { IsoDate, Money } from './primitives.ts'
@@ -20,7 +20,7 @@ export const ApplicationRequest = z
   .meta({ id: 'ApplicationRequest', title: 'Datos de la solicitud' })
 export type ApplicationRequest = z.infer<typeof ApplicationRequest>
 
-/** Identidad registrada del proveedor, contra la que se calcula `identity_match`. */
+/** Registered identity of the supplier, against which `identity_match` is computed. */
 export const SupplierIdentity = z
   .strictObject({
     legal_name: z.string().min(1),
@@ -31,15 +31,15 @@ export const SupplierIdentity = z
 export type SupplierIdentity = z.infer<typeof SupplierIdentity>
 
 /**
- * Uso de la cuenta que declara el dueño cuando el titular es persona física (ADR 0050):
- * `business_only` solo para el negocio; `mixed` también para gastos personales.
+ * Account use declared by the owner when the holder is a natural person: `business_only` for the
+ * business alone; `mixed` also for personal expenses.
  */
 export const AccountUse = z.enum(['business_only', 'mixed'])
 export type AccountUse = z.infer<typeof AccountUse>
 
 /**
- * Lo que el dueño declaró al aclarar y no viene en el PDF ni en la solicitud (ADR 0050). El perfil
- * lo guarda con su procedencia para que el analista sepa qué salió de una respuesta.
+ * What the owner declared while clarifying that is in neither the PDF nor the request. The profile
+ * stores it with its provenance so the analyst knows what came from an answer.
  */
 export const OwnerDeclarations = z
   .strictObject({

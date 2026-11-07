@@ -1,7 +1,7 @@
 /**
- * Cargador de prompts (ADR 0065): sin base sale del archivo que fija el catálogo; con versiones
- * activas cargadas de la base, sale de ellas, y lo que no sirve vuelve al archivo. La llave de la
- * caché de respuestas cambia con el texto del prompt y no cambia si el texto es el del archivo.
+ * Prompt loader: without a database it reads the file the catalog pins; with active versions
+ * loaded from the database it reads those, and anything unusable falls back to the file. The
+ * response cache key changes with the prompt text and stays the same if the text is the file's.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { clearActivePrompts, loadPrompt, loadPromptFile, promptCacheTag, setActivePrompts } from './prompts.ts'
 import { requestKey } from './response-cache.ts'
 
-/** La versión de archivo de `extract_summary` que fija el catálogo. */
+/** The `extract_summary` file version the catalog pins. */
 const SUMMARY = PROMPT_CATALOG.extract_summary.version
 
 const DIR = fileURLToPath(new URL('../../../prompts/', import.meta.url))
@@ -61,7 +61,7 @@ describe('con versiones activas de la base (modo full)', () => {
     expect(p).toMatchObject({ id: `extract_summary.db3-${sha(text).slice(0, 8)}`, source: 'db', text: 'Resume el estado de cuenta de 5 páginas.' })
     expect(promptCacheTag('extract_summary')).toBe(p.id)
     expect(keyFor('extract_summary')).not.toBe(before)
-    // Los demás prompts siguen saliendo de su archivo.
+    // The other prompts still come from their file.
     expect(loadPrompt('extract_system')).toMatchObject({ id: 'extract_system.v1', source: 'file' })
   })
 

@@ -1,14 +1,13 @@
 /**
- * Escenario de docs/06: un mundo completo en un archivo YAML (tenant y política, proveedores,
- * documentos, fuentes externas, conversación y resultado esperado). El mismo archivo corre en
- * dos modos:
+ * A scenario: a complete world in one YAML file (tenant and policy, suppliers, documents,
+ * external sources, conversation and expected outcome). The same file runs in two modes:
  *
- * - `unit` (fase 4): sin LLM ni base. Los documentos son estados de cuenta **sintéticos**
- *   (`statements`), generados en código con descripciones de banco; se clasifican con reglas,
- *   se calcula el perfil con los adaptadores simulados y se aplica la política.
- * - `full` (fase 6): los PDFs de `documents` pasan por el workflow real con caché de modelos.
+ * - `unit`: no LLM or database. Documents are **synthetic** statements (`statements`) generated in
+ *   code with bank-style descriptions; they are classified by rules, the profile is computed
+ *   with simulated adapters and the policy applied.
+ * - `full`: the PDFs in `documents` go through the real workflow with the model cache.
  *
- * Nada de datos reales: nombres, RFC y montos de un escenario son inventados.
+ * No real data: names, RFC and amounts in a scenario are made up.
  */
 import { z } from 'zod'
 import { ApplicationStatus, DecisionStatus, Verification } from './enums.ts'
@@ -19,9 +18,9 @@ import { IsoDate, LocalId, Money, SignedMoney } from './primitives.ts'
 import { ApplicationRequest } from './request.ts'
 import { DocumentFlag } from './statement.ts'
 
-/** Tipos de flujo sintético. Cada uno se convierte en movimientos con la descripción típica de un banco mexicano. */
+/** Synthetic flow types. Each becomes transactions with a typical Mexican bank description. */
 export const SyntheticFlowKind = z.enum([
-  // abonos
+  // deposits
   'customer_payment',
   'sales_settlement',
   'cash_deposit',
@@ -30,7 +29,7 @@ export const SyntheticFlowKind = z.enum([
   'own_transfer_in',
   'refund',
   'interest',
-  // cargos
+  // charges
   'supplier_payment',
   'payroll',
   'tax',
@@ -66,14 +65,14 @@ export const SyntheticStatement = z.strictObject({
   bank: z.string().min(1).default('BANCO FICTICIO'),
   start: IsoDate.describe('Primer día del primer periodo'),
   months: z.int().min(1).max(24).default(1),
-  periods: z.enum(['monthly', 'single']).default('monthly').describe('single: un periodo impreso para todos los meses, como Mercado Pago (ADR 0006)'),
+  periods: z.enum(['monthly', 'single']).default('monthly').describe('single: un periodo impreso para todos los meses, como Mercado Pago'),
   opening_balance: SignedMoney,
   monthly: z.array(SyntheticFlow).min(1),
   growth: z.number().min(-0.5).max(1).default(0).describe('Crecimiento mensual de los abonos de clientes'),
   holder_redacted: z.boolean().default(false).describe('true: nombre, RFC y CLABE en null, como los PDFs de desarrollo'),
   fiscal: SyntheticFiscal.nullable().default(null),
   reconciled: z.boolean().default(true),
-  flags: z.array(DocumentFlag).optional().describe('Banderas de documento que dejaría la extracción (por ejemplo pages_missing); se agregan a las que genera el estado de cuenta (ADR 0058)'),
+  flags: z.array(DocumentFlag).optional().describe('Banderas de documento que dejaría la extracción (por ejemplo pages_missing); se agregan a las que genera el estado de cuenta'),
 })
 export type SyntheticStatement = z.infer<typeof SyntheticStatement>
 

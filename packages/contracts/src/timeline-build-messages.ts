@@ -1,6 +1,6 @@
 /**
- * Regla de mensajes (ADR 0067): la solicitud creada, los entrantes del proveedor y los salientes del
- * relevo. Los tiempos son los de sus propias filas (exactos).
+ * Message rule: request created, incoming supplier messages and outgoing relay messages. Times
+ * are those of their own rows (exact).
  */
 import { addEvent, cut, ms, str, type Chap, type Ctx } from './timeline-build-base.ts'
 import { verdictChapter } from './timeline-build-jobs.ts'
@@ -20,7 +20,7 @@ function originOfActor(actor: string): Origin {
   return actor.startsWith('user:') ? 'backoffice' : 'api'
 }
 
-/** El entrante que trajo el documento: el que dice la bitácora o, si no, el primero con ese resultado. */
+/** The incoming message that brought the document: the one the log names or, failing that, the first with that result. */
 function linkedInbound(ctx: Ctx, receivedId: string | null): TimelineInboundRow | undefined {
   const link = ctx.audit.find((a) => a.action === `inbound.${DOCUMENT_RECEIVED}` && a.details.application_id === ctx.app.id)
   const id = link?.subject ?? receivedId
@@ -62,7 +62,7 @@ function inboundLabel(resolution: string | null): string {
   return INBOUND_ES[resolution] ?? `Mensaje del proveedor (${resolution})`
 }
 
-/** Mensajes cuya respuesta leyó Haiku: la bitácora lo dice, o hay una llamada del intérprete ligada. */
+/** Messages whose reply Haiku read: the log says so, or a linked interpreter call exists. */
 function interpretedIds(ctx: Ctx): Set<string> {
   const ids = new Set<string>()
   for (const a of ctx.audit) if (a.action.startsWith('inbound.') && a.details.interpreted === 'haiku' && a.subject !== null) ids.add(a.subject)

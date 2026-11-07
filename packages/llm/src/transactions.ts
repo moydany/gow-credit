@@ -1,9 +1,9 @@
 /**
- * Clasificación de movimientos (docs/02 §4c, paso `classifyTransactions`; ADR 0015). Jev si hay
- * TYPESAFE_API_KEY (probabilidades calibradas), si no Haiku con salida estructurada. Se mandan
- * lotes de hasta 25 movimientos como estado JSON con una pregunta por fila; las opciones dependen
- * del sentido (un abono no puede ser nómina). Qué filas se mandan y cómo se combina la etiqueta
- * con las reglas lo decide `@gow/decision` (combine.ts), no este paquete.
+ * Transaction classification (`classifyTransactions` step). Jev if TYPESAFE_API_KEY is set
+ * (calibrated probabilities), otherwise Haiku with structured output. Batches of up to 25
+ * transactions go as JSON state with one question per row; the options depend on direction (a
+ * deposit cannot be payroll). Which rows are sent and how the label combines with the rules is
+ * decided by `@gow/decision` (combine.ts), not this package.
  */
 import { TransactionCategory, type TokenUsage } from '@gow/contracts'
 import { choice, TypeSafeClient, type ChoiceQuestion } from '@typesafe-ai/sdk'
@@ -14,7 +14,7 @@ import { loadPrompt } from './prompts.ts'
 import type { StructuredLlm } from './structured.ts'
 
 export const TRANSACTION_BATCH_SIZE = 25
-/** Versión de las preguntas a Jev (viven en código, no en prompts/; se versionan igual). */
+/** Version of the questions to Jev (they live in code, not prompts/; versioned the same). */
 export const JEV_TRANSACTION_QUESTIONS = 'jev_classify_transactions.v1'
 
 export interface TransactionRow {
@@ -29,7 +29,7 @@ export interface TransactionRow {
 export interface TransactionLabel {
   id: string
   category: TransactionCategory
-  /** Calibrada en Jev; en Haiku es nominal y no se usa (spike 3). */
+  /** Calibrated on Jev; nominal on Haiku and unused. */
   confidence: number
 }
 
@@ -47,7 +47,7 @@ export interface TransactionClassifier {
   readonly implementation: 'jev' | 'claude'
   readonly model: string
   readonly calibrated: boolean
-  /** true si no había llave de Jev y clasifica Haiku. */
+  /** true if there was no Jev key and Haiku classifies. */
   readonly fallback: boolean
   classifyBatch(rows: readonly TransactionRow[], ctx: { bank: string | null }): Promise<TransactionBatchResult>
 }
@@ -166,7 +166,7 @@ export class ClaudeTransactionClassifier implements TransactionClassifier {
     const labels: TransactionLabel[] = []
     for (const l of res.object.labels) {
       const row = byId.get(l.id)
-      // Una categoría que no corresponde al sentido (un abono como nómina) se descarta: quedan las reglas.
+      // A category that does not fit the direction (a deposit as payroll) is discarded: the rules remain.
       if (row && allowedCategories(row.type).includes(l.category)) labels.push({ id: l.id, category: l.category, confidence: 0.5 })
     }
     return { labels, model: res.model, usage: res.usage, costUsd: res.costUsd, latencyMs: res.latencyMs, responseCacheHit: res.responseCacheHit, promptId: prompt.id }
@@ -184,7 +184,7 @@ export interface ClassifyRowsResult {
   batches: TransactionBatchResult[]
 }
 
-/** Clasifica en lotes; `limit` es el semáforo de llamadas del proceso. */
+/** Classifies in batches; `limit` is the process-wide call semaphore. */
 export async function classifyTransactionRows(
   classifier: TransactionClassifier,
   rows: readonly TransactionRow[],

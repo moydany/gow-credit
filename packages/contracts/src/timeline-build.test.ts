@@ -91,7 +91,7 @@ describe('buildTimeline: WhatsApp con aclaración, reanudación y veredicto', ()
     expect(inbound.map((m) => m.interpreted)).toEqual([false, true, false, false])
     expect(inbound[0]?.has_document).toBe(true)
     expect(inbound.every((m) => m.lane === 'supplier' && m.precision === 'exact')).toBe(true)
-    // inicio = recibido, fin = procesado
+    // start = received, end = processed
     expect(rel(t, inbound[0]?.start ?? '')).toBe(0)
     expect(rel(t, inbound[0]?.end ?? '')).toBe(2 * SECOND)
   })
@@ -109,10 +109,10 @@ describe('buildTimeline: WhatsApp con aclaración, reanudación y veredicto', ()
     const waits = ofKind(t, 'queue_wait')
     expect(waits.map((w) => w.job)).toEqual(['process', 'resume'])
     expect(waits.every((w) => w.precision === 'derived' && w.lane === 'queue')).toBe(true)
-    // process: desde que se completaron los datos de la factura hasta que empezó a extraer
+    // process: from when the invoice data was completed until extraction started
     expect(rel(t, waits[0]?.start ?? '')).toBe(87 * SECOND)
     expect(rel(t, waits[0]?.end ?? '')).toBe(100 * SECOND)
-    // resume: desde que se contestó la aclaración
+    // resume: from when the clarification was answered
     expect(rel(t, waits[1]?.start ?? '')).toBe(DAY + 3 * SECOND)
     expect(rel(t, waits[1]?.end ?? '')).toBe(DAY + 153 * SECOND)
   })
@@ -125,17 +125,17 @@ describe('buildTimeline: WhatsApp con aclaración, reanudación y veredicto', ()
     expect(rel(t, extract[0]?.end ?? '')).toBe(130 * SECOND)
     expect(step(t, 'classify-transactions')[0]).toMatchObject({ precision: 'exact' })
     expect(step(t, 'decide')[0]).toMatchObject({ precision: 'inferred', round: 0 })
-    // ask-owner: de la redacción de las preguntas hasta que se abre la aclaración, ambos con hora propia
+    // ask-owner: from drafting the questions until the clarification opens, both with their own time
     const ask = step(t, 'ask-owner')[0]
     expect(ask?.precision).toBe('exact')
     expect(rel(t, ask?.start ?? '')).toBe(134 * SECOND)
     expect(rel(t, ask?.end ?? '')).toBe(138 * SECOND)
-    // trabajo de reanudación: round 1
+    // resume job: round 1
     expect(step(t, 'apply-answers')[0]).toMatchObject({ precision: 'inferred', round: 1 })
     expect(step(t, 're-decide')[0]).toMatchObject({ precision: 'inferred', round: 1 })
     expect(step(t, 'explain')[0]).toMatchObject({ precision: 'exact', round: 1 })
     expect(step(t, 'finalize')[0]).toMatchObject({ precision: 'inferred' })
-    // el trabajo suspendido no explica ni cierra con finalize
+    // the suspended job neither explains nor closes with finalize
     expect(step(t, 'explain')).toHaveLength(1)
     expect(step(t, 'finalize')).toHaveLength(1)
   })
@@ -205,7 +205,7 @@ describe('buildTimeline: WhatsApp con aclaración, reanudación y veredicto', ()
     expect(t.chapters.map((c) => c.kind)).toEqual(['reception', 'intake', 'extraction', 'classification', 'decision', 'clarification', 'resume', 'decision', 'explanation', 'verdict', 'analyst'])
     const clarification = t.chapters.find((c) => c.kind === 'clarification')
     expect(clarification?.round).toBe(1)
-    // la pregunta, su redacción, la suspensión, la respuesta y el cierre del trabajo viven en la aclaración
+    // the question, its drafting, the suspension, the answer and the job close live in the clarification
     const kinds = new Set(t.events.filter((e) => e.chapter === clarification?.id).map((e) => e.kind))
     for (const k of ['clarification_opened', 'clarification_answered', 'workflow_suspended', 'outbound_message', 'inbound_message', 'job_finished', 'model_call', 'workflow_step'] as const) expect(kinds.has(k)).toBe(true)
   })
@@ -236,7 +236,7 @@ describe('buildTimeline: WhatsApp con aclaración, reanudación y veredicto', ()
   it('avisos de lo que no se pudo saber', () => {
     expect(t.limitations.some((l) => l.includes('reintentos de la cola'))).toBe(true)
     expect(t.limitations.some((l) => l.includes('por inferencia'))).toBe(true)
-    // todas las llamadas tienen intercambio: no hay aviso de llamadas inferidas
+    // every call has an exchange: no inferred-calls warning
     expect(t.limitations.some((l) => l.includes('sin fila de intercambio') || l.includes('no tienen fila de intercambio'))).toBe(false)
   })
 })
@@ -247,7 +247,7 @@ describe('buildTimeline: llamadas al modelo y páginas', () => {
     const calls = ofKind(t, 'model_call')
     const tx = calls.filter((c) => c.purpose === 'transactions')
     expect(tx).toHaveLength(2)
-    // las dos empiezan a la vez; la de 15 s leyó las páginas 1-2 y la de 18 s la 3
+    // both start together; the 15 s one read pages 1-2 and the 18 s one page 3
     const a = tx.find((c) => c.latency_ms === 15000)
     const b = tx.find((c) => c.latency_ms === 18000)
     expect(a?.pages).toEqual([1, 2])
@@ -257,7 +257,7 @@ describe('buildTimeline: llamadas al modelo y páginas', () => {
     expect(a?.source).toEqual({ table: 'llm_exchanges', id: 'x-ext-tx-a' })
     expect(a?.document_index).toBe(0)
     expect(calls.find((c) => c.purpose === 'summary')?.pages).toEqual([])
-    // llamadas que no son del documento
+    // calls that are not about the document
     for (const p of ['classify_transactions', 'clarification_questions', 'next_steps', 'explanation']) {
       const c = calls.find((x) => x.purpose === p)
       expect(c?.document_index).toBeNull()
@@ -278,7 +278,7 @@ describe('buildTimeline: llamadas al modelo y páginas', () => {
   })
 
   it('con otra marca de tiempo conserva el emparejamiento (solo se mueve el inicio)', () => {
-    // La prueba del emparejamiento no depende de la marca: el latency_ms igual lo decide.
+    // The matching test does not depend on the mark: latency_ms decides anyway.
     const t = buildTimeline(sampleTimelineSources('api'))
     const tx = ofKind(t, 'model_call').filter((c) => c.purpose === 'transactions')
     expect(tx.map((c) => [c.latency_ms, c.pages]).sort()).toEqual([
@@ -367,7 +367,7 @@ describe('buildTimeline: llegada por la API', () => {
   })
 })
 
-describe('buildTimeline: extracción anterior a ADR 0064 (sin intercambios)', () => {
+describe('buildTimeline: extracción anterior al registro de llamadas (sin intercambios)', () => {
   const t = buildTimeline(sampleTimelineSources('legacy'))
   const calls = ofKind(t, 'model_call')
 
@@ -396,7 +396,7 @@ describe('buildTimeline: extracción anterior a ADR 0064 (sin intercambios)', ()
     expect(tx2?.pages).toEqual([3])
     expect(retry?.pages).toEqual([2])
     expect(retry?.document_index).toBe(0)
-    // su duración es su latency_ms
+    // its duration is its latency_ms
     expect(ms(summary?.end ?? '') - ms(summary?.start ?? '')).toBe(8000)
   })
 
@@ -476,7 +476,7 @@ describe('buildTimeline: oferta del monto y reevaluación', () => {
     expect(ofKind(t, 'workflow_step').every((s) => ms(s.start) < ms(at(10 * MINUTE).toISOString()))).toBe(true)
     const decisions = ofKind(t, 'decision')
     expect(decisions).toHaveLength(2)
-    // la decisión de la reevaluación se coloca al cierre de su trabajo
+    // the re-evaluation decision is placed at the close of its job
     expect(rel(t, decisions[1]?.start ?? '')).toBe(10 * MINUTE + 4 * SECOND)
     expect(decisions[1]?.precision).toBe('inferred')
   })

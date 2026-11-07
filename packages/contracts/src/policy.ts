@@ -1,15 +1,14 @@
 /**
- * Política del tenant (docs/03 §4): un documento JSON validado por un esquema cerrado. No
- * ejecuta código; solo compone features del catálogo con operadores conocidos. Cualquier
- * regla que compare una feature con un operador incompatible con su tipo, una feature que
- * no existe o una fórmula de línea fuera de la gramática se rechaza al parsear, con la ruta
- * exacta del error.
+ * Tenant policy: a JSON document validated by a closed schema. It runs no code; it only composes
+ * catalog features with known operators. A rule comparing a feature with an operator
+ * incompatible with its type, a nonexistent feature or a line formula outside the grammar is
+ * rejected at parse time, with the exact error path.
  *
- * Operadores por tipo de feature:
- *   int | money | ratio  →  <  <=  >  >=  ==  !=   (valor numérico)
- *   bool                 →  ==  !=                 (valor booleano)
- *   enum                 →  in  not_in             (lista de valores del enum)
- *   enum_list | record_list → empty  not_empty     (sin valor)
+ * Operators by feature type:
+ *   int | money | ratio  ->  <  <=  >  >=  ==  !=   (numeric value)
+ *   bool                 ->  ==  !=                 (boolean value)
+ *   enum                 ->  in  not_in             (list of enum values)
+ *   enum_list | record_list -> empty  not_empty     (no value)
  */
 import { z } from 'zod'
 import { FINAL_STATUS_RANK, FinalDecisionStatus } from './enums.ts'
@@ -23,7 +22,7 @@ export const EmptinessOp = z.enum(['empty', 'not_empty'])
 export const ConditionOp = z.enum([...ComparisonOp.options, ...MembershipOp.options, ...EmptinessOp.options])
 export type ConditionOp = z.infer<typeof ConditionOp>
 
-/** Qué se le pide al proveedor cuando una compuerta manda a aclaración. */
+/** What is asked of the supplier when a gate sends the request to clarification. */
 export const AskTopic = z.enum([
   'recent_statement',
   'identity_fields',
@@ -31,9 +30,9 @@ export const AskTopic = z.enum([
   'reconciliation_gap',
   'additional_months',
   'missing_pages',
-  // ADR 0066: un estado de cuenta que traiga el domicilio del titular, si la política lo exige.
+  // A statement that carries the holder address, if the policy requires it.
   'statement_with_address',
-  // ADR 0050: cargos dudosos, cliente principal y uso de la cuenta.
+  // Doubtful charges, main client and account use.
   'charge_classification',
   'main_buyer',
   'account_use',
@@ -240,11 +239,11 @@ export const Policy = z
   })
   .meta({ id: 'Policy', title: 'Política de crédito del tenant', description: 'DSL cerrado validado contra el catálogo de features (docs/03 §4)' })
 export type Policy = z.infer<typeof Policy>
-/** Lo que escribe el tenant: los campos con default pueden omitirse. */
+/** What the tenant writes: fields with a default may be omitted. */
 export type PolicyInput = z.input<typeof Policy>
 
 export interface PolicyError {
-  /** Ruta legible, por ejemplo `gates[1].when.op`. */
+  /** Readable path, e.g. `gates[1].when.op`. */
   path: string
   message: string
 }
@@ -255,7 +254,7 @@ function formatPath(path: readonly PropertyKey[]): string {
   return path.reduce<string>((acc, key) => (typeof key === 'number' ? `${acc}[${String(key)}]` : acc ? `${acc}.${String(key)}` : String(key)), '')
 }
 
-/** Parsea una política y devuelve errores legibles en lugar de lanzar. */
+/** Parses a policy and returns readable errors instead of throwing. */
 export function parsePolicy(input: unknown): ParsePolicyResult {
   const res = Policy.safeParse(input)
   if (res.success) return { ok: true, policy: res.data }

@@ -42,7 +42,7 @@ describe('Decision', () => {
     expect(Decision.safeParse(decision()).success).toBe(true)
   })
 
-  it('los contrafactuales llevan la línea de antes y de después; una decisión guardada sin ella la lee como null (ADR 0056)', () => {
+  it('los contrafactuales llevan la línea de antes y de después; una decisión guardada sin ella la lee como null', () => {
     const d = Decision.parse(decision())
     expect([d.next_steps[0]?.from.limit, d.next_steps[0]?.to.limit]).toEqual([90000, 180000])
     const stored = structuredClone(decision()) as unknown as { next_steps: { from: Record<string, unknown>; to: Record<string, unknown> }[] }

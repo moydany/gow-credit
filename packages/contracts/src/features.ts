@@ -1,32 +1,31 @@
 /**
- * Catálogo fijo de features del perfil crediticio (docs/03 §3 y docs/06 §5). Es la única
- * fuente de verdad de qué features existen, de qué tipo son y de dónde salen. De aquí se
- * derivan el esquema del perfil y la validación de la política: una regla que compara una
- * feature con un operador incompatible con su tipo se rechaza al parsear la política.
+ * Fixed catalog of credit profile features: the single source of truth for which features exist,
+ * their type and where they come from. The profile schema and policy validation derive from it:
+ * a rule comparing a feature with an operator incompatible with its type is rejected at parse time.
  *
- * Un valor desconocido se representa siempre como `value: null` en el perfil. Por eso los
- * enums no incluyen `unknown` (docs/03 lo lista en `identity_match`; aquí es `null`).
+ * An unknown value is always `value: null` in the profile, so enums have no `unknown` member
+ * (`identity_match` included).
  */
 import { z } from 'zod'
 import { IsoDate, LocalId, Money, Ratio, SignedMoney } from './primitives.ts'
 
-/** De dónde sale una feature. */
+/** Where a feature comes from. */
 export const FeatureSource = z.enum(['statement', 'request', 'existing_credits', 'credit_bureau', 'tax_authority', 'program', 'internal'])
 export type FeatureSource = z.infer<typeof FeatureSource>
 
 export const IDENTITY_MATCH = ['match', 'partial', 'mismatch'] as const
 export const RED_FLAGS = ['overdraft', 'returned_check', 'garnishment', 'judicial_order', 'tax_requirement'] as const
 /**
- * Señales de que el documento pudo alterarse, que la extracción deja en sus banderas y problemas y que
- * llegan al motor (catálogo 1.2.0, ADR 0058). Lista cerrada: la política compara contra `empty`.
+ * Signals that the document may have been altered, left by extraction in its flags and issues and
+ * passed to the engine (catalog 1.2.0). Closed list: the policy compares against `empty`.
  */
 export const DOCUMENT_TAMPER_SIGNALS = ['prompt_injection', 'fiscal_chain_mismatch', 'fiscal_stamp_far_from_period', 'pages_duplicated', 'header_read_conflict'] as const
 export const SAT_STATUS = ['compliant', 'non_compliant'] as const
-/** Claves de régimen fiscal del SAT que acepta `fiscal_regime` (docs/09 §5); otra clave es `other`. */
+/** SAT tax regime keys accepted by `fiscal_regime`; any other key is `other`. */
 export const FISCAL_REGIMES = ['601', '603', '605', '606', '607', '608', '610', '611', '612', '614', '615', '616', '620', '621', '622', '623', '624', '625', '626', 'other'] as const
-/** Estado del CFDI ante el servicio "Verifica CFDI" del SAT (docs/09 §6). Faltan datos → null, nunca not_found. */
+/** CFDI status from the SAT "Verifica CFDI" service. Missing data is null, never not_found. */
 export const CFDI_SAT_STATUS = ['valid', 'cancelled', 'not_found'] as const
-/** Situación del RFC del titular en las listas públicas del SAT: 69-B (EFOS) y no localizados (docs/09 §9.4). */
+/** Holder RFC status on the public SAT lists: 69-B (EFOS) and not located. */
 export const SAT_LIST_STATUS = ['clear', 'efos_presumed', 'efos_definitive', 'not_located'] as const
 
 export const PriorApplication = z
@@ -85,7 +84,7 @@ export const FEATURE_CATALOG = {
   requested_amount: money({ source: 'request', unit: 'MXN', description: 'Monto solicitado; null si la solicitud no lo trae' }),
   buro_score: int({ source: 'credit_bureau', unit: 'score', description: 'Score de buró; null mientras no exista el adaptador' }),
   sat_status: enumOf(SAT_STATUS, { source: 'tax_authority', unit: 'none', description: 'Opinión de cumplimiento del SAT; null mientras no exista el adaptador' }),
-  // Catálogo 1.1.0: el bloque fiscal (CFDI) como ancla (docs/09 §5 y §9).
+  // Catalog 1.1.0: the fiscal (CFDI) block as anchor.
   fiscal_regime: enumOf(FISCAL_REGIMES, { source: 'statement', unit: 'none', description: 'Régimen fiscal del receptor del CFDI del estado de cuenta; null si no hay CFDI o no lo imprime' }),
   cfdi_sat_status: enumOf(CFDI_SAT_STATUS, { source: 'tax_authority', unit: 'none', description: 'Estado del CFDI ante el SAT; el peor de los comprobantes; null si no se consultó o faltan datos' }),
   fiscal_anchor_ok: bool({ source: 'statement', unit: 'none', description: 'Comisiones e IVA del CFDI (firmado por el SAT) contra las filas de comisión del estado de cuenta' }),
@@ -94,9 +93,9 @@ export const FEATURE_CATALOG = {
   sat_list_status: enumOf(SAT_LIST_STATUS, { source: 'tax_authority', unit: 'none', description: 'Situación del RFC del titular en las listas 69-B y de no localizados' }),
   income_from_listed_rfc_share: ratio({ source: 'tax_authority', unit: 'ratio', description: 'Parte de los ingresos operativos que viene de pagadores en 69-B definitivo' }),
   regime_income_plausible: bool({ source: 'statement', unit: 'none', description: 'Ingresos anualizados dentro del tope del régimen fiscal, cuando el régimen tiene tope (RESICO 626: 3.5 millones)' }),
-  // Catálogo 1.2.0: robustez documental, las señales de la extracción llegan al motor (ADR 0058).
+  // Catalog 1.2.0: document robustness, extraction signals reach the engine.
   document_pages_missing: bool({ source: 'statement', unit: 'none', description: 'Faltan páginas en el estado de cuenta; algún documento trae la bandera de páginas faltantes: la paginación que imprime tiene huecos (por ejemplo "Pág 1/3" y "Pág 3/3")' }),
-  // Catálogo 1.3.0: el domicilio del titular (ADR 0066).
+  // Catalog 1.3.0: the holder address.
   holder_address_present: bool({ source: 'statement', unit: 'none', description: 'Algún estado de cuenta trae el domicilio del titular' }),
   document_tamper_signals: enumList(DOCUMENT_TAMPER_SIGNALS, { source: 'statement', unit: 'none', description: 'Señales de que el documento pudo alterarse; texto dirigido al sistema, cadena fiscal que no coincide, timbrado lejos del periodo, páginas repetidas o lecturas del encabezado que no coinciden' }),
 } as const
@@ -107,7 +106,7 @@ export type FeatureKind = FeatureCatalog[FeatureName]['kind']
 
 export const FEATURE_NAMES = Object.keys(FEATURE_CATALOG) as [FeatureName, ...FeatureName[]]
 
-/** Versión del catálogo: sube cuando se agrega, quita o cambia una feature. */
+/** Catalog version: bumped when a feature is added, removed or changed. */
 export const FEATURE_CATALOG_VERSION = '1.3.0'
 
 export const FeatureName = z.enum(FEATURE_NAMES, {
@@ -125,13 +124,13 @@ export function isNumericFeature(name: FeatureName): boolean {
   return (NUMERIC_KINDS as readonly string[]).includes(featureKind(name))
 }
 
-/** Valores permitidos de una feature `enum` o `enum_list`; `null` para las demás. */
+/** Allowed values of an `enum` or `enum_list` feature; `null` for the rest. */
 export function featureEnumValues(name: FeatureName): readonly string[] | null {
   const def = FEATURE_CATALOG[name]
   return 'values' in def ? def.values : null
 }
 
-/** Descripción del tipo para mensajes de error ("enum (match, partial, mismatch)"). */
+/** Type description for error messages ("enum (match, partial, mismatch)"). */
 export function describeFeatureType(name: FeatureName): string {
   const values = featureEnumValues(name)
   const kind = featureKind(name)

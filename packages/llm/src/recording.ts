@@ -1,14 +1,14 @@
 /**
- * Grabación de cada intercambio con un modelo (ADR 0064). Decorador del puerto: va por fuera de la
- * caché de respuestas, así que también queda lo que salió de ella (marcado), y nunca cambia el
- * resultado de la llamada: si guardar falla, se avisa por `onError` y la llamada sigue.
+ * Records every model exchange. A decorator of the port: it sits outside the response cache, so
+ * what came from cache is recorded too (marked), and it never changes the call result: if saving
+ * fails, `onError` is notified and the call goes on.
  *
- * El intercambio pertenece a lo que se esté procesando: el worker abre un ámbito por trabajo
- * (`withLlmScope`) y todas las llamadas dentro de él, aunque pasen por el clasificador, el
- * redactor o el limitador, lo heredan por AsyncLocalStorage.
+ * An exchange belongs to whatever is being processed: the worker opens a scope per job
+ * (`withLlmScope`) and every call inside it, even through the classifier, the writer or the
+ * limiter, inherits it via AsyncLocalStorage.
  *
- * Lleva datos del documento (prompts, respuestas): el destino es una tabla con RLS o un archivo en
- * data/, nunca un log. El PDF no se copia: va su sha256.
+ * Carries document data (prompts, responses): the destination is an RLS table or a file in
+ * data/, never a log. The PDF is not copied: its sha256 is.
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { appendFileSync, mkdirSync } from 'node:fs'
@@ -18,7 +18,7 @@ import { LlmCallError, type StructuredLlm, type StructuredRequest, type Structur
 
 export interface LlmScope {
   tenantId?: string
-  /** Solicitud en curso (uuid en modo full; el id del PDF en standalone). */
+  /** Request in progress (uuid in full mode; the PDF id in standalone). */
   applicationId?: string
   inboundMessageId?: string
 }
@@ -53,7 +53,7 @@ export interface LlmExchangeSink {
 
 const scopes = new AsyncLocalStorage<LlmScope>()
 
-/** Corre `fn` con las llamadas al modelo atribuidas a `scope`. */
+/** Runs `fn` with model calls attributed to `scope`. */
 export function withLlmScope<T>(scope: LlmScope, fn: () => Promise<T>): Promise<T> {
   return scopes.run(scope, fn)
 }
@@ -62,7 +62,7 @@ export function currentLlmScope(): LlmScope | undefined {
   return scopes.getStore()
 }
 
-/** Tope por campo: una respuesta enorme no debe tumbar la inserción ni la página. */
+/** Per-field cap: a huge response must not break the insert or the page. */
 export const MAX_RAW_CHARS = 1_000_000
 
 export function boundText(text: string | null | undefined, max = MAX_RAW_CHARS): string | null {
@@ -118,15 +118,15 @@ export class RecordingStructuredLlm implements StructuredLlm {
     try {
       await this.#sink.record(exchange, scope)
     } catch (err) {
-      // Solo el tipo de error: el mensaje del destino podría citar el contenido.
+      // Only the error type: the destination message could quote the content.
       this.#onError(`no se guardó el intercambio con el modelo (${exchange.purpose}): ${err instanceof Error ? err.name : 'error'}`)
     }
   }
 }
 
 /**
- * Destino en archivos del modo standalone: una línea JSON por intercambio en
- * `<dir>/<solicitud>.llm.jsonl`, junto a la extracción (data/ no se versiona).
+ * Standalone file destination: one JSON line per exchange in `<dir>/<request>.llm.jsonl`, next to
+ * the extraction (data/ is not versioned).
  */
 export class JsonlLlmExchangeSink implements LlmExchangeSink {
   readonly #dir: string

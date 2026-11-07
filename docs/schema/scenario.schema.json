@@ -154,7 +154,7 @@
                     },
                     "periods": {
                       "default": "monthly",
-                      "description": "single: un periodo impreso para todos los meses, como Mercado Pago (ADR 0006)",
+                      "description": "single: un periodo impreso para todos los meses, como Mercado Pago",
                       "type": "string",
                       "enum": [
                         "monthly",
@@ -303,7 +303,7 @@
                       "type": "boolean"
                     },
                     "flags": {
-                      "description": "Banderas de documento que dejaría la extracción (por ejemplo pages_missing); se agregan a las que genera el estado de cuenta (ADR 0058)",
+                      "description": "Banderas de documento que dejaría la extracción (por ejemplo pages_missing); se agregan a las que genera el estado de cuenta",
                       "type": "array",
                       "items": {
                         "type": "string",

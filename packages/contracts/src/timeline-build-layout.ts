@@ -1,12 +1,11 @@
 /**
- * Disposición del recorrido (ADR 0067): herencia de capítulos, orden estable, capítulos, tramos sin
- * actividad y totales.
+ * Journey layout: chapter inheritance, stable ordering, chapters, inactive stretches and totals.
  */
 import type { ApplicationStatus } from './enums.ts'
 import { endOf, GAP_MS, iso, ms, round6, type Chap, type Ctx, type Draft } from './timeline-build-base.ts'
 import type { TimelineChapter, TimelineEvent, TimelineGap } from './timeline.ts'
 
-/** Los eventos sin capítulo propio toman el del evento ya ubicado que los precede (o la recepción). */
+/** Events without their own chapter take that of the nearest preceding placed event (or receipt). */
 export function inheritChapters(ctx: Ctx): void {
   const anchored = ctx.drafts.filter((d) => d.chap !== null).sort((a, b) => a.startMs - b.startMs || a.rank - b.rank)
   for (const d of ctx.drafts) {
@@ -20,7 +19,7 @@ export function inheritChapters(ctx: Ctx): void {
   }
 }
 
-/** Orden por inicio y luego por un orden estable; ids únicos; el capítulo queda en cada evento. */
+/** Order by start, then a stable order; unique ids; the chapter ends up on each event. */
 export function orderEvents(ctx: Ctx): void {
   ctx.drafts.sort((a, b) => a.startMs - b.startMs || a.rank - b.rank || a.sub - b.sub || a.event.id.localeCompare(b.event.id))
   const seen = new Set<string>()
@@ -33,10 +32,10 @@ export function orderEvents(ctx: Ctx): void {
   }
 }
 
-/** Empates de inicio entre capítulos: el orden en que ocurren (la reevaluación antes del veredicto que produce). */
+/** Start ties between chapters: the order they happen in (re-evaluation before the verdict it produces). */
 const KIND_ORDER: readonly TimelineChapter['kind'][] = ['reception', 'registration', 'intake', 'extraction', 'classification', 'decision', 'clarification', 'resume', 'explanation', 'offer', 'redecide', 'verdict', 'analyst', 'failure']
 
-/** Cada capítulo es la envolvente de sus eventos. */
+/** Each chapter is the envelope of its events. */
 export function chaptersOf(ctx: Ctx): TimelineChapter[] {
   const list = new Map<string, TimelineChapter>()
   for (const d of ctx.drafts) {
@@ -55,11 +54,11 @@ export function bounds(ctx: Ctx): { startMs: number; endMs: number } {
   return { startMs: Number.isFinite(startMs) ? startMs : ms(ctx.app.createdAt), endMs: Number.isFinite(endMs) ? endMs : ms(ctx.app.updatedAt) }
 }
 
-// ---------------------------------------------------------------- tramos sin actividad
+// ---------------------------------------------------------------- inactive stretches
 
 type Hole = [number, number]
 
-/** Huecos de más de un minuto entre la actividad (no cuentan la cola ni la espera de la aclaración). */
+/** Gaps over a minute between activity (queue and clarification wait do not count). */
 function holesOf(drafts: readonly Draft[], endMs: number): Hole[] {
   const merged: Hole[] = []
   for (const d of [...drafts].filter((x) => x.active).sort((x, y) => x.startMs - y.startMs)) {
@@ -80,7 +79,7 @@ function holesOf(drafts: readonly Draft[], endMs: number): Hole[] {
 const ASKED_KINDS: readonly string[] = ['question', 'reask', 'invoice', 'registration']
 const ANSWERABLE_KINDS: readonly string[] = ['verdict', 'document']
 
-/** ¿Lo último antes del hueco fue un mensaje al proveedor que espera respuesta? */
+/** Was the last thing before the gap a message to the supplier awaiting a reply? */
 function askedSupplier(before: readonly TimelineEvent[], after: readonly TimelineEvent[]): boolean {
   return before.some((e) => {
     if (e.kind !== 'outbound_message') return false
@@ -104,7 +103,7 @@ function reasonOf(ctx: Ctx, hole: Hole, drafts: readonly Draft[]): TimelineGap['
   return 'idle'
 }
 
-/** El estado de la solicitud tras el último trabajo cerrado hasta `t`. */
+/** Request state after the last job closed up to `t`. */
 function statusAt(drafts: readonly Draft[], t: number): ApplicationStatus | null {
   let s: ApplicationStatus | null = null
   for (const d of drafts) if (d.startMs <= t && d.event.kind === 'job_finished') s = d.event.application_status
@@ -130,7 +129,7 @@ export function totalsOf(ctx: Ctx, durationMs: number, gapMs: number) {
   }
 }
 
-/** Avisos de lo que no se pudo saber, solo los que aplican a esta solicitud. */
+/** Warnings about what could not be known, only those that apply to this request. */
 export function addLimitations(ctx: Ctx): void {
   const { src, jobs, limitations } = ctx
   if (jobs.length > 0) limitations.push('Los reintentos de la cola no quedan en el esquema app: solo se ve el resultado de cada trabajo.')

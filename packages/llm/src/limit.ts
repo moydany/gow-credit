@@ -1,7 +1,4 @@
-/**
- * Semáforo de concurrencia hacia Anthropic (docs/02 4b): todas las llamadas de un proceso
- * pasan por aquí, no solo los jobs.
- */
+/** Concurrency semaphore toward Anthropic: every call in a process goes through it, not just jobs. */
 export function createLimiter(concurrency: number) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('concurrency debe ser un entero >= 1')
   let active = 0

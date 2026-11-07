@@ -110,7 +110,7 @@ describe('StatementExtraction', () => {
     expect(issues(doc)[0]?.message).toContain('confidence_overall')
   })
 
-  it('lee extracciones 1.1.0: 1.2.0 solo agrega loan_payment (ADR 0013)', () => {
+  it('lee extracciones 1.1.0: 1.2.0 solo agrega loan_payment', () => {
     expect(StatementExtraction.safeParse({ ...sampleStatement(), schema_version: '1.1.0' }).success).toBe(true)
     expect(issues({ ...sampleStatement(), schema_version: '1.0.0' })[0]?.path).toBe('schema_version')
   })
@@ -128,7 +128,7 @@ function extracted612() {
   return { value: '612', source: { page: 3, snippet: 'Régimen Fiscal: 612' }, verification: 'verified' as const, confidence: 1, provenance: 'extracted' as const }
 }
 
-describe('domicilio del titular (ADR 0066)', () => {
+describe('domicilio del titular', () => {
   it('una extracción 1.2.0 guardada sin domicilio se sigue leyendo, con el domicilio como no leído', () => {
     const s = sampleStatement()
     const { address: _address, ...holder } = s.holder

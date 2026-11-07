@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-/** Carga el .env de la raíz del repo si existe y si la variable no está ya en el entorno. */
+/** Loads the repo root .env if it exists and the variable is not already in the environment. */
 export function loadRootEnv(): void {
   const path = fileURLToPath(new URL('../../../.env', import.meta.url))
   if (existsSync(path)) process.loadEnvFile(path)
@@ -9,9 +9,9 @@ export function loadRootEnv(): void {
 
 export interface AnthropicEnv {
   apiKey: string | null
-  /** Solo para llaves de usuario sin workspace (la API exige el header). */
+  /** Only for user keys without a workspace (the API requires the header). */
   workspaceId: string | null
-  /** Para pruebas contra un servidor local; normalmente null. */
+  /** For tests against a local server; normally null. */
   baseURL: string | null
 }
 
@@ -20,10 +20,10 @@ export interface GoogleEnv {
   baseURL: string | null
 }
 
-/** Proveedor experimental (ADR 0010). Sin esta llave, los modelos gemini-* no están disponibles. */
+/** Experimental provider. Without this key, gemini-* models are unavailable. */
 export function readGoogleEnv(env: NodeJS.ProcessEnv = process.env): GoogleEnv {
   const blank = (v: string | undefined) => (v && v.trim().length > 0 ? v.trim() : null)
-  // GEMINI_API_KEY es el nombre de la documentación de Google; se aceptan ambos.
+  // GEMINI_API_KEY is the name in Google's docs; both are accepted.
   return { apiKey: blank(env.GOOGLE_GENERATIVE_AI_API_KEY) ?? blank(env.GEMINI_API_KEY), baseURL: blank(env.GOW_GOOGLE_BASE_URL) }
 }
 

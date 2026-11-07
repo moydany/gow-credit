@@ -1,8 +1,5 @@
 /* eslint-disable no-console -- CLI */
-/**
- * Escribe docs/schema/<nombre>.schema.json desde los esquemas Zod.
- * Uso: pnpm schema:export   (raíz)   |   pnpm -F @gow/contracts schema:export
- */
+/** Writes docs/schema/<name>.schema.json from the Zod schemas (`pnpm schema:export`). */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { PUBLISHED_SCHEMAS, toPublishedJsonSchema } from '../src/json-schema.ts'

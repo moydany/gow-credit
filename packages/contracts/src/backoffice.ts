@@ -1,7 +1,6 @@
 /**
- * Respuestas de la API del backoffice (`/bo/v1`, docs/08 §4). Lo que el navegador lee: filas de
- * lista y el detalle compuesto de una solicitud. Las cargas grandes (extracción, veredicto)
- * conservan sus contratos propios; aquí solo se arma el sobre.
+ * Backoffice API (`/bo/v1`) responses: list rows and the composed request detail. Large payloads
+ * (extraction, verdict) keep their own contracts; this is only the envelope.
  */
 import { z } from 'zod'
 import { ApplicationStatus, ClarificationStatus, DecisionStatus, PolicyVersionStatus } from './enums.ts'
@@ -24,7 +23,7 @@ export const BackofficeMe = z.strictObject({
     id: z.uuid(),
     name: z.string(),
     whatsapp_number: z.string().nullable(),
-    whatsapp_linked_number: z.string().nullable().describe('Número vinculado con la sesión abierta y el proceso de WhatsApp vivo (ADR 0033); null si no'),
+    whatsapp_linked_number: z.string().nullable().describe('Número vinculado con la sesión abierta y el proceso de WhatsApp vivo; null si no'),
   }),
 })
 export type BackofficeMe = z.infer<typeof BackofficeMe>
@@ -92,9 +91,9 @@ export type PolicyVersionItem = z.infer<typeof PolicyVersionItem>
 export const AuditEntry = z.strictObject({ id: z.uuid(), actor: z.string(), actor_label: z.string().nullable().describe('Correo del usuario cuando el actor es una persona del backoffice'), action: z.string(), subject: z.string().nullable(), details: z.record(z.string(), z.unknown()), at: z.string() })
 export type AuditEntry = z.infer<typeof AuditEntry>
 
-// ---------- Proveedores (docs/08 §2)
+// ---------- Suppliers
 
-/** RFC del proveedor: sin espacios ni guiones, en mayúsculas, con estructura y fecha válidas. El genérico no identifica a nadie. */
+/** Supplier RFC: no spaces or hyphens, uppercase, valid structure and date. The generic RFC identifies nobody. */
 export const SupplierRfc = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, '').toUpperCase())
@@ -102,7 +101,7 @@ export const SupplierRfc = z
     const c = checkRfc(s)
     return c.result === 'valid' && c.kind !== 'generic'
   }, 'RFC inválido: 12 posiciones persona moral o 13 persona física, con fecha válida')
-/** CLABE de 18 dígitos con dígito verificador correcto; sin enmascarar. */
+/** 18-digit CLABE with a valid check digit; not masked. */
 export const SupplierClabe = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, ''))
@@ -113,7 +112,7 @@ const SupplierClabes = z
   .refine((xs) => new Set(xs).size === xs.length, 'CLABE repetida')
 const LegalName = z.string().trim().min(1, 'La razón social no puede ir vacía').max(300)
 
-/** Alta desde el backoffice: sin contactos (los vínculos verificados entran por la API de integración). */
+/** Created from the backoffice: no contacts (verified links come in through the integration API). */
 export const SupplierCreateBody = z.strictObject({
   legal_name: LegalName,
   rfc: SupplierRfc.nullable().default(null),
@@ -122,7 +121,7 @@ export const SupplierCreateBody = z.strictObject({
 })
 export type SupplierCreateBody = z.input<typeof SupplierCreateBody>
 
-/** Edición: razón social, RFC y CLABEs; al menos uno. `external_ref` es la llave del integrador y no se edita aquí. */
+/** Edit: legal name, RFC and CLABEs, at least one. `external_ref` is the integrator's key; not editable. */
 export const SupplierUpdateBody = z
   .strictObject({ legal_name: LegalName.optional(), rfc: SupplierRfc.nullable().optional(), clabes: SupplierClabes.optional() })
   .refine((b) => b.legal_name !== undefined || b.rfc !== undefined || b.clabes !== undefined, 'Nada que cambiar')
@@ -165,17 +164,14 @@ export const SupplierDetail = z.strictObject({
   rfc: z.string().nullable(),
   external_ref: z.string().nullable(),
   clabes: z.array(z.string()),
-  address: z.string().nullable().describe('Domicilio del titular según su estado de cuenta más reciente que lo trae (ADR 0066); null si ninguno lo trae'),
+  address: z.string().nullable().describe('Domicilio del titular según su estado de cuenta más reciente que lo trae; null si ninguno lo trae'),
   created_at: z.string(),
   contacts: z.array(SupplierContactItem),
   applications: z.array(SupplierApplicationItem),
 })
 export type SupplierDetail = z.infer<typeof SupplierDetail>
 
-/**
- * Lo que se borró con un proveedor (ADR 0059): solicitudes, documentos, resultados de crédito,
- * aclaraciones y mensajes. Solo conteos.
- */
+/** What was deleted along with a supplier: requests, documents, credit results, clarifications and messages. Counts only. */
 export const SupplierDeleted = z.strictObject({
   id: z.uuid(),
   counts: z.strictObject({
@@ -188,7 +184,7 @@ export const SupplierDeleted = z.strictObject({
 })
 export type SupplierDeleted = z.infer<typeof SupplierDeleted>
 
-// ---------- Configuración (docs/08 §2): usuarios, llaves de API y canales
+// ---------- Settings: users, API keys and channels
 
 export const TenantUserItem = z.strictObject({ id: z.uuid(), email: z.string(), created_at: z.string(), invited_by: z.string().nullable().describe('Correo de quien lo invitó, si sigue en el tenant'), is_me: z.boolean() })
 export type TenantUserItem = z.infer<typeof TenantUserItem>
@@ -197,8 +193,8 @@ export const TenantUserCreateBody = z.strictObject({ email: z.email('Correo inv�
 export type TenantUserCreateBody = z.input<typeof TenantUserCreateBody>
 
 /**
- * Sin Supabase Auth, el enlace de acceso se devuelve una sola vez, a quien invita. Con Supabase Auth
- * (ADR 0035) no hay enlace que compartir: la persona entra con su correo y se le manda uno.
+ * Without Supabase Auth the access link is returned once, to the inviter. With it there is no
+ * link to share: the person signs in with their email and is sent one.
  */
 export const TenantUserCreated = z.strictObject({
   user: TenantUserItem,
@@ -208,19 +204,16 @@ export const TenantUserCreated = z.strictObject({
 })
 export type TenantUserCreated = z.infer<typeof TenantUserCreated>
 
-// ---------- Sesión: login por correo con Supabase Auth (ADR 0035)
+// ---------- Session: email login with Supabase Auth
 
-/** Qué formas de entrar ofrece la API; sin Supabase Auth solo el enlace con el JWT. */
+/** Sign-in methods the API offers; without Supabase Auth, only the link carrying the JWT. */
 export const SessionConfig = z.strictObject({
   magic_link: z.boolean(),
-  setup_required: z.boolean().describe('true mientras no exista ningún tenant: el backoffice ofrece el wizard del primer inicio (ADR 0060)'),
+  setup_required: z.boolean().describe('true mientras no exista ningún tenant: el backoffice ofrece el wizard del primer inicio'),
 })
 export type SessionConfig = z.infer<typeof SessionConfig>
 
-/**
- * Primer inicio (ADR 0060): nombre del prestamista y correo de su administrador. El número de
- * WhatsApp del tenant es opcional; el que se vincula de verdad es el del QR.
- */
+/** First start: lender name and its admin email. The tenant WhatsApp number is optional; the linked one is the QR's. */
 export const SetupBody = z.strictObject({
   tenant_name: z.string().trim().min(2, 'Escribe el nombre de la institución crediticia').max(120),
   email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')),
@@ -234,8 +227,8 @@ export const SetupBody = z.strictObject({
 export type SetupBody = z.input<typeof SetupBody>
 
 /**
- * Lo que manda `/entrar` para crear la sesión: el JWT y, con Supabase Auth, el refresh token del
- * mismo fragmento. La API guarda el refresh token cifrado en una cookie `HttpOnly` (ADR 0036).
+ * What `/entrar` sends to create the session: the JWT and, with Supabase Auth, the refresh token
+ * from the same fragment. The API stores the refresh token encrypted in an `HttpOnly` cookie.
  */
 export const SessionCreateBody = z.strictObject({ token: z.string().min(20).max(4000), refresh_token: z.string().min(1).max(4000).optional() })
 export type SessionCreateBody = z.infer<typeof SessionCreateBody>
@@ -243,7 +236,7 @@ export type SessionCreateBody = z.infer<typeof SessionCreateBody>
 export const MagicLinkBody = z.strictObject({ email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')) })
 export type MagicLinkBody = z.input<typeof MagicLinkBody>
 
-/** La misma respuesta exista o no el correo: no revela quién tiene cuenta. */
+/** Same response whether or not the email exists, so it doesn't reveal who has an account. */
 export const MagicLinkAccepted = z.strictObject({ accepted: z.literal(true) })
 export type MagicLinkAccepted = z.infer<typeof MagicLinkAccepted>
 
@@ -256,7 +249,7 @@ export type ApiKeyItem = z.infer<typeof ApiKeyItem>
 export const ApiKeyCreateBody = z.strictObject({ scopes: z.array(ApiKeyScope).min(1, 'Elige al menos un alcance').refine((xs) => new Set(xs).size === xs.length, 'Alcance repetido') })
 export type ApiKeyCreateBody = z.input<typeof ApiKeyCreateBody>
 
-/** La llave completa (`gowk_<prefijo>.<secreto>`) solo existe en esta respuesta; la base guarda el hash. */
+/** The full key (`gowk_<prefix>.<secret>`) exists only in this response; the database keeps the hash. */
 export const ApiKeyCreated = z.strictObject({ key: ApiKeyItem, secret_key: z.string() })
 export type ApiKeyCreated = z.infer<typeof ApiKeyCreated>
 
@@ -265,24 +258,23 @@ export const TenantSettings = z.strictObject({
   whatsapp: z.strictObject({ number: z.string().nullable().describe('Número de WhatsApp del tenant; null si no tiene uno asignado') }),
   email: z.strictObject({ from: z.string().nullable() }),
   analysis: z.strictObject({
-    statement_max_age_months: StatementMaxAgeMonths.describe('Antigüedad máxima del estado de cuenta (ADR 0049): uno más viejo se analiza igual, con advertencia; null = sin límite'),
+    statement_max_age_months: StatementMaxAgeMonths.describe('Antigüedad máxima del estado de cuenta: uno más viejo se analiza igual, con advertencia; null = sin límite'),
   }),
 })
 export type TenantSettings = z.infer<typeof TenantSettings>
 
-/** Lo que el backoffice puede cambiar de la configuración del tenant (ADR 0049). */
+/** What the backoffice may change in the tenant settings. */
 export const TenantSettingsUpdateBody = z.strictObject({ statement_max_age_months: StatementMaxAgeMonths })
 export type TenantSettingsUpdateBody = z.input<typeof TenantSettingsUpdateBody>
 
-// ---------- Vinculación de WhatsApp desde Configuración (ADR 0033)
+// ---------- WhatsApp linking from Settings
 
 export const WhatsAppSessionStatus = z.enum(['starting', 'waiting_qr', 'open', 'closed', 'logged_out'])
 export type WhatsAppSessionStatus = z.infer<typeof WhatsAppSessionStatus>
 
 /**
- * Estado de la sesión de WhatsApp del tenant. El QR solo viene con el proceso vivo, en `waiting_qr`
- * y sin caducar: quien lo escanee vincula su cuenta al bot del tenant, por eso verlo queda en la
- * bitácora.
+ * Tenant WhatsApp session state. The QR is only present while the process is alive, in `waiting_qr`
+ * and unexpired: whoever scans it links their account to the tenant bot, so viewing it is audit-logged.
  */
 export const WhatsAppLinkState = z.strictObject({
   process_running: z.boolean().describe('Latido del proceso de WhatsApp en los últimos 30 s'),

@@ -1,17 +1,16 @@
 /**
- * Prompts de los modelos (ADR 0065). Sin base (modo standalone, evals, pruebas) salen de
- * prompts/<nombre>.v<N>.md en la versión que fija `PROMPT_CATALOG`. En modo full el worker carga de
- * la base la versión activa de cada prompt con `setActivePrompts` y la refresca cada pocos segundos;
- * lo que no esté en la base (o no sirva) sigue saliendo del archivo.
+ * Model prompts. Without a database (standalone, evals, tests) they come from
+ * prompts/<name>.v<N>.md at the version `PROMPT_CATALOG` pins. In full mode the worker loads each
+ * prompt's active version from the database with `setActivePrompts` and refreshes it every few
+ * seconds; anything missing from the database (or unusable) still comes from the file.
  *
- * El bloque de metadatos inicial (comentario HTML) no se manda al modelo. Las variables son
- * {{nombre}}; falta una → error.
+ * The leading metadata block (HTML comment) is not sent to the model. Variables are {{name}}; a
+ * missing one is an error.
  *
- * Caché de respuestas: la llave ya incluye el texto ya renderizado (`system` e `instruction`) y la
- * id del prompt. La id de una versión del backoffice lleva la huella del texto
- * (`extract_summary.db3-1a2b3c4d`), y la de una versión idéntica a un archivo es la del archivo
- * (`extract_summary.v2`): un prompt editado nunca reutiliza respuestas viejas y uno sin cambios
- * conserva la caché de siempre.
+ * Response cache: the key already includes the rendered text (`system` and `instruction`) and the
+ * prompt id. A backoffice version id carries the text fingerprint (`extract_summary.db3-1a2b3c4d`)
+ * and that of a version identical to a file is the file's (`extract_summary.v2`): an edited
+ * prompt never reuses old responses and an unchanged one keeps its usual cache.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -21,12 +20,12 @@ import { dbPromptId, filePromptId, PROMPT_CATALOG, PROMPT_NAMES, renderPrompt, s
 const PROMPTS_DIR = fileURLToPath(new URL('../../../prompts/', import.meta.url))
 
 export interface Prompt {
-  /** `extract_summary.v1` (archivo) o `extract_summary.db3-1a2b3c4d` (backoffice). */
+  /** `extract_summary.v1` (file) or `extract_summary.db3-1a2b3c4d` (backoffice). */
   id: string
   text: string
-  /** sha256 de la plantilla, antes de sustituir variables. */
+  /** sha256 of the template, before substituting variables. */
   sha256: string
-  /** De dónde salió: archivo del repositorio o versión activa de la base. */
+  /** Where it came from: repository file or the active database version. */
   source: 'file' | 'db'
 }
 
@@ -56,20 +55,20 @@ function render(t: Template, vars: Record<string, string | number>): Prompt {
   return { id: t.id, text: renderPrompt(t.id, t.template, vars).trim(), sha256: t.sha256, source: t.source }
 }
 
-/** Prompt en su versión activa: la de la base si el worker la cargó, si no la de archivo del catálogo. */
+/** Prompt at its active version: the database one if the worker loaded it, else the catalog file version. */
 export function loadPrompt(name: PromptName, vars: Record<string, string | number> = {}): Prompt {
   return render(active.get(name) ?? fileTemplate(name, PROMPT_CATALOG[name].version), vars)
 }
 
-/** Una versión de archivo concreta, sin importar cuál esté activa (evals, comparaciones). */
+/** A specific file version, whichever is active (evals, comparisons). */
 export function loadPromptFile(name: PromptName, version: number, vars: Record<string, string | number> = {}): Prompt {
   return render(fileTemplate(name, version), vars)
 }
 
 /**
- * Etiqueta para las cachés que no ven el texto del prompt (la de clasificación de documentos):
- * null mientras el prompt activo sea la versión de archivo del código, para no invalidar lo ya
- * guardado; la id en cualquier otro caso.
+ * Label for caches that do not see the prompt text (the document classification one): null while
+ * the active prompt is the code's file version, to avoid invalidating what is stored; the id
+ * otherwise.
  */
 export function promptCacheTag(name: PromptName): string | null {
   const t = active.get(name)
@@ -86,15 +85,15 @@ export interface ActivePromptInput {
 }
 
 export interface ActivePromptsReport {
-  /** Prompts que salen de la base. */
+  /** Prompts that come from the database. */
   loaded: string[]
-  /** Los que no sirvieron y siguen saliendo del archivo, con la razón (sin texto del prompt). */
+  /** Those that were unusable and still come from the file, with the reason (no prompt text). */
   rejected: string[]
 }
 
 /**
- * Reemplaza las versiones activas (modo full). Un prompt que no es del catálogo o que usa variables
- * que el código no le pasa se ignora: sigue el archivo y queda en `rejected`.
+ * Replaces the active versions (full mode). A prompt not in the catalog or using variables the
+ * code does not pass is ignored: the file stays in effect and it lands in `rejected`.
  */
 export function setActivePrompts(rows: readonly ActivePromptInput[]): ActivePromptsReport {
   const next = new Map<string, Template>()
@@ -110,7 +109,7 @@ export function setActivePrompts(rows: readonly ActivePromptInput[]): ActiveProm
       report.rejected.push(`${name}: usa {{${unknown.join('}}, {{')}}}`)
       continue
     }
-    // Una versión con el mismo texto que un archivo conserva la id del archivo (y su caché).
+    // A version with the same text as a file keeps the file id (and its cache).
     const sameAsFile = r.fileVersion !== null && r.source === 'file' && sha256Hex(r.text) === r.sha256
     const id = sameAsFile ? filePromptId(name, r.fileVersion as number) : dbPromptId(name, r.version, r.sha256)
     next.set(name, { id, template: r.text.trim(), sha256: r.sha256, source: 'db' })
@@ -120,7 +119,7 @@ export function setActivePrompts(rows: readonly ActivePromptInput[]): ActiveProm
   return report
 }
 
-/** Vuelve a los archivos (pruebas). */
+/** Back to the files (tests). */
 export function clearActivePrompts(): void {
   active = new Map()
 }

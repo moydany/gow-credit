@@ -1,10 +1,10 @@
 /**
- * Estados y términos canónicos de docs/README.md. Se usan tal cual en código, base de
- * datos y documentación; cualquier cambio aquí es un cambio de contrato.
+ * Canonical statuses and terms. Used verbatim in code, database and docs; any change here is a
+ * contract change.
  */
 import { z } from 'zod'
 
-/** Ciclo de vida de la solicitud (`application.status`). */
+/** Request lifecycle (`application.status`). */
 export const ApplicationStatus = z.enum([
   'received',
   'extracting',
@@ -19,44 +19,44 @@ export const ApplicationStatus = z.enum([
 ])
 export type ApplicationStatus = z.infer<typeof ApplicationStatus>
 
-/** Veredicto del motor (`decision.status`). Los tres primeros son finales. */
+/** Engine verdict (`decision.status`). The first three are final. */
 export const DecisionStatus = z.enum(['qualified', 'qualified_with_limit', 'not_qualified', 'needs_clarification', 'human_review'])
 export type DecisionStatus = z.infer<typeof DecisionStatus>
 
-/** Estados finales del veredicto: los que pueden salir de una banda. */
+/** Final verdict statuses: the ones a band can produce. */
 export const FinalDecisionStatus = z.enum(['qualified', 'qualified_with_limit', 'not_qualified'])
 export type FinalDecisionStatus = z.infer<typeof FinalDecisionStatus>
 
-/** Orden de los estados finales, del mejor al peor. Lo usan los topes (`caps`). */
+/** Final statuses ordered best to worst. Used by the caps (`caps`). */
 export const FINAL_STATUS_RANK: Readonly<Record<FinalDecisionStatus, number>> = {
   qualified: 2,
   qualified_with_limit: 1,
   not_qualified: 0,
 }
 
-/** Versión de política (`policy_version.status`). */
+/** Policy version (`policy_version.status`). */
 export const PolicyVersionStatus = z.enum(['draft', 'shadow', 'active', 'archived'])
 export type PolicyVersionStatus = z.infer<typeof PolicyVersionStatus>
 
-/** Aclaración (`clarification.status`). */
+/** Clarification (`clarification.status`). */
 export const ClarificationStatus = z.enum(['open', 'answered', 'expired', 'rejected'])
 export type ClarificationStatus = z.infer<typeof ClarificationStatus>
 
-/** Verificación de un campo extraído. */
+/** Verification of an extracted field. */
 export const Verification = z.enum(['verified', 'unverified', 'conflict'])
 export type Verification = z.infer<typeof Verification>
 
-/** Procedencia de un valor. */
+/** Provenance of a value. */
 export const Provenance = z.enum(['extracted', 'owner_answer', 'analyst_answer', 'external'])
 export type Provenance = z.infer<typeof Provenance>
 
-/** Clasificación de documento. */
+/** Document classification. */
 export const DocumentType = z.enum(['bank_statement', 'credit_card_statement', 'invoice', 'other'])
 export type DocumentType = z.infer<typeof DocumentType>
 
 /**
- * Clasificación de movimiento. `loan_payment` (pago a un crédito: cuota, tarjeta, préstamo)
- * se agregó en la fase 4 (ADR 0013): sin ella `debt_service_monthly` no se podía calcular.
+ * Transaction classification. `loan_payment` (payment on a credit: installment, card, loan) was
+ * added because `debt_service_monthly` could not be computed without it.
  */
 export const TransactionCategory = z.enum([
   'customer_payment',
@@ -72,6 +72,6 @@ export const TransactionCategory = z.enum([
 ])
 export type TransactionCategory = z.infer<typeof TransactionCategory>
 
-/** Sentido del movimiento. El monto siempre es positivo; el signo vive aquí. */
+/** Transaction direction. The amount is always positive; the sign lives here. */
 export const TransactionType = z.enum(['credit', 'debit'])
 export type TransactionType = z.infer<typeof TransactionType>

@@ -1,12 +1,12 @@
 /**
- * Cola del modo full (docs/02 §4 y §4b): pg-boss en su propio esquema y con su propio rol. La API
- * encola y el worker consume; nadie espera a un workflow suspendido.
+ * Full-mode queue: pg-boss in its own schema and role. The API enqueues and the worker consumes;
+ * nobody waits on a suspended workflow.
  *
- * - `application.process`: un documento nuevo. `singletonKey` = tenant + sha256 + versión de
- *   prompts: el mismo PDF subido dos veces no crea dos trabajos.
- * - `application.resume`: una aclaración respondida. Prioridad alta: el proveedor está esperando.
- * - `supplier.purge`: limpieza fuera de la base de un proveedor borrado desde el backoffice (ADR 0059).
- * - Reintentos con backoff exponencial y, agotados, `application.dead` (dead letter).
+ * - `application.process`: a new document. `singletonKey` = tenant + sha256 + prompt version: the
+ *   same PDF uploaded twice does not create two jobs.
+ * - `application.resume`: an answered clarification. High priority: the supplier is waiting.
+ * - `supplier.purge`: cleanup outside the database for a supplier deleted from the backoffice.
+ * - Retries with exponential backoff and, once exhausted, `application.dead` (dead letter).
  */
 import { PgBoss } from 'pg-boss'
 import { z } from 'zod'
@@ -21,7 +21,7 @@ export const QUEUES = {
 
 export const PRIORITY = { redecide: 10, resume: 10, process: 0, bulk: -10 } as const
 
-/** Versión de los prompts de extracción en la llave de idempotencia (cambiar prompts reprocesa). */
+/** Extraction prompt version in the idempotency key (changing prompts reprocesses). */
 export const PROMPTS_VERSION = 'extract_summary.v2+extract_transactions.v2'
 
 export const ProcessJob = z.strictObject({ tenant_id: z.uuid(), application_id: z.uuid() })
@@ -29,13 +29,13 @@ export type ProcessJob = z.infer<typeof ProcessJob>
 export const ResumeJob = z.strictObject({ tenant_id: z.uuid(), application_id: z.uuid(), clarification_id: z.uuid() })
 export type ResumeJob = z.infer<typeof ResumeJob>
 
-/** Un analista corrigió valores en revisión humana: se reevalúa con ellos (ADR 0020). */
+/** An analyst corrected values in human review: re-evaluate with them. */
 export const RedecideJob = z.strictObject({ tenant_id: z.uuid(), application_id: z.uuid(), correction_batch: z.uuid() })
 export type RedecideJob = z.infer<typeof RedecideJob>
 
 /**
- * Un proveedor borrado desde el backoffice (ADR 0059): la base ya no tiene sus filas; quedan sus PDFs,
- * los trabajos de la cola de sus solicitudes y el estado de Mastra de sus corridas. Solo ids y rutas.
+ * A supplier deleted from the backoffice: the database no longer has its rows; what remains is its
+ * PDFs, the queue jobs of its requests and the Mastra state of its runs. Ids and paths only.
  */
 export const PurgeJob = z.strictObject({
   tenant_id: z.uuid(),
@@ -53,17 +53,17 @@ export interface QueueLogger {
 }
 
 export async function startQueue(connectionString: string, logger: QueueLogger, opts: { supervise?: boolean } = {}): Promise<PgBoss> {
-  // El esquema lo crea la migración (0001_rls.sql) con su dueño: el rol de la cola no crea esquemas.
+  // The migration (0001_rls.sql) creates the schema with its owner: the queue role does not create schemas.
   const boss = new PgBoss({ connectionString, schema: 'pgboss', createSchema: false, supervise: opts.supervise ?? true, schedule: false })
-  // Sin el error crudo: puede traer el payload del trabajo. Solo el código.
+  // Not the raw error: it may carry the job payload. Only the code.
   boss.on('error', (err: unknown) => {
     logger.error(`pg-boss: ${err instanceof Error ? err.name : 'error'}`)
   })
   await boss.start()
   if (!(await boss.getQueue(QUEUES.dead))) await boss.createQueue(QUEUES.dead, { retryLimit: 0 })
   for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.purge]) {
-    // `exclusive` con singletonKey: a lo más un trabajo en cola o activo por llave (en `standard`
-    // la llave no deduplica).
+    // `exclusive` with singletonKey: at most one queued or active job per key (in `standard`
+     // the key does not deduplicate).
     if (!(await boss.getQueue(name))) await boss.createQueue(name, { ...RETRY, policy: 'exclusive', deadLetter: QUEUES.dead })
   }
   return boss
@@ -89,7 +89,7 @@ export async function enqueuePurge(boss: PgBoss, job: PurgeJob): Promise<string 
   return boss.send(QUEUES.purge, PurgeJob.parse(job), { singletonKey: job.supplier_id, priority: PRIORITY.process })
 }
 
-/** Trabajos de la cola de estas solicitudes, en cualquier estado: se borran al borrar al proveedor. */
+/** Queue jobs of these requests, in any state: deleted when the supplier is deleted. */
 export async function deleteApplicationJobs(boss: PgBoss, applicationIds: readonly string[]): Promise<number> {
   let deleted = 0
   for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.dead]) {

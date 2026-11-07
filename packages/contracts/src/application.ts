@@ -1,8 +1,8 @@
 /**
- * Resultado de evaluar una solicitud en modo standalone (`pnpm run evaluate`, docs/07 A): un
- * archivo por documento con el estado de la solicitud, el veredicto, la línea máxima cuando no
- * hay monto solicitado, la aclaración pendiente o respondida, qué clasificó los movimientos y
- * cuánto costó. La extracción va en su propio archivo con el contrato `StatementExtraction`.
+ * Result of evaluating one request in standalone mode (`pnpm run evaluate`): one file per
+ * document with the status, verdict, max line (when no amount was requested), the pending or
+ * answered clarification, who classified the transactions and the cost. The extraction goes in
+ * its own file under the `StatementExtraction` contract.
  */
 import { z } from 'zod'
 import { ClarificationStatus, ApplicationStatus } from './enums.ts'
@@ -13,7 +13,7 @@ import { Count, IsoDate, IsoDateTime, Money, Sha256 } from './primitives.ts'
 
 export const APPLICATION_RESULT_VERSION = '1.0.0'
 
-/** El mayor monto que, solicitado, la política aprobaría (docs/07 A: sin monto, "línea máxima y perfil"). */
+/** Largest amount the policy would approve if requested. */
 export const MaxLine = z
   .strictObject({
     amount: Money,
@@ -24,7 +24,7 @@ export const MaxLine = z
   .meta({ id: 'MaxLine' })
 export type MaxLine = z.infer<typeof MaxLine>
 
-/** Quién clasificó los movimientos y cuántos (docs/02 §4c). */
+/** Who classified the transactions, and how many. */
 export const ClassificationSummary = z
   .strictObject({
     implementation: z.enum(['jev', 'claude', 'rules']).describe('rules: el modelo no corrió o falló y quedó el respaldo por reglas'),

@@ -1,10 +1,10 @@
 /**
- * Intercambio con un modelo tal cual (ADR 0064): lo que se mandó (system prompt, instrucción,
- * parámetros y la huella del PDF) y lo que volvió (objeto, salida cruda si no validó, error, uso,
- * costo). Sirve para analizar un caso que falló sin volver a llamar al modelo.
+ * A model exchange as-is: what was sent (system prompt, instruction, parameters, PDF fingerprint)
+ * and what came back (object, raw output if it did not validate, error, usage, cost). Lets a
+ * failed case be analyzed without calling the model again.
  *
- * Lleva datos del documento: vive en `app.llm_exchanges` con RLS (nunca en la bitácora de
- * movimientos ni en logs) y en modo standalone en `data/out/evaluate/<id>.llm.jsonl`.
+ * Carries document data: lives in `app.llm_exchanges` with RLS (never in the movement log or
+ * logs) and, in standalone, in `data/out/evaluate/<id>.llm.jsonl`.
  */
 import { z } from 'zod'
 import { TokenUsage } from './primitives.ts'
@@ -12,7 +12,7 @@ import { TokenUsage } from './primitives.ts'
 export const LlmExchangeOutcome = z.enum(['ok', 'error'])
 export type LlmExchangeOutcome = z.infer<typeof LlmExchangeOutcome>
 
-/** Fila de la lista: sin contenido, para recorrer muchas sin cargar los prompts. */
+/** List row: no content, so many can be listed without loading prompts. */
 export const LlmExchangeRow = z.strictObject({
   id: z.uuid(),
   application_id: z.uuid().nullable(),
@@ -33,7 +33,7 @@ export const LlmExchangeRow = z.strictObject({
 })
 export type LlmExchangeRow = z.infer<typeof LlmExchangeRow>
 
-/** Detalle crudo: verlo queda en la bitácora de movimientos (`llm_exchange.viewed`). */
+/** Raw detail: viewing it is recorded in the movement log (`llm_exchange.viewed`). */
 export const LlmExchangeDetail = LlmExchangeRow.extend({
   system: z.string(),
   instruction: z.string(),

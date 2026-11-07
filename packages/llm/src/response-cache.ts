@@ -1,10 +1,10 @@
 /**
- * Caché de respuestas por hash de la entrada (docs/07 E). Con la misma entrada (modelo,
- * prompt, esquema, documento, instrucción, effort) devuelve la respuesta guardada sin llamar
- * al modelo: corridas repetibles sobre los documentos de desarrollo y CI sin llamadas.
+ * Response cache keyed by input hash. With the same input (model, prompt, schema, document,
+ * instruction, effort) it returns the stored response without calling the model: repeatable runs
+ * on the dev documents and CI without calls.
  *
- * Las respuestas contienen datos del documento, así que el directorio por defecto vive en
- * data/ (ignorado por git). Si se versiona para CI se decide junto con el ground truth.
+ * Responses contain document data, so the default directory lives in data/ (git-ignored). If it
+ * is versioned for CI, that is decided together with the ground truth.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -48,7 +48,7 @@ export class CachingStructuredLlm implements StructuredLlm {
   readonly #dir: string
   readonly #mode: CacheMode
 
-  /** `inner` puede ser null: modo solo-caché (CI sin llave); un miss falla. */
+  /** `inner` may be null: cache-only mode (CI without a key); a miss fails. */
   constructor(inner: StructuredLlm | null, dir: string, mode: CacheMode) {
     this.#inner = inner
     this.#dir = dir
@@ -78,7 +78,7 @@ export class CachingStructuredLlm implements StructuredLlm {
       const path = this.#path(key)
       mkdirSync(join(this.#dir, key.slice(0, 2)), { recursive: true })
       const entry: Entry = { key, model: res.model, purpose: req.purpose, object: res.object, usage: res.usage, original_cost_usd: res.costUsd, finish_reason: res.finishReason, created_at: new Date().toISOString() }
-      // Escritura atómica: un proceso interrumpido no deja una entrada a medias.
+      // Atomic write: an interrupted process leaves no half-written entry.
       writeFileSync(`${path}.tmp`, JSON.stringify(entry))
       renameSync(`${path}.tmp`, path)
     }

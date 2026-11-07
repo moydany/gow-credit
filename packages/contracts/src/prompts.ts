@@ -1,21 +1,21 @@
 /**
- * Prompts de los modelos (ADR 0065). El texto vive en `prompts/<nombre>.v<N>.md` y, en modo full,
- * también en la base (`app.prompts` y `app.prompt_versions`), donde el backoffice crea versiones
- * nuevas y elige cuál está activa. Este catálogo es la fuente de verdad de qué prompts existen, qué
- * versión de archivo usa el código por defecto y qué variables recibe cada uno: la siembra, el
- * cargador y la API lo leen de aquí.
+ * Model prompts. The text lives in `prompts/<name>.v<N>.md` and, in full mode, also in the
+ * database (`app.prompts` and `app.prompt_versions`), where the backoffice creates new versions
+ * and picks the active one. This catalog is the source of truth for which prompts exist, which
+ * file version the code uses by default and which variables each takes; seeding, the loader and
+ * the API read it.
  *
- * Funciones puras (sin `node:`): las usa también el navegador.
+ * Pure functions (no `node:`): the browser uses them too.
  */
 import { z } from 'zod'
 
 interface CatalogEntry {
-  /** Versión de `prompts/<nombre>.v<N>.md` que usa el código y que la siembra deja activa. */
+  /** Version of `prompts/<name>.v<N>.md` the code uses and seeding leaves active. */
   version: number
   title: string
   description: string
   model: string
-  /** Variables `{{nombre}}` que el código le pasa al prompt; una versión no puede usar otras. */
+  /** `{{name}}` variables the code passes to the prompt; a version cannot use others. */
   variables: readonly string[]
 }
 
@@ -26,7 +26,7 @@ export const PROMPT_CATALOG = {
   extract_system: {
     version: 1,
     title: 'Extracción: instrucciones de sistema',
-    description: 'System prompt de todas las llamadas de extracción sobre un documento. Es parte del prefijo cacheado: idéntico en todas las pasadas (ADR 0005).',
+    description: 'System prompt de todas las llamadas de extracción sobre un documento. Es parte del prefijo cacheado: idéntico en todas las pasadas.',
     model: EXTRACTION,
     variables: [],
   },
@@ -103,23 +103,23 @@ export function promptCatalogEntry(name: PromptName): CatalogEntry {
   return PROMPT_CATALOG[name]
 }
 
-/** Id estable de una versión de archivo: `extract_summary.v2`. Es la que guardan trazas y caché. */
+/** Stable id of a file version: `extract_summary.v2`. Traces and cache store this one. */
 export function filePromptId(name: string, fileVersion: number): string {
   return `${name}.v${String(fileVersion)}`
 }
 
 /**
- * Id de una versión creada en el backoffice: número de la base y huella del texto
- * (`extract_summary.db3-1a2b3c4d`). La huella hace que dos textos distintos nunca compartan id ni
- * llave de caché.
+ * Id of a version created in the backoffice: database number plus text fingerprint
+ * (`extract_summary.db3-1a2b3c4d`). The fingerprint keeps two different texts from sharing an id
+ * or cache key.
  */
 export function dbPromptId(name: string, version: number, sha256: string): string {
   return `${name}.db${String(version)}-${sha256.slice(0, 8)}`
 }
 
 /**
- * Separa el bloque de metadatos inicial (comentario HTML) del texto que va al modelo. El texto se
- * devuelve sin espacios al principio y al final.
+ * Splits the leading metadata block (HTML comment) from the text sent to the model. The text is
+ * returned trimmed.
  */
 export function splitPromptFile(raw: string): { header: Record<string, string>; body: string } {
   const m = /^<!--([\s\S]*?)-->\s*/.exec(raw)
@@ -133,20 +133,20 @@ export function splitPromptFile(raw: string): { header: Record<string, string>; 
   return { header, body: (m ? raw.slice(m[0].length) : raw).trim() }
 }
 
-/** Variables `{{nombre}}` que usa un texto, sin repetir y en orden de aparición. */
+/** `{{name}}` variables a text uses, deduplicated, in order of appearance. */
 export function promptPlaceholders(text: string): string[] {
   const out: string[] = []
   for (const m of text.matchAll(/\{\{(\w+)\}\}/g)) if (m[1] && !out.includes(m[1])) out.push(m[1])
   return out
 }
 
-/** Las variables de un texto que el código no le pasa a ese prompt. */
+/** Variables in a text that the code does not pass to that prompt. */
 export function unknownPlaceholders(name: PromptName, text: string): string[] {
   const allowed: readonly string[] = PROMPT_CATALOG[name].variables
   return promptPlaceholders(text).filter((v) => !allowed.includes(v))
 }
 
-/** Sustituye `{{nombre}}`; una variable sin valor es un error (el prompt quedaría incompleto). */
+/** Replaces `{{name}}`; a variable without a value is an error (the prompt would be incomplete). */
 export function renderPrompt(id: string, template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_m, key: string) => {
     const v = vars[key]
@@ -162,8 +162,8 @@ export interface DiffLine {
 }
 
 /**
- * Diff por líneas (subsecuencia común más larga). Los prompts tienen cientos de líneas, no miles: la
- * tabla cuadrática cabe de sobra.
+ * Line diff (longest common subsequence). Prompts have hundreds of lines, not thousands, so the
+ * quadratic table is fine.
  */
 export function lineDiff(before: string, after: string): DiffLine[] {
   const a = before.split('\n')
@@ -195,7 +195,7 @@ export function lineDiff(before: string, after: string): DiffLine[] {
   return out
 }
 
-// ---- API del backoffice (`/bo/v1/prompts`) ----
+// ---- Backoffice API (`/bo/v1/prompts`) ----
 
 export const PromptVersionSource = z.enum(['file', 'backoffice']).describe('file: sembrada desde prompts/ (pasa por el changelog y las evals del repositorio); backoffice: creada en el backoffice, sin evals')
 export type PromptVersionSource = z.infer<typeof PromptVersionSource>
@@ -239,7 +239,7 @@ export const PromptSummary = z.strictObject({
 export type PromptSummary = z.infer<typeof PromptSummary>
 
 export const PromptCatalogResponse = z.strictObject({
-  can_edit: z.boolean().describe('Quien consulta puede crear y activar versiones (los prompts son globales: ADR 0065)'),
+  can_edit: z.boolean().describe('Quien consulta puede crear y activar versiones (los prompts son globales)'),
   prompts: z.array(PromptSummary),
 })
 export type PromptCatalogResponse = z.infer<typeof PromptCatalogResponse>

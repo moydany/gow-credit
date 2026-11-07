@@ -1,8 +1,7 @@
 /**
- * Adaptador por defecto del puerto: un Agent de Mastra por (modelo, system prompt), con el
- * proveedor de AI SDK. Lo verificado en el spike 1: el PDF va como bloque `document` con
- * `cache_control`, la salida estructurada va nativa por `output_config.format`, y
- * `thinking`, `effort` y `fallbacks` llegan tal cual.
+ * Default adapter of the port: one Mastra Agent per (model, system prompt), using the AI SDK
+ * provider. The PDF goes as a `document` block with `cache_control`, structured output is native
+ * via `output_config.format`, and `thinking`, `effort` and `fallbacks` pass through as is.
  */
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
@@ -21,7 +20,7 @@ interface UsageLike {
 }
 
 function toTokenUsage(u: UsageLike, raw: Record<string, unknown> | undefined): TokenUsage {
-  // Preferimos el objeto crudo de Anthropic; si no está, se reconstruye desde el normalizado.
+  // Prefer the raw Anthropic object; if absent, rebuild it from the normalized one.
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
   if (raw && typeof raw.input_tokens === 'number') {
     return {
@@ -40,7 +39,7 @@ function classifyError(err: unknown): LlmCallError {
   if (err instanceof LlmCallError) return err
   const e = err as { statusCode?: number; isRetryable?: boolean; message?: string; name?: string }
   const status = typeof e.statusCode === 'number' ? e.statusCode : null
-  // Nunca se propaga el cuerpo del request (lleva el PDF): solo estado y un mensaje corto.
+  // The request body is never propagated (it carries the PDF): only status and a short message.
   const short = (e.message ?? String(err)).split('\n')[0]?.slice(0, 300) ?? 'error desconocido'
   if (status !== null) return new LlmCallError('api_error', `Anthropic respondió ${String(status)}: ${short}`, { status, retryable: e.isRetryable ?? (status >= 500 || status === 429) })
   if (/schema|parse|json|validation|structured/i.test(short)) return new LlmCallError('invalid_output', `salida estructurada inválida: ${short}`, { retryable: true })
@@ -48,12 +47,12 @@ function classifyError(err: unknown): LlmCallError {
   return new LlmCallError('api_error', short, { retryable: true })
 }
 
-/** Gemini piensa por niveles, no por effort: low → low, medium → medium, high o más → high. */
+/** Gemini thinks in levels, not effort: low -> low, medium -> medium, high or above -> high. */
 export function geminiThinkingLevel(effort: Effort): 'low' | 'medium' | 'high' {
   return effort === 'low' ? 'low' : effort === 'medium' ? 'medium' : 'high'
 }
 
-/** Uso de Gemini en el mismo formato: lo cacheado es lectura implícita; el pensamiento se cobra como salida. */
+/** Gemini usage in the same format: cached is implicit read; thinking is billed as output. */
 function googleUsage(u: UsageLike, raw: Record<string, unknown> | undefined): TokenUsage {
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
   if (raw && typeof raw.promptTokenCount === 'number') {
@@ -89,7 +88,7 @@ export class MastraStructuredLlm implements StructuredLlm {
       if (!this.#anthropic) throw new LlmCallError('missing_api_key', `Falta ANTHROPIC_API_KEY para ${model}.`)
       return this.#anthropic(model)
     }
-    if (!this.#google) throw new LlmCallError('missing_api_key', `Falta GOOGLE_GENERATIVE_AI_API_KEY para ${model} (proveedor experimental, ADR 0010).`)
+    if (!this.#google) throw new LlmCallError('missing_api_key', `Falta GOOGLE_GENERATIVE_AI_API_KEY para ${model} (proveedor experimental).`)
     return this.#google(model)
   }
 
@@ -98,8 +97,8 @@ export class MastraStructuredLlm implements StructuredLlm {
     let agent = this.#agents.get(key)
     if (!agent) {
       agent = new Agent({ id: `gow-${model}-${String(this.#agents.size)}`, name: 'gow-structured', instructions: system, model: this.#model(model, provider), maxRetries: this.#maxRetries })
-      // El logger de Mastra imprime el error crudo (headers y partes del request). Sin PII en
-      // logs: se silencia y el error sale saneado por classifyError.
+      // Mastra's logger prints the raw error (headers and request parts). No PII in logs:
+       // it is silenced and the error comes out sanitized by classifyError.
       agent.__setLogger(noopLogger)
       this.#agents.set(key, agent)
     }
@@ -116,15 +115,15 @@ export class MastraStructuredLlm implements StructuredLlm {
               type: 'file' as const,
               data: req.document.base64,
               mediaType: 'application/pdf',
-              // Gemini cachea el prefijo de forma implícita; cache_control solo existe en Anthropic.
+              // Gemini caches the prefix implicitly; cache_control only exists on Anthropic.
               ...(req.document.cache && provider === 'anthropic' ? { providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' as const } } } } : {}),
             },
           ]
         : []),
       { type: 'text' as const, text: req.instruction },
     ]
-    // Dos constantes y no un ternario de literales: sin exactOptionalPropertyTypes (packages/mastra,
-    // ADR 0004) TypeScript normaliza la unión con `google?: undefined` y ya no es ProviderOptions.
+    // Two constants, not a ternary of literals: without exactOptionalPropertyTypes (packages/mastra),
+     // TypeScript normalizes the union with `google?: undefined` and it is no longer ProviderOptions.
     const anthropicOptions = {
       anthropic: {
         thinking: { type: 'adaptive' as const },
@@ -163,20 +162,20 @@ export class MastraStructuredLlm implements StructuredLlm {
       }
     } catch (err) {
       const e = classifyError(err)
-      // La salida cruda solo viaja hacia la grabación de intercambios (ADR 0064), nunca al mensaje.
+      // The raw output only travels to exchange recording, never into the message.
       if (e.rawOutput !== null || !stream) throw e
       throw new LlmCallError(e.code, e.message, { retryable: e.retryable, status: e.status, cause: e.cause, rawOutput: await textOf(stream) })
     }
   }
 }
 
-/** Una respuesta cortada o declinada no sirve: error con lo que alcanzó a llegar (ADR 0064). */
+/** A truncated or declined response is useless: error with whatever arrived. */
 async function assertFinished(finishReason: string | undefined, maxOutputTokens: number, out: { text: Promise<string> }): Promise<void> {
   if (finishReason === 'length') throw new LlmCallError('max_tokens', `la respuesta se cortó en maxOutputTokens=${String(maxOutputTokens)}`, { retryable: false, rawOutput: await textOf(out) })
   if (finishReason === 'content-filter') throw new LlmCallError('refusal', 'el modelo declinó la solicitud', { retryable: false, rawOutput: await textOf(out) })
 }
 
-/** Texto que alcanzó a llegar; si el stream quedó roto, nada (con tope de espera). */
+/** Text that arrived; if the stream broke, nothing (with a wait cap). */
 async function textOf(out: { text: Promise<string> }): Promise<string | null> {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<null>((resolve) => {

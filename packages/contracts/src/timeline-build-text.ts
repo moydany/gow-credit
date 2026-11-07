@@ -1,11 +1,11 @@
 /**
- * Textos en español del recorrido (ADR 0067): tablas de etiquetas. Nunca llevan datos del documento
- * ni del proveedor; los textos de los eventos salen de aquí y de conteos.
+ * Spanish journey texts: label tables. They never carry document or supplier data; event texts
+ * come from here and from counts.
  */
 import type { ApplicationStatus } from './enums.ts'
 import type { TimelineJob, WorkflowStepId } from './timeline.ts'
 
-/** Propósitos de llamada con tratamiento propio. */
+/** Call purposes with their own handling. */
 export const P_CLASSIFY_TX = 'classify_transactions'
 export const P_QUESTIONS = 'clarification_questions'
 
@@ -95,7 +95,7 @@ export const PURPOSE_ES: Record<string, string> = {
   interpret_reply: 'Lectura de la respuesta del proveedor',
 }
 
-/** Llamadas que lee el documento: pertenecen a la extracción. */
+/** Calls the document reads: they belong to extraction. */
 export const EXTRACTION_PURPOSES: ReadonlySet<string> = new Set(['classify', 'summary', 'transactions', 'retry_page', 'double_read', 'citations'])
 export const EXPLAIN_PURPOSES: ReadonlySet<string> = new Set(['explanation', 'next_steps'])
 

@@ -1,7 +1,7 @@
 /**
- * Interfaz `Classifier` (docs/02 4c): Jev si hay TYPESAFE_API_KEY, si no Haiku. Responde qué
- * tipo de documento es, de qué banco, si su texto es legible y si trae texto dirigido a un
- * sistema automatizado. En `evaluate` etiqueta, no bloquea la extracción (ADR 0002).
+ * `Classifier` interface: Jev if TYPESAFE_API_KEY is set, otherwise Haiku. Answers the document
+ * type, the bank, whether its text is legible and whether it carries text aimed at an automated
+ * system. In `evaluate` it labels and does not block extraction.
  */
 import { DocumentType, type TokenUsage } from '@gow/contracts'
 import { choice, noul, TypeSafeClient } from '@typesafe-ai/sdk'
@@ -28,7 +28,7 @@ export const KNOWN_BANKS = [
 export type KnownBank = (typeof KNOWN_BANKS)[number]
 
 export interface ClassifierInput {
-  /** Texto de las primeras páginas, o null si la capa de texto no es legible. */
+  /** Text of the first pages, or null if the text layer is not legible. */
   textSample: string | null
   pdf: PdfInput
 }
@@ -70,7 +70,7 @@ export class ClaudeClassifier implements Classifier {
   }
 
   async classify(input: ClassifierInput): Promise<Classification> {
-    // Con texto legible basta una muestra en texto (más barato); si no, va el PDF.
+    // With legible text a text sample is enough (cheaper); otherwise the PDF goes.
     const useText = input.textSample !== null
     const prompt = loadPrompt('classify_document', {
       banks: KNOWN_BANKS.join(', '),
@@ -107,7 +107,7 @@ export class ClaudeClassifier implements Classifier {
   }
 }
 
-/** Jev solo lee texto: sin texto legible delega en el clasificador de Claude. */
+/** Jev only reads text: without legible text it delegates to the Claude classifier. */
 export class JevClassifier implements Classifier {
   readonly #client: TypeSafeClient
   readonly #visionFallback: Classifier

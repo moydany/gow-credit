@@ -1,6 +1,6 @@
 /**
- * Lectura de las extracciones guardadas (ADR 0067): estadísticas de verificación, llamadas del payload
- * y documentos del recorrido. Todo defensivo: un payload anterior puede faltar campos.
+ * Reads stored extractions: verification stats, payload calls and journey documents. All
+ * defensive: an older payload may lack fields.
  */
 import { arr, count, get, isRec, ms, num, pageNumber, parseMs, str, type CallInfo, type ExtractionInfo, type Rec } from './timeline-build-base.ts'
 import type { TimelineDocument } from './timeline.ts'
@@ -45,7 +45,7 @@ function bump(map: Map<number, number>, page: number | null): void {
   if (page !== null) map.set(page, (map.get(page) ?? 0) + 1)
 }
 
-/** Cuenta los valores por estado de verificación, los movimientos y los issues por página, y las banderas. */
+/** Counts values by verification state, transactions and issues per page, and flags. */
 export function payloadStats(payload: unknown): PayloadStats {
   const out: PayloadStats = { verified: 0, unverified: 0, conflict: 0, pagesWithIssues: [], issuesByPage: new Map(), txByPage: new Map(), worstByPage: new Map(), flags: [] }
   walkVerification(out, payload, 0)
@@ -57,7 +57,7 @@ export function payloadStats(payload: unknown): PayloadStats {
   return out
 }
 
-/** Llamadas a modelos que dejó la extracción en su payload. */
+/** Model calls the extraction left in its payload. */
 export function callsOf(payload: unknown): CallInfo[] {
   return arr(get(payload, 'extraction', 'calls'))
     .filter(isRec)
@@ -78,7 +78,7 @@ export function callsOf(payload: unknown): CallInfo[] {
     )
 }
 
-/** Extracciones guardadas de los documentos, con su ventana de tiempo. */
+/** Stored extractions of the documents, with their time window. */
 export function extractionsOf(src: TimelineSources): ExtractionInfo[] {
   const out: ExtractionInfo[] = []
   src.documents.forEach((doc, docIndex) => {
@@ -106,7 +106,7 @@ function pagesOf(payload: unknown, pageCount: number | null): TimelineDocument['
   return pages
 }
 
-/** Un PDF por documento de la solicitud, con sus páginas. */
+/** One PDF per request document, with its pages. */
 export function documentsOf(src: TimelineSources): TimelineDocument[] {
   return src.documents.map((d) => {
     const payload: unknown = d.extraction?.payload ?? null

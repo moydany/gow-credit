@@ -13,7 +13,7 @@ const rows: TransactionRow[] = [
   { id: 't3', date: '2026-09-04', type: 'credit', amount: 800, description: 'OPERACION 77', reference: null },
 ]
 
-/** Responde con etiquetas fijas y guarda lo que recibió. */
+/** Answers with fixed labels and keeps what it received. */
 class FakeLlm implements StructuredLlm {
   readonly requests: StructuredRequest<unknown>[] = []
   constructor(readonly labels: { id: string; category: string }[]) {}

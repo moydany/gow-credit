@@ -1,11 +1,11 @@
 /**
- * Documentos (docs/02 §4b, docs/05 §3 y §5). El cliente no le manda el PDF a la API: pide una URL
- * firmada de vida corta y sube directo. La API nunca descarga PDFs de URLs del usuario (SSRF): solo
- * lee de su propio almacenamiento, y la ruta empieza con el tenant.
+ * Documents. The client does not send the PDF to the API: it asks for a short-lived signed URL
+ * and uploads directly. The API never downloads PDFs from user URLs (SSRF): it only reads from
+ * its own storage, and the path starts with the tenant.
  *
- * `LocalDocumentStorage` es el de desarrollo y escenarios: un directorio y un token HMAC con
- * vencimiento que la propia API valida. En producción el mismo contrato lo cumple Supabase Storage
- * (bucket privado, `createSignedUploadUrl`); ese adaptador es del plan de despliegue (fase 8).
+ * `LocalDocumentStorage` is for development and scenarios: a directory and an HMAC token with
+ * expiry that the API itself validates. In production Supabase Storage fulfills the same
+ * contract (private bucket, `createSignedUploadUrl`); that adapter belongs to deployment.
  */
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -21,16 +21,16 @@ export interface SignedUpload {
 }
 
 export interface DocumentStorage {
-  /** Ruta nueva bajo el tenant y su URL firmada de subida. `extension` solo cambia en escenarios. */
+  /** New path under the tenant and its signed upload URL. `extension` only changes in scenarios. */
   createSignedUpload(tenantId: string, ttlSeconds?: number, extension?: string): SignedUpload
   put(path: string, bytes: Buffer): Promise<void>
   read(path: string): Promise<Buffer>
   exists(path: string): Promise<boolean>
-  /** Borra el archivo; si ya no existe no es error (ADR 0059). */
+  /** Deletes the file; if it no longer exists that is not an error. */
   remove(path: string): Promise<void>
 }
 
-/** ¿La ruta es de este tenant y no escapa del directorio? */
+/** Does the path belong to this tenant and stay inside the directory? */
 export function pathBelongsTo(path: string, tenantId: string): boolean {
   return path.startsWith(`${tenantId}/`) && !path.includes('..') && !path.includes('\\')
 }
@@ -67,7 +67,7 @@ export class LocalDocumentStorage implements DocumentStorage {
     return { url: `${this.#publicBaseUrl}/storage/upload/${payload}.${this.#sign(payload)}`, path, expires_at: new Date(exp * 1000).toISOString() }
   }
 
-  /** La ruta que autoriza un token de subida vigente, o null. */
+  /** The path a valid upload token authorizes, or null. */
   verifyUploadToken(token: string, nowSeconds = Math.floor(Date.now() / 1000)): string | null {
     const [payload, sig] = token.split('.')
     if (!payload || !sig) return null

@@ -1,7 +1,7 @@
 /**
- * Perfil crediticio: una entrada por feature del catálogo, cada una con valor, confianza,
- * verificación, procedencia y evidencia (docs/03 §3). El esquema se deriva del catálogo,
- * así que no puede haber una feature en el perfil que no exista en el catálogo ni al revés.
+ * Credit profile: one entry per catalog feature, each with value, confidence, verification,
+ * provenance and evidence. The schema derives from the catalog, so the profile cannot hold a
+ * feature missing from the catalog or the reverse.
  */
 import { z } from 'zod'
 import { Provenance, Verification } from './enums.ts'
@@ -24,16 +24,16 @@ function featureValue<T extends z.ZodType>(schema: T) {
 type FeatureValueSchema<T extends z.ZodType> = z.ZodObject<{ value: z.ZodNullable<T> } & typeof featureMeta, z.core.$strict>
 type FeatureShape = { [K in keyof FeatureCatalog]: FeatureValueSchema<FeatureCatalog[K]['schema']> }
 
-/** Versiones del catálogo que este contrato lee: la vigente y las anteriores cuyos perfiles siguen guardados. */
+/** Catalog versions this contract reads: the current one and earlier ones whose profiles are still stored. */
 export const READABLE_CATALOG_VERSIONS = ['1.1.0', '1.2.0', FEATURE_CATALOG_VERSION] as const
 /**
- * Features que no existían en algún catálogo anterior (1.2.0: páginas y señales, ADR 0058; 1.3.0: domicilio,
- * ADR 0066): en un perfil guardado sin ellas entran como desconocidas.
+ * Features missing from an earlier catalog (1.2.0: pages and signals; 1.3.0: address): a stored
+ * profile without them reads them as unknown.
  */
 const ADDED_AFTER_1_1_0: ReadonlySet<string> = new Set(['document_pages_missing', 'document_tamper_signals', 'holder_address_present'])
 const notInOlderCatalog = () => ({ value: null, confidence: 0, verification: 'unverified' as const, provenance: 'extracted' as const, evidence: [] as string[], note: 'perfil calculado con un catálogo anterior: la feature no existía' })
 
-// Object.fromEntries pierde las llaves; el tipo se restituye desde el catálogo.
+// Object.fromEntries loses the keys; the type is restored from the catalog.
 const shape = Object.fromEntries(
   Object.entries(FEATURE_CATALOG).map(([name, def]) => {
     const entry = featureValue(def.schema)
@@ -51,7 +51,7 @@ export const ExternalSourceUse = z.strictObject({
   available: z.boolean(),
 })
 
-/** Parámetros con los que se calculó el perfil; se guardan con él para poder re-explicarlo. */
+/** Parameters the profile was computed with; stored with it so it can be re-explained. */
 export const ProfileParameters = z
   .strictObject({
     low_balance_threshold: Money.describe('Umbral de saldo bajo para low_balance_days'),
@@ -69,7 +69,7 @@ export const Profile = z
       document_sha256: z.array(Sha256),
       request: ApplicationRequest.nullable().describe('La solicitud con la que se calculó: si no traía comprador y el dueño dijo su cliente principal, ese es el comprador (ver declarations)'),
       external: z.array(ExternalSourceUse),
-      declarations: OwnerDeclarations.default(NO_DECLARATIONS).describe('Lo que el dueño declaró al aclarar (ADR 0050)'),
+      declarations: OwnerDeclarations.default(NO_DECLARATIONS).describe('Lo que el dueño declaró al aclarar'),
     }),
     parameters: ProfileParameters,
     features: ProfileFeatures,

@@ -1,8 +1,8 @@
 /**
- * Regla de llamadas al modelo (ADR 0067). Cada fila de `llm_exchanges` es una llamada exacta; la
- * extracción además lista sus llamadas en el payload (con las páginas que leyó). Se emparejan por
- * documento, propósito y latencia. Las del payload sin fila (anteriores a ADR 0064, o del clasificador
- * local) se colocan por inferencia dentro de la ventana de la extracción.
+ * Model call rule. Each `llm_exchanges` row is an exact call; extraction also lists its calls in
+ * the payload (with the pages it read). They are matched by document, purpose and latency. Payload
+ * calls with no row (before exchange recording, or from the local classifier) are placed by
+ * inference inside the extraction window.
  */
 import { addEvent, cut, type Body, type CallInfo, type Chap, type Ctx, type ExchangeInfo, type ExtractionInfo, type Job } from './timeline-build-base.ts'
 import { EXPLAIN_PURPOSES, EXTRACTION_PURPOSES, P_CLASSIFY_TX, P_QUESTIONS, PURPOSE_ES, pagesText } from './timeline-build-text.ts'
@@ -15,7 +15,7 @@ const CACHED = ' (de caché)'
 
 const sameLatency = (e: ExchangeInfo, c: CallInfo): boolean => Math.abs(Math.round(e.row.latencyMs) - c.latencyMs) <= 1
 
-/** Empareja las llamadas de un propósito con los intercambios libres: por latencia y modelo, y luego por orden. */
+/** Matches the calls of one purpose with the free exchanges: by latency and model, then by order. */
 function pairPurpose(ctx: Ctx, calls: CallInfo[], free: ExchangeInfo[]): void {
   const pair = (c: CallInfo, e: ExchangeInfo): void => {
     ctx.callOfExchange.set(e.row.id, c)
@@ -39,12 +39,12 @@ function pairExtraction(ctx: Ctx, x: ExtractionInfo): void {
   }
 }
 
-/** `purpose` coincide en la fila y en el payload (extract.ts graba lo mismo que pasa a `llm.call`). */
+/** `purpose` matches in the row and the payload (extract.ts records what it passes to `llm.call`). */
 export function pairCalls(ctx: Ctx): void {
   for (const x of ctx.extractions) pairExtraction(ctx, x)
 }
 
-/** Capítulo de una llamada según su propósito y el trabajo donde ocurrió; null: hereda. */
+/** Chapter of a call by its purpose and the job where it happened; null: inherits. */
 function chapterOfPurpose(ctx: Ctx, j: Job, purpose: string): Chap | null {
   if (EXTRACTION_PURPOSES.has(purpose)) return j.kind === 'resume' ? ctx.C.resume(j.round) : ctx.C.extraction(j)
   if (purpose === P_CLASSIFY_TX) return j.kind === 'resume' ? ctx.C.resume(j.round) : ctx.C.classification(j)
@@ -88,7 +88,7 @@ function exchangeBody(ctx: Ctx, row: TimelineExchangeRow, call: CallInfo | undef
   }
 }
 
-/** Una llamada exacta por fila de intercambio: las de los trabajos y las del intérprete de mensajes. */
+/** One exact call per exchange row: those of the jobs and of the message interpreter. */
 export function emitExchangeCalls(ctx: Ctx): void {
   for (const j of ctx.jobs) {
     for (const e of j.exchanges) addEvent<'model_call'>(ctx, exchangeBody(ctx, e.row, ctx.callOfExchange.get(e.row.id)), e.startMs, e.endMs, chapterOfPurpose(ctx, j, e.row.purpose))
@@ -102,9 +102,9 @@ export function emitExchangeCalls(ctx: Ctx): void {
 type Placed = [CallInfo, number, number]
 
 /**
- * Coloca llamadas sin fila dentro de [S, F]: resumen y clasificación en secuencia al inicio, los
- * bloques de movimientos en paralelo después y lo demás (relecturas) al final. Con su `latency_ms` como
- * duración, recortada a la ventana.
+ * Places calls without a row inside [S, F]: summary and classification in sequence at the start,
+ * transaction blocks in parallel after, and the rest (rereads) at the end. Duration is their
+ * `latency_ms`, clipped to the window.
  */
 export function placeInferred(pending: readonly CallInfo[], S: number, F: number): Placed[] {
   const clip = (a: number, b: number): [number, number] => {
@@ -158,7 +158,7 @@ function inferredBody(x: ExtractionInfo, c: CallInfo): Body<'model_call'> {
   }
 }
 
-/** Llamadas del payload sin intercambio: eventos inferidos y el aviso correspondiente. */
+/** Payload calls without an exchange: inferred events and the matching warning. */
 export function emitInferredCalls(ctx: Ctx): void {
   let total = 0
   for (const x of ctx.extractions) {
@@ -171,5 +171,5 @@ export function emitInferredCalls(ctx: Ctx): void {
       addEvent<'model_call'>(ctx, inferredBody(x, c), s, e, chap)
     }
   }
-  if (total > 0) ctx.limitations.push(`${String(total)} llamada(s) al modelo no tienen fila de intercambio (extracción anterior al registro de llamadas, ADR 0064, o clasificador local): se colocaron por inferencia dentro de la ventana de la extracción.`)
+  if (total > 0) ctx.limitations.push(`${String(total)} llamada(s) al modelo no tienen fila de intercambio (extracción anterior al registro de llamadas, o clasificador local): se colocaron por inferencia dentro de la ventana de la extracción.`)
 }

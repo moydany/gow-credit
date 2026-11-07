@@ -1,8 +1,7 @@
 /**
- * Caché en disco por hash de la entrada para lo que no pasa por `CachingStructuredLlm` (Jev no es
- * una llamada estructurada de Claude o Gemini). Mismo modo que la caché de respuestas: `off`,
- * `read` (un miss falla: CI sin llaves) o `readwrite`. Vive en data/ (no se versiona: contiene
- * datos del documento).
+ * Disk cache keyed by input hash for what does not go through `CachingStructuredLlm` (Jev is not a
+ * structured Claude or Gemini call). Same modes as the response cache: `off`, `read` (a miss
+ * fails: CI without keys) or `readwrite`. Lives in data/ (not versioned: holds document data).
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -46,7 +45,7 @@ export class JsonFileCache {
     renameSync(`${path}.tmp`, path)
   }
 
-  /** Devuelve lo guardado o corre `compute` (si el modo lo permite) y lo guarda. */
+  /** Returns the stored value, or runs `compute` (if the mode allows) and stores it. */
   async through<T>(key: string, what: string, compute: () => Promise<T>): Promise<{ value: T; hit: boolean }> {
     const cached = this.get(key)
     if (cached !== null) return { value: cached as T, hit: true }

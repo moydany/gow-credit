@@ -1,14 +1,14 @@
 /**
- * Validadores de formato que detectan invención (docs/04 §3.4): una CLABE "completada" por
- * el modelo falla el dígito verificador; un RFC inventado suele fallar la estructura o la
- * fecha. Un valor enmascarado no se puede verificar y no cuenta como inválido.
+ * Format validators that detect invention: a CLABE "completed" by the model fails the check
+ * digit; an invented RFC usually fails the structure or the date. A masked value cannot be
+ * verified and does not count as invalid.
  */
 
 export type FormatCheck = 'valid' | 'invalid' | 'masked' | 'absent'
 
 const MASK = /[*xX•#]/
 
-/** CLABE: 18 dígitos; el último es verificador con pesos 3, 7, 1 sobre los primeros 17. */
+/** CLABE: 18 digits; the last is a check digit with weights 3, 7, 1 over the first 17. */
 export function checkClabe(raw: string | null): FormatCheck {
   if (raw === null) return 'absent'
   const s = raw.replace(/[\s-]/g, '')
@@ -24,7 +24,7 @@ export function checkClabe(raw: string | null): FormatCheck {
 const RFC_CHARSET = '0123456789ABCDEFGHIJKLMN&OPQRSTUVWXYZ Ñ'
 
 function rfcCheckDigit(base12: string): string {
-  // base12: el RFC sin dígito verificador, rellenado a 12 posiciones (persona moral lleva un espacio al inicio).
+  // base12: the RFC without check digit, padded to 12 positions (a legal entity gets a leading space).
   let sum = 0
   for (let i = 0; i < 12; i++) {
     const v = RFC_CHARSET.indexOf(base12[i] ?? ' ')
@@ -49,8 +49,8 @@ export interface RfcCheck {
 const RFC_IN_TEXT = /(?<![A-ZÑ&\d])([A-ZÑ&]{3,4}\d{6}[A-Z\d]{2}[A\d])(?![A-ZÑ&\d])/g
 
 /**
- * RFC de la contraparte impreso en la descripción de un movimiento (docs/09 §9.3): el primer
- * RFC con estructura y fecha válidas que no sea genérico ni el del propio titular.
+ * Counterparty RFC printed in a transaction description: the first RFC with valid structure and
+ * date that is neither generic nor the holder's own.
  */
 export function findCounterpartyRfc(description: string, holderRfc: string | null = null): string | null {
   const text = description.toUpperCase()
@@ -66,9 +66,9 @@ export function findCounterpartyRfc(description: string, holderRfc: string | nul
 }
 
 /**
- * Raíz de un RFC sin homoclave (ADR 0043): 3 letras + fecha (persona moral, 9 posiciones) o 4 letras +
- * fecha (persona física, 10). Varios bancos imprimen así el RFC del titular. null si no es una raíz
- * con fecha válida.
+ * Root of an RFC without homoclave: 3 letters + date (legal entity, 9 positions) or 4 letters +
+ * date (natural person, 10). Several banks print the holder RFC this way. null if it is not a
+ * root with a valid date.
  */
 export function rfcRoot(raw: string | null): string | null {
   if (raw === null) return null
@@ -77,12 +77,12 @@ export function rfcRoot(raw: string | null): string | null {
   return m?.[2] && validYymmdd(m[2]) ? s : null
 }
 
-/** RFC: 12 posiciones persona moral, 13 persona física; fecha válida; homoclave y verificador. */
+/** RFC: 12 positions legal entity, 13 natural person; valid date; homoclave and check digit. */
 export function checkRfc(raw: string | null): RfcCheck {
   if (raw === null) return { result: 'absent', kind: null, checkDigitOk: null }
   const s = raw.replace(/[\s-]/g, '').toUpperCase()
   if (s === 'XAXX010101000' || s === 'XEXX010101000') return { result: 'valid', kind: 'generic', checkDigitOk: null }
-  // En un RFC la X puede ser letra del nombre: solo *, • y # cuentan como máscara.
+  // In an RFC the X can be a name letter: only *, • and # count as a mask.
   if (/[*•#]/.test(s)) return { result: 'masked', kind: null, checkDigitOk: null }
   const m = /^([A-ZÑ&]{3,4})(\d{6})([A-Z\d]{2})([A\d])$/.exec(s)
   if (!m) return { result: 'invalid', kind: null, checkDigitOk: null }
@@ -91,6 +91,6 @@ export function checkRfc(raw: string | null): RfcCheck {
   const kind = letters.length === 3 ? 'legal_entity' : 'individual'
   const base = (kind === 'legal_entity' ? ' ' : '') + letters + date + homo
   const ok = rfcCheckDigit(base) === digit
-  // El dígito verificador no siempre coincide en RFCs reales antiguos: se reporta, no invalida.
+  // The check digit does not always match in old real RFCs: it is reported, not invalidating.
   return { result: 'valid', kind, checkDigitOk: ok }
 }

@@ -20,8 +20,8 @@ describe('catálogo y perfil', () => {
     }
   })
 
-  it('catálogo 1.2.0: las señales de robustez documental llegan al motor (ADR 0058)', () => {
-    // 1.3.0 agrega el domicilio del titular (ADR 0066); 1.2.0 se sigue leyendo.
+  it('catálogo 1.2.0: las señales de robustez documental llegan al motor', () => {
+    // 1.3.0 adds the holder address; 1.2.0 is still readable.
     expect(FEATURE_CATALOG_VERSION).toBe('1.3.0')
     expect(READABLE_CATALOG_VERSIONS).toContain('1.2.0')
     expect(FEATURE_CATALOG.holder_address_present).toMatchObject({ kind: 'bool', source: 'statement' })

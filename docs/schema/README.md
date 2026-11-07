@@ -6,16 +6,16 @@ no coinciden con Zod.
 
 | Archivo | Contrato |
 |---|---|
-| `statement-extraction.schema.json` | Extracción de un estado de cuenta: documento → cuentas → periodos → movimientos, con fuente, verificación y confianza por valor (`docs/07` B) |
+| `statement-extraction.schema.json` | Extracción de un estado de cuenta: documento → cuentas → periodos → movimientos, con fuente, verificación y confianza por valor |
 | `profile.schema.json` | Perfil crediticio: una entrada por feature del catálogo (`docs/03` §3) |
 | `policy.schema.json` | Política del tenant (`docs/03` §4) |
 | `decision.schema.json` | Veredicto con diagnóstico y contrafactuales (`docs/03` §6) |
 | `application-request.schema.json` | Datos de la solicitud que no vienen en el PDF |
-| `external-snapshot.schema.json` | Lo que responden las fuentes externas del perfil: créditos vigentes, buró, SAT, programa, historial (fase 4, ADR 0013) |
+| `external-snapshot.schema.json` | Lo que responden las fuentes externas del perfil: créditos vigentes, buró, SAT, programa, historial |
 | `simulation-report.schema.json` | Resultado de simular una política sobre perfiles guardados (`docs/03` §5) |
 | `scenario.schema.json` | Escenario YAML de `docs/06`, con estados de cuenta sintéticos para el modo `unit` |
-| `answers-file.schema.json` | Respuestas del dueño para reanudar solicitudes pausadas con `pnpm run evaluate --answers` (fase 5, ADR 0015) |
-| `application-result.schema.json` | Resultado por documento de `pnpm run evaluate`: estado, veredicto, línea máxima, aclaración, clasificación de movimientos y costo (fase 5) |
+| `answers-file.schema.json` | Respuestas del dueño para reanudar solicitudes pausadas con `pnpm run evaluate --answers` |
+| `application-result.schema.json` | Resultado por documento de `pnpm run evaluate`: estado, veredicto, línea máxima, aclaración, clasificación de movimientos y costo |
 
 JSON Schema describe la forma. Las reglas que no puede expresar viven solo en Zod y se
 aplican al parsear: operador compatible con el tipo de feature, gramática de

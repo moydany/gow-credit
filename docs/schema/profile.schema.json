@@ -77,7 +77,7 @@
                 "account_use": null,
                 "answered": []
               },
-              "description": "Lo que el dueño declaró al aclarar (ADR 0050)",
+              "description": "Lo que el dueño declaró al aclarar",
               "$ref": "#/$defs/OwnerDeclarations"
             }
           },

@@ -1,15 +1,15 @@
 /**
- * Filas sintéticas para probar `buildTimeline` (ADR 0067) sin base de datos. Todo es inventado:
- * ningún dato sale de `data/`. Los montos, el RFC y el nombre del titular que trae el estado de
- * cuenta de ejemplo están en `FIXTURE_SECRETS` para que las pruebas comprueben que no se filtran.
+ * Synthetic rows to test `buildTimeline` without a database. Everything is made up: nothing comes
+ * from `data/`. The amounts, RFC and holder name in the sample statement are in
+ * `FIXTURE_SECRETS` so tests can check they never leak.
  *
- * Cinco recorridos:
- * - `whatsapp`: WhatsApp con datos de la factura, una ronda de aclaración (contestada al día
- *   siguiente), reanudación y veredicto `qualified_with_limit`.
- * - `api`: llegada por la API, sin aclaración, con todos los intercambios grabados.
- * - `legacy`: extracción anterior a ADR 0064: sin filas de intercambio.
- * - `failed`: falla por no ser estado de cuenta.
- * - `offer`: el proveedor acepta la oferta del monto y la solicitud se reevalúa.
+ * Five journeys:
+ * - `whatsapp`: WhatsApp with invoice data, one clarification round (answered the next day),
+ *   resume and `qualified_with_limit` verdict.
+ * - `api`: arrival through the API, no clarification, every exchange recorded.
+ * - `legacy`: extraction that predates exchange recording: no exchange rows.
+ * - `failed`: fails for not being a bank statement.
+ * - `offer`: the supplier accepts the amount offer and the request is re-evaluated.
  */
 import type { ApplicationStatus } from '../enums.ts'
 import type { StatementExtraction } from '../statement.ts'
@@ -28,16 +28,16 @@ export type TimelineSampleKind = 'whatsapp' | 'api' | 'legacy' | 'failed' | 'off
 
 export const TIMELINE_SAMPLE_KINDS: readonly TimelineSampleKind[] = ['whatsapp', 'api', 'legacy', 'failed', 'offer']
 
-/** Lo que jamás debe aparecer en un texto del recorrido. */
+/** What must never appear in a journey text. */
 export const FIXTURE_SECRETS = ['XAXX010101000', 'COMERCIALIZADORA', '5000', '1250.5', '90000', '521555', 'REFORMA', 'BANCO FICTICIO'] as const
 
-/** Instante de partida de los recorridos de ejemplo. */
+/** Start instant of the sample journeys. */
 export const T0 = Date.parse('2026-11-05T15:00:00.000Z')
 export const SECOND = 1000
 export const MINUTE = 60 * SECOND
 export const DAY = 24 * 60 * MINUTE
 
-/** `T0 + offset` como Date. */
+/** `T0 + offset` as a Date. */
 export const at = (offsetMs: number): Date => new Date(T0 + offsetMs)
 
 const HAIKU = 'claude-haiku-5-5'
@@ -48,7 +48,7 @@ const APP_ID = '00000000-0000-4000-8000-0000000000a1'
 const TENANT_SHA = 'a'.repeat(64)
 const OTHER_SHA = 'b'.repeat(64)
 
-// ---------------------------------------------------------------- piezas
+// ---------------------------------------------------------------- pieces
 
 export interface CallSpec {
   purpose: string
@@ -59,7 +59,7 @@ export interface CallSpec {
   costUsd?: number
 }
 
-/** Extracción de ejemplo con las llamadas dadas (en el orden en que terminaron). */
+/** Sample extraction with the given calls (in the order they finished). */
 export function extractionPayload(opts: { sha?: string; startMs: number; finishMs: number; calls: CallSpec[]; status?: 'complete' | 'partial' | 'failed'; failed?: boolean }): StatementExtraction {
   const s = sampleStatement()
   s.document.sha256 = opts.sha ?? TENANT_SHA
@@ -91,7 +91,7 @@ export function extractionPayload(opts: { sha?: string; startMs: number; finishM
   return s
 }
 
-/** Llamada grabada del modelo: `createdAt` es el inicio (así lo guarda el worker, ver `EXCHANGE_CREATED_AT_MARKS`). */
+/** Recorded model call: `createdAt` is the start (how the worker stores it, see `EXCHANGE_CREATED_AT_MARKS`). */
 export function exchange(id: string, o: { startMs: number; purpose: string; latencyMs: number; sha?: string | null; model?: string; application?: boolean; inboundId?: string; cacheHit?: boolean; outcome?: 'ok' | 'error'; costUsd?: number }): TimelineExchangeRow {
   return {
     id,
@@ -141,7 +141,7 @@ export function clarification(id: string, o: { round: number; createdMs: number;
   return { id, round: o.round, status: answered === null ? 'open' : 'answered', channel: 'whatsapp', step: 'questions', questions: o.questions ?? 2, answers: answered === null ? 0 : (o.answers ?? 2), createdAt: at(o.createdMs), answeredAt: answered === null ? null : at(answered) }
 }
 
-/** Decisión guardada tal como la deja el motor (recortada a lo que importa), con montos que no deben salir. */
+/** Decision as the engine stores it (trimmed to what matters), with amounts that must not leak. */
 export function decisionRow(id: string, o: { status: string; kind?: 'active' | 'shadow'; atMs: number; asks?: string[]; limit?: number | null; policyVersion?: number | null }): TimelineDecisionRow {
   const qualifies = o.status === 'qualified' || o.status === 'qualified_with_limit'
   return {
@@ -179,7 +179,7 @@ function empty(app: TimelineSources['application']): TimelineSources {
   return { application: app, documents: [], inbound: [], outbound: [], audit: [], exchanges: [], decisions: [], clarifications: [], corrections: [], outcomes: [] }
 }
 
-/** Llamadas de la extracción del documento, en el orden en que terminaron (summary, classify, 2 bloques). */
+/** Extraction calls for the document, in the order they finished (summary, classify, 2 blocks). */
 const EXTRACTION_CALLS: CallSpec[] = [
   { purpose: 'classify', latencyMs: 2000 },
   { purpose: 'summary', latencyMs: 8000 },
@@ -187,7 +187,7 @@ const EXTRACTION_CALLS: CallSpec[] = [
   { purpose: 'transactions', pages: [3], latencyMs: 18000 },
 ]
 
-/** Los intercambios de esas llamadas (las dos de movimientos empiezan a la vez). */
+/** The exchanges of those calls (the two transaction calls start together). */
 function extractionExchanges(prefix: string, startMs: number, sha: string): TimelineExchangeRow[] {
   return [
     exchange(`${prefix}-classify`, { startMs, purpose: 'classify', latencyMs: 2000, sha }),
@@ -197,7 +197,7 @@ function extractionExchanges(prefix: string, startMs: number, sha: string): Time
   ]
 }
 
-// ---------------------------------------------------------------- (a) WhatsApp con aclaración
+// ---------------------------------------------------------------- (a) WhatsApp with clarification
 
 export function whatsappSources(): TimelineSources {
   const s = empty(application('qualified_with_limit', 2 * SECOND, DAY + 45 * SECOND))
@@ -245,7 +245,7 @@ export function whatsappSources(): TimelineSources {
   return s
 }
 
-// ---------------------------------------------------------------- (b) API sin aclaración
+// ---------------------------------------------------------------- (b) API without clarification
 
 export function apiSources(): TimelineSources {
   const s = empty(application('qualified', 0, 80 * SECOND))
@@ -264,7 +264,7 @@ export function apiSources(): TimelineSources {
   return s
 }
 
-// ---------------------------------------------------------------- (c) anterior a ADR 0064
+// ---------------------------------------------------------------- (c) predates exchange recording
 
 export function legacySources(): TimelineSources {
   const s = empty(application('qualified', 0, 70 * SECOND))
@@ -278,7 +278,7 @@ export function legacySources(): TimelineSources {
   return s
 }
 
-// ---------------------------------------------------------------- (d) falla: no es estado de cuenta
+// ---------------------------------------------------------------- (d) failure: not a bank statement
 
 export function failedSources(): TimelineSources {
   const s = empty(application('failed', 0, 12 * SECOND))
@@ -291,7 +291,7 @@ export function failedSources(): TimelineSources {
   return s
 }
 
-// ---------------------------------------------------------------- (e) oferta aceptada → reevaluación
+// ---------------------------------------------------------------- (e) offer accepted -> re-evaluation
 
 export function offerSources(): TimelineSources {
   const offerAt = 10 * MINUTE
@@ -326,7 +326,7 @@ const BUILDERS: Record<TimelineSampleKind, () => TimelineSources> = {
   offer: offerSources,
 }
 
-/** Las filas de uno de los recorridos de ejemplo (nuevas en cada llamada). */
+/** The rows of one of the sample journeys (new on each call). */
 export function sampleTimelineSources(kind: TimelineSampleKind): TimelineSources {
   auditSeq = 0
   return BUILDERS[kind]()

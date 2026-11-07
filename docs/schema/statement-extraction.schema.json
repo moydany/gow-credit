@@ -210,7 +210,7 @@
       ],
       "additionalProperties": false,
       "title": "Extracción de estado de cuenta",
-      "description": "Contrato de extracción de GOW Credit (docs/07 B)"
+      "description": "Contrato de extracción de GOW Credit"
     },
     "SourceRef": {
       "type": "object",
@@ -408,7 +408,7 @@
             "confidence": 0,
             "provenance": "extracted"
           },
-          "description": "Domicilio del titular tal como aparece en el estado de cuenta (calle, número, colonia, municipio, estado y código postal); null si no aparece. ADR 0066",
+          "description": "Domicilio del titular tal como aparece en el estado de cuenta (calle, número, colonia, municipio, estado y código postal); null si no aparece",
           "type": "object",
           "properties": {
             "value": {

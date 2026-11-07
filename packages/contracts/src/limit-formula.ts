@@ -1,12 +1,12 @@
 /**
- * Gramática cerrada de `decision.limitFormula` (docs/03 §4). No es código: se parsea y se
- * valida contra el catálogo al guardar la política.
+ * Closed grammar of `decision.limitFormula`. Not code: it is parsed and validated against the
+ * catalog when the policy is saved.
  *
  *   formula := "min" "(" term ("," term)* ")" | term
  *   term    := "band" | feature | feature "-" feature
  *
- * Cada feature debe ser de tipo `money`, y `band` debe aparecer exactamente una vez (si no,
- * el porcentaje de la banda no tendría efecto).
+ * Every feature must be of type `money`, and `band` must appear exactly once (otherwise the band
+ * percentage would have no effect).
  */
 import { FEATURE_CATALOG, type FeatureName } from './features.ts'
 

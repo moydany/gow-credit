@@ -1,8 +1,8 @@
 import { createServer } from 'node:http'
 
 /**
- * Cloud Run exige que un servicio escuche en PORT aunque no reciba tráfico: con la variable, un
- * listener mínimo de salud en todas las interfaces; sin ella (local), nada.
+ * Cloud Run requires a service to listen on PORT even with no traffic: with the variable set, a
+ * minimal health listener on all interfaces; without it (local), nothing.
  */
 export function startHealthListener(log: (message: string) => void): void {
   const port = process.env.PORT

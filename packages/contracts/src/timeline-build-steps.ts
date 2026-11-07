@@ -1,8 +1,8 @@
 /**
- * Regla de trabajos y pasos del workflow (ADR 0067): la espera en cola, los pasos de
- * `process-application` (extract → classify-transactions → decide → ask-owner | explain → finalize), la
- * verificación de cada documento y el cierre del trabajo. Los pasos que no dejan hora propia se colocan
- * por inferencia entre los eventos que sí la tienen.
+ * Workflow jobs and steps rule: queue wait, the `process-application` steps (extract ->
+ * classify-transactions -> decide -> ask-owner | explain -> finalize), per-document verification
+ * and job close. Steps with no time of their own are placed by inference between the events that
+ * have one.
  */
 import { addEvent, ms, spanEnd, type Chap, type Ctx, type ExchangeInfo, type Job } from './timeline-build-base.ts'
 import { extractionStatus, payloadStats } from './timeline-build-payload.ts'
@@ -58,7 +58,7 @@ function step(ctx: Ctx, v: View, name: WorkflowStepId, startMs: number, endMs: n
   )
 }
 
-/** Espera en la cola (derivada): del encolado a la primera actividad del trabajo. */
+/** Queue wait (derived): from enqueue to the job first activity. */
 function emitQueueWait(ctx: Ctx, v: View): void {
   const { j } = v
   if (v.firstActivity === null || v.firstActivity <= j.queueStartMs || !Number.isFinite(j.queueStartMs)) return
@@ -73,7 +73,7 @@ function emitQueueWait(ctx: Ctx, v: View): void {
   )
 }
 
-/** ask-owner: de la redacción de las preguntas a que se abre la aclaración. */
+/** ask-owner: from drafting the questions to the clarification opening. */
 function emitAskOwner(ctx: Ctx, v: View, decideEnd: number): void {
   const { j } = v
   const askStart = v.write.length ? minStart(v.write) : decideEnd
@@ -83,7 +83,7 @@ function emitAskOwner(ctx: Ctx, v: View, decideEnd: number): void {
   step(ctx, v, 'ask-owner', askStart, spanEnd(askStart, askEnd), exact ? 'exact' : 'inferred', ctx.C.clarification(opened?.round ?? j.round + 1), { source: opened ? { table: 'clarifications', id: opened.id } : null })
 }
 
-/** explain (exacto si hubo redacción) y finalize (justo antes del cierre). */
+/** explain (exact if drafted) and finalize (right before close). */
 function emitExplainFinalize(ctx: Ctx, v: View, decideEnd: number): void {
   const chap = ctx.C.explanation(v.j)
   let explainEnd = decideEnd
@@ -95,7 +95,7 @@ function emitExplainFinalize(ctx: Ctx, v: View, decideEnd: number): void {
   step(ctx, v, 'finalize', last, spanEnd(last, v.j.endMs), 'inferred', ctx.C.verdict(v.j))
 }
 
-/** decide (o re-decide) y lo que sigue: preguntar al dueño si se suspendió; explicar y guardar si no. */
+/** decide (or re-decide) and what follows: ask the owner if suspended; explain and save if not. */
 function emitDecideTail(ctx: Ctx, v: View, cursor: number): void {
   const boundary = v.suspended ? (v.write.length ? minStart(v.write) : null) : v.explain.length ? minStart(v.explain) : null
   step(ctx, v, v.j.kind === 'resume' ? 're-decide' : 'decide', cursor, spanEnd(cursor, boundary), 'inferred', ctx.C.decision(v.j.round + 1))
@@ -109,7 +109,7 @@ function emitExtractSteps(ctx: Ctx, v: View): void {
   for (const x of v.j.extractions) step(ctx, v, 'extract', x.startMs, x.finishedMs > x.startMs ? x.finishedMs : null, 'exact', v.exChap, { source: { table: 'extractions', id: x.extractionId }, suffix: `:${String(x.docIndex)}` })
 }
 
-/** Reanudación: apply-answers contiene la extracción y la clasificación de los documentos de la respuesta. */
+/** Resume: apply-answers contains the extraction and classification of the answer documents. */
 function emitResumeSteps(ctx: Ctx, v: View, extractEnd: number | null): number {
   const owner = Math.max(extractEnd ?? Number.NEGATIVE_INFINITY, v.classify.length ? maxEnd(v.classify) : Number.NEGATIVE_INFINITY)
   const applyStart = v.firstActivity ?? v.j.queueStartMs
@@ -118,7 +118,7 @@ function emitResumeSteps(ctx: Ctx, v: View, extractEnd: number | null): number {
   return hasOwner ? Math.max(owner, applyStart) : applyStart
 }
 
-/** classify-transactions: exacto si hubo llamadas; si no, un punto tras la extracción. */
+/** classify-transactions: exact if there were calls; otherwise a point after extraction. */
 function emitClassifyStep(ctx: Ctx, v: View, cursor: number): number {
   if (v.classify.length) {
     step(ctx, v, 'classify-transactions', minStart(v.classify), maxEnd(v.classify), 'exact', ctx.C.classification(v.j))
@@ -183,7 +183,7 @@ function emitFinish(ctx: Ctx, v: View): void {
   )
 }
 
-/** Una solicitud en falla sin fila de cierre (por ejemplo, sin política activa): queda su estado. */
+/** A failed request with no closing row (e.g. no active policy): its state remains. */
 function emitFailureWithoutRow(ctx: Ctx): void {
   const { app } = ctx
   if (app.status !== 'failed' || ctx.jobs.some((j) => j.endRow !== null)) return

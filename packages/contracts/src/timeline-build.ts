@@ -1,21 +1,21 @@
 /**
- * Constructor del recorrido (ADR 0067): función pura de las filas guardadas a `ApplicationTimeline`.
- * Sin reloj, sin red, sin azar: la misma entrada da la misma salida. Nada de PII: los textos salen de
- * tablas de etiquetas y de conteos, nunca de los mensajes, los montos ni los datos del documento.
+ * Journey builder: a pure function from stored rows to `ApplicationTimeline`. No clock, network or
+ * randomness: same input, same output. No PII: texts come from label tables and counts, never
+ * from messages, amounts or document data.
  *
- * Lo que cada evento sabe de su tiempo (`precision`):
- * - `exact`: la columna de tiempo de su propia fila.
- * - `derived`: calculado de dos filas con tiempo (la espera en cola).
- * - `inferred`: el paso no deja tiempo propio y se coloca entre lo que sí lo deja.
+ * What each event knows about its time (`precision`):
+ * - `exact`: the time column of its own row.
+ * - `derived`: computed from two rows with a time (queue wait).
+ * - `inferred`: the step has no time of its own and is placed among those that do.
  *
- * Una regla por módulo, en este orden:
- * - `timeline-build-jobs`: trabajos de la cola, reconocidos por la fila de bitácora que los cierra.
- * - `timeline-build-messages`: solicitud creada, entrantes y salientes.
- * - `timeline-build-calls`: llamadas al modelo y su emparejamiento con el payload de la extracción.
- * - `timeline-build-steps`: espera en cola, pasos del workflow, verificación y cierre del trabajo.
- * - `timeline-build-decisions`: decisiones del motor.
- * - `timeline-build-records`: aclaraciones, avisos de veredicto y acciones del analista.
- * - `timeline-build-layout`: capítulos, orden, tramos sin actividad y totales.
+ * One rule per module, in this order:
+ * - `timeline-build-jobs`: queue jobs, recognized by the log row that closes them.
+ * - `timeline-build-messages`: request created, incoming and outgoing messages.
+ * - `timeline-build-calls`: model calls and their matching with the extraction payload.
+ * - `timeline-build-steps`: queue wait, workflow steps, verification and job close.
+ * - `timeline-build-decisions`: engine decisions.
+ * - `timeline-build-records`: clarifications, verdict notices and analyst actions.
+ * - `timeline-build-layout`: chapters, order, inactive stretches and totals.
  */
 import { iso, ms } from './timeline-build-base.ts'
 import { emitExchangeCalls, emitInferredCalls, pairCalls } from './timeline-build-calls.ts'

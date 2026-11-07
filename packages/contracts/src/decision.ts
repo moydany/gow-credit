@@ -1,8 +1,7 @@
 /**
- * Veredicto del motor (docs/03 §6): no solo el estado, sino el diagnóstico completo para
- * re-explicar la decisión y los contrafactuales (`next_steps`) para el proveedor.
- * Los números salen del motor; los textos de `next_steps` los redacta Claude después y se
- * filtran para que no traigan cifras que no estén aquí (docs/04 §4).
+ * Engine verdict: not just the status but the full diagnosis to re-explain the decision, plus the
+ * counterfactuals (`next_steps`) for the supplier. Numbers come from the engine; `next_steps`
+ * text is written by Claude afterwards and filtered so it carries no figures absent from here.
  */
 import { z } from 'zod'
 import { DecisionStatus, FinalDecisionStatus } from './enums.ts'
@@ -11,7 +10,7 @@ import { AskTopic, ConditionOp } from './policy.ts'
 import { Profile } from './profile.ts'
 import { IsoDateTime, LocalId, Money, Sha256, SignedMoney } from './primitives.ts'
 
-/** Por qué una feature no se usó en una dimensión o compuerta (docs/04 §5). */
+/** Why a feature was not used in a dimension or gate. */
 export const ExclusionReason = z.enum(['unknown', 'low_confidence', 'unverified', 'conflict'])
 
 export const GateEvaluation = z.strictObject({
@@ -58,10 +57,10 @@ export const Reason = z.strictObject({
 })
 
 /**
- * Estado, puntaje y línea de un resultado, antes (`from`) o después (`to`) de un contrafactual. La línea
- * es la `Decision.limit` del motor para ese perfil (ADR 0056): sin ella no se distingue "califica con
- * límite" de "califica con límite, pero con más línea". `default(null)` deja leer las decisiones guardadas
- * antes del campo, que no la traen.
+ * Status, score and line of an outcome, before (`from`) or after (`to`) a counterfactual. The line
+ * is the engine `Decision.limit` for that profile: without it "qualifies with a limit" cannot be
+ * told from "qualifies with a larger limit". `default(null)` lets stored decisions that predate
+ * the field still parse.
  */
 export const StatusAndScore = z.strictObject({
   status: DecisionStatus,
@@ -69,10 +68,10 @@ export const StatusAndScore = z.strictObject({
   limit: Money.nullable().default(null).describe('Línea que da el motor en ese resultado; null si no califica'),
 })
 
-/** Otra feature que se mueve junto con la principal en un contrafactual (atraso → monto vencido). */
+/** Another feature that moves together with the main one in a counterfactual (delay -> overdue amount). */
 export const RelatedChange = z.strictObject({ feature: FeatureName, current_value: z.json(), target_value: z.json() })
 
-/** Contrafactual: qué cambio en una feature movería el resultado, calculado sobre la misma política. */
+/** Counterfactual: which change in a feature would move the outcome, computed on the same policy. */
 export const NextStep = z.strictObject({
   code: z.string().regex(/^[a-z][a-z0-9_]*$/),
   feature: FeatureName,
@@ -85,7 +84,7 @@ export const NextStep = z.strictObject({
 })
 export type NextStep = z.infer<typeof NextStep>
 
-/** Movimiento de un documento: el id solo es único dentro de su documento. */
+/** A document transaction; the id is only unique within its document. */
 export const TransactionRef = z.strictObject({ document_sha256: Sha256, transaction_id: LocalId })
 export type TransactionRef = z.infer<typeof TransactionRef>
 
@@ -112,7 +111,7 @@ export const Decision = z
       })
       .nullable()
       .default(null)
-      .describe('El resultado en lenguaje natural para quien revisa la solicitud (ADR 0045). Las cifras salen de la decisión.'),
+      .describe('El resultado en lenguaje natural para quien revisa la solicitud. Las cifras salen de la decisión.'),
     clarification: z
       .strictObject({
         topics: z.array(AskTopic).min(1),

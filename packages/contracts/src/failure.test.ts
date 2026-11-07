@@ -14,7 +14,7 @@ function statement(o: { textLayer?: StatementExtraction['document']['text_layer'
   }
 }
 
-describe('motivo de una solicitud fallida (ADR 0041)', () => {
+describe('motivo de una solicitud fallida', () => {
   it('lo que arma el workflow se lee de vuelta con su tipo', () => {
     expect(describeFailure(notBankStatementReason('credit_card_statement'))).toEqual({ kind: 'not_bank_statement', documentType: 'credit_card_statement', label: 'El documento es un estado de cuenta de tarjeta de crédito, no de una cuenta bancaria.' })
     expect(describeFailure(notBankStatementReason('invoice')).documentType).toBe('invoice')
@@ -29,7 +29,7 @@ describe('motivo de una solicitud fallida (ADR 0041)', () => {
   })
 })
 
-describe('PDF con contraseña y escaneado ilegible (ADR 0049)', () => {
+describe('PDF con contraseña y escaneado ilegible', () => {
   it('la contraseña tiene su motivo y su etiqueta', () => {
     const reason = extractionFailure(statement({ textLayer: 'absent', status: 'failed', reason: PDF_PASSWORD_FAILURE }))
     expect(reason).toBe(extractionFailedReason(PDF_PASSWORD_FAILURE))
@@ -47,9 +47,9 @@ describe('PDF con contraseña y escaneado ilegible (ADR 0049)', () => {
     expect(extractionFailure(statement({ textLayer: 'absent', status: 'partial' }))).toBeNull()
     expect(extractionFailure(statement({ textLayer: 'ok', status: 'complete', empty: true }))).toBeNull()
     expect(describeFailure(extractionFailure(statement({ textLayer: 'ok', status: 'failed', reason: 'x' }))).kind).toBe('extraction_failed')
-    // La capa corrupta (EBCDIC) no es un escaneo.
+    // The corrupt text layer (EBCDIC) is not a scan.
     expect(describeFailure(extractionFailure(statement({ textLayer: 'corrupt', status: 'failed', reason: 'x' }))).kind).toBe('extraction_failed')
-    // Un archivo que ni siquiera abre como PDF tampoco.
+    // A file that doesn't even open as a PDF isn't either.
     expect(describeFailure(extractionFailure(statement({ textLayer: 'absent', status: 'failed', reason: `${PDF_UNREADABLE_PREFIX}: Invalid PDF structure` }))).kind).toBe('extraction_failed')
   })
 })
@@ -65,7 +65,7 @@ describe('varios estados de cuenta en un PDF (robustez documental, sección W)',
   it('el motivo se lee de vuelta con su tipo y su etiqueta para el analista', () => {
     expect(multipleStatementsReason(3)).toBe('el PDF trae 3 estados de cuenta')
     expect(describeFailure(multipleStatementsReason(2))).toEqual({ kind: 'multiple_statements', documentType: null, label: 'El PDF trae más de un estado de cuenta; se necesita cada uno en un archivo aparte.' })
-    // Sin parecerse a los demás motivos ni cobrar un número que no es.
+    // Must not look like the other reasons or charge for something that isn't there.
     expect(describeFailure('el PDF trae un estado de cuenta').kind).toBe('internal')
   })
 

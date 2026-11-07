@@ -1,8 +1,8 @@
 /**
- * Regla de decisiones (ADR 0067): una por fila de `decisions` (activa y en sombra). La hora guardada
- * es la del cierre del trabajo y `decided_at` del payload sale de `as_of`: ninguna es real, así que se
- * coloca al inicio del paso de decisión de su trabajo. El payload se lee defensivamente y nunca se
- * copian montos ni valores de features.
+ * Decision rule: one per `decisions` row (active and shadow). The stored time is the job close and
+ * the payload `decided_at` comes from `as_of`; neither is real, so the decision is placed at the
+ * start of its job decision step. The payload is read defensively and amounts or feature values
+ * are never copied.
  */
 import { DecisionStatus } from './enums.ts'
 import { addEvent, arr, get, isRec, ms, num, oneOf, pageNumber, str, type Ctx, type Job } from './timeline-build-base.ts'
@@ -56,7 +56,7 @@ function versionOf(d: TimelineDecisionRow): number | null {
   return d.policyVersion !== null && d.policyVersion >= 1 ? d.policyVersion : pageNumber(get(d.payload, 'policy', 'version'))
 }
 
-/** El trabajo que guardó la decisión: el que cierra más cerca de su hora guardada. */
+/** The job that saved the decision: the one closing nearest to its stored time. */
 function ownerOf(ctx: Ctx, d: TimelineDecisionRow): Job | undefined {
   const dist = (j: Job): number => Math.abs(j.endMs - ms(d.createdAt))
   return [...ctx.jobs].sort((a, b) => dist(a) - dist(b) || a.index - b.index)[0]

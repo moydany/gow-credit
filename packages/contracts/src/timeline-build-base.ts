@@ -1,26 +1,26 @@
 /**
- * Base compartida del constructor del recorrido (ADR 0067): utilidades de lectura defensiva, tipos
- * internos, el contexto que recorren las reglas y el alta de eventos. Ver `timeline-build.ts`.
+ * Shared base of the timeline builder: defensive reading helpers, internal types, the context the
+ * rules walk and event creation. See `timeline-build.ts`.
  */
 import type { ApplicationStatus } from './enums.ts'
 import type { TimelineChapter, TimelineEvent, TimelineEventKind, TimelineJob } from './timeline.ts'
 import type { TimelineAuditRow, TimelineClarificationRow, TimelineDocumentRow, TimelineExchangeRow, TimelineInboundRow, TimelineSources } from './timeline-sources.ts'
 
-/** Tramo sin actividad desde el cual la línea de tiempo lo comprime. */
+/** Inactive stretch from which the timeline collapses it. */
 export const GAP_MS = 60_000
-/** Holgura para ligar filas escritas en transacciones distintas del mismo trabajo. */
+/** Slack for linking rows written in different transactions of the same job. */
 export const TOL_MS = 1_000
-/** Dos filas del analista de la misma jugada (resultado y su bitácora) se tratan como una. */
+/** Two analyst rows of the same action (outcome and its log entry) count as one. */
 export const SAME_ACTION_MS = 5_000
 
 /**
- * Qué marca `llm_exchanges.created_at`. El sumidero (`apps/worker/src/llm-exchanges.ts`) guarda
- * `createdAt: new Date(e.at)` y `e.at` es el instante en que EMPEZÓ la llamada (`recording.ts`), así que
- * hoy es el inicio. Si la fila pasa a guardarse al terminar, basta con cambiar esto a `'end'`.
+ * What `llm_exchanges.created_at` marks. The sink (`apps/worker/src/llm-exchanges.ts`) stores
+ * `createdAt: new Date(e.at)` and `e.at` is when the call STARTED (`recording.ts`), so today it is
+ * the start. If the row is saved at the end instead, change this to `'end'`.
  */
 export const EXCHANGE_CREATED_AT_MARKS = 'start' as 'start' | 'end'
 
-// ---------------------------------------------------------------- lectura defensiva
+// ---------------------------------------------------------------- defensive reading
 
 export type Rec = Record<string, unknown>
 export const isRec = (x: unknown): x is Rec => typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -50,15 +50,15 @@ export function parseMs(x: unknown): number | null {
   return Number.isNaN(t) ? null : t
 }
 
-/** El valor si es uno de los permitidos; si no, null. */
+/** The value if it is an allowed one; otherwise null. */
 export function oneOf<T extends string>(x: unknown, values: readonly T[]): T | null {
   return typeof x === 'string' && (values as readonly string[]).includes(x) ? (x as T) : null
 }
 
-/** Tramo inferido: sin fin si no tiene duración. */
+/** Inferred span: no end if it has no duration. */
 export const spanEnd = (a: number, b: number | null): number | null => (b !== null && b > a ? b : null)
 
-// ---------------------------------------------------------------- tipos internos
+// ---------------------------------------------------------------- internal types
 
 export interface Chap {
   id: string
@@ -73,11 +73,11 @@ export interface Draft {
   event: TimelineEvent
   startMs: number
   endMs: number | null
-  /** null: se toma el capítulo del evento anterior ya ubicado. */
+  /** null: takes the chapter of the previous event already placed. */
   chap: Chap | null
   rank: number
   sub: number
-  /** Cuenta como actividad para los tramos sin actividad. */
+  /** Counts as activity for the inactive stretches. */
   active: boolean
 }
 
@@ -114,20 +114,20 @@ export interface ExchangeInfo {
 export interface Job {
   index: number
   kind: TimelineJob
-  /** null: trabajo en curso (no dejó cierre todavía). */
+  /** null: job in progress (has not closed yet). */
   endRow: TimelineAuditRow | null
   endMs: number
   prevEndMs: number
   status: ApplicationStatus
   round: number
   queueStartMs: number
-  /** Aclaración contestada que disparó la reanudación. */
+  /** Answered clarification that triggered the resume. */
   resumed: TimelineClarificationRow | null
-  /** Aclaración que este trabajo abrió. */
+  /** Clarification this job opened. */
   opened: TimelineClarificationRow | null
   exchanges: ExchangeInfo[]
   extractions: ExtractionInfo[]
-  /** Instante donde se coloca la decisión que guardó este trabajo. */
+  /** Instant at which the decision this job saved is placed. */
   decideAtMs: number | null
 }
 
@@ -149,9 +149,9 @@ export const RANK: Record<TimelineEventKind, number> = {
   analyst_action: 14,
 }
 
-// ---------------------------------------------------------------- capítulos
+// ---------------------------------------------------------------- chapters
 
-/** Fábrica de capítulos: cada llamada devuelve el mismo objeto para el mismo id. */
+/** Chapter factory: each call returns the same object for the same id. */
 export function chapterFactory(chapters: Map<string, Chap>) {
   const chapter = (id: string, kind: Chap['kind'], title: string, round = 0): Chap => {
     let c = chapters.get(id)
@@ -181,7 +181,7 @@ export function chapterFactory(chapters: Map<string, Chap>) {
 }
 export type Chapters = ReturnType<typeof chapterFactory>
 
-// ---------------------------------------------------------------- contexto
+// ---------------------------------------------------------------- context
 
 export interface Ctx {
   src: TimelineSources
@@ -205,7 +205,7 @@ export interface Ctx {
   inferredSteps: number
 }
 
-/** Alta de un evento; el capítulo definitivo se pone al final (`chap` null: hereda del anterior). */
+/** Adds an event; the final chapter is set at the end (`chap` null: inherits from the previous). */
 export function addEvent<K extends TimelineEventKind>(ctx: Ctx, body: Body<K>, startMs: number, endMs: number | null, chap: Chap | null, opts: { active?: boolean; sub?: number } = {}): void {
   let end = endMs
   if (end !== null && end < startMs) end = startMs

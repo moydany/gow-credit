@@ -1,9 +1,8 @@
 /**
- * Motivo de una solicitud `failed` (ADR 0041). Se guarda como texto en
- * `applications.failure_reason` (y `ApplicationResult.failure_reason` en standalone); estas
- * funciones lo arman y lo leen en un solo lugar, para que el workflow, el worker, el aviso al
- * proveedor y el backoffice digan lo mismo. Nunca lleva datos del documento: solo el tipo y el
- * detalle técnico de la extracción.
+ * Reason for a `failed` request. Stored as text in `applications.failure_reason` (and
+ * `ApplicationResult.failure_reason` in standalone); these functions build and read it in one
+ * place so the workflow, worker, supplier notice and backoffice say the same thing. Never
+ * carries document data: only the type and the technical extraction detail.
  */
 import { z } from 'zod'
 import { DISCARDED_PREFIX } from './corrections.ts'
@@ -15,12 +14,9 @@ const EXTRACTION_FAILED = /^la extracción falló: ([\s\S]*)$/
 const SCANNED_UNREADABLE = /^no se pudo leer el documento escaneado: ([\s\S]*)$/
 const MULTIPLE_STATEMENTS = /^el PDF trae (\d+) estados de cuenta$/
 
-/**
- * `extraction.failure_reason` de un PDF que pide contraseña para abrirse (ADR 0049). Lo escribe la
- * extracción y lo lee `describeFailure`.
- */
+/** `extraction.failure_reason` of a PDF that needs a password to open. Written by extraction, read by `describeFailure`. */
 export const PDF_PASSWORD_FAILURE = 'el PDF tiene contraseña'
-/** Prefijo de `extraction.failure_reason` cuando el archivo no se pudo abrir como PDF. */
+/** Prefix of `extraction.failure_reason` when the file could not be opened as a PDF. */
 export const PDF_UNREADABLE_PREFIX = 'no se pudo leer el PDF'
 
 const NO_DETAIL = 'sin detalle'
@@ -33,23 +29,23 @@ export function extractionFailedReason(detail: string | null): string {
   return `la extracción falló: ${detail ?? NO_DETAIL}`
 }
 
-/** PDF sin capa de texto (escaneado o foto) que la lectura por visión no pudo leer (ADR 0049). */
+/** PDF with no text layer (scan or photo) that vision reading could not read. */
 export function scannedUnreadableReason(detail: string | null): string {
   return `no se pudo leer el documento escaneado: ${detail ?? NO_DETAIL}`
 }
 
 /**
- * Un solo PDF con más de un estado de cuenta (robustez documental, sección W): se rechaza y se pide cada
- * uno en su archivo. Lo arma la extracción al cortar (modo full) y el workflow cuando la bandera
- * `multiple_statements` quedó en una extracción que sí se hizo (standalone).
+ * One PDF holding several statements: rejected, each is requested in its own file. Built by
+ * extraction when it splits (full mode) and by the workflow when the `multiple_statements` flag
+ * stayed on an extraction that did run (standalone).
  */
 export function multipleStatementsReason(count: number): string {
   return `el PDF trae ${String(count)} estados de cuenta`
 }
 
 /**
- * Motivo de falla si la extracción trae la bandera `multiple_statements`, haya cortado o no; null si no.
- * El número de documentos sale del issue del mismo nombre (`details.documents`) y, si no está, son dos.
+ * Failure reason if the extraction carries the `multiple_statements` flag, split or not; null
+ * otherwise. The document count comes from the issue of the same name (`details.documents`), else two.
  */
 export function multipleStatementsFailure(s: StatementExtraction): string | null {
   if (!s.flags.includes('multiple_statements')) return null
@@ -57,19 +53,19 @@ export function multipleStatementsFailure(s: StatementExtraction): string | null
   return multipleStatementsReason(typeof documents === 'number' && Number.isInteger(documents) && documents >= 2 ? documents : 2)
 }
 
-/** Ningún periodo con movimientos: de un documento escaneado no se leyó nada que analizar. */
+/** No period has transactions: nothing to analyze was read from a scanned document. */
 function nothingRead(s: StatementExtraction): boolean {
   return s.accounts.every((a) => a.periods.every((p) => p.transactions.length === 0))
 }
 
 /**
- * Motivo de falla de una extracción, o null si se puede analizar (ADR 0041 y 0049). Un PDF con
- * contraseña lo dice; uno sin capa de texto (escaneado o foto) que falló o del que no se leyó ningún
- * movimiento, también. Lo de no ser estado de cuenta lo decide quien llama.
+ * Failure reason for an extraction, or null if it can be analyzed. A password-protected PDF says
+ * so; so does one with no text layer (scan or photo) that failed or yielded no transactions.
+ * Whether it is a bank statement at all is the caller's call.
  */
 export function extractionFailure(s: StatementExtraction): string | null {
   const detail = s.extraction.failure_reason ?? null
-  // El corte por varios estados de cuenta ya trae su motivo completo; no se envuelve en "la extracción falló".
+  // A multi-statement split already carries its full reason; don't wrap it in "extraction failed".
   if (s.extraction.status === 'failed' && MULTIPLE_STATEMENTS.test(detail ?? '')) return detail
   const scanned = s.document.text_layer === 'absent' && !(detail ?? '').startsWith(PDF_UNREADABLE_PREFIX) && detail !== PDF_PASSWORD_FAILURE
   if (s.extraction.status === 'failed') return scanned ? scannedUnreadableReason(detail) : extractionFailedReason(detail)
@@ -82,9 +78,9 @@ export type FailureKind = z.infer<typeof FailureKind>
 
 export interface FailureInfo {
   kind: FailureKind
-  /** Solo en `not_bank_statement`: lo que el clasificador dijo que es. */
+  /** Only for `not_bank_statement`: what the classifier said it is. */
   documentType: DocumentType | null
-  /** Para el analista, en español, sin jerga del pipeline. */
+  /** For the analyst, in Spanish, without pipeline jargon. */
   label: string
 }
 

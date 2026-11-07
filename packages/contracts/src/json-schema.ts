@@ -1,10 +1,10 @@
 /**
- * JSON Schema publicado en docs/schema/. Se genera desde los esquemas Zod (nunca a mano) y
- * un test verifica que los archivos versionados estén al día.
+ * JSON Schema published in docs/schema/. Generated from the Zod schemas (never by hand); a test
+ * checks the versioned files are up to date.
  *
- * Las reglas que JSON Schema no puede expresar (operador compatible con el tipo de feature,
- * gramática de limitFormula, pesos que suman 100, ids únicos) solo viven en Zod; el esquema
- * publicado sirve para editores y validación de forma.
+ * Rules JSON Schema cannot express (operator compatible with the feature type, limitFormula
+ * grammar, weights summing to 100, unique ids) live only in Zod; the published schema is for
+ * editors and shape validation.
  */
 import { z } from 'zod'
 import { ApplicationResult } from './application.ts'
@@ -34,7 +34,7 @@ export const PUBLISHED_SCHEMAS = {
 export function toPublishedJsonSchema(name: keyof typeof PUBLISHED_SCHEMAS): Record<string, unknown> {
   const schema = z.toJSONSchema(PUBLISHED_SCHEMAS[name], {
     target: 'draft-2020-12',
-    // Forma de entrada: los campos con default (onUnknown, inverse, caps) son opcionales para quien escribe.
+    // Input shape: fields with a default (onUnknown, inverse, caps) are optional for the writer.
     io: 'input',
     unrepresentable: 'any',
   })

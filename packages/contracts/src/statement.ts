@@ -1,14 +1,14 @@
 /**
- * Contrato de extracción de un estado de cuenta (docs/07 B). Es lo que se mide en la
- * evaluación y lo que se publica como JSON Schema en docs/schema/.
+ * Extraction contract for a bank statement. It is what evals measure and what is published as
+ * JSON Schema in docs/schema/.
  *
- * Forma: documento → accounts[] → periods[] → transactions[]. Un documento puede traer
- * varias cuentas (Santander: cheques e inversión) y varios periodos (Mercado Pago: tres
- * meses). Los montos de movimiento son positivos y el sentido va en `type`, porque cada
- * banco usa una convención distinta (signo, columnas, +/−).
+ * Shape: document -> accounts[] -> periods[] -> transactions[]. A document may hold several
+ * accounts (Santander: checking and investment) and several periods (Mercado Pago: three
+ * months). Transaction amounts are positive and direction goes in `type`, because each bank uses
+ * a different convention (sign, columns, +/-).
  *
- * El esquema valida forma, no semántica: un movimiento fuera del periodo o un descuadre
- * no hacen inválido el documento; la verificación los reporta como `issues`.
+ * The schema validates shape, not semantics: a transaction outside the period or a reconciliation
+ * mismatch does not invalidate the document; verification reports them as `issues`.
  */
 import { z } from 'zod'
 import { DocumentType, Provenance, TransactionCategory, TransactionType, Verification } from './enums.ts'
@@ -16,28 +16,28 @@ import { Confidence, Count, Currency, field, IsoDate, IsoDateTime, IsoLocalDateT
 
 export const STATEMENT_SCHEMA_VERSION = '1.3.0'
 /**
- * Versiones que se pueden leer. 1.2.0 solo agrega `loan_payment` a la clasificación de
- * movimientos (ADR 0013): una extracción 1.1.0 es una 1.2.0 válida, así que se acepta tal cual.
- * 1.3.0 agrega el domicilio del titular (ADR 0066): en una extracción anterior entra como no leído.
+ * Readable versions. 1.2.0 only adds `loan_payment` to transaction classification, so a 1.1.0
+ * extraction is a valid 1.2.0 and is accepted as is. 1.3.0 adds the holder address: in an older
+ * extraction it reads as not read.
  */
 export const READABLE_STATEMENT_SCHEMA_VERSIONS = ['1.1.0', '1.2.0', STATEMENT_SCHEMA_VERSION] as const
 
-/** Un campo que el documento no trae o que la extracción no leyó: `value: null`, sin fuente. */
+/** A field the document does not carry or extraction did not read: `value: null`, no source. */
 const notRead = () => ({ value: null, source: null, verification: 'unverified' as const, confidence: 0, provenance: 'extracted' as const })
 
-/** Tipo de producto de la cuenta. */
+/** Account product type. */
 export const AccountType = z.enum(['checking', 'savings', 'investment', 'credit_card', 'other'])
 export type AccountType = z.infer<typeof AccountType>
 
-/** Persona física, persona física con actividad empresarial o persona moral. */
+/** Natural person, natural person with business activity, or legal entity. */
 export const HolderType = z.enum(['individual', 'individual_with_business_activity', 'legal_entity'])
 export type HolderType = z.infer<typeof HolderType>
 
-/** Estado de la capa de texto del PDF; decide si la extracción va con texto o solo visión. */
+/** PDF text layer state; decides whether extraction uses text or vision only. */
 export const TextLayer = z.enum(['ok', 'partial', 'corrupt', 'absent'])
 export type TextLayer = z.infer<typeof TextLayer>
 
-/** Clasificación de un movimiento (Jev o Haiku), opcional hasta que corre el paso. */
+/** Transaction classification (Jev or Haiku), optional until that step runs. */
 export const TransactionClassification = z
   .strictObject({
     category: TransactionCategory,
@@ -71,7 +71,7 @@ export const Transaction = z
   .meta({ id: 'Transaction' })
 export type Transaction = z.infer<typeof Transaction>
 
-/** Cifras de resumen impresas por el banco para un periodo. Todo es nullable: no todos las imprimen. */
+/** Summary figures the bank prints for a period. All nullable: not every bank prints them. */
 export const PeriodSummary = z
   .strictObject({
     opening_balance: field(SignedMoney),
@@ -109,7 +109,7 @@ export const RunningBalanceBreak = z.strictObject({
   difference: SignedMoney,
 })
 
-/** Resultado de la verificación aritmética del periodo (docs/04 §3, puntos 1 a 3). */
+/** Result of the period arithmetic verification. */
 export const Reconciliation = z
   .strictObject({
     status: z.enum(['reconciled', 'partially_reconciled', 'not_reconciled', 'not_checkable']),
@@ -181,17 +181,17 @@ export const Holder = z
     name: field(z.string()),
     rfc: field(z.string()).describe('RFC tal como aparece; puede venir enmascarado'),
     holder_type: field(HolderType),
-    address: field(z.string()).default(notRead).describe('Domicilio del titular tal como aparece en el estado de cuenta (calle, número, colonia, municipio, estado y código postal); null si no aparece. ADR 0066'),
+    address: field(z.string()).default(notRead).describe('Domicilio del titular tal como aparece en el estado de cuenta (calle, número, colonia, municipio, estado y código postal); null si no aparece'),
   })
   .meta({ id: 'Holder' })
 export type Holder = z.infer<typeof Holder>
 
 /**
- * CFDI impreso dentro del estado de cuenta (docs/09 §3): la factura que el banco emite al
- * titular por sus comisiones, o la constancia de retenciones de ISR. Es del titular, no de
- * una cuenta. Los sellos y la cadena original completa **no tienen campo**: un modelo al que
- * se le piden los "completa"; solo se registra si están y si se ven cortados. De la cadena
- * original se leen solo tres campos cortos, para cruzarlos con el encabezado del CFDI.
+ * CFDI printed inside the statement: the invoice the bank issues to the holder for its fees, or
+ * the ISR withholding certificate. It belongs to the holder, not to an account. The seals and the
+ * full original string **have no field**: a model asked for them "completes" them, so only
+ * whether they are present and look cut is recorded. Of the original string only three short
+ * fields are read, to cross-check against the CFDI header.
  */
 export const FiscalDocument = z
   .strictObject({
@@ -230,7 +230,7 @@ export const FiscalDocument = z
   .meta({ id: 'FiscalDocument' })
 export type FiscalDocument = z.infer<typeof FiscalDocument>
 
-/** Códigos de los problemas que produce la verificación. Cerrados: el reporte y los evals los cuentan. */
+/** Codes of the issues verification produces. Closed: the report and evals count them. */
 export const IssueCode = z.enum([
   'reconciliation_mismatch',
   'totals_mismatch',
@@ -255,7 +255,7 @@ export const IssueCode = z.enum([
   'fiscal_totals_mismatch',
   'fiscal_fees_mismatch',
   'fiscal_receiver_mismatch',
-  // Robustez documental (spec docs/specs/2026-11-07-robustez-documental.md):
+  // Document robustness:
   'multiple_statements',
   'page_missing',
   'duplicate_page_removed',
@@ -280,7 +280,7 @@ export const Issue = z
   .meta({ id: 'Issue' })
 export type Issue = z.infer<typeof Issue>
 
-/** Banderas de nivel documento para el reporte. */
+/** Document-level flags for the report. */
 export const DocumentFlag = z.enum([
   'not_a_bank_statement',
   'classifier_fallback',
@@ -293,7 +293,7 @@ export const DocumentFlag = z.enum([
   'fiscal_document_present',
   'provider_fallback',
   'quality_fallback',
-  // Robustez documental (spec docs/specs/2026-11-07-robustez-documental.md):
+  // Document robustness:
   'multiple_statements',
   'pages_missing',
   'pages_duplicated',
@@ -304,7 +304,7 @@ export type DocumentFlag = z.infer<typeof DocumentFlag>
 
 export const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max'])
 
-/** Una llamada a un modelo durante la extracción, con lo que costó. */
+/** A model call during extraction, with its cost. */
 export const ModelCall = z
   .strictObject({
     purpose: z.string().describe('classify, summary, transactions, retry_page, double_read, citations'),
@@ -393,5 +393,5 @@ export const StatementExtraction = z
       }
     })
   })
-  .meta({ id: 'StatementExtraction', title: 'Extracción de estado de cuenta', description: 'Contrato de extracción de GOW Credit (docs/07 B)' })
+  .meta({ id: 'StatementExtraction', title: 'Extracción de estado de cuenta', description: 'Contrato de extracción de GOW Credit' })
 export type StatementExtraction = z.infer<typeof StatementExtraction>
