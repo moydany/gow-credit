@@ -250,6 +250,12 @@ export const IssueCode = z.enum([
   'fiscal_totals_mismatch',
   'fiscal_fees_mismatch',
   'fiscal_receiver_mismatch',
+  // Robustez documental (spec docs/specs/2026-11-07-robustez-documental.md):
+  'multiple_statements',
+  'page_missing',
+  'duplicate_page_removed',
+  'page_rotated',
+  'header_read_conflict',
 ])
 export type IssueCode = z.infer<typeof IssueCode>
 
@@ -282,6 +288,12 @@ export const DocumentFlag = z.enum([
   'fiscal_document_present',
   'provider_fallback',
   'quality_fallback',
+  // Robustez documental (spec docs/specs/2026-11-07-robustez-documental.md):
+  'multiple_statements',
+  'pages_missing',
+  'pages_duplicated',
+  'rotated_pages',
+  'header_double_read',
 ])
 export type DocumentFlag = z.infer<typeof DocumentFlag>
 
