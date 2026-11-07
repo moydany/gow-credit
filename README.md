@@ -9,6 +9,7 @@ invoices they can get paid early, and why. If something in the statement is uncl
 change the answer, the system asks them first.
 
 [![ci](https://github.com/moydany/gow-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/ci.yml)
+[![railway](https://github.com/moydany/gow-credit/actions/workflows/railway.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/railway.yml)
 
 **English** · [Español](README.es.md)
 
@@ -27,35 +28,54 @@ change the answer, the system asks them first.
 ## Contents
 
 1. [For reviewers](#for-reviewers)
-2. [The problem in one minute](#the-problem-in-one-minute)
-3. [What it does](#what-it-does)
-4. [Requirements](#requirements)
-5. [Run it with Docker Compose](#run-it-with-docker-compose)
-6. [First-run setup](#first-run-setup)
-7. [How the demo works](#how-the-demo-works)
-8. [How credit is decided](#how-credit-is-decided)
-9. [What you can configure](#what-you-can-configure)
-10. [Architecture](#architecture)
+2. [Try the live demo](#try-the-live-demo)
+3. [The problem in one minute](#the-problem-in-one-minute)
+4. [What it does](#what-it-does)
+5. [Run it on your machine](#run-it-on-your-machine)
+6. [How the demo works](#how-the-demo-works)
+7. [How credit is decided](#how-credit-is-decided)
+8. [What you can configure](#what-you-can-configure)
+9. [Architecture](#architecture)
+10. [The demo on Railway](#the-demo-on-railway)
 11. [Accuracy and keeping the model honest](#accuracy-and-keeping-the-model-honest)
-12. [CI/CD and deployment](#cicd-and-deployment)
+12. [CI/CD and the road to production](#cicd-and-the-road-to-production)
 13. [Known limits](#known-limits)
 14. [Repository map](#repository-map)
 
 ## For reviewers
 
+Everything the worksample asks for, and where to find it.
+
 | Deliverable | Where |
 |---|---|
-| Code and how to run it | This README, starting at [Run it with Docker Compose](#run-it-with-docker-compose) |
+| A running system | [Try the live demo](#try-the-live-demo), or [run it locally](#run-it-on-your-machine) in one command |
 | What we understood, assumptions and scope | [`docs/00-spec.md`](docs/00-spec.md) |
 | Design decisions and why | [Architecture](#architecture), [How credit is decided](#how-credit-is-decided), and the full design in `docs/01` to `docs/09` |
 | Prompts | [`prompts/`](prompts/), versioned, with a [changelog](prompts/CHANGELOG.md) |
 | Data contracts | [`docs/schema/`](docs/schema/), JSON Schema generated from the Zod contracts |
-| CI/CD | [`.github/workflows/`](.github/workflows/) and [CI/CD and deployment](#cicd-and-deployment) |
-| Deployment | Running demo on Railway + Supabase; production plan in [`docs/deploy.md`](docs/deploy.md) |
+| CI/CD | [`.github/workflows/`](.github/workflows/) and [CI/CD and the road to production](#cicd-and-the-road-to-production) |
+| Deployment | [The demo on Railway](#the-demo-on-railway) today; the production plan in [`docs/deploy.md`](docs/deploy.md) |
 
 > [!NOTE]
 > The design documents under `docs/` are written in Spanish, like the messages the system sends to
 > suppliers. Code, identifiers and comments are in English.
+
+## Try the live demo
+
+The demo runs on Railway and Supabase, and every push to `main` that passes CI updates it.
+
+| | URL |
+|---|---|
+| **Backoffice** | https://web-production-d5e9bd.up.railway.app |
+| API | https://app-production-aa52.up.railway.app (health at [`/healthz`](https://app-production-aa52.up.railway.app/healthz)) |
+
+Sign-ups are closed: you get in with a sign-in link sent to an invited email. Ask for an
+invitation, then open the backoffice, go to `/entrar`, type your email and open the link you
+receive. The bot speaks Spanish, and so does the backoffice.
+
+> [!TIP]
+> Want to poke at the internals instead? Any request shows the PDF next to what was read from it,
+> and the **Recorrido** tab replays every message, model call and decision step by step.
 
 ## The problem in one minute
 
@@ -107,7 +127,12 @@ Every request ends in one of six states:
 | `human_review` | An analyst confirms before anyone gets an answer |
 | `failed` | The document couldn't be read; the reason is recorded |
 
-## Requirements
+## Run it on your machine
+
+The whole system, including a local Supabase, comes up with one command. You need Docker and two
+API keys.
+
+### What you need
 
 | You need | Why |
 |---|---|
@@ -121,7 +146,7 @@ Every request ends in one of six states:
 | `RESEND_API_KEY` and `RESEND_FROM` (optional) | Backoffice sign-in emails through Resend. Without them they land in the local inbox |
 | A **phone with WhatsApp** | To link the lender's number by scanning a QR. A test number is best |
 
-## Run it with Docker Compose
+### Start it
 
 ```bash
 git clone https://github.com/moydany/gow-credit.git
@@ -166,16 +191,16 @@ few minutes. It returns once every service is healthy and prints where everythin
 > Everything listens on `127.0.0.1` only. The secrets `pnpm stack:up` generates are for development
 > and live in `infra/supabase/.env`, outside git.
 
-## First-run setup
+### First-run setup
 
 On an empty system the backoffice opens a two-step wizard. No terminal needed.
 
 1. **Account.** Enter the lender's name and the admin's email. This creates the lender, its active
    base policy and the admin, and signs you in for 8 hours.
 2. **WhatsApp.** A QR appears. On the phone: *WhatsApp → Linked devices → Link a device*, then scan
-   it. The backoffice shows the linked number a few seconds later. You can pick *Omitir por ahora* (skip for now) and link it
-   later under **Configuración → General → Canales**; until then, clarifications are answered by hand
-   in the backoffice.
+   it. The backoffice shows the linked number a few seconds later. You can pick *Omitir por ahora*
+   (skip for now) and link it later under **Configuración → General → Canales**; until then,
+   clarifications are answered by hand in the backoffice.
 
 From then on, under **Configuración**:
 
@@ -242,7 +267,7 @@ sequenceDiagram
   "1.2 millones" or "omitir"). Anything above the line gets asked again.
 - **Never in the chat:** balances, CLABE, or the engine's internal reasons.
 
-**In the backoffice** (http://127.0.0.1:5173)
+**In the backoffice**
 
 | Screen | What it's for |
 |---|---|
@@ -330,7 +355,7 @@ confidence below 0.7 doesn't count toward the score.
 | Backoffice → Configuración → General | Users | Invite or remove people; everyone sees and works the lender's requests |
 | Backoffice → Configuración → Políticas | **The whole policy** | A JSON draft validated with the engine's own schema. Before activating it, you **simulate** it against real requests: how many improve, get worse or change line, and the observed default rate. Every version is kept |
 | Backoffice → Configuración → Prompts | The model prompts | Editing creates a new version and activating it is a separate step; versions can be compared. They're shared by all lenders |
-| `.env` | Model and email keys | See [Requirements](#requirements) |
+| `.env` | Model and email keys | See [What you need](#what-you-need) |
 | `.env` | `LLM_CACHE_MODE` | `readwrite` (default) or `read`: with `read` no model is ever called and a rerun costs nothing |
 | `.env` | `WORKER_MODEL_CONCURRENCY` | Model calls in flight at once (default 3) |
 | `.env` | `WHATSAPP_SELF_REGISTRATION` | `true` (default) or `false` |
@@ -362,6 +387,8 @@ validate.
 
 ## Architecture
 
+Four processes, one database, and no process ever calls another one directly.
+
 ```mermaid
 flowchart TB
     prov([Supplier]) <-->|WhatsApp| wa
@@ -387,9 +414,10 @@ flowchart TB
     worker --> jev["Jev<br/>classification"]
 ```
 
-One image runs the API, the worker and WhatsApp; the `APP` variable picks which. The processes never
-call each other: they coordinate through the database (queue, outbox and states), so any of them can
-restart without losing work.
+One image runs the API, the worker and WhatsApp; the `APP` variable picks which. The processes
+coordinate only through the database (queue, outbox and states), so any of them can restart without
+losing work. Each one connects with its own Postgres role, and row-level security is forced on every
+business table, so a bug in one process can't read another lender's data.
 
 **A PDF's journey.** WhatsApp stores it and opens a request → the queue hands the job to the worker →
 the workflow extracts, verifies, builds the profile and decides → if there are questions, the
@@ -411,6 +439,74 @@ the workflow, which decides → the verdict goes out over WhatsApp.
 | **Zod** | Contracts | One source of truth: types, API validation and the JSON Schema in `docs/schema/` all come from the same schema |
 | **Drizzle** | Data access | SQL first, with RLS policies in the schema and versioned migrations |
 | **React + Vite** | Backoffice | A static app that only talks to `/bo/v1`; in production it sits on a CDN |
+
+## The demo on Railway
+
+The demo exists so that a non-technical person can log in with their email and work a request. It
+runs the same image and the same code as the local stack, laid out a little differently to fit
+Railway's model: a hosted Supabase project for Postgres and Auth, and three Railway services.
+
+```mermaid
+flowchart LR
+    push([git push main]) --> ci["GitHub Actions · ci"]
+    ci -->|green| rw["GitHub Actions · railway<br/>deploy.sh"]
+    rw -->|railway up| app
+    rw -->|railway up| web
+    rw -->|railway up| wa
+
+    subgraph railway["Railway · us-west2"]
+        web["web<br/>nginx + static backoffice"] -->|/bo/* over the<br/>private network| app["app<br/>api + worker<br/>volume /data"]
+        wa["whatsapp<br/>Baileys · 1 instance<br/>volume /data/whatsapp"]
+    end
+
+    app -->|IPv6| supa[("Supabase · gow-demo<br/>Postgres 17 · Auth")]
+    wa -->|IPv6| supa
+    supa -->|sign-in link<br/>via Resend| inbox([Analyst's inbox])
+    app --> models["Gemini · Claude · Jev"]
+```
+
+| Service | What runs | Why it's shaped this way |
+|---|---|---|
+| `app` | The API and the worker in one container, started by `app-start.sh`. Public domain | A Railway volume mounts on exactly one service, and the API and the worker both need the document disk (`/data`). If either process dies, the container exits and Railway restarts it |
+| `web` | The static backoffice behind nginx, built from `web.Dockerfile`. Public domain: the one people open | nginx forwards `/bo/*` to `app` over Railway's private network, so the session cookie stays same-origin. It resolves `app.railway.internal` on every request and starts even if `app` isn't up yet |
+| `whatsapp` | `APP=whatsapp`, exactly one instance. No public domain | Two Baileys sessions on the same number kick each other out. Its session lives on a volume, so a restart doesn't ask for the QR again |
+| Supabase `gow-demo` | Postgres 17 with the same roles and RLS as local, and Auth sending sign-in links through Resend | Only Supabase Auth sends the email links the backoffice uses, and a hosted project is the only place the Railway services can reach it from |
+
+**How a push becomes the running demo**
+
+1. You push to `main`. The `ci` workflow runs: typecheck, lint, tests, scenarios, evals, builds.
+2. If CI is green, the [`railway`](.github/workflows/railway.yml) workflow checks out **that same
+   commit** and runs `infra/railway/deploy.sh`. A red CI deploys nothing.
+3. `deploy.sh` ships the commit with `git archive`, never the working folder, so `data/`, `.env` and
+   anything uncommitted stay out. It calls `railway up` once per service, `app` first.
+4. Railway builds each image from the repository's `Dockerfile` (`web` from
+   `infra/railway/web.Dockerfile`). Before the new `app` container takes traffic, its **pre-deploy**
+   gives the database roles their passwords and runs the migrations; the container goes live only
+   once `/healthz` answers, and then the old one is retired. `web` and `whatsapp` simply restart on
+   their new image.
+5. A job that was mid-flight when the worker restarted is retried by the queue, and the WhatsApp
+   session survives on its volume.
+
+The same deploy runs from a laptop with `sh infra/railway/deploy.sh [ref] [services]`, after
+`railway link`. The workflow only needs one GitHub secret, `RAILWAY_TOKEN`, a project token of the
+`production` environment. Model keys, database passwords and Supabase keys never pass through
+GitHub: they live in the Railway variables of each service, and `set-db-passwords.sh` generates one
+password per database role without ever printing it.
+
+**What's different from the production plan, on purpose**
+
+| | Railway demo | Cloud Run plan |
+|---|---|---|
+| API and worker | One container, one volume | Two services that scale apart |
+| Backoffice | nginx on Railway, proxy to `app` | Vercel CDN with a `/bo/*` rewrite |
+| WhatsApp session | Kept on a volume | Lost on restart (open gap) |
+| Secrets | Railway variables | Secret Manager, one set per service |
+| Migrations | Pre-deploy of `app` | A `migrate` job before any service |
+| Trigger | Push to `main` with CI green | By hand, with approval in `production` |
+| TLS to Postgres | Certificate not verified | Verified |
+
+Step by step setup, variables and the Supabase Auth configuration are in
+[`docs/deploy.md`](docs/deploy.md), under "Demo en Railway".
 
 ## Accuracy and keeping the model honest
 
@@ -449,24 +545,18 @@ output for free. Models, prompts and dependencies are pinned. A fresh model call
 but every extraction goes through the same contract, validators and reconciliation; a difference
 between two reads shows up as a flag or a question, never silently.
 
-## CI/CD and deployment
+## CI/CD and the road to production
 
 | Workflow | Runs on | What it does |
 |---|---|---|
 | [`ci.yml`](.github/workflows/ci.yml) | Every push to `main` and every PR | Strict typecheck, lint (including size, complexity and duplication), unit tests, end-to-end scenarios against Postgres 17, injection and classifier evals without keys, backoffice build, API and worker images, gitleaks and osv-scanner |
 | [`eval-extraction.yml`](.github/workflows/eval-extraction.yml) | PRs that touch prompts, extraction, models or contracts | Extraction against the ground truth with a per-bank threshold. Restores the private data from an encrypted bundle and fails if any metric drops below the threshold |
+| [`railway.yml`](.github/workflows/railway.yml) | After a green `ci` on `main` | Ships that commit to the three Railway services with `deploy.sh`. See [The demo on Railway](#the-demo-on-railway) |
 | [`deploy.yml`](.github/workflows/deploy.yml) | By hand only, per environment (`staging` or `production`) | Images → migration → Cloud Run services, plus the backoffice on Vercel. No JSON keys: GitHub-to-Google federated identity, and `production` requires approval |
 
-There are two deployment targets:
-
-- **Demo on Railway + Supabase.** Running today. Three Railway services: `app` (API and worker
-  together, since they share the document disk), `web` (the static backoffice behind nginx, which
-  forwards `/bo` over the private network) and `whatsapp` (exactly one instance). Database and Auth
-  live on a hosted Supabase project. `infra/railway/` holds the scripts: `configure.sh` sets up the
-  services, `set-db-passwords.sh` generates a password per database role without printing it, and
-  `deploy.sh` ships exactly one commit with `git archive`, so nothing unversioned ever leaves the
-  machine. Before every `app` deploy the roles and migrations are applied.
-- **Production on Google Cloud.** Prepared, not executed: no cloud accounts were created.
+Production on Google Cloud is designed and the pipeline is written, but it has never run: the
+worksample didn't create cloud accounts. The shape is the one the demo approximates, with each
+process scaled on its own.
 
 ```mermaid
 flowchart LR
@@ -482,15 +572,15 @@ flowchart LR
     api2 & worker2 & wa2 --> supa2[("Managed Supabase<br/>Postgres · Auth · Storage")]
 ```
 
-Both plans, with regions, parameters, secrets, operating costs and what's still missing, are in
+Regions, parameters, secrets, operating costs and what's still missing are in
 [`docs/deploy.md`](docs/deploy.md).
 
 ## Known limits
 
 - **Production isn't deployed.** The Railway demo runs; the Cloud Run pipeline is ready but has never
   run.
-- **The demo cuts two corners.** TLS to Supabase doesn't verify the certificate, and the API and
-  worker scale together.
+- **The demo cuts corners.** TLS to Supabase doesn't verify the certificate, the API and the worker
+  scale together, and self-registration over WhatsApp is on.
 - **WhatsApp through Baileys**, not Meta's official API: fine for a demo, not for production.
 - **No SAT or credit bureau yet.** The profile is designed to take them as new signals without
   changing the engine, but they aren't connected.
@@ -516,5 +606,6 @@ Both plans, with regions, parameters, secrets, operating costs and what's still 
 | `policies/` | Base policy template |
 | `prompts/` | Versioned prompts and their changelog |
 | `evals/`, `scenarios/` | Extraction and injection evals; end-to-end scenarios |
-| `infra/`, `scripts/` | Local Supabase, backoffice nginx, Railway, `stack.sh` |
+| `infra/railway/` | The demo: service configuration, deploy, nginx, pre-deploy, Supabase Auth |
+| `infra/`, `scripts/` | Local Supabase, backoffice nginx, `stack.sh` |
 | `docs/` | Design (`00` to `09`), schemas, deployment |
