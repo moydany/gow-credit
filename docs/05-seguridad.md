@@ -421,3 +421,7 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
   `app.pending_inbound` solo devuelve ids.
 - El resumen para confirmar las respuestas de la aclaración repite las cifras de los hechos de cada
   pregunta (monto y fecha del abono), las mismas que ya llevaba la pregunta, al mismo número.
+- Borrar un proveedor (ADR 0059) no le da a `gow_api` DELETE sobre las tablas: borra solo por
+  `app.purge_supplier(uuid)`, una función `SECURITY DEFINER` revisada a mano, con RLS forzado, filtro
+  por tenant en cada DELETE y otorgada solo a `gow_api`. El trabajo `supplier.purge` lleva ids y rutas,
+  y el worker solo borra rutas bajo el tenant del trabajo.

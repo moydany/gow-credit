@@ -220,3 +220,9 @@ muestra personalización y el loop de aprendizaje.
   - Un estado de cuenta más viejo se analiza igual: el panel de decisión muestra "Estado de cuenta
     antiguo" con la antigüedad y el límite, y la lista de solicitudes lo etiqueta "Estado antiguo".
   - Una solicitud fallida por PDF con contraseña o por un escaneado ilegible lo dice en su motivo.
+
+- **Borrar un proveedor (ADR 0059).** Proveedores → detalle → Borrar se lleva al proveedor con sus
+  solicitudes, documentos, decisiones, aclaraciones, resultados de crédito, registro y mensajes
+  (`DELETE /bo/v1/suppliers/:id`). Con una solicitud en proceso contesta 409. Los PDFs, el estado de
+  Mastra y los trabajos de la cola los borra el worker con `supplier.purge`. La bitácora guarda solo
+  los conteos.
