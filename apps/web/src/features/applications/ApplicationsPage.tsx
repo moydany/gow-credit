@@ -2,6 +2,7 @@ import { describeFailure, DOCUMENT_AGE_WARNING, type ApplicationRow, type Applic
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useMemo } from 'react'
+import { approvalOf } from '../../lib/approval'
 import { ago, money, number } from '../../lib/format'
 import { useApplications, useMe } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
@@ -41,7 +42,8 @@ export function ApplicationsPage() {
       total: rows.length,
       clarification: by((a) => a.status === 'needs_clarification'),
       review: by((a) => a.status === 'human_review'),
-      approvedLimit: approved.reduce((s, a) => s + (a.decision?.limit ?? 0), 0),
+      // Lo aprobado de cada solicitud: el monto que pidió si cabe en la línea (ADR 0053).
+      approvedAmount: approved.reduce((s, a) => s + (a.decision ? (approvalOf(a.decision, a.request?.amount)?.value ?? 0) : 0), 0),
       approvedCount: approved.length,
       qualified: by((a) => a.status === 'qualified' || a.status === 'qualified_with_limit'),
       rejected: by((a) => a.status === 'not_qualified' || a.status === 'failed'),
@@ -111,9 +113,9 @@ export function ApplicationsPage() {
 
         <Card rise={3}>
           <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
-            <h2 className="text-[17px] font-medium tracking-tight">{stats.approvedCount > 1 ? 'Líneas aprobadas' : 'Línea aprobada'}</h2>
+            <h2 className="text-[17px] font-medium tracking-tight">Monto aprobado</h2>
             <div>
-              {isPending ? <Skeleton className="h-12 w-40" /> : <BigMoney value={stats.approvedCount ? stats.approvedLimit : null} className="text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]" />}
+              {isPending ? <Skeleton className="h-12 w-40" /> : <BigMoney value={stats.approvedCount ? stats.approvedAmount : null} className="text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]" />}
               <p className="mt-2 text-[13px] text-muted">{stats.approvedCount ? `En ${String(stats.approvedCount)} solicitud${stats.approvedCount === 1 ? '' : 'es'}` : 'Aún ninguna califica'}</p>
             </div>
           </div>

@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { useState } from 'react'
 import { BigMoney } from '../../ui/primitives'
 import { describeTarget, DECISION_LABEL, featureLabel, featureValue, jsonValue, money, number, OP_LABEL, OUTCOME_LABEL, PROVENANCE_LABEL, VERIFICATION_LABEL, date } from '../../lib/format'
+import { approvalOf } from '../../lib/approval'
 import { Icon } from '../../ui/icons'
 import { Button, Chip, Meter, StatusChip } from '../../ui/primitives'
 
@@ -217,21 +218,6 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
       {children}
     </section>
   )
-}
-
-/**
- * Lo que se aprueba contra lo que se pidió (ADR 0053): si el monto solicitado cabe en la línea se
- * aprueba el monto y la línea es lo disponible; si no cabe se aprueba la línea; sin monto es la línea
- * máxima. Una decisión evaluada con la línea máxima se tomó sin el monto (por ejemplo, mientras llega
- * la reevaluación con el monto que acaba de dar el proveedor), así que cuenta como sin monto. La
- * tolerancia de centavos es la del aviso por WhatsApp.
- */
-function approvalOf(d: Decision, requested: number | null | undefined): { label: string; value: number; note: string | null } | null {
-  if (d.limit === null) return null
-  const amount = d.reasons.some((r) => r.code === 'evaluated_at_max_line') ? null : (requested ?? null)
-  if (amount === null) return { label: 'Línea máxima', value: d.limit, note: null }
-  if (amount <= d.limit + 0.005) return { label: 'Monto aprobado', value: amount, note: `Línea disponible hasta ${money(d.limit)}` }
-  return { label: 'Línea aprobada', value: d.limit, note: `de ${money(amount)} solicitados; el resto no cabe` }
 }
 
 function Verdict({ detail, d }: { detail: ApplicationDetail; d: Decision }) {
