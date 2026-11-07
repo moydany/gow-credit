@@ -7,6 +7,8 @@
 #
 #   sh infra/railway/supabase-auth.sh
 set -eu
+# From the repository root: the email template is read from infra/supabase/templates.
+cd "$(dirname "$0")/../.."
 ref=${SUPABASE_PROJECT_REF:-vicuzdllbwnxfckhawak}
 service=${RAILWAY_APP_SERVICE:-app}
 
@@ -37,10 +39,8 @@ payload=$(railway variable list --service "$service" --json | SERVICE="$service"
     smtp_admin_email: m ? m[2] : v.RESEND_FROM.trim(),
     smtp_sender_name: m && m[1] ? m[1] : "GOW Credit",
     mailer_subjects_magic_link: "Tu enlace para entrar a GOW Credit",
-    mailer_templates_magic_link_content:
-      "<p>Hola,</p><p>Entra al backoffice de GOW Credit con este enlace:</p>" +
-      "<p><a href=\"{{ .ConfirmationURL }}\">Entrar a GOW Credit</a></p>" +
-      "<p>El enlace sirve una sola vez. Si no lo pediste, ignora este correo.</p>",
+    // The link goes to /entrar#token_hash=…: the session opens on the click, not on opening it.
+    mailer_templates_magic_link_content: require("fs").readFileSync("infra/supabase/templates/magic-link.html", "utf8"),
   }))')
 
 api="https://api.supabase.com/v1/projects/$ref/config/auth"

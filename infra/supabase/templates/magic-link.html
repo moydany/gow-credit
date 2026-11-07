@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Entra a GOW Credit</title>
+  </head>
+  <!--
+    Magic link of the backoffice (Supabase Auth). The button goes to /entrar with the code in the
+    fragment (#token_hash): opening it spends nothing; the session opens when the person presses
+    "Entrar". So mail scanners and reloads don't burn the link. Applied by infra/railway/supabase-auth.sh.
+  -->
+  <body style="margin:0;padding:0;background-color:#eeeef1;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+      Tu enlace para entrar al backoffice de GOW Credit. Vence pronto y sirve una sola vez.
+    </div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eeeef1;">
+      <tr>
+        <td align="center" style="padding:40px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;background-color:#ffffff;border-radius:24px;border:1px solid #e4e4e9;">
+            <tr>
+              <td style="padding:40px 40px 8px 40px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td width="44" height="44" align="center" valign="middle" style="width:44px;height:44px;background-color:#14151a;border-radius:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:24px;font-weight:800;line-height:44px;color:#8b3fe6;">G</td>
+                    <td style="padding-left:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;font-weight:600;color:#14151a;">
+                      GOW <span style="color:#6b6d78;font-weight:500;">Credit</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px 0 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <h1 style="margin:0;font-size:28px;line-height:34px;font-weight:600;letter-spacing:-0.5px;color:#14151a;">
+                  Entra al <span style="color:#6b6d78;">backoffice</span>
+                </h1>
+                <p style="margin:16px 0 0 0;font-size:15px;line-height:24px;color:#4a4c57;">
+                  Hola. Abre este enlace y presiona “Entrar” en la página. Vence pronto y sirve una sola vez; si pides otro, este deja de servir.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 40px 0 40px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td align="center" style="border-radius:999px;background-color:#8b3fe6;">
+                      <a href="{{ .SiteURL }}/entrar#token_hash={{ .TokenHash }}" target="_blank" style="display:block;padding:15px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;border-radius:999px;">
+                        Abrir GOW Credit
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px 0 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <p style="margin:0;font-size:13px;line-height:20px;color:#6b6d78;">
+                  Si el botón no funciona, copia y pega este enlace en tu navegador:
+                </p>
+                <p style="margin:6px 0 0 0;font-size:12px;line-height:18px;word-break:break-all;">
+                  <a href="{{ .SiteURL }}/entrar#token_hash={{ .TokenHash }}" target="_blank" style="color:#8b3fe6;text-decoration:underline;">{{ .SiteURL }}/entrar#token_hash={{ .TokenHash }}</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px 40px 0 40px;">
+                <div style="height:1px;line-height:1px;background-color:#ececf0;">&nbsp;</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 40px 36px 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <p style="margin:0;font-size:13px;line-height:20px;color:#8a8c96;">
+                  Si no pediste este enlace, ignora este correo: nadie puede entrar sin abrirlo.
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:20px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#9a9ca6;">
+            GOW Credit · decisiones de pronto pago a partir de un estado de cuenta
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

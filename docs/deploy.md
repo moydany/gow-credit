@@ -333,7 +333,11 @@ Railway está en `infra/railway/`.
      `<BACKOFFICE_URL>/entrar`.
    - Authentication → SMTP: `smtp.resend.com`, puerto 465, usuario `resend`, contraseña = la llave de
      Resend, remitente del dominio verificado.
-   - Authentication → Emails → Magic Link: texto en español.
+   - Authentication → Emails → Magic Link: el HTML de `infra/supabase/templates/magic-link.html` (el script
+     lo aplica tal cual). Su enlace es `{{ .SiteURL }}/entrar#token_hash={{ .TokenHash }}`: abrirlo no gasta
+     nada y la sesión se abre cuando la persona presiona "Entrar" (`POST /bo/v1/session/email-link`, que
+     canjea el código con GoTrue). Así los escáneres de correo (Gmail abre los enlaces para revisarlos) y
+     las recargas ya no queman el enlace. El código va en el fragmento: no llega a nginx ni a los registros.
 7. Tenant y usuario, con `railway ssh --service app`: `pnpm tenant create --name "..."` (imprime una
    sola vez la llave de API del tenant) y `pnpm tenant user add --tenant <id> --email <correo>`.
 8. Probar el acceso con un correo propio antes de dar de alta a la persona.

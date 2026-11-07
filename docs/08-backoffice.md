@@ -285,6 +285,12 @@ muestra personalización y el loop de aprendizaje.
   (el resto sigue en 5 MB).
 - El detalle del proveedor ya no muestra la tarjeta "Contactos": los contactos verificados siguen en la base,
   entran por la API de integración o el registro por WhatsApp, y se borran con el proveedor.
+- **Entrar con el enlace del correo (2026-11-07).** El correo lleva `/entrar#token_hash=…` y la sesión se
+  abre con el botón "Entrar a GOW Credit" (`POST /bo/v1/session/email-link`), no al abrir el enlace: el
+  escáner de Gmail y una segunda apertura gastaban el enlace de un solo uso y la persona veía "ya venció".
+  Después de pedir uno, `/entrar` dice que llega en un minuto, que revise spam, y deja pedir otro a los
+  60 s (GoTrue no manda dos al mismo correo en menos de un minuto). El límite propio pasa de 3 a 4 por
+  correo cada 15 minutos. Los enlaces viejos (`#access_token=`) siguen funcionando.
 - **Trabajos (2026-11-07).** Configuración → Bitácora tiene una tercera pestaña, "Trabajos": los trabajos de la
   cola (pg-boss) del prestamista, del más reciente al más antiguo, con su estado (en cola, en curso, por
   reintentar, terminó, falló, cancelado), intentos, duración, la solicitud o el proveedor y el mensaje del error
