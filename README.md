@@ -296,7 +296,7 @@ sequenceDiagram
 | Screen | What it's for |
 |---|---|
 | Solicitudes | Every request with its state, line and flags |
-| Detalle | The PDF next to the extraction: click a value to jump to its page and snippet. Profile, verdict with the full diagnosis and counterfactuals. With several statements, a picker on top switches months (viewer, extraction and corrections follow it), each period says whether it was evaluated, cut or left out, and the **Meses** tab lays them side by side |
+| Detalle | The PDF next to the extraction: click a value to jump to its page and snippet. Profile, verdict with the full diagnosis and counterfactuals. With several statements, a picker on top switches months (viewer, extraction and corrections follow it), each period says whether it was evaluated, cut or left out, and the **Meses** tab lays them side by side. A page marked in amber explains itself: every unverified value, doubtful movement, alert or balance break, with its reason and a click to see it in the PDF |
 | Recorrido | The request step by step in 3D: messages, reads, model calls and decisions |
 | Aclaraciones | Pending questions, answered by hand when the supplier has no WhatsApp |
 | Revisión | Analyst corrections to the extraction, stored as immutable pairs and re-evaluated |
@@ -474,7 +474,7 @@ version again. Then, from the supplier's phone:
 | Backoffice → Configuración → General | WhatsApp number | Link, unlink or switch by scanning a QR |
 | Backoffice → Configuración → General | Users | Invite or remove people; everyone sees and works the lender's requests |
 | Backoffice → Configuración → Políticas | Months evaluated | `"history": { "months": 1 }` (default) or `3`, consecutive. See [One month or three](#4-one-month-or-three-the-policy-decides) |
-| Backoffice → Configuración → Políticas | **The whole policy** | A JSON draft validated with the engine's own schema. Before activating it, you **simulate** it against real requests: how many improve, get worse or change line, and the observed default rate. Every version is kept |
+| Backoffice → Configuración → Políticas | **The whole policy** | Edit it with a **form** (months, gates, score weights, bands, caps and clarifications, in plain words) or as **JSON**; both views are the same document, validated with the engine's own schema. Before activating it, you **simulate** it against real requests: how many improve, get worse or change line, and the observed default rate. Every version is kept |
 | Backoffice → Configuración → Prompts | The model prompts | Editing creates a new version and activating it is a separate step; versions can be compared. They're shared by all lenders |
 | `.env` | Model and email keys | See [What you need](#what-you-need) |
 | `.env` | `LLM_CACHE_MODE` | `readwrite` (default) or `read`: with `read` no model is ever called and a rerun costs nothing |

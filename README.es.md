@@ -295,7 +295,7 @@ sequenceDiagram
 | Pantalla | Para qué |
 |---|---|
 | Solicitudes | Cada solicitud con su estado, línea y alertas |
-| Detalle | El PDF junto a la extracción: un clic en un valor salta a su página y fragmento. Perfil, veredicto con el diagnóstico completo y contrafactuales. Con varios estados de cuenta, un selector arriba cambia de mes (visor, extracción y correcciones van con él), cada periodo dice si se evaluó, se recortó o quedó fuera, y la pestaña **Meses** los pone lado a lado |
+| Detalle | El PDF junto a la extracción: un clic en un valor salta a su página y fragmento. Perfil, veredicto con el diagnóstico completo y contrafactuales. Con varios estados de cuenta, un selector arriba cambia de mes (visor, extracción y correcciones van con él), cada periodo dice si se evaluó, se recortó o quedó fuera, y la pestaña **Meses** los pone lado a lado. Una página marcada en amarillo explica qué tiene: cada valor sin verificar, movimiento dudoso, alerta o descuadre, con su motivo y un clic para verlo en el PDF |
 | Recorrido | La solicitud paso a paso en 3D: mensajes, lecturas, llamadas a modelos y decisiones |
 | Aclaraciones | Preguntas pendientes; se responden a mano cuando el proveedor no tiene WhatsApp |
 | Revisión | Correcciones del analista sobre la extracción, guardadas como pares inmutables y reevaluadas |
@@ -473,7 +473,7 @@ un mes. Luego, desde el teléfono del proveedor:
 | Backoffice → Configuración → General | Número de WhatsApp | Vincular, desvincular o cambiar escaneando un QR |
 | Backoffice → Configuración → General | Usuarios | Invitar o quitar personas; todas ven y operan las solicitudes del prestamista |
 | Backoffice → Configuración → Políticas | Meses que se evalúan | `"history": { "months": 1 }` (por omisión) o `3`, seguidos. Ver [Uno o tres meses](#4-uno-o-tres-meses-lo-elige-la-política) |
-| Backoffice → Configuración → Políticas | **La política completa** | Un borrador JSON validado con el mismo esquema del motor. Antes de activarlo, se **simula** contra solicitudes reales: cuántas mejoran, empeoran o cambian de línea, y la mora observada. Cada versión queda guardada |
+| Backoffice → Configuración → Políticas | **La política completa** | Se edita con un **formulario** (meses, compuertas, pesos del puntaje, bandas, topes y aclaraciones, en palabras) o en **JSON**; las dos vistas son el mismo documento, validado con el esquema del motor. Antes de activarla, se **simula** contra solicitudes reales: cuántas mejoran, empeoran o cambian de línea, y la mora observada. Cada versión queda guardada |
 | Backoffice → Configuración → Prompts | Los prompts de los modelos | Editar crea una versión nueva y activarla es otro paso; las versiones se pueden comparar. Son los mismos para todos los prestamistas |
 | `.env` | Llaves de modelos y correo | Ver [Qué necesitas](#qué-necesitas) |
 | `.env` | `LLM_CACHE_MODE` | `readwrite` (por defecto) o `read`: con `read` nunca se llama a un modelo y repetir cuesta cero |
