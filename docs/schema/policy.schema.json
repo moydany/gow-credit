@@ -116,7 +116,10 @@
                 "deposit_classification",
                 "reconciliation_gap",
                 "additional_months",
-                "missing_pages"
+                "missing_pages",
+                "charge_classification",
+                "main_buyer",
+                "account_use"
               ]
             }
           },

@@ -632,7 +632,10 @@
                           "deposit_classification",
                           "reconciliation_gap",
                           "additional_months",
-                          "missing_pages"
+                          "missing_pages",
+                          "charge_classification",
+                          "main_buyer",
+                          "account_use"
                         ]
                       },
                       {
@@ -1236,6 +1239,38 @@
             "additionalProperties": false
           }
         },
+        "explanation": {
+          "default": null,
+          "description": "El resultado en lenguaje natural para quien revisa la solicitud (ADR 0045). Las cifras salen de la decisión.",
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "text_source": {
+                  "type": "string",
+                  "enum": [
+                    "template",
+                    "writer"
+                  ],
+                  "description": "template: armada por el código; writer: redactada por Haiku y aceptada por el filtro de cifras"
+                }
+              },
+              "required": [
+                "text",
+                "text_source"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "clarification": {
           "anyOf": [
             {
@@ -1252,7 +1287,10 @@
                       "deposit_classification",
                       "reconciliation_gap",
                       "additional_months",
-                      "missing_pages"
+                      "missing_pages",
+                      "charge_classification",
+                      "main_buyer",
+                      "account_use"
                     ]
                   }
                 },
@@ -1284,7 +1322,7 @@
                     ],
                     "additionalProperties": false
                   },
-                  "description": "Movimientos sobre los que se pregunta (abonos grandes sin clasificar)"
+                  "description": "Movimientos sobre los que se pregunta: abonos y cargos grandes sin clasificar con confianza"
                 }
               },
               "required": [
@@ -1356,7 +1394,8 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "La solicitud con la que se calculó: si no traía comprador y el dueño dijo su cliente principal, ese es el comprador (ver declarations)"
             },
             "external": {
               "type": "array",
@@ -1387,6 +1426,15 @@
                 ],
                 "additionalProperties": false
               }
+            },
+            "declarations": {
+              "default": {
+                "buyer": null,
+                "account_use": null,
+                "answered": []
+              },
+              "description": "Lo que el dueño declaró al aclarar (ADR 0050)",
+              "$ref": "#/$defs/OwnerDeclarations"
             }
           },
           "required": [
@@ -1413,6 +1461,56 @@
       "additionalProperties": false,
       "title": "Perfil crediticio",
       "description": "Catálogo fijo de features (docs/03 §3)"
+    },
+    "OwnerDeclarations": {
+      "type": "object",
+      "properties": {
+        "buyer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cliente principal que dijo el dueño cuando la solicitud no traía comprador; se usa como comprador del análisis"
+        },
+        "account_use": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "business_only",
+                "mixed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Uso de la cuenta (persona física); null si no se preguntó o no contestó"
+        },
+        "answered": {
+          "default": [],
+          "description": "Temas ya preguntados y contestados, aunque sea con \"no sé\": no se vuelven a preguntar",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "main_buyer",
+              "account_use"
+            ]
+          }
+        }
+      },
+      "required": [
+        "buyer",
+        "account_use"
+      ],
+      "additionalProperties": false,
+      "title": "Declaraciones del dueño"
     },
     "ProfileParameters": {
       "type": "object",
@@ -4165,13 +4263,19 @@
             "deposit_classification",
             "reconciliation_gap",
             "additional_months",
-            "missing_pages"
+            "missing_pages",
+            "charge_classification",
+            "main_buyer",
+            "account_use"
           ]
         },
         "kind": {
           "type": "string",
           "enum": [
             "deposit",
+            "charge",
+            "buyer",
+            "account_use",
             "identity",
             "documents"
           ]
@@ -4200,7 +4304,7 @@
               "type": "null"
             }
           ],
-          "description": "El abono sobre el que se pregunta (kind deposit)"
+          "description": "El abono o cargo sobre el que se pregunta (kind deposit o charge)"
         },
         "facts": {
           "type": "array",
@@ -4315,6 +4419,99 @@
             "question_id",
             "kind",
             "category"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "charge"
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "loan_payment",
+                "supplier_payment",
+                "own_transfer",
+                "personal_expense",
+                "other"
+              ]
+            },
+            "counterparty": {
+              "default": null,
+              "description": "A quién se le pagó, si el dueño lo dice",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "category"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "buyer"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 200,
+              "description": "Cliente principal: la empresa que paga las facturas que se quieren adelantar"
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "account_use"
+            },
+            "use": {
+              "type": "string",
+              "enum": [
+                "business_only",
+                "mixed"
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "use"
           ],
           "additionalProperties": false
         },

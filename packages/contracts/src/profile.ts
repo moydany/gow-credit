@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import { Provenance, Verification } from './enums.ts'
 import { FEATURE_CATALOG, FEATURE_CATALOG_VERSION, type FeatureCatalog } from './features.ts'
-import { ApplicationRequest } from './request.ts'
+import { ApplicationRequest, NO_DECLARATIONS, OwnerDeclarations } from './request.ts'
 import { Confidence, IsoDateTime, Money, Sha256 } from './primitives.ts'
 
 const featureMeta = {
@@ -53,8 +53,9 @@ export const Profile = z
     computed_at: IsoDateTime,
     inputs: z.strictObject({
       document_sha256: z.array(Sha256),
-      request: ApplicationRequest.nullable(),
+      request: ApplicationRequest.nullable().describe('La solicitud con la que se calculó: si no traía comprador y el dueño dijo su cliente principal, ese es el comprador (ver declarations)'),
       external: z.array(ExternalSourceUse),
+      declarations: OwnerDeclarations.default(NO_DECLARATIONS).describe('Lo que el dueño declaró al aclarar (ADR 0050)'),
     }),
     parameters: ProfileParameters,
     features: ProfileFeatures,

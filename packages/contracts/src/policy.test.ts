@@ -27,7 +27,8 @@ describe('política base (policies/gow-base.v1.json)', () => {
     expect(res.ok).toBe(true)
     if (!res.ok) return
     expect(res.policy.gates.find((g) => g.id === 'doc_recent')?.onUnknown).toBe('fail')
-    expect(res.policy.gates.find((g) => g.id === 'identity')?.onUnknown).toBe('ask')
+    // La identidad no es compuerta: se compara y se informa, pero no decide (ADR 0052).
+    expect(res.policy.gates.some((g) => g.id === 'identity')).toBe(false)
     expect(res.policy.score.dimensions.find((d) => d.id === 'capacity')?.inverse).toBe(false)
   })
 })
@@ -94,8 +95,8 @@ describe('compuertas', () => {
   })
 
   it('rechaza ids repetidos entre compuertas y dimensiones', () => {
-    const errors = errorsOf(withChange((p) => p.score.dimensions[0] && (p.score.dimensions[0].id = 'identity')))
-    expect(errors[0]).toEqual({ path: 'score.dimensions[0].id', message: 'id repetido "identity" (ya se usa en gates.1.id)' })
+    const errors = errorsOf(withChange((p) => p.score.dimensions[0] && (p.score.dimensions[0].id = 'integrity')))
+    expect(errors[0]).toEqual({ path: 'score.dimensions[0].id', message: 'id repetido "integrity" (ya se usa en gates.1.id)' })
   })
 })
 

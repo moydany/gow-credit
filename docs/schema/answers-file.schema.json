@@ -19,6 +19,12 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
+              "round": {
+                "description": "Ronda que contestan (la escribe answers.template.json). Si la solicitud está pausada en otra ronda, no se aplican: los ids q1, q2... se repiten entre rondas",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
               "answers": {
                 "type": "array",
                 "items": {
@@ -82,6 +88,99 @@
             "question_id",
             "kind",
             "category"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "charge"
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "loan_payment",
+                "supplier_payment",
+                "own_transfer",
+                "personal_expense",
+                "other"
+              ]
+            },
+            "counterparty": {
+              "default": null,
+              "description": "A quién se le pagó, si el dueño lo dice",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "category"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "buyer"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 200,
+              "description": "Cliente principal: la empresa que paga las facturas que se quieren adelantar"
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "account_use"
+            },
+            "use": {
+              "type": "string",
+              "enum": [
+                "business_only",
+                "mixed"
+              ]
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "use"
           ],
           "additionalProperties": false
         },

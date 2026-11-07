@@ -12,6 +12,7 @@ import { Money, Sha256 } from './primitives.ts'
 import { ApplicationRequest } from './request.ts'
 import { SimulationReport } from './simulation.ts'
 import { StatementExtraction } from './statement.ts'
+import { StatementMaxAgeMonths } from './statement-age.ts'
 import { checkClabe, checkRfc } from './validators.ts'
 
 export const ClarificationChannelName = z.enum(['whatsapp', 'email', 'manual'])
@@ -227,8 +228,15 @@ export const TenantSettings = z.strictObject({
   tenant: z.strictObject({ id: z.uuid(), name: z.string(), created_at: z.string() }),
   whatsapp: z.strictObject({ number: z.string().nullable().describe('Número de WhatsApp del tenant; null si no tiene uno asignado') }),
   email: z.strictObject({ from: z.string().nullable() }),
+  analysis: z.strictObject({
+    statement_max_age_months: StatementMaxAgeMonths.describe('Antigüedad máxima del estado de cuenta (ADR 0049): uno más viejo se analiza igual, con advertencia; null = sin límite'),
+  }),
 })
 export type TenantSettings = z.infer<typeof TenantSettings>
+
+/** Lo que el backoffice puede cambiar de la configuración del tenant (ADR 0049). */
+export const TenantSettingsUpdateBody = z.strictObject({ statement_max_age_months: StatementMaxAgeMonths })
+export type TenantSettingsUpdateBody = z.input<typeof TenantSettingsUpdateBody>
 
 // ---------- Vinculación de WhatsApp desde Configuración (ADR 0033)
 

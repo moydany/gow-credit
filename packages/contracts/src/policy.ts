@@ -24,7 +24,18 @@ export const ConditionOp = z.enum([...ComparisonOp.options, ...MembershipOp.opti
 export type ConditionOp = z.infer<typeof ConditionOp>
 
 /** Qué se le pide al proveedor cuando una compuerta manda a aclaración. */
-export const AskTopic = z.enum(['recent_statement', 'identity_fields', 'deposit_classification', 'reconciliation_gap', 'additional_months', 'missing_pages'])
+export const AskTopic = z.enum([
+  'recent_statement',
+  'identity_fields',
+  'deposit_classification',
+  'reconciliation_gap',
+  'additional_months',
+  'missing_pages',
+  // ADR 0050: cargos dudosos, cliente principal y uso de la cuenta.
+  'charge_classification',
+  'main_buyer',
+  'account_use',
+])
 export type AskTopic = z.infer<typeof AskTopic>
 
 const OPS_BY_KIND = {

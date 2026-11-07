@@ -65,6 +65,18 @@ export function findCounterpartyRfc(description: string, holderRfc: string | nul
   return null
 }
 
+/**
+ * Raíz de un RFC sin homoclave (ADR 0043): 3 letras + fecha (persona moral, 9 posiciones) o 4 letras +
+ * fecha (persona física, 10). Varios bancos imprimen así el RFC del titular. null si no es una raíz
+ * con fecha válida.
+ */
+export function rfcRoot(raw: string | null): string | null {
+  if (raw === null) return null
+  const s = raw.replace(/[\s-]/g, '').toUpperCase()
+  const m = /^([A-ZÑ&]{3,4})(\d{6})$/.exec(s)
+  return m?.[2] && validYymmdd(m[2]) ? s : null
+}
+
 /** RFC: 12 posiciones persona moral, 13 persona física; fecha válida; homoclave y verificador. */
 export function checkRfc(raw: string | null): RfcCheck {
   if (raw === null) return { result: 'absent', kind: null, checkDigitOk: null }

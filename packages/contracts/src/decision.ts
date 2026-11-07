@@ -95,11 +95,19 @@ export const Decision = z
     }),
     reasons: z.array(Reason),
     next_steps: z.array(NextStep),
+    explanation: z
+      .strictObject({
+        text: z.string().min(1).max(2000),
+        text_source: z.enum(['template', 'writer']).describe('template: armada por el código; writer: redactada por Haiku y aceptada por el filtro de cifras'),
+      })
+      .nullable()
+      .default(null)
+      .describe('El resultado en lenguaje natural para quien revisa la solicitud (ADR 0045). Las cifras salen de la decisión.'),
     clarification: z
       .strictObject({
         topics: z.array(AskTopic).min(1),
         issue_ids: z.array(LocalId).describe('Issues de la extracción que motivan la pregunta'),
-        transactions: z.array(TransactionRef).describe('Movimientos sobre los que se pregunta (abonos grandes sin clasificar)'),
+        transactions: z.array(TransactionRef).describe('Movimientos sobre los que se pregunta: abonos y cargos grandes sin clasificar con confianza'),
       })
       .nullable(),
     engine_version: z.string(),

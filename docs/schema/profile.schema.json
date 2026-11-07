@@ -33,7 +33,8 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "La solicitud con la que se calculó: si no traía comprador y el dueño dijo su cliente principal, ese es el comprador (ver declarations)"
             },
             "external": {
               "type": "array",
@@ -64,6 +65,15 @@
                 ],
                 "additionalProperties": false
               }
+            },
+            "declarations": {
+              "default": {
+                "buyer": null,
+                "account_use": null,
+                "answered": []
+              },
+              "description": "Lo que el dueño declaró al aclarar (ADR 0050)",
+              "$ref": "#/$defs/OwnerDeclarations"
             }
           },
           "required": [
@@ -162,6 +172,56 @@
       ],
       "additionalProperties": false,
       "title": "Datos de la solicitud"
+    },
+    "OwnerDeclarations": {
+      "type": "object",
+      "properties": {
+        "buyer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cliente principal que dijo el dueño cuando la solicitud no traía comprador; se usa como comprador del análisis"
+        },
+        "account_use": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "business_only",
+                "mixed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Uso de la cuenta (persona física); null si no se preguntó o no contestó"
+        },
+        "answered": {
+          "default": [],
+          "description": "Temas ya preguntados y contestados, aunque sea con \"no sé\": no se vuelven a preguntar",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "main_buyer",
+              "account_use"
+            ]
+          }
+        }
+      },
+      "required": [
+        "buyer",
+        "account_use"
+      ],
+      "additionalProperties": false,
+      "title": "Declaraciones del dueño"
     },
     "ProfileParameters": {
       "type": "object",

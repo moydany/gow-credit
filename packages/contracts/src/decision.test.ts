@@ -29,6 +29,7 @@ function decision(overrides: Partial<Decision> = {}): Decision {
         message: null,
       },
     ],
+    explanation: null,
     clarification: null,
     engine_version: '0.1.0',
     decided_at: '2026-11-04T12:00:00.000Z',
