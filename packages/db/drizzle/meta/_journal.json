@@ -122,6 +122,20 @@
       "breakpoints": true
     },
     {
+      "idx": 17,
+      "version": "7",
+      "when": 1794050000000,
+      "tag": "0017_first_run_setup",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794051000000,
+      "tag": "0018_sole_tenant",
+      "breakpoints": true
+    },
+    {
       "idx": 19,
       "version": "7",
       "when": 1794052000000,

@@ -337,6 +337,40 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await call('DELETE', `/suppliers/${sup}`, { bearer: a })).status).toBe(404)
   })
 
+  it('llamadas al modelo: la lista va sin contenido, se filtra por solicitud y error, el detalle trae lo crudo y se audita (ADR 0064)', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const a = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const b = tokenFor(userB, tenantB, 'b@prestamista.test')
+    const [sup, app] = [randomUUID(), randomUUID()]
+    await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3)', [sup, tenantA, 'Proveedor con llamadas'])
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'failed')", [app, tenantA, sup])
+    const insert = "INSERT INTO app.llm_exchanges (tenant_id, application_id, purpose, model, schema_name, prompt_version, effort, max_output_tokens, server_fallback, system, instruction, document_sha256, outcome, response, raw_output, error_code, error_message, usage, cost_usd, latency_ms) VALUES ($1, $2, $3, 'gemini-3.8-flash', 'summary.v1', 'summary.v3', 'medium', 4000, false, 'Extrae la portada.', 'Páginas 1-2.', $4, $5, $6, $7, $8, $9, $10, $11, 900) RETURNING id"
+    const usage = { input_tokens: 1200, output_tokens: 80, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+    const okRow = (await q(insert, [tenantA, app, 'extraction.summary', 'c'.repeat(64), 'ok', JSON.stringify({ holder: 'Distribuidora Ficticia' }), null, null, null, JSON.stringify(usage), '0.000400'])).rows[0] as { id: string }
+    const badRow = (await q(insert, [tenantA, app, 'extraction.transactions', 'c'.repeat(64), 'error', null, '{"transactions":[{"amount":', 'max_tokens', 'la respuesta se cortó', null, '0'])).rows[0] as { id: string }
+
+    const list = await call('GET', `/llm-exchanges?application_id=${app}`, { bearer: a })
+    expect(list.status).toBe(200)
+    expect(list.json).toHaveLength(2)
+    expect(list.json[0]).toEqual(expect.objectContaining({ application_id: app, model: 'gemini-3.8-flash', response_cache_hit: false }))
+    // La lista no trae prompts ni respuestas.
+    expect(JSON.stringify(list.json)).not.toMatch(/Distribuidora|portada|transactions":\[/)
+    expect((await call('GET', `/llm-exchanges?application_id=${app}&outcome=error`, { bearer: a })).json.map((x) => (x as { id: string }).id)).toEqual([badRow.id])
+    expect((await call('GET', '/llm-exchanges?outcome=raro', { bearer: a })).status).toBe(400)
+
+    const detail = await call('GET', `/llm-exchanges/${okRow.id}`, { bearer: a })
+    expect(detail.status).toBe(200)
+    expect(detail.json).toMatchObject({ id: okRow.id, outcome: 'ok', system: 'Extrae la portada.', instruction: 'Páginas 1-2.', document_sha256: 'c'.repeat(64), response: { holder: 'Distribuidora Ficticia' }, usage, cost_usd: 0.0004, latency_ms: 900 })
+    expect((await call('GET', `/llm-exchanges/${badRow.id}`, { bearer: a })).json).toMatchObject({ outcome: 'error', error_code: 'max_tokens', error_message: 'la respuesta se cortó', raw_output: '{"transactions":[{"amount":', response: null })
+    const log = await q("SELECT actor, subject, details FROM app.audit_log WHERE action = 'llm_exchange.viewed' AND subject = $1", [okRow.id])
+    expect(log.rows).toEqual([{ actor: `user:${userA}`, subject: okRow.id, details: { application_id: app } }])
+    expect(JSON.stringify(log.rows)).not.toMatch(/Distribuidora/)
+
+    // Otro tenant no ve nada.
+    expect((await call('GET', '/llm-exchanges', { bearer: b })).json).toEqual([])
+    expect((await call('GET', `/llm-exchanges/${okRow.id}`, { bearer: b })).status).toBe(404)
+  })
+
   it('usuarios: invitar devuelve el enlace una vez, no se puede quitar a sí mismo y cada tenant ve solo los suyos', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))

@@ -227,6 +227,11 @@ muestra personalización y el loop de aprendizaje.
   Mastra y los trabajos de la cola los borra el worker con `supplier.purge`. La bitácora guarda solo
   los conteos.
 
+- **Wizard del primer inicio (ADR 0060).** Con el sistema vacío, `/entrar` lleva a
+  `/configuracion-inicial`: crea el tenant, su política base y al administrador (`POST /bo/v1/setup`) y
+  sigue con la tarjeta de WhatsApp de Configuración. Sin código ni límites: pensado para correr solo en
+  local; antes de exponer la API hay que cerrarlo (ADR 0060, "Seguridad").
+
 - **Llamadas al modelo en la bitácora (ADR 0064).** Bitácora tiene dos pestañas: Movimientos (quién
   hizo qué) y Llamadas al modelo. La segunda lista cada llamada con propósito, modelo, resultado,
   tokens, costo y tiempo, filtrable por solicitud y por error; el detalle muestra el system prompt, la

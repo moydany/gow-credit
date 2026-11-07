@@ -1,5 +1,6 @@
 /**
- * Login por correo (ADR 0035) con GoTrue simulado y sin base: estas rutas no tocan Postgres.
+ * Login por correo (ADR 0035) con GoTrue simulado y sin base: estas rutas no tocan Postgres
+ * (salvo la configuración, que pregunta si falta el primer inicio y aquí contesta una base falsa).
  * Siempre 202 con el mismo cuerpo, exista o no la cuenta; anti-CSRF; límite por IP (429) y por
  * correo (en silencio); sin Supabase Auth la ruta no existe y la configuración lo dice.
  */
@@ -29,7 +30,7 @@ function fakeAuth() {
 }
 
 async function serve(auth: AuthDirectory | null): Promise<{ server: Server; base: string }> {
-  const server = createServer(createApp({ db: {} as Db, boss: {} as PgBoss, storage: {} as DocumentStorage, backofficeJwtSecret: SECRET, backofficeUrl: 'https://bo.prestamista.test/', auth }))
+  const server = createServer(createApp({ db: { execute: () => Promise.resolve({ rows: [{ pending: false }] }) } as unknown as Db, boss: {} as PgBoss, storage: {} as DocumentStorage, backofficeJwtSecret: SECRET, backofficeUrl: 'https://bo.prestamista.test/', auth }))
   server.listen(0)
   await new Promise((r) => server.once('listening', r))
   return { server, base: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/bo/v1` }
@@ -57,8 +58,8 @@ describe('Backoffice: enlace de acceso por correo', () => {
   })
 
   it('la configuración dice si hay login por correo', async () => {
-    expect(await (await fetch(`${on.base}/session/config`)).json()).toEqual({ magic_link: true })
-    expect(await (await fetch(`${off.base}/session/config`)).json()).toEqual({ magic_link: false })
+    expect(await (await fetch(`${on.base}/session/config`)).json()).toEqual({ magic_link: true, setup_required: false })
+    expect(await (await fetch(`${off.base}/session/config`)).json()).toEqual({ magic_link: false, setup_required: false })
   })
 
   it('misma respuesta 202 exista o no la cuenta; el enlace apunta a /entrar del backoffice', async () => {

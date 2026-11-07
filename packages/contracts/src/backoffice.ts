@@ -210,8 +210,27 @@ export type TenantUserCreated = z.infer<typeof TenantUserCreated>
 // ---------- Sesión: login por correo con Supabase Auth (ADR 0035)
 
 /** Qué formas de entrar ofrece la API; sin Supabase Auth solo el enlace con el JWT. */
-export const SessionConfig = z.strictObject({ magic_link: z.boolean() })
+export const SessionConfig = z.strictObject({
+  magic_link: z.boolean(),
+  setup_required: z.boolean().describe('true mientras no exista ningún tenant: el backoffice ofrece el wizard del primer inicio (ADR 0060)'),
+})
 export type SessionConfig = z.infer<typeof SessionConfig>
+
+/**
+ * Primer inicio (ADR 0060): nombre del prestamista y correo de su administrador. El número de
+ * WhatsApp del tenant es opcional; el que se vincula de verdad es el del QR.
+ */
+export const SetupBody = z.strictObject({
+  tenant_name: z.string().trim().min(2, 'Escribe el nombre del prestamista').max(120),
+  email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')),
+  whatsapp_number: z
+    .string()
+    .trim()
+    .regex(/^\+[1-9]\d{7,14}$/, 'Usa el formato internacional, por ejemplo +5215512345678')
+    .nullable()
+    .default(null),
+})
+export type SetupBody = z.input<typeof SetupBody>
 
 /**
  * Lo que manda `/entrar` para crear la sesión: el JWT y, con Supabase Auth, el refresh token del

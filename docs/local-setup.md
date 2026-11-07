@@ -149,6 +149,11 @@ modelo. Sin `--cache read`, `evaluate` sobre documentos nuevos sí paga (README,
 
 ## 7. Modo full con el Supabase local
 
+**Un comando.** Con Docker abierto, `pnpm stack:up` levanta Supabase, migra y arranca la API, el worker,
+WhatsApp y el backoffice (ADR 0061). Abre `http://127.0.0.1:5173`: el wizard crea al prestamista y al
+administrador y muestra el QR de WhatsApp. `pnpm stack:down` lo detiene y `pnpm stack:reset` borra los
+datos. Lo que sigue es la forma manual, para desarrollar con cada proceso en su terminal.
+
 Abre Docker Desktop y sigue estos pasos desde la raíz del repositorio. El detalle está en el
 README, "Modo full con Supabase local".
 
@@ -218,8 +223,8 @@ Para comprobar el modo full completo, con `app.env` cargado:
 pnpm scenario run --all --mode full
 ```
 
-WhatsApp es opcional: con `WHATSAPP_TENANT_ID=<id> pnpm whatsapp` corriendo, se vincula en
-Configuración → Canales escaneando el QR. Sin él, las aclaraciones se responden a mano desde el
+WhatsApp es opcional: con `pnpm whatsapp` corriendo (descubre solo al tenant, sin variables), se vincula
+en Configuración → Canales, o en el último paso del wizard, escaneando el QR. Sin él, las aclaraciones se responden a mano desde el
 backoffice.
 
 ## Si algo falla

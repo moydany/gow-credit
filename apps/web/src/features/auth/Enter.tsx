@@ -1,6 +1,6 @@
 import { MagicLinkBody } from '@gow/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
+import { Navigate, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { Icon, Logo } from '../../ui/icons'
@@ -28,7 +28,7 @@ type State = { kind: 'idle' } | { kind: 'working' } | { kind: 'error'; message: 
 export function Enter() {
   const navigate = useNavigate()
   const [state, setState] = useState<State>({ kind: 'idle' })
-  const config = useQuery({ queryKey: ['session-config'], queryFn: api.sessionConfig, retry: false, staleTime: Infinity })
+  const config = useQuery({ queryKey: ['session-config'], queryFn: api.sessionConfig, retry: false, staleTime: 30_000 })
   const magicLink = config.data?.magic_link === true
 
   useEffect(() => {
@@ -48,6 +48,9 @@ export function Enter() {
         setState({ kind: 'error', message: e instanceof ApiError ? e.message : 'No se pudo iniciar sesión' })
       })
   }, [navigate])
+
+  // Sistema vacío (primer inicio): no hay a quién pedirle un enlace, se configura primero (ADR 0060).
+  if (config.data?.setup_required) return <Navigate to="/configuracion-inicial" />
 
   return (
     <div className="grid min-h-dvh place-items-center p-4">

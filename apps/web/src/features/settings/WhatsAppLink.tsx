@@ -74,7 +74,7 @@ export function WhatsAppLink({ settings }: { settings: TenantSettings }) {
     },
   })
   const registered = settings.whatsapp.number
-  const command = <Command>WHATSAPP_TENANT_ID={settings.tenant.id} pnpm whatsapp</Command>
+  const command = <Command>pnpm whatsapp</Command>
 
   return (
     <div className="inner p-4">
@@ -92,7 +92,7 @@ export function WhatsAppLink({ settings }: { settings: TenantSettings }) {
       ) : !data.process_running ? (
         <div className="mt-2.5 space-y-2 text-[13px] leading-relaxed text-muted">
           <p>
-            Para vincular el número, el proceso de WhatsApp de este prestamista tiene que estar corriendo. En desarrollo: {command}. En producción es el servicio <Command>whatsapp</Command> de Cloud Run, con una instancia fija.
+            Para vincular el número, el proceso de WhatsApp de este prestamista tiene que estar corriendo. En desarrollo: {command}; encuentra solo a este prestamista. Si hay varios, agrega <Command>WHATSAPP_TENANT_ID={settings.tenant.id}</Command>, que también fija el tenant en producción (servicio <Command>whatsapp</Command> de Cloud Run, con una instancia fija).
           </p>
           <p>
             {data.status === null ? 'Nunca ha corrido para este prestamista.' : `Su último estado fue a las ${dateTime(data.updated_at ?? '')}.`} Esta tarjeta se actualiza sola en cuanto arranque; mientras tanto, las aclaraciones sin WhatsApp las respondes desde Aclaraciones.

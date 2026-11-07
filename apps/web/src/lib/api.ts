@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -48,6 +48,7 @@ function queryString(q: Record<string, string | undefined>): string {
 export const api = {
   signIn: (token: string, refreshToken: string | null) => request<BackofficeMe>('POST', '/session', { token, ...(refreshToken ? { refresh_token: refreshToken } : {}) } satisfies SessionCreateBody),
   sessionConfig: () => request<SessionConfig>('GET', '/session/config'),
+  setup: (body: SetupBody) => request<BackofficeMe>('POST', '/setup', body),
   requestMagicLink: (email: string) => request<MagicLinkAccepted>('POST', '/session/magic-link', { email }),
   signOut: () => request<undefined>('DELETE', '/session'),
   me: () => request<BackofficeMe>('GET', '/me'),
@@ -64,9 +65,9 @@ export const api = {
   activate: (id: string) => request<{ id: string; status: string }>('POST', `/policies/versions/${id}/activate`),
   recordOutcome: (body: { application_id: string; outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }) => request<{ ok: true }>('POST', '/outcomes', body),
   audit: () => request<AuditEntry[]>('GET', '/audit'),
-  suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),
   llmExchanges: (q: LlmExchangeListQuery) => request<LlmExchangeRow[]>('GET', `/llm-exchanges${queryString(q)}`),
   llmExchange: (id: string) => request<LlmExchangeDetail>('GET', `/llm-exchanges/${id}`),
+  suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),
   supplier: (id: string) => request<SupplierDetail>('GET', `/suppliers/${id}`),
   createSupplier: (body: SupplierCreateBody) => request<{ id: string }>('POST', '/suppliers', body),
   updateSupplier: (id: string, body: SupplierUpdateBody) => request<{ id: string; fields: string[] }>('PATCH', `/suppliers/${id}`, body),

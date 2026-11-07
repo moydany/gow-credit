@@ -5,51 +5,25 @@
  * usuario; la vista de una solicitud también (docs/08 §2, "quién vio qué").
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { apiKeys, applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, supplierContacts, suppliers, tenants, tenantUsers, whatsappSessions, withTenant, type Db, type Tx } from '@gow/db'
+import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ApiKeyCreateBody, ClarificationStatus, CorrectionTarget, MagicLinkBody, SupplierCreateBody, SupplierDeleted, SupplierUpdateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus, type SupplierDetail, type SupplierRow, type TenantSettings, TenantSettingsUpdateBody, type TenantUserCreated, type TenantUserItem, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
-import { enqueuePurge, pathBelongsTo, type DocumentStorage, type PgBoss } from '@gow/platform'
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { ClarificationStatus, CorrectionTarget, MagicLinkBody, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, SetupBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
+import { basePolicyTemplate } from '@gow/decision'
+import { pathBelongsTo } from '@gow/platform'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
-import { hashSecret, newApiKey } from './admin.ts'
 import { answerClarification, audit, createPolicyDraft, discardDocument, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 import { clearedCookies, CSRF_HEADER, issueToken, openRefresh, readCookie, REFRESH_COOKIE, refreshCookie, refreshRemaining, sealRefresh, SESSION_COOKIE, sessionCookie, verifyToken, type RefreshPayload, type SessionClaims, type SessionLimits } from './session.ts'
+import { llmRouter } from './bo/llm.ts'
+import { settingsRouter } from './bo/settings.ts'
+import { actorOf, backofficeBase, ENTER_PATH, iso, PENDING_SUPPLIER_NAME, SESSION_SECONDS, SUPPLIER_NOT_FOUND, type BackofficeDeps, type Who, who, whatsappSession } from './bo/shared.ts'
+import { suppliersRouter } from './bo/suppliers.ts'
+import { teamRouter } from './bo/team.ts'
 import type { AuthDirectory } from './supabase-auth.ts'
 
-export interface BackofficeDeps {
-  db: Db
-  boss: PgBoss
-  storage: DocumentStorage
-  backofficeJwtSecret: string
-  secureCookies?: boolean
-  /** Origen del backoffice para el enlace de acceso de un usuario invitado (`BACKOFFICE_URL`). */
-  backofficeUrl?: string | null
-  /**
-   * Supabase Auth (ADR 0035): con él, dar de alta a un usuario crea su cuenta de Auth y se entra con
-   * un enlace que llega por correo. Sin él, el enlace con el JWT de desarrollo de siempre.
-   */
-  auth?: AuthDirectory | null
-  /**
-   * Con Supabase Auth la sesión se renueva sola (ADR 0036) hasta `sessionMaxHours` desde el login
-   * (`BACKOFFICE_SESSION_MAX_HOURS`, 12 por defecto) o hasta `sessionIdleHours` sin renovarse
-   * (`BACKOFFICE_SESSION_IDLE_HOURS`, 8 por defecto).
-   */
-  sessionMaxHours?: number
-  sessionIdleHours?: number
-  logger?: { error(message: string): void }
-}
+export type { BackofficeDeps }
 
-interface Who {
-  userId: string
-  email: string
-  tenantId: string
-}
-
-/** Nombre que se muestra de un proveedor que se registra por WhatsApp y aún no confirma sus datos (ADR 0047). */
-const PENDING_SUPPLIER_NAME = 'Por confirmar (registro por WhatsApp)'
-
-const SESSION_SECONDS = 8 * 60 * 60
 /**
  * Con menos de esto de vida, el access token se renueva en la petición que llegue: 5 min, o la mitad
  * de su vida si es más corta (un `JWT_EXPIRY` de 2 min no renueva en cada petición).
@@ -62,9 +36,12 @@ const refreshBefore = (c: SessionClaims) => (c.iat === undefined ? REFRESH_BEFOR
  */
 const REFRESH_SHARE_MS = 30_000
 const nowSeconds = () => Math.floor(Date.now() / 1000)
+const SESSION_REQUIRED = 'sesión requerida'
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'error')
-/** Ruta del backoffice que termina el login: lee el token del fragmento y lo cambia por la cookie. */
-const ENTER_PATH = '/entrar'
+/** Una escritura con cookie debe traer el encabezado: un formulario de otro sitio no puede ponerlo. */
+function assertCsrf(req: Request): void {
+  if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+}
 
 /**
  * Ventana fija por llave en memoria (un proceso de API). Se limpia sola al crecer: un atacante que
@@ -84,56 +61,6 @@ function windowLimiter(limit: number, windowMs: number) {
   }
 }
 
-const who = (res: Response) => res.locals.who as Who
-const actorOf = (w: Who) => `user:${w.userId}`
-const iso = (d: Date | string | null): string | null => (d === null ? null : new Date(d).toISOString())
-
-/** Violación de unicidad de Postgres, venga directa o envuelta por Drizzle. */
-/** El proveedor tiene una solicitud en proceso (`app.purge_supplier`, 55006 object_in_use). */
-function inUse(e: unknown): boolean {
-  for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
-    if ((x as { code?: unknown }).code === '55006') return true
-  }
-  return false
-}
-
-const PurgeResult = z.object({ application_ids: z.array(z.uuid()), run_ids: z.array(z.string()), storage_paths: z.array(z.string()), counts: SupplierDeleted.shape.counts })
-
-function uniqueViolation(e: unknown): boolean {
-  for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
-    if ((x as { code?: unknown }).code === '23505') return true
-  }
-  return false
-}
-
-/** Columnas visibles de una llave de API: el hash nunca sale de la base (ni siquiera hay privilegio para leerlo). */
-const apiKeyColumns = { id: apiKeys.id, prefix: apiKeys.prefix, scopes: apiKeys.scopes, createdAt: apiKeys.createdAt, revokedAt: apiKeys.revokedAt }
-const apiKeyItem = (k: { id: string; prefix: string; scopes: string[]; createdAt: Date; revokedAt: Date | null }): ApiKeyItem => ({ id: k.id, prefix: k.prefix, scopes: k.scopes as ApiKeyItem['scopes'], created_at: k.createdAt.toISOString(), revoked_at: iso(k.revokedAt) })
-
-/** Sin latido en este lapso, el proceso de WhatsApp se da por detenido (late cada ~10 s). */
-const WHATSAPP_STALE_SECONDS = 30
-
-/**
- * Estado de la sesión de WhatsApp del tenant. Vigencia del latido y del QR con el reloj de la base,
- * el mismo con el que escribe el proceso: sin desfase entre máquinas.
- */
-async function whatsappSession(tx: Tx, tenantId: string) {
-  const [row] = await tx
-    .select({
-      status: whatsappSessions.status,
-      linkedNumber: whatsappSessions.linkedNumber,
-      qr: whatsappSessions.qr,
-      qrExpiresAt: whatsappSessions.qrExpiresAt,
-      updatedAt: whatsappSessions.updatedAt,
-      running: sql<boolean>`coalesce(${whatsappSessions.heartbeatAt} > now() - make_interval(secs => ${WHATSAPP_STALE_SECONDS}), false)`,
-      qrFresh: sql<boolean>`coalesce(${whatsappSessions.qrExpiresAt} > now(), false)`,
-      unlinkPending: sql<boolean>`coalesce(${whatsappSessions.unlinkRequestedAt} > coalesce(${whatsappSessions.unlinkHandledAt}, '-infinity'::timestamptz), false)`,
-    })
-    .from(whatsappSessions)
-    .where(eq(whatsappSessions.tenantId, tenantId))
-  return row ?? null
-}
-
 export function backofficeRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
   r.use(express.json({ limit: '2mb' }))
@@ -145,7 +72,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
 
   const attempts = new Map<string, { start: number; count: number }>()
   const secure = deps.secureCookies === true
-  const backofficeBase = (deps.backofficeUrl ?? 'http://127.0.0.1:5173').replace(/\/+$/, '')
+  const backofficeOrigin = backofficeBase(deps)
   // Pedir enlaces: por IP responde 429; por correo se descarta en silencio (la respuesta no cambia).
   const magicLinkPerIp = windowLimiter(5, 60_000)
   const magicLinkPerEmail = windowLimiter(3, 15 * 60_000)
@@ -200,7 +127,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
 
   function unauthorized(res: Response, clear: boolean): HttpError {
     if (clear) res.setHeader('Set-Cookie', clearedCookies(secure))
-    return new HttpError(401, 'sesión requerida')
+    return new HttpError(401, SESSION_REQUIRED)
   }
 
   /**
@@ -259,7 +186,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
 
   /** Correo con el enlace de acceso, fuera de la petición: el tiempo de respuesta no dice si la cuenta existe. */
   function sendMagicLink(auth: AuthDirectory, email: string): void {
-    auth.sendMagicLink(email, `${backofficeBase}${ENTER_PATH}`).catch((e: unknown) => {
+    auth.sendMagicLink(email, `${backofficeOrigin}${ENTER_PATH}`).catch((e: unknown) => {
       deps.logger?.error(`backoffice: no se pidió el enlace de acceso (${e instanceof Error ? e.message : 'error'})`)
     })
   }
@@ -281,7 +208,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     const w0 = attempts.get(key)
     if (!w0 || now - w0.start > 60_000) attempts.set(key, { start: now, count: 1 })
     else if (++w0.count > 20) throw new HttpError(429, 'demasiados intentos')
-    if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+    assertCsrf(req)
     const body = parse(SessionCreateBody, req.body)
     const w = await membership(body.token)
     if (!w) throw new HttpError(401, 'el enlace de acceso no es válido o ya venció')
@@ -300,9 +227,46 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json(await meOf(w))
   })
 
-  r.get('/session/config', (_req, res) => {
-    const out: SessionConfig = { magic_link: Boolean(deps.auth) }
+  /** Si todavía no existe ningún tenant (`app.setup_pending`, ADR 0060). Solo contesta un booleano. */
+  async function setupPending(): Promise<boolean> {
+    const found = await deps.db.execute<{ pending: boolean }>(sql`select app.setup_pending() as pending`)
+    return found.rows[0]?.pending === true
+  }
+
+  r.get('/session/config', async (_req, res) => {
+    const out: SessionConfig = { magic_link: Boolean(deps.auth), setup_required: await setupPending() }
     res.json(out)
+  })
+
+  /**
+   * Primer inicio (ADR 0060): crea el tenant, su política base activa y a su administrador, y deja la
+   * sesión abierta con la misma cookie que el enlace de desarrollo. Solo funciona mientras no exista
+   * ningún tenant (la función de la base lo decide con un candado); después responde 409. Pensado para
+   * una instalación local: no pide más prueba de quién llama que esa.
+   */
+  r.post('/setup', async (req, res) => {
+    assertCsrf(req)
+    const body = parse(SetupBody, req.body)
+    const taken = new HttpError(409, 'el sistema ya tiene un prestamista configurado')
+    if (!(await setupPending())) throw taken
+    let userId: string = randomUUID()
+    if (deps.auth) {
+      // La cuenta de Auth se crea antes, para que el correo ya sirva con el enlace por correo después.
+      try {
+        userId = await deps.auth.ensureUser(body.email)
+      } catch (e) {
+        deps.logger?.error(`backoffice: no se creó la cuenta de Auth del primer inicio (${errorText(e)})`)
+        throw new HttpError(502, 'no se pudo crear la cuenta de acceso; intenta de nuevo')
+      }
+    }
+    const created = await deps.db.execute<{ tenant: string | null }>(
+      sql`select app.setup_first_tenant(${body.tenant_name}, ${body.whatsapp_number}, ${JSON.stringify(basePolicyTemplate())}::jsonb, ${userId}::uuid, ${body.email})::text as tenant`,
+    )
+    const tenantId = created.rows[0]?.tenant
+    if (!tenantId) throw taken
+    const token = issueToken(deps.backofficeJwtSecret, { sub: userId, email: body.email, tenant_id: tenantId }, SESSION_SECONDS)
+    res.setHeader('Set-Cookie', sessionCookie(token, { maxAgeSeconds: SESSION_SECONDS, secure }))
+    res.status(201).json(await meOf({ userId, email: body.email, tenantId }))
   })
 
   /**
@@ -314,7 +278,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     const auth = deps.auth
     if (!auth) throw new HttpError(404, 'no encontrado')
     if (!magicLinkPerIp(req.ip ?? 'local')) throw new HttpError(429, 'demasiados intentos; espera un minuto')
-    if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+    assertCsrf(req)
     const { email } = parse(MagicLinkBody, req.body)
     if (magicLinkPerEmail(createHash('sha256').update(email).digest('hex'))) sendMagicLink(auth, email)
     const out: MagicLinkAccepted = { accepted: true }
@@ -326,7 +290,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
    * deja de servir). Si el access token ya venció, se renueva una vez solo para poder cerrarla.
    */
   r.delete('/session', async (req, res) => {
-    if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+    assertCsrf(req)
     const auth = deps.auth
     if (auth) {
       const header = req.header('cookie')
@@ -351,7 +315,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (bearer) {
       // Con Bearer no hay cookies ni renovación: el token vale lo que dice su `exp`.
       const w = await membership(bearer)
-      if (!w) throw new HttpError(401, 'sesión requerida')
+      if (!w) throw new HttpError(401, SESSION_REQUIRED)
       res.locals.who = w
       next()
       return
@@ -360,7 +324,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     // revisa antes de renovar nada.
     const header = req.header('cookie')
     const withCookies = Boolean(readCookie(header, SESSION_COOKIE) ?? readCookie(header, REFRESH_COOKIE))
-    if (withCookies && !['GET', 'HEAD'].includes(req.method) && req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
+    if (withCookies && !['GET', 'HEAD'].includes(req.method)) assertCsrf(req)
     res.locals.who = await cookieSession(req, res)
     next()
   })
@@ -440,7 +404,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       const [a] = await tx.select().from(applications).where(eq(applications.id, id))
       if (!a) throw new HttpError(404, 'solicitud no encontrada')
       const [s] = await tx.select().from(suppliers).where(eq(suppliers.id, a.supplierId))
-      if (!s) throw new HttpError(404, 'proveedor no encontrado')
+      if (!s) throw new HttpError(404, SUPPLIER_NOT_FOUND)
       const links = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, id))
       const docs = links.length ? await tx.select().from(documents).where(inArray(documents.id, links.map((l) => l.documentId))) : []
       const [ex] = docs.length ? await tx.select().from(extractions).where(inArray(extractions.documentId, docs.map((d) => d.id))).orderBy(extractions.createdAt).limit(1) : []
@@ -562,337 +526,10 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json(list)
   })
 
-  // ---------- Proveedores: lista, alta, detalle y edición (docs/08 §2)
-  r.get('/suppliers', async (_req, res) => {
-    const rows = await withTenant(deps.db, who(res).tenantId, (tx) =>
-      tx.execute<{ id: string; legal_name: string; rfc: string | null; external_ref: string | null; created_at: Date; applications: number; last_id: string | null; last_status: ApplicationRow['status'] | null; last_at: Date | null }>(sql`
-        select s.id, coalesce(s.legal_name, ${PENDING_SUPPLIER_NAME}) as legal_name, s.rfc, s.external_ref, s.created_at,
-               (select count(*)::int from app.applications a where a.supplier_id = s.id) as applications,
-               l.id as last_id, l.status as last_status, l.created_at as last_at
-          from app.suppliers s
-          left join lateral (select a.id, a.status, a.created_at from app.applications a where a.supplier_id = s.id order by a.created_at desc limit 1) l on true
-         order by coalesce(l.created_at, s.created_at) desc
-         limit 500`),
-    )
-    const list: SupplierRow[] = rows.rows.map((x) => ({
-      id: x.id,
-      legal_name: x.legal_name,
-      rfc: x.rfc,
-      external_ref: x.external_ref,
-      applications: x.applications,
-      last_application: x.last_id && x.last_status && x.last_at ? { id: x.last_id, status: x.last_status, created_at: new Date(x.last_at).toISOString() } : null,
-      created_at: new Date(x.created_at).toISOString(),
-    }))
-    res.json(list)
-  })
-
-  /** Alta sin contactos: un vínculo verificado entra por la API de integración (KYC del tenant, docs/05 §2b). */
-  r.post('/suppliers', async (req, res) => {
-    const w = who(res)
-    const body = parse(SupplierCreateBody, req.body)
-    try {
-      const id = await withTenant(deps.db, w.tenantId, async (tx) => {
-        const [s] = await tx.insert(suppliers).values({ tenantId: w.tenantId, legalName: body.legal_name, rfc: body.rfc, externalRef: body.external_ref, clabes: body.clabes }).returning({ id: suppliers.id })
-        if (!s) throw new HttpError(500, 'no se creó el proveedor')
-        await audit(tx, w.tenantId, actorOf(w), 'supplier.created', s.id, { contacts: 0 })
-        return s.id
-      })
-      res.status(201).json({ id })
-    } catch (e) {
-      if (uniqueViolation(e)) throw new HttpError(409, 'ya existe un proveedor con esa referencia externa', [{ path: 'external_ref', message: 'referencia repetida' }])
-      throw e
-    }
-  })
-
-  r.get('/suppliers/:id', async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const w = who(res)
-    const out = await withTenant(deps.db, w.tenantId, async (tx) => {
-      const [s] = await tx.select().from(suppliers).where(eq(suppliers.id, id))
-      if (!s) throw new HttpError(404, 'proveedor no encontrado')
-      const contacts = await tx.select().from(supplierContacts).where(eq(supplierContacts.supplierId, id)).orderBy(supplierContacts.createdAt)
-      const apps = await tx.execute<{ id: string; status: ApplicationRow['status']; request: ApplicationRow['request']; created_at: Date; decision_status: NonNullable<ApplicationRow['decision']>['status'] | null; limit_amount: string | null; score: string | null; outcomes: { outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }[] }>(sql`
-        select a.id, a.status, a.request, a.created_at, d.status as decision_status, d.limit_amount, d.score,
-               coalesce((select jsonb_agg(jsonb_build_object('outcome', o.outcome, 'observed_at', o.observed_at) order by o.observed_at desc) from app.outcomes o where o.application_id = a.id), '[]'::jsonb) as outcomes
-          from app.applications a
-          left join lateral (select dd.status, dd.limit_amount, dd.score from app.decisions dd where dd.application_id = a.id and dd.kind = 'active' order by dd.created_at desc limit 1) d on true
-         where a.supplier_id = ${id}::uuid
-         order by a.created_at desc`)
-      // Ver un proveedor es ver su RFC y sus CLABEs: queda en la bitácora como ver una solicitud.
-      await audit(tx, w.tenantId, actorOf(w), 'supplier.viewed', id)
-      return { s, contacts, apps: apps.rows }
-    })
-    const detail: SupplierDetail = {
-      id: out.s.id,
-      legal_name: out.s.legalName ?? PENDING_SUPPLIER_NAME,
-      rfc: out.s.rfc,
-      external_ref: out.s.externalRef,
-      clabes: out.s.clabes,
-      created_at: out.s.createdAt.toISOString(),
-      contacts: out.contacts.map((c) => ({ id: c.id, channel: c.channel, address: c.address, verified_at: iso(c.verifiedAt), verification_method: c.verificationMethod, created_at: c.createdAt.toISOString() })),
-      applications: out.apps.map((a) => ({
-        id: a.id,
-        status: a.status,
-        request: a.request,
-        decision: a.decision_status ? { status: a.decision_status, limit: a.limit_amount === null ? null : Number(a.limit_amount), score: a.score === null ? null : Number(a.score) } : null,
-        outcomes: a.outcomes.map((o) => ({ outcome: o.outcome, observed_at: new Date(o.observed_at).toISOString() })),
-        created_at: new Date(a.created_at).toISOString(),
-      })),
-    }
-    res.json(detail)
-  })
-
-  /** Edición de razón social, RFC y CLABEs; la bitácora lleva solo los nombres de los campos, nunca los valores. */
-  r.patch('/suppliers/:id', async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const w = who(res)
-    const body = parse(SupplierUpdateBody, req.body)
-    const set = { ...(body.legal_name === undefined ? {} : { legalName: body.legal_name }), ...(body.rfc === undefined ? {} : { rfc: body.rfc }), ...(body.clabes === undefined ? {} : { clabes: body.clabes }) }
-    const fields = (['legal_name', 'rfc', 'clabes'] as const).filter((f) => body[f] !== undefined)
-    await withTenant(deps.db, w.tenantId, async (tx) => {
-      const [s] = await tx.update(suppliers).set(set).where(eq(suppliers.id, id)).returning({ id: suppliers.id })
-      if (!s) throw new HttpError(404, 'proveedor no encontrado')
-      await audit(tx, w.tenantId, actorOf(w), 'supplier.updated', id, { fields })
-    })
-    res.json({ id, fields })
-  })
-
-  /**
-   * Borrar un proveedor con todo lo suyo (ADR 0059): solicitudes, documentos, extracciones, decisiones,
-   * aclaraciones, resultados de crédito, correcciones, registro y mensajes. La base se borra en una sola
-   * transacción con `app.purge_supplier` (el rol de la API no tiene DELETE sobre esas tablas); los PDFs,
-   * los trabajos de la cola y el estado de Mastra los borra el worker con `supplier.purge`. Con una
-   * solicitud en proceso no se borra (409). La bitácora guarda solo los conteos.
-   */
-  r.delete('/suppliers/:id', async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const w = who(res)
-    let purged: z.infer<typeof PurgeResult>
-    try {
-      purged = await withTenant(deps.db, w.tenantId, async (tx) => {
-        const out = await tx.execute<{ purged: unknown }>(sql`select app.purge_supplier(${id}::uuid) as purged`)
-        const raw = out.rows[0]?.purged ?? null
-        if (raw === null) throw new HttpError(404, 'proveedor no encontrado')
-        const p = PurgeResult.parse(raw)
-        await audit(tx, w.tenantId, actorOf(w), 'supplier.deleted', id, p.counts)
-        return p
-      })
-    } catch (e) {
-      if (inUse(e)) throw new HttpError(409, 'el proveedor tiene una solicitud en proceso; espera a que termine y vuelve a intentar')
-      throw e
-    }
-    await enqueuePurge(deps.boss, { tenant_id: w.tenantId, supplier_id: id, application_ids: purged.application_ids, run_ids: purged.run_ids, storage_paths: purged.storage_paths.filter((p) => pathBelongsTo(p, w.tenantId)) })
-    const body: SupplierDeleted = { id, counts: purged.counts }
-    res.json(body)
-  })
-
-  // ---------- Configuración: canales del tenant (solo lectura) y ajustes del análisis
-  const settingsOf = (t: typeof tenants.$inferSelect): TenantSettings => ({
-    tenant: { id: t.id, name: t.name, created_at: t.createdAt.toISOString() },
-    whatsapp: { number: t.whatsappNumber },
-    email: { from: t.emailFrom },
-    analysis: { statement_max_age_months: t.statementMaxAgeMonths },
-  })
-  r.get('/settings', async (_req, res) => {
-    const w = who(res)
-    const [t] = await withTenant(deps.db, w.tenantId, (tx) => tx.select().from(tenants).where(eq(tenants.id, w.tenantId)))
-    if (!t) throw new HttpError(404, 'tenant no encontrado')
-    res.json(settingsOf(t))
-  })
-
-  /**
-   * Antigüedad máxima del estado de cuenta (ADR 0049). Aplica a las solicitudes que se analicen desde
-   * ahora y a las reevaluaciones; una solicitud ya en curso conserva el ajuste con que empezó.
-   */
-  r.patch('/settings', async (req, res) => {
-    const w = who(res)
-    const body = parse(TenantSettingsUpdateBody, req.body)
-    const t = await withTenant(deps.db, w.tenantId, async (tx) => {
-      const [before] = await tx.select({ months: tenants.statementMaxAgeMonths }).from(tenants).where(eq(tenants.id, w.tenantId))
-      if (!before) throw new HttpError(404, 'tenant no encontrado')
-      await tx.update(tenants).set({ statementMaxAgeMonths: body.statement_max_age_months }).where(eq(tenants.id, w.tenantId))
-      await audit(tx, w.tenantId, actorOf(w), 'settings.updated', w.tenantId, { statement_max_age_months: { from: before.months, to: body.statement_max_age_months } })
-      const [after] = await tx.select().from(tenants).where(eq(tenants.id, w.tenantId))
-      return after
-    })
-    if (!t) throw new HttpError(404, 'tenant no encontrado')
-    res.json(settingsOf(t))
-  })
-
-  // ---------- Configuración: vincular WhatsApp escaneando el QR (ADR 0033)
-  /**
-   * El QR solo sale con el proceso vivo, en `waiting_qr` y sin caducar. Quien lo escanee vincula su
-   * cuenta al bot del tenant: verlo queda en la bitácora una vez por valor del QR y usuario (el
-   * navegador lo consulta cada 2 s), con una huella truncada del valor y nunca el valor.
-   */
-  r.get('/whatsapp', async (_req, res) => {
-    const w = who(res)
-    const out = await withTenant(deps.db, w.tenantId, async (tx) => {
-      const s = await whatsappSession(tx, w.tenantId)
-      const qr = s?.running && s.status === 'waiting_qr' && s.qrFresh ? s.qr : null
-      if (s && qr) {
-        const digest = createHash('sha256').update(qr).digest('hex').slice(0, 16)
-        const seen = await tx.execute(sql`
-          select 1 from app.audit_log
-           where action = 'whatsapp.qr_viewed' and actor = ${actorOf(w)} and details->>'qr_digest' = ${digest} and at > now() - interval '15 minutes'
-           limit 1`)
-        if (!seen.rows.length) await audit(tx, w.tenantId, actorOf(w), 'whatsapp.qr_viewed', null, { qr_digest: digest })
-      }
-      return { s, qr }
-    })
-    const s = out.s
-    const state: WhatsAppLinkState = {
-      process_running: s?.running ?? false,
-      status: s?.status ?? null,
-      linked_number: s?.linkedNumber ?? null,
-      qr: out.qr,
-      qr_expires_at: out.qr ? iso(s?.qrExpiresAt ?? null) : null,
-      unlink_pending: s?.unlinkPending ?? false,
-      updated_at: iso(s?.updatedAt ?? null),
-    }
-    res.json(state)
-  })
-
-  /**
-   * Desvincular (o pedir un QR nuevo tras cerrar la sesión desde el teléfono): el proceso lo atiende
-   * en segundos, cierra la sesión en WhatsApp y publica un QR nuevo. Sin proceso vivo no hay quién
-   * lo atienda: 409.
-   */
-  r.post('/whatsapp/unlink', async (_req, res) => {
-    const w = who(res)
-    const at = await withTenant(deps.db, w.tenantId, async (tx) => {
-      const s = await whatsappSession(tx, w.tenantId)
-      if (!s?.running) throw new HttpError(409, 'el proceso de WhatsApp no está corriendo')
-      const [row] = await tx.update(whatsappSessions).set({ unlinkRequestedAt: sql`now()` }).where(eq(whatsappSessions.tenantId, w.tenantId)).returning({ at: whatsappSessions.unlinkRequestedAt })
-      if (!row?.at) throw new HttpError(409, 'el proceso de WhatsApp no está corriendo')
-      await audit(tx, w.tenantId, actorOf(w), 'whatsapp.unlink_requested', null, { status: s.status })
-      return row.at
-    })
-    const out: WhatsAppUnlinkRequested = { unlink_requested_at: at.toISOString() }
-    res.status(202).json(out)
-  })
-
-  // ---------- Configuración: usuarios del backoffice
-  r.get('/users', async (_req, res) => {
-    const w = who(res)
-    const rows = await withTenant(deps.db, w.tenantId, (tx) =>
-      tx.execute<{ user_id: string; email: string; created_at: Date; invited_by: string | null }>(sql`
-        select u.user_id, u.email, u.created_at, i.email as invited_by
-          from app.tenant_users u left join app.tenant_users i on i.user_id = u.invited_by
-         order by u.created_at`),
-    )
-    const list: TenantUserItem[] = rows.rows.map((u) => ({ id: u.user_id, email: u.email, created_at: new Date(u.created_at).toISOString(), invited_by: u.invited_by, is_me: u.user_id === w.userId }))
-    res.json(list)
-  })
-
-  /**
-   * Invitar: da de alta la pertenencia. Sin Supabase Auth devuelve, una sola vez, el enlace de acceso
-   * con el mismo JWT que emite `pnpm tenant user add`. Con Supabase Auth (ADR 0035) crea o encuentra
-   * la cuenta de Auth, guarda su id como `user_id` y le manda el enlace por correo; no hay enlace que
-   * compartir. Un usuario que ya existe no recibe enlace nuevo por aquí: sería entrar a nombre de otro.
-   */
-  r.post('/users', async (req, res) => {
-    const w = who(res)
-    const body = parse(TenantUserCreateBody, req.body)
-    const conflict = new HttpError(409, 'ese correo ya tiene acceso al backoffice', [{ path: 'email', message: 'correo ya registrado' }])
-    const memberOfThisTenant = async (tx: Tx) => (await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))).length > 0
-    let userId: string = randomUUID()
-    if (deps.auth) {
-      // Antes de tocar Auth, para no crear cuentas por un conflicto que ya se ve aquí.
-      if (await withTenant(deps.db, w.tenantId, memberOfThisTenant)) throw conflict
-      try {
-        userId = await deps.auth.ensureUser(body.email)
-      } catch (e) {
-        deps.logger?.error(`backoffice: no se creó la cuenta de Auth (${e instanceof Error ? e.message : 'error'})`)
-        throw new HttpError(502, 'no se pudo crear la cuenta de acceso; intenta de nuevo')
-      }
-    }
-    let row: { userId: string; email: string; createdAt: Date }
-    try {
-      row = await withTenant(deps.db, w.tenantId, async (tx) => {
-        if (await memberOfThisTenant(tx)) throw conflict
-        const [u] = await tx.insert(tenantUsers).values({ tenantId: w.tenantId, userId, email: body.email, invitedBy: w.userId }).returning()
-        if (!u) throw new HttpError(500, 'no se agregó el usuario')
-        await audit(tx, w.tenantId, actorOf(w), 'user.added', u.userId)
-        return u
-      })
-    } catch (e) {
-      // El correo es único entre tenants: si es de otro, RLS no deja verlo y la unicidad lo detiene.
-      // Con Supabase la cuenta de Auth ya existe y se queda sin pertenencia: sin tenant_id no entra.
-      if (uniqueViolation(e)) throw conflict
-      throw e
-    }
-    const user = { id: row.userId, email: row.email, created_at: row.createdAt.toISOString(), invited_by: w.email, is_me: false }
-    if (deps.auth) {
-      const sent = await deps.auth.sendMagicLink(row.email, `${backofficeBase}${ENTER_PATH}`).catch((e: unknown) => {
-        deps.logger?.error(`backoffice: no se mandó el enlace al invitado (${e instanceof Error ? e.message : 'error'})`)
-        return false
-      })
-      const out: TenantUserCreated = { user, access_link: null, expires_at: null, email_sent: sent }
-      return void res.status(201).json(out)
-    }
-    const token = issueToken(deps.backofficeJwtSecret, { sub: row.userId, email: row.email, tenant_id: w.tenantId }, SESSION_SECONDS)
-    const out: TenantUserCreated = {
-      user,
-      access_link: `${backofficeBase}${ENTER_PATH}#token=${token}`,
-      expires_at: new Date(Date.now() + SESSION_SECONDS * 1000).toISOString(),
-      email_sent: false,
-    }
-    res.status(201).json(out)
-  })
-
-  /**
-   * Quitar a un usuario corta su sesión en la siguiente petición (la pertenencia se lee siempre). Con
-   * Supabase Auth solo se quita la pertenencia: la cuenta de Auth se queda (sin tenant_id no entra) y
-   * su id sigue explicando la bitácora.
-   */
-  r.delete('/users/:id', async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const w = who(res)
-    if (id === w.userId) throw new HttpError(409, 'no puedes quitarte a ti mismo')
-    await withTenant(deps.db, w.tenantId, async (tx) => {
-      const [u] = await tx.delete(tenantUsers).where(eq(tenantUsers.userId, id)).returning({ id: tenantUsers.userId })
-      if (!u) throw new HttpError(404, 'usuario no encontrado')
-      await audit(tx, w.tenantId, actorOf(w), 'user.removed', id)
-    })
-    res.status(204).end()
-  })
-
-  // ---------- Configuración: llaves de API (la completa se muestra una vez; se guarda el hash)
-  r.get('/api-keys', async (_req, res) => {
-    const rows = await withTenant(deps.db, who(res).tenantId, (tx) => tx.select(apiKeyColumns).from(apiKeys).orderBy(desc(apiKeys.createdAt)))
-    res.json(rows.map(apiKeyItem))
-  })
-
-  r.post('/api-keys', async (req, res) => {
-    const w = who(res)
-    const body = parse(ApiKeyCreateBody, req.body)
-    const key = newApiKey()
-    const row = await withTenant(deps.db, w.tenantId, async (tx) => {
-      const [k] = await tx.insert(apiKeys).values({ tenantId: w.tenantId, prefix: key.prefix, keyHash: hashSecret(key.secret), scopes: body.scopes }).returning(apiKeyColumns)
-      if (!k) throw new HttpError(500, 'no se creó la llave')
-      await audit(tx, w.tenantId, actorOf(w), 'api_key.created', k.id, { prefix: k.prefix, scopes: k.scopes })
-      return k
-    })
-    const out: ApiKeyCreated = { key: apiKeyItem(row), secret_key: key.key }
-    res.status(201).json(out)
-  })
-
-  /** Revocar es inmediato: `resolve_api_key` ignora las revocadas. La fila se conserva para la bitácora. */
-  r.post('/api-keys/:id/revoke', async (req, res) => {
-    const id = parse(z.uuid(), req.params.id)
-    const w = who(res)
-    const row = await withTenant(deps.db, w.tenantId, async (tx) => {
-      const [k] = await tx.update(apiKeys).set({ revokedAt: new Date() }).where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt))).returning(apiKeyColumns)
-      if (!k) {
-        const [exists] = await tx.select({ id: apiKeys.id }).from(apiKeys).where(eq(apiKeys.id, id))
-        throw exists ? new HttpError(409, 'la llave ya está revocada') : new HttpError(404, 'llave no encontrada')
-      }
-      await audit(tx, w.tenantId, actorOf(w), 'api_key.revoked', k.id, { prefix: k.prefix })
-      return k
-    })
-    res.json(apiKeyItem(row))
-  })
+  r.use(suppliersRouter(deps))
+  r.use(settingsRouter(deps))
+  r.use(teamRouter(deps))
+  r.use(llmRouter(deps))
 
   return r
 }

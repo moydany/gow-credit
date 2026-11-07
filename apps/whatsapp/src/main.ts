@@ -1,49 +1,44 @@
 /* eslint-disable no-console -- punto de entrada: estado de la conexión y el QR para vincular, sin PII */
 /**
- * pnpm whatsapp: una sesión de Baileys para un tenant (WHATSAPP_TENANT_ID). El número se vincula
+ * pnpm whatsapp: una sesión de Baileys para un tenant. Sin configurar nada, el tenant es el único que
+ * exista (se espera a que se cree en el primer inicio); `WHATSAPP_TENANT_ID` lo fija cuando hay varios,
+ * o en producción. El número se vincula
  * escaneando el QR desde el backoffice (Configuración, ADR 0033): este proceso publica el estado de
  * la sesión en `app.whatsapp_sessions` y atiende "Desvincular". En una terminal interactiva el QR
  * también se dibuja aquí (y se guarda como qr.png junto a la sesión); sin terminal (Cloud Run) no
  * se imprime, para que nunca llegue a los registros. Después la sesión queda guardada y no se
  * vuelve a pedir.
  */
-import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { connect, databaseUrl } from '@gow/db'
+import { startHealthListener } from '@gow/platform/health'
 import { BaileysTransport } from './baileys.ts'
 import { renderQrForTerminal, writeQrPng } from './qr.ts'
 import { startRelay } from './relay.ts'
 import { startSessionPublisher } from './session.ts'
+import { resolveTenantId } from './tenant.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
-const tenantId = process.env.WHATSAPP_TENANT_ID
-if (!tenantId) {
-  console.error('Falta WHATSAPP_TENANT_ID: el tenant de este número')
-  process.exit(2)
-}
 const db = connect(databaseUrl('whatsapp'), { max: 3 })
-const authDir = process.env.WHATSAPP_AUTH_DIR ?? join(REPO, 'data/whatsapp', tenantId)
-const qrPng = join(authDir, 'qr.png')
 const interactive = process.stdout.isTTY
 const line = (fields: Record<string, string>) => {
   console.log(JSON.stringify({ at: new Date().toISOString(), ...fields }))
 }
 
-/**
- * Cloud Run exige que un servicio escuche en PORT aunque no reciba tráfico: con la variable, un
- * listener mínimo de salud en todas las interfaces; sin ella (local), nada.
- */
-function startHealthListener(log: (message: string) => void): void {
-  const port = process.env.PORT
-  if (!port) return
-  createServer((_req, res) => {
-    res.statusCode = 200
-    res.end('ok')
-  }).listen(Number(port), '0.0.0.0', () => {
-    log(`listener de salud en el puerto ${port}`)
-  })
-}
 startHealthListener((m) => { line({ health: m }) })
+
+// Sin WHATSAPP_TENANT_ID, el proceso descubre su tenant (el único que exista) y espera a que el wizard
+// del backoffice lo cree si todavía no hay ninguno (ADR 0060).
+const tenantId = await resolveTenantId({
+  db: db.db,
+  configured: process.env.WHATSAPP_TENANT_ID,
+  onWaiting: () => {
+    line({ tenant: 'esperando', hint: 'crea al prestamista en el backoffice (primer inicio); con varios prestamistas define WHATSAPP_TENANT_ID' })
+  },
+})
+line({ tenant: process.env.WHATSAPP_TENANT_ID?.trim() ? 'configurado' : 'descubierto' })
+const authDir = process.env.WHATSAPP_AUTH_DIR ?? join(REPO, 'data/whatsapp', tenantId)
+const qrPng = join(authDir, 'qr.png')
 
 const transport = new BaileysTransport({
   authDir,
