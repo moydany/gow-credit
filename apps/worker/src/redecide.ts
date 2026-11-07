@@ -16,14 +16,57 @@ import { z } from 'zod'
 import { insertDecisions, loadContext, queueVerdict, requestOf, supplierIdentity } from './store.ts'
 import type { WorkerServices } from './worker.ts'
 
-/** The other months sent together (ADR 0072): their first extraction as stored; corrections go to the first document. */
-async function storedExtractions(tx: Tx, documentIds: readonly string[]): Promise<unknown[]> {
-  const out: unknown[] = []
+/** The first extraction of each document, as stored. */
+async function storedExtractions(tx: Tx, documentIds: readonly string[]): Promise<{ documentId: string; payload: unknown }[]> {
+  const out: { documentId: string; payload: unknown }[] = []
   for (const id of documentIds) {
     const [o] = await tx.select({ payload: extractions.payload }).from(extractions).where(eq(extractions.documentId, id)).orderBy(asc(extractions.createdAt)).limit(1)
-    if (o) out.push(o.payload)
+    if (o) out.push({ documentId: id, payload: o.payload })
   }
   return out
+}
+
+const rangesOf = (s: StatementExtraction): [string, string][] => s.accounts.flatMap((a) => a.periods.flatMap((p) => (p.period_start.value && p.period_end.value ? [[p.period_start.value, p.period_end.value] as [string, string]] : [])))
+
+/**
+ * The submitted statements and, from the answers, those that add months (ADR 0072): an answer that
+ * covers days already there replaced or repeated a document and stays out, as in the workflow.
+ */
+function withAddedMonths(submitted: readonly StatementExtraction[], answers: readonly StatementExtraction[]): StatementExtraction[] {
+  const out = [...submitted]
+  for (const s of answers) {
+    const taken = out.flatMap(rangesOf)
+    if (!rangesOf(s).some(([a, b]) => taken.some(([c, d]) => a <= d && c <= b))) out.push(s)
+  }
+  return out
+}
+
+/**
+ * What the re-evaluation starts from: corrections, answered rounds, the last verdict and the
+ * statements, each with its own corrections (ADR 0072). A failed extraction stays out unless it is
+ * the first one; answers add months only if they do not overlap.
+ */
+async function loadForRedecide(s: WorkerServices, job: RedecideJob, applicationId: string, submitted: readonly { id: string }[], answered: readonly { id: string }[]) {
+  const loaded = await withTenant(s.db, job.tenant_id, async (tx) => {
+    const fixes = await tx.select().from(corrections).where(eq(corrections.applicationId, applicationId)).orderBy(asc(corrections.createdAt))
+    const rounds = await tx.select().from(clarifications).where(and(eq(clarifications.applicationId, applicationId), eq(clarifications.status, 'answered'))).orderBy(asc(clarifications.round))
+    const [last] = await tx.select({ payload: decisions.payload }).from(decisions).where(and(eq(decisions.applicationId, applicationId), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
+    return { fixes, rounds, last, rows: await storedExtractions(tx, [...submitted, ...answered].map((d) => d.id)) }
+  })
+  const corrected = (id: string) =>
+    loaded.rows
+      .filter((r) => r.documentId === id)
+      .map((r) =>
+        applyCorrections(
+          StatementExtraction.parse(r.payload),
+          loaded.fixes.filter((c) => c.documentId === id).map((c) => ({ target: CorrectionTarget.parse(c.target), value: z.union([z.string(), z.number()]).parse(c.value) })),
+        ),
+      )
+  const [first, ...rest] = submitted.flatMap((d) => corrected(d.id))
+  if (!first) throw new Error('la solicitud no tiene extracción')
+  const usable = (x: StatementExtraction) => x.extraction.status !== 'failed'
+  const statements = withAddedMonths([first, ...rest.filter(usable)], answered.flatMap((d) => corrected(d.id)).filter(usable))
+  return { ...loaded, statements, submittedSha: new Set([first, ...rest].map((x) => x.document.sha256)) }
 }
 
 export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promise<string> {
@@ -31,30 +74,22 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
   // The API puts the request in `deciding` when saving corrections; if it no longer is, this job already ran.
   if (ctx.application.status !== 'deciding') return ctx.application.status
   if (!ctx.active) throw new Error('el tenant no tiene una política activa')
-  const [doc, ...extra] = ctx.submitted.length > 0 ? ctx.submitted : ctx.documents
+  // Submitted documents first, then the ones answers brought (the missing months, ADR 0072).
+  const submitted = ctx.submitted.length > 0 ? ctx.submitted : ctx.documents
+  const answered = ctx.documents.filter((d) => !submitted.some((x) => x.id === d.id))
+  const [doc, ...extra] = submitted
   if (!doc) throw new Error('la solicitud no tiene documento')
 
-  const loaded = await withTenant(s.db, job.tenant_id, async (tx) => {
-    const [ex] = await tx.select().from(extractions).where(eq(extractions.documentId, doc.id)).orderBy(asc(extractions.createdAt)).limit(1)
-    const fixes = await tx.select().from(corrections).where(eq(corrections.applicationId, ctx.application.id)).orderBy(asc(corrections.createdAt))
-    const rounds = await tx.select().from(clarifications).where(and(eq(clarifications.applicationId, ctx.application.id), eq(clarifications.status, 'answered'))).orderBy(asc(clarifications.round))
-    const [last] = await tx.select({ payload: decisions.payload }).from(decisions).where(and(eq(decisions.applicationId, ctx.application.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
-    return { ex, fixes, rounds, last, others: await storedExtractions(tx, extra.map((d) => d.id)) }
-  })
-  if (!loaded.ex) throw new Error('la solicitud no tiene extracción')
-
-  let statement = applyCorrections(
-    StatementExtraction.parse(loaded.ex.payload),
-    loaded.fixes.map((c) => ({ target: CorrectionTarget.parse(c.target), value: z.union([z.string(), z.number()]).parse(c.value) })),
-  )
-  const others = loaded.others.map((o) => StatementExtraction.parse(o)).filter((x) => x.extraction.status !== 'failed')
+  const loaded = await loadForRedecide(s, job, ctx.application.id, submitted, answered)
+  let statements = loaded.statements
+  const submittedSha = loaded.submittedSha
   // What the supplier already answered still holds: re-applied in round order.
   let supplier: SupplierIdentity | null = supplierIdentity(ctx.supplier)
   let declarations: OwnerDeclarations = NO_DECLARATIONS
   const contradictions: AppState['contradictions'] = []
   for (const r of loaded.rounds) {
-    const applied = applyOwnerAnswers({ statements: [statement], supplier, request: requestOf(ctx), questions: z.array(Question).parse(r.questions), answers: z.array(OwnerAnswer).parse(r.answers), declarations })
-    statement = applied.statements[0] ?? statement
+    const applied = applyOwnerAnswers({ statements, supplier, request: requestOf(ctx), questions: z.array(Question).parse(r.questions), answers: z.array(OwnerAnswer).parse(r.answers), declarations })
+    statements = applied.statements
     supplier = applied.supplier
     declarations = applied.declarations
     contradictions.push(...applied.contradictions)
@@ -65,8 +100,8 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
   const asOf = ctx.application.asOf ?? (previous?.success ? previous.data.profile.computed_at.slice(0, 10) : (s.today ? s.today() : calendarToday()))
   const state: AppState = {
     input: { application_id: ctx.application.id, pdf_path: doc.storagePath, extra_pdf_paths: extra.map((d) => d.storagePath), as_of: asOf, request: requestOf(ctx), supplier: supplierIdentity(ctx.supplier), policy: ctx.active.policy, policy_id: ctx.active.id, statement_age: ctx.statementAge },
-    statements: [statement, ...others],
-    documents: [statement, ...others].map((x) => ({ file_name: x.document.file_name, sha256: x.document.sha256, extraction_status: x.extraction.status, origin: 'submitted' as const })),
+    statements,
+    documents: statements.map((x) => ({ file_name: x.document.file_name, sha256: x.document.sha256, extraction_status: x.extraction.status, origin: submittedSha.has(x.document.sha256) ? ('submitted' as const) : ('owner_answer' as const) })),
     supplier,
     declarations,
     classification: null,
