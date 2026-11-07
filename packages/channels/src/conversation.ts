@@ -3,8 +3,9 @@
  * con opciones numeradas, y la respuesta se lee contra la pregunta que se está esperando. Por estos
  * canales se preguntan abonos, cargos, el cliente principal (texto libre) y el uso de la cuenta
  * (ADR 0050); identidad y documentos nuevos exigen un canal con segundo factor (enlace de un solo
- * uso o backoffice), así que van por la API. La excepción es el estado de
- * cuenta en PDF desde un vínculo verificado de WhatsApp, que abre una solicitud (ADR 0037).
+ * uso o backoffice), así que van por la API. Las excepciones son el estado de
+ * cuenta en PDF desde un vínculo verificado de WhatsApp, que abre una solicitud (ADR 0037), y ese mismo
+ * PDF cuando se pidió completo por páginas faltantes, que contesta la pregunta (`isDocumentRequest`).
  *
  * Lectura de la respuesta: número de opción, nombre de la opción o palabras clave. Si coinciden
  * dos categorías o ninguna, no se adivina: se vuelve a preguntar con las opciones numeradas
