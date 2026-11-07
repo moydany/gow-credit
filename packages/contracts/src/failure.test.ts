@@ -56,7 +56,7 @@ describe('PDF con contraseña y escaneado ilegible (ADR 0049)', () => {
 
 describe('varios estados de cuenta en un PDF (robustez documental, sección W)', () => {
   const issue = (details: Record<string, unknown>) =>
-    ({ id: 'I1', code: 'multiple_statements', severity: 'error', message: 'El PDF trae más de un estado de cuenta', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details }) as StatementExtraction['issues'][number]
+    ({ id: 'i1', code: 'multiple_statements', severity: 'error', message: 'El PDF trae más de un estado de cuenta', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details }) as StatementExtraction['issues'][number]
   const flagged = (o: { issues?: StatementExtraction['issues']; flag?: boolean; textLayer?: StatementExtraction['document']['text_layer']; status?: StatementExtraction['extraction']['status']; reason?: string | null } = {}): StatementExtraction => {
     const s = statement({ textLayer: o.textLayer ?? 'ok', status: o.status ?? 'complete', reason: o.reason ?? null })
     return { ...s, flags: o.flag === false ? s.flags : [...s.flags, 'multiple_statements'], issues: [...s.issues, ...(o.issues ?? [])] }

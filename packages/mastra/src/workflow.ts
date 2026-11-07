@@ -10,7 +10,7 @@
  * Las dependencias entran por la fábrica para que los tests usen dobles sin red.
  */
 import { resolve } from 'node:path'
-import { Decision, emptyExternalSnapshot, extractionFailure, NO_DECLARATIONS, notBankStatementReason, type ExternalSnapshot, type HolderType, type Question, type StatementExtraction } from '@gow/contracts'
+import { Decision, emptyExternalSnapshot, extractionFailure, multipleStatementsFailure, NO_DECLARATIONS, notBankStatementReason, type ExternalSnapshot, type HolderType, type Question, type StatementExtraction } from '@gow/contracts'
 import { applyOwnerAnswers, decide, maxLine, RULES_VERSION, transactionsForModel, withContradictions, withModelLabels } from '@gow/decision'
 import { classifyTransactionRows, type Limiter, type TransactionClassifier } from '@gow/llm'
 import { createStep, createWorkflow } from '@mastra/core/workflows'
@@ -210,7 +210,9 @@ export function createProcessApplication(deps: WorkflowDeps) {
       // ilegible lo dice, ADR 0049). Una extracción terminada (`complete` o `partial`) sigue con perfil y
       // veredicto aunque el clasificador no la llamara estado de cuenta: solo deja una nota.
       const cutBeforeExtracting = s.extraction.status === 'failed' && s.flags.includes('not_a_bank_statement')
-      const failure = cutBeforeExtracting ? notBankStatementReason(s.classification.document_type) : extractionFailure(s)
+      // Varios estados de cuenta en un PDF se rechazan antes que cualquier otra regla, hayan cortado la
+      // extracción (modo full) o no (standalone): hace falta cada estado de cuenta en su archivo.
+      const failure = multipleStatementsFailure(s) ?? (cutBeforeExtracting ? notBankStatementReason(s.classification.document_type) : extractionFailure(s))
       return {
         input: inputData,
         statements: [s],

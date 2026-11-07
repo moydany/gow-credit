@@ -6,7 +6,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describeFailure, DOCUMENT_AGE_WARNING, PDF_PASSWORD_FAILURE, type ApplicationRequest, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
+import { describeFailure, DOCUMENT_AGE_WARNING, multipleStatementsReason, PDF_PASSWORD_FAILURE, type ApplicationRequest, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { syntheticStatement } from '@gow/decision/testing'
 import { ZERO_USAGE, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
@@ -60,6 +60,18 @@ const CLARO = DOCS['claro.pdf'] as StatementExtraction
 DOCS['contrasena.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, accounts: [], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: PDF_PASSWORD_FAILURE } }
 DOCS['escaneado.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, accounts: [], flags: ['vision_only'], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: 'no se obtuvo el resumen del documento (pasada 1)' } }
 DOCS['escaneado-leido.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, flags: ['vision_only'] }
+
+// Varios estados de cuenta en un PDF (robustez documental, sección W). En standalone la extracción se
+// hace y queda la bandera; en el modo full la extracción corta y trae el motivo.
+const multipleIssue = (details: Record<string, unknown>) =>
+  ({ id: 'i90', code: 'multiple_statements', severity: 'error', message: 'El PDF trae más de un estado de cuenta', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details }) as StatementExtraction['issues'][number]
+DOCS['varios-estados.pdf'] = { ...CLARO, flags: ['multiple_statements'], issues: [multipleIssue({ documents: 3, restarts_at: [4, 8] })] }
+DOCS['varios-estados-sin-issue.pdf'] = { ...CLARO, flags: ['multiple_statements'] }
+DOCS['varios-estados-cortado.pdf'] = { ...CLARO, flags: ['multiple_statements'], issues: [multipleIssue({ documents: 2, restarts_at: [3] })], accounts: [], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: multipleStatementsReason(2) } }
+// Una factura (cortada por el clasificador) que además trae reinicio de paginación: gana el reinicio.
+DOCS['varios-estados-y-factura.pdf'] = { ...DOCS['varios-estados-cortado.pdf'], classification: { document_type: 'invoice', confidence: 0.99, bank: null }, flags: ['not_a_bank_statement', 'multiple_statements'] }
+// Escaneado que la visión leyó en parte y cortó por sus dos CFDI: no es "escaneado ilegible".
+DOCS['varios-estados-escaneado.pdf'] = { ...DOCS['varios-estados-cortado.pdf'], document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, flags: ['vision_only', 'multiple_statements'] }
 
 function deps(channel = new MemoryChannel(), classifier: TransactionClassifier | null = null): WorkflowDeps {
   return {
@@ -265,6 +277,28 @@ describe('processApplication', () => {
     const read = await startApplication(createRuntime(deps(), db()), input('escaneado-leido.pdf'))
     expect(read.state?.failure_reason).toBeNull()
     expect(read.state?.decision?.status).toBe('qualified_with_limit')
+  })
+
+  it('varios estados de cuenta en un PDF fallan la solicitud, hayan cortado la extracción o no, antes que la clasificación', async () => {
+    const standalone = await startApplication(createRuntime(deps(), db()), input('varios-estados.pdf'))
+    expect(standalone.state?.statements[0]?.extraction.status).toBe('complete')
+    expect(standalone.state?.decision).toBeNull()
+    expect(standalone.state?.failure_reason).toBe('el PDF trae 3 estados de cuenta')
+    expect(standalone.state?.notes).toEqual([])
+    expect(describeFailure(standalone.state?.failure_reason ?? null)).toMatchObject({ kind: 'multiple_statements', documentType: null })
+    // Si el issue no está, son dos.
+    expect((await startApplication(createRuntime(deps(), db()), input('varios-estados-sin-issue.pdf'))).state?.failure_reason).toBe('el PDF trae 2 estados de cuenta')
+    // La extracción del modo full que cortó trae su motivo: no se envuelve en "la extracción falló".
+    for (const file of ['varios-estados-cortado.pdf', 'varios-estados-y-factura.pdf', 'varios-estados-escaneado.pdf']) {
+      const full = await startApplication(createRuntime(deps(), db()), input(file))
+      expect(full.state?.failure_reason, file).toBe('el PDF trae 2 estados de cuenta')
+      expect(full.state?.decision, file).toBeNull()
+      expect(describeFailure(full.state?.failure_reason ?? null).kind, file).toBe('multiple_statements')
+    }
+    // En el reporte standalone la solicitud queda fallida con ese motivo.
+    const result = toApplicationResult('varios-estados', standalone.state, { workflow: WORKFLOW_ID, run_id: standalone.runId, status: standalone.status, suspended_step: standalone.suspendedStep }, '2026-10-05T12:00:00.000Z', standalone.error)
+    expect(result.status).toBe('failed')
+    expect(result.failure_reason).toBe('el PDF trae 3 estados de cuenta')
   })
 
   it('con el ajuste del tenant, un estado viejo se analiza con advertencia; sin él, se pide uno reciente (ADR 0049)', async () => {
