@@ -248,3 +248,8 @@ muestra personalización y el loop de aprendizaje.
     prompts (`BACKOFFICE_PROMPT_EDITORS`) o, sin esa variable, los usuarios de una instalación con una
     sola institución crediticia.
   - Cada cambio queda en la bitácora de quien lo hizo, sin el texto.
+
+- **Configuración agrupa Políticas, Prompts y Bitácora.** Salen de la barra principal y quedan como
+  secciones de Configuración, junto a General (usuarios, canales y análisis), con un submenú arriba:
+  `/configuracion/politicas`, `/configuracion/prompts` y `/configuracion/bitacora`. Las rutas anteriores
+  (`/politicas`, `/prompts`, `/bitacora`) redirigen a las nuevas con sus filtros.

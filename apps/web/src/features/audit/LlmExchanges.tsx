@@ -40,8 +40,8 @@ function Outcome({ x }: { x: LlmExchangeRow }) {
 type Search = { tab?: string; solicitud?: string; resultado?: string; ver?: string }
 
 export function LlmExchanges() {
-  const search = useSearch({ from: '/shell/bitacora' })
-  const navigate = useNavigate({ from: '/bitacora' })
+  const search = useSearch({ from: '/shell/configuracion/bitacora' })
+  const navigate = useNavigate({ from: '/configuracion/bitacora' })
   const set = (patch: Partial<Search>) => void navigate({ search: (s: Search) => ({ ...s, ...patch }), replace: true })
   const onlyErrors = search.resultado === 'error'
   const { data, isPending, isError, error, refetch } = useLlmExchanges({ ...(search.solicitud ? { application_id: search.solicitud } : {}), ...(onlyErrors ? { outcome: 'error' as const } : {}) })

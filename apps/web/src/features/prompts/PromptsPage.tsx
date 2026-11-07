@@ -39,8 +39,8 @@ function SourceChips({ v }: { v: PromptVersionItem }) {
 
 export function PromptsPage() {
   const list = usePrompts()
-  const search = useSearch({ from: '/shell/prompts' })
-  const navigate = useNavigate({ from: '/prompts' })
+  const search = useSearch({ from: '/shell/configuracion/prompts' })
+  const navigate = useNavigate({ from: '/configuracion/prompts' })
   const name: PromptName | undefined = search.p && search.p in PROMPT_CATALOG ? (search.p as PromptName) : list.data?.prompts[0]?.name
   const select = (s: { p?: string; v?: string; cmp?: string }) => { void navigate({ search: s }) }
 

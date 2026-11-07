@@ -138,7 +138,7 @@ export function ApplicationDetailPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {/* Prompts y respuestas tal cual de esta solicitud (ADR 0064). */}
-            <Link to="/bitacora" search={{ tab: 'modelo', solicitud: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
+            <Link to="/configuracion/bitacora" search={{ tab: 'modelo', solicitud: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
               <Icon name="bolt" size={14} /> Llamadas al modelo
             </Link>
             {doc ? (

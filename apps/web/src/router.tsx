@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, Navigate, Outlet, useSearch } from '@tanstack/react-router'
 import { AuditPage } from './features/audit/AuditPage'
 import { Enter } from './features/auth/Enter'
 import { Setup } from './features/auth/Setup'
@@ -9,6 +9,7 @@ import { OutcomesPage } from './features/outcomes/OutcomesPage'
 import { PoliciesPage } from './features/policies/PoliciesPage'
 import { PromptsPage } from './features/prompts/PromptsPage'
 import { ReviewPage } from './features/review/ReviewPage'
+import { SettingsLayout } from './features/settings/SettingsLayout'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { SupplierDetailPage } from './features/suppliers/SupplierDetailPage'
 import { SuppliersPage } from './features/suppliers/SuppliersPage'
@@ -40,25 +41,37 @@ const clarifications = createRoute({
   validateSearch: (s: Record<string, unknown>): { id?: string; ver?: string } => ({ id: str(s.id), ver: str(s.ver) }),
 })
 const review = createRoute({ getParentRoute: () => shell, path: '/revision', component: ReviewPage })
-const policies = createRoute({ getParentRoute: () => shell, path: '/politicas', component: PoliciesPage, validateSearch: (s: Record<string, unknown>): { v?: string } => ({ v: str(s.v) }) })
+// Configuración agrupa General, Políticas, Prompts y Bitácora con un submenú.
+const settingsSection = createRoute({ getParentRoute: () => shell, path: '/configuracion', component: SettingsLayout })
+const settings = createRoute({ getParentRoute: () => settingsSection, path: '/', component: SettingsPage })
+const policies = createRoute({ getParentRoute: () => settingsSection, path: '/politicas', component: PoliciesPage, validateSearch: (s: Record<string, unknown>): { v?: string } => ({ v: str(s.v) }) })
 const prompts = createRoute({
-  getParentRoute: () => shell,
+  getParentRoute: () => settingsSection,
   path: '/prompts',
   component: PromptsPage,
   validateSearch: (s: Record<string, unknown>): { p?: string; v?: string; cmp?: string } => ({ p: str(s.p), v: str(s.v), cmp: str(s.cmp) }),
 })
 const outcomes = createRoute({ getParentRoute: () => shell, path: '/outcomes', component: OutcomesPage })
 const audit = createRoute({
-  getParentRoute: () => shell,
+  getParentRoute: () => settingsSection,
   path: '/bitacora',
   component: AuditPage,
   validateSearch: (s: Record<string, unknown>): { tab?: string; solicitud?: string; resultado?: string; ver?: string } => ({ tab: str(s.tab), solicitud: str(s.solicitud), resultado: str(s.resultado), ver: str(s.ver) }),
 })
 const suppliers = createRoute({ getParentRoute: () => shell, path: '/proveedores', component: SuppliersPage, validateSearch: (s: Record<string, unknown>): { q?: string } => ({ q: str(s.q) }) })
 const supplier = createRoute({ getParentRoute: () => shell, path: '/proveedores/$id', component: SupplierDetailPage })
-const settings = createRoute({ getParentRoute: () => shell, path: '/configuracion', component: SettingsPage })
+// Las rutas de antes siguen sirviendo (enlaces guardados): llevan a su lugar en Configuración.
+const legacy = (from: '/politicas' | '/prompts' | '/bitacora', to: '/configuracion/politicas' | '/configuracion/prompts' | '/configuracion/bitacora') =>
+  createRoute({
+    getParentRoute: () => shell,
+    path: from,
+    component: function MovedToSettings() {
+      const search = useSearch({ strict: false })
+      return <Navigate to={to} search={search as never} replace />
+    },
+  })
 
-const tree = root.addChildren([enter, setup, shell.addChildren([applications, detail, clarifications, review, suppliers, supplier, policies, prompts, outcomes, audit, settings])])
+const tree = root.addChildren([enter, setup, shell.addChildren([applications, detail, clarifications, review, suppliers, supplier, outcomes, settingsSection.addChildren([settings, policies, prompts, audit]), legacy('/politicas', '/configuracion/politicas'), legacy('/prompts', '/configuracion/prompts'), legacy('/bitacora', '/configuracion/bitacora')])])
 export const router = createRouter({ routeTree: tree, defaultPreload: 'intent' })
 
 declare module '@tanstack/react-router' {

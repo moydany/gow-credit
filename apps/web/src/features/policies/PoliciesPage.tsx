@@ -17,8 +17,8 @@ const ORDER: DecisionStatus[] = ['qualified', 'qualified_with_limit', 'not_quali
 
 export function PoliciesPage() {
   const { data, isPending, isError, error, refetch } = usePolicyVersions()
-  const { v } = useSearch({ from: '/shell/politicas' })
-  const navigate = useNavigate({ from: '/politicas' })
+  const { v } = useSearch({ from: '/shell/configuracion/politicas' })
+  const navigate = useNavigate({ from: '/configuracion/politicas' })
   const toast = useToast()
   const qc = useQueryClient()
   const selected = data?.find((x) => x.id === v) ?? data?.find((x) => x.status === 'active') ?? data?.[0]

@@ -52,8 +52,8 @@ const TABS = [
 ] as const
 
 export function AuditPage() {
-  const { tab = 'movimientos' } = useSearch({ from: '/shell/bitacora' })
-  const navigate = useNavigate({ from: '/bitacora' })
+  const { tab = 'movimientos' } = useSearch({ from: '/shell/configuracion/bitacora' })
+  const navigate = useNavigate({ from: '/configuracion/bitacora' })
   const current = tab === 'modelo' ? 'modelo' : 'movimientos'
   return (
     <div>
