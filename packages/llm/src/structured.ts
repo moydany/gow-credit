@@ -58,12 +58,18 @@ export class LlmCallError extends Error {
   readonly code: 'missing_api_key' | 'api_error' | 'invalid_output' | 'refusal' | 'max_tokens' | 'timeout'
   readonly retryable: boolean
   readonly status: number | null
+  /**
+   * Lo que devolvió el modelo cuando no sirvió (cortado, sin validar). Lleva datos del documento:
+   * solo para la grabación de intercambios (ADR 0064), nunca para el mensaje ni para logs.
+   */
+  readonly rawOutput: string | null
 
-  constructor(code: LlmCallError['code'], message: string, opts: { retryable?: boolean; status?: number | null; cause?: unknown } = {}) {
+  constructor(code: LlmCallError['code'], message: string, opts: { retryable?: boolean; status?: number | null; cause?: unknown; rawOutput?: string | null } = {}) {
     super(message, { cause: opts.cause })
     this.name = 'LlmCallError'
     this.code = code
     this.retryable = opts.retryable ?? false
     this.status = opts.status ?? null
+    this.rawOutput = opts.rawOutput ?? null
   }
 }

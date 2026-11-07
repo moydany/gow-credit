@@ -136,21 +136,22 @@ export class MastraStructuredLlm implements StructuredLlm {
     const googleOptions = { google: { thinkingConfig: { thinkingLevel: geminiThinkingLevel(req.effort) }, structuredOutputs: true } }
     const providerOptions = provider === 'anthropic' ? anthropicOptions : googleOptions
     const started = Date.now()
+    let stream: { text: Promise<string> } | undefined
     try {
       const out = await agent.stream([{ role: 'user' as const, content }], {
         structuredOutput: { schema: req.schema, errorStrategy: 'strict' },
         providerOptions,
         modelSettings: { maxOutputTokens: req.maxOutputTokens },
       })
+      stream = out
       const [object, usage, finishReason, providerMetadata] = await Promise.all([out.object, out.usage, out.finishReason, out.providerMetadata])
       const tokenUsage =
         provider === 'anthropic'
           ? toTokenUsage(usage, (providerMetadata?.anthropic as { usage?: Record<string, unknown> } | undefined)?.usage)
           : googleUsage(usage, (providerMetadata?.google as { usageMetadata?: Record<string, unknown> } | undefined)?.usageMetadata)
-      if (finishReason === 'length') throw new LlmCallError('max_tokens', `la respuesta se cortó en maxOutputTokens=${String(req.maxOutputTokens)}`, { retryable: false })
-      if (finishReason === 'content-filter') throw new LlmCallError('refusal', 'el modelo declinó la solicitud', { retryable: false })
+      await assertFinished(finishReason, req.maxOutputTokens, out)
       const parsed = req.schema.safeParse(object)
-      if (!parsed.success) throw new LlmCallError('invalid_output', 'la salida no valida contra el esquema', { retryable: true, cause: parsed.error })
+      if (!parsed.success) throw new LlmCallError('invalid_output', 'la salida no valida contra el esquema', { retryable: true, cause: parsed.error, rawOutput: JSON.stringify(object) })
       return {
         object: parsed.data,
         usage: tokenUsage,
@@ -161,7 +162,30 @@ export class MastraStructuredLlm implements StructuredLlm {
         responseCacheHit: false,
       }
     } catch (err) {
-      throw classifyError(err)
+      const e = classifyError(err)
+      // La salida cruda solo viaja hacia la grabación de intercambios (ADR 0064), nunca al mensaje.
+      if (e.rawOutput !== null || !stream) throw e
+      throw new LlmCallError(e.code, e.message, { retryable: e.retryable, status: e.status, cause: e.cause, rawOutput: await textOf(stream) })
     }
+  }
+}
+
+/** Una respuesta cortada o declinada no sirve: error con lo que alcanzó a llegar (ADR 0064). */
+async function assertFinished(finishReason: string | undefined, maxOutputTokens: number, out: { text: Promise<string> }): Promise<void> {
+  if (finishReason === 'length') throw new LlmCallError('max_tokens', `la respuesta se cortó en maxOutputTokens=${String(maxOutputTokens)}`, { retryable: false, rawOutput: await textOf(out) })
+  if (finishReason === 'content-filter') throw new LlmCallError('refusal', 'el modelo declinó la solicitud', { retryable: false, rawOutput: await textOf(out) })
+}
+
+/** Texto que alcanzó a llegar; si el stream quedó roto, nada (con tope de espera). */
+async function textOf(out: { text: Promise<string> }): Promise<string | null> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => { resolve(null) }, 2000)
+    timer.unref()
+  })
+  try {
+    return await Promise.race([out.text.then((t) => t || null, () => null), timeout])
+  } finally {
+    clearTimeout(timer)
   }
 }
