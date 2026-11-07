@@ -1,21 +1,8 @@
 {
   "version": 1,
   "name": "Ejemplo: evaluación standalone con documentos redactados",
-  "description": "Plantilla base con un solo cambio: la compuerta de identidad pasa cuando no se puede comparar (titular, RFC y CLABE redactados o sin proveedor registrado). Una identidad que sí se compara y no coincide sigue pidiendo aclaración. Es para correr pnpm run evaluate sobre documentos redactados, sin registro de proveedores; no es una política para producción, donde el tenant registra al proveedor (ADR 0015).",
+  "description": "Plantilla base sin la compuerta doc_recent: la antigüedad del estado de cuenta no decide (ADR 0054). Es la política por defecto de pnpm run evaluate, que evalúa documentos de fecha desconocida, sin registro de proveedores; document_age_days sigue en el perfil y en el reporte. La plantilla base (--policy base) conserva la compuerta de 90 días porque es la política de un prestamista real. No es una política para producción.",
   "gates": [
-    {
-      "id": "doc_recent",
-      "description": "El estado de cuenta más reciente tiene 90 días o menos",
-      "when": {
-        "feature": "document_age_days",
-        "op": "<=",
-        "value": 90
-      },
-      "onFail": {
-        "status": "needs_clarification",
-        "ask": "recent_statement"
-      }
-    },
     {
       "id": "integrity",
       "description": "El estado de cuenta cuadra",

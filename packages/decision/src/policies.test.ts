@@ -28,10 +28,12 @@ describe('políticas de ejemplo', () => {
     expect(load(file).version).toBeGreaterThan(0)
   })
 
-  it('evaluación standalone: es la base con otro nombre (ADR 0052: ninguna compara identidad para decidir)', () => {
+  it('evaluación standalone: es la base sin la compuerta de antigüedad (ADR 0052: ninguna compara identidad; ADR 0054: la antigüedad no decide)', () => {
     const policy = load('standalone-evaluation.v1.json')
     const base = basePolicyTemplate()
-    expect({ ...policy, name: base.name, description: base.description }).toEqual(base)
+    expect({ ...policy, name: base.name, description: base.description }).toEqual({ ...base, gates: base.gates.filter((g) => g.id !== 'doc_recent') })
+    expect(base.gates.some((g) => g.id === 'doc_recent')).toBe(true)
+    expect(policy.gates.some((g) => g.when.feature === 'document_age_days')).toBe(false)
     for (const p of [policy, base, load('fiscal-anchors.v1.json')]) expect(p.gates.some((g) => g.when.feature === 'identity_match')).toBe(false)
   })
 
