@@ -83,6 +83,28 @@ describe('Supabase Auth del lado del servidor', () => {
     expect(f.seen[0]).toMatchObject({ method: 'POST', url: 'http://gotrue.test/auth/v1/token?grant_type=refresh_token', headers: { apikey: 'anon-key' }, body: { refresh_token: 'viejo' } })
   })
 
+  it('canjear el código del correo: POST /verify con la llave anon; usado o vencido es null; 429 o 5xx son errores', async () => {
+    const ok = fakeFetch(() => ({ status: 200, body: { access_token: 'a'.repeat(40), refresh_token: 'r1', expires_in: 3600, token_type: 'bearer', user: {} } }))
+    expect(await supabaseAuth({ ...cfg, fetch: ok.fn }).verifyEmailLink?.('hash-del-correo')).toEqual({ accessToken: 'a'.repeat(40), refreshToken: 'r1' })
+    expect(ok.seen[0]).toMatchObject({ method: 'POST', url: 'http://gotrue.test/auth/v1/verify', headers: { apikey: 'anon-key' }, body: { type: 'email', token_hash: 'hash-del-correo' } })
+    const used = fakeFetch(() => ({ status: 403, body: { error_code: 'otp_expired' } }))
+    expect(await supabaseAuth({ ...cfg, fetch: used.fn }).verifyEmailLink?.('x')).toBeNull()
+    for (const status of [429, 503]) {
+      const f = fakeFetch(() => ({ status }))
+      await expect(supabaseAuth({ ...cfg, fetch: f.fn }).verifyEmailLink?.('x')).rejects.toBeInstanceOf(AuthDirectoryError)
+    }
+  })
+
+  it('borrar una cuenta: 404 no es error', async () => {
+    for (const status of [200, 404]) {
+      const f = fakeFetch(() => ({ status }))
+      await supabaseAuth({ ...cfg, fetch: f.fn }).deleteUser?.(ID)
+      expect(f.seen[0]).toMatchObject({ method: 'DELETE', url: `http://gotrue.test/auth/v1/admin/users/${ID}` })
+    }
+    const down = fakeFetch(() => ({ status: 503 }))
+    await expect(supabaseAuth({ ...cfg, fetch: down.fn }).deleteUser?.(ID)).rejects.toBeInstanceOf(AuthDirectoryError)
+  })
+
   it('renovar: un rechazo de GoTrue es null; 429, 5xx o una respuesta rara son errores transitorios', async () => {
     const rejected = fakeFetch(() => ({ status: 400, body: { error_code: 'refresh_token_already_used' } }))
     expect(await supabaseAuth({ ...cfg, fetch: rejected.fn }).refreshSession('x')).toBeNull()

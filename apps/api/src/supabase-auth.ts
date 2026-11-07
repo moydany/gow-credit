@@ -19,6 +19,11 @@ export interface AuthDirectory {
    */
   ensureUser(email: string, preferredId?: string): Promise<string>
   /** true if GoTrue sent the email; false if no account has that email (none is created). */
+  /**
+   * Exchanges the emailed link's `token_hash` for a session (GoTrue `POST /verify`). Null if it was
+   * already used or expired; a transient error (5xx, 429, network) is thrown.
+   */
+  verifyEmailLink?(tokenHash: string): Promise<{ accessToken: string; refreshToken: string } | null>
   /** Deletes the account (reset of a demo). A missing account is not an error. */
   deleteUser?(id: string): Promise<void>
   sendMagicLink(email: string, redirectTo: string): Promise<boolean>
@@ -56,6 +61,21 @@ const TokenResponse = z.object({ access_token: z.string().min(20), refresh_token
 const GoTrueError = z.object({ error_code: z.string().optional() }).loose()
 
 /** With `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the environment; if either is missing, null (no-Supabase mode). */
+/**
+ * A GoTrue answer that should carry a session: the pair on 200; null when GoTrue rejects the token
+ * or code (used, expired); an error when it is transient (429 is GoTrue's per-IP limit, 5xx) or the
+ * body is not a session.
+ */
+function sessionOf(r: { status: number; json: unknown }): { accessToken: string; refreshToken: string } | null {
+  if (r.status === 200) {
+    const t = TokenResponse.safeParse(r.json)
+    if (!t.success) throw new AuthDirectoryError(r.status)
+    return { accessToken: t.data.access_token, refreshToken: t.data.refresh_token }
+  }
+  if (r.status === 429 || r.status >= 500) throw new AuthDirectoryError(r.status)
+  return null
+}
+
 export function supabaseAuthFromEnv(env: NodeJS.ProcessEnv): AuthDirectory | null {
   const url = env.SUPABASE_URL?.trim()
   const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim()
@@ -121,16 +141,12 @@ export function supabaseAuth(cfg: SupabaseAuthConfig): AuthDirectory {
       throw new AuthDirectoryError(r.status)
     },
 
+    async verifyEmailLink(tokenHash) {
+      return sessionOf(await call('POST', '/verify', { key: publicKey, body: { type: 'email', token_hash: tokenHash } }))
+    },
+
     async refreshSession(refreshToken) {
-      const r = await call('POST', '/token?grant_type=refresh_token', { key: publicKey, body: { refresh_token: refreshToken } })
-      if (r.status === 200) {
-        const t = TokenResponse.safeParse(r.json)
-        if (!t.success) throw new AuthDirectoryError(r.status)
-        return { accessToken: t.data.access_token, refreshToken: t.data.refresh_token }
-      }
-      // 429: GoTrue's renewal limit (per IP); says nothing about the token.
-      if (r.status === 429 || r.status >= 500) throw new AuthDirectoryError(r.status)
-      return null
+      return sessionOf(await call('POST', '/token?grant_type=refresh_token', { key: publicKey, body: { refresh_token: refreshToken } }))
     },
 
     async revokeSession(accessToken) {

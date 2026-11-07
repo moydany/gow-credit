@@ -290,6 +290,13 @@ export type SessionCreateBody = z.infer<typeof SessionCreateBody>
 export const MagicLinkBody = z.strictObject({ email: z.string().trim().toLowerCase().max(320).pipe(z.email('Correo inválido')) })
 export type MagicLinkBody = z.input<typeof MagicLinkBody>
 
+/**
+ * The code of the emailed link (`#token_hash=` in `/entrar`), sent when the person presses "Entrar".
+ * Opening the link spends nothing: mail scanners and reloads no longer burn it.
+ */
+export const EmailLinkBody = z.strictObject({ token_hash: z.string().min(10).max(500) })
+export type EmailLinkBody = z.infer<typeof EmailLinkBody>
+
 /** Same response whether or not the email exists, so it doesn't reveal who has an account. */
 export const MagicLinkAccepted = z.strictObject({ accepted: z.literal(true) })
 export type MagicLinkAccepted = z.infer<typeof MagicLinkAccepted>

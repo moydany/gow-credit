@@ -7,7 +7,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
 import { applyCorrections } from '@gow/extraction/corrections'
-import { ClarificationStatus, CorrectionTarget, MagicLinkBody, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, SetupBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
+import { ClarificationStatus, CorrectionTarget, EmailLinkBody, MagicLinkBody, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, SetupBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { pathBelongsTo } from '@gow/platform'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
@@ -87,7 +87,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   const backofficeOrigin = backofficeBase(deps)
   // Link requests: 429 per IP; per email they are dropped silently (the response is the same).
   const magicLinkPerIp = windowLimiter(5, 60_000)
-  const magicLinkPerEmail = windowLimiter(3, 15 * 60_000)
+  const magicLinkPerEmail = windowLimiter(4, 15 * 60_000)
   // First-run password: a few tries per IP so it can't be guessed by brute force.
   const setupPerIp = windowLimiter(10, 60_000)
 
@@ -216,29 +216,60 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   }
 
   // ---------- Session: the access link carries the JWT; the API swaps it for an HttpOnly cookie
-  r.post('/session', async (req, res) => {
+  /** Sign-in attempts per IP: 20 a minute. */
+  function countAttempt(req: Request): void {
     const key = req.ip ?? 'local'
     const now = Date.now()
     const w0 = attempts.get(key)
     if (!w0 || now - w0.start > 60_000) attempts.set(key, { start: now, count: 1 })
     else if (++w0.count > 20) throw new HttpError(429, 'demasiados intentos')
-    assertCsrf(req)
-    const body = parse(SessionCreateBody, req.body)
-    const w = await membership(body.token)
+  }
+
+  /** Opens the session with an access token (and, with Supabase Auth, its refresh token). */
+  async function openSession(res: Response, token: string, refreshToken: string | undefined): Promise<void> {
+    const w = await membership(token)
     if (!w) throw new HttpError(401, 'el enlace de acceso no es válido o ya venció')
     const at = nowSeconds()
-    if (deps.auth && w.supabaseSession && body.refresh_token) {
+    if (deps.auth && w.supabaseSession && refreshToken) {
       // Supabase Auth: the refresh token stays on the API side, encrypted in an HttpOnly cookie,
       // and the session renews itself up to its limits.
-      res.setHeader(SET_COOKIE, renewedCookies(body.token, w.exp, { v: 1, rt: body.refresh_token, sub: w.userId, iat: at, rat: at }))
+      res.setHeader(SET_COOKIE, renewedCookies(token, w.exp, { v: 1, rt: refreshToken, sub: w.userId, iat: at, rat: at }))
     } else {
       // Dev link: the cookie lives as long as the token (8 h at most).
-      res.setHeader(SET_COOKIE, sessionCookie(body.token, { maxAgeSeconds: Math.min(SESSION_SECONDS, w.exp - at), secure }))
+      res.setHeader(SET_COOKIE, sessionCookie(token, { maxAgeSeconds: Math.min(SESSION_SECONDS, w.exp - at), secure }))
       // A Supabase token without its refresh token: nobody will use that refresh token, which
       // travelled in the URL. Its Auth session is closed; the access token stays valid until `exp`.
-      if (deps.auth && w.supabaseSession) await revokeQuietly(deps.auth, body.token, 'sin refresh token')
+      if (deps.auth && w.supabaseSession) await revokeQuietly(deps.auth, token, 'sin refresh token')
     }
     res.json(await meOf(w))
+  }
+
+  r.post('/session', async (req, res) => {
+    countAttempt(req)
+    assertCsrf(req)
+    const body = parse(SessionCreateBody, req.body)
+    await openSession(res, body.token, body.refresh_token)
+  })
+
+  /**
+   * The emailed link brings a one-time code (`#token_hash=`), exchanged here only when the person
+   * presses "Entrar": opening the link spends nothing, so mail scanners and reloads don't burn it.
+   */
+  r.post('/session/email-link', async (req, res) => {
+    const auth = deps.auth
+    if (!auth?.verifyEmailLink) throw new HttpError(404, 'no encontrado')
+    countAttempt(req)
+    assertCsrf(req)
+    const body = parse(EmailLinkBody, req.body)
+    let tokens: { accessToken: string; refreshToken: string } | null
+    try {
+      tokens = await auth.verifyEmailLink(body.token_hash)
+    } catch (e) {
+      deps.logger?.error(`backoffice: no se verificó el enlace de acceso (${errorText(e)})`)
+      throw new HttpError(502, 'no se pudo verificar el enlace; intenta de nuevo')
+    }
+    if (!tokens) throw new HttpError(401, 'ese enlace ya se usó o venció; pide otro')
+    await openSession(res, tokens.accessToken, tokens.refreshToken)
   })
 
   /** Whether no tenant exists yet (`app.setup_pending`). Answers only a boolean. */

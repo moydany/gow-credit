@@ -96,15 +96,15 @@ describe('Backoffice: enlace de acceso por correo', () => {
     }
   })
 
-  it('por correo: después de tres en la ventana sigue respondiendo 202, pero ya no pide enlaces', async () => {
+  it('por correo: después de cuatro en la ventana sigue respondiendo 202, pero ya no pide enlaces', async () => {
     const own = fakeAuth()
     const s = await serve(own.auth)
     try {
       const codes: number[] = []
-      for (let i = 0; i < 4; i++) codes.push((await post(s.base, { email: 'a@prestamista.test' })).status)
-      expect(codes).toEqual([202, 202, 202, 202])
+      for (let i = 0; i < 5; i++) codes.push((await post(s.base, { email: 'a@prestamista.test' })).status)
+      expect(codes).toEqual([202, 202, 202, 202, 202])
       await tick()
-      expect(own.links.length).toBe(3)
+      expect(own.links.length).toBe(4)
     } finally {
       await new Promise((r) => s.server.close(r))
     }
@@ -115,6 +115,31 @@ describe('Backoffice: enlace de acceso por correo', () => {
     const s = await serve(down)
     try {
       expect(await post(s.base, { email: 'a@prestamista.test' })).toEqual({ status: 202, text: '{"accepted":true}' })
+    } finally {
+      await new Promise((r) => s.server.close(r))
+    }
+  })
+
+  it('el código del enlace solo se canjea con el clic: usado o vencido es 401, GoTrue caído es 502, sin CSRF 403', async () => {
+    const seen: string[] = []
+    const auth: AuthDirectory = {
+      ...fakeAuth().auth,
+      verifyEmailLink: (hash) => {
+        seen.push(hash)
+        if (hash === 'codigo-caido-0000') return Promise.reject(new Error('GoTrue 503'))
+        return Promise.resolve(null)
+      },
+    }
+    const s = await serve(auth)
+    const verify = async (body: unknown, csrf = true) => (await fetch(`${s.base}/session/email-link`, { method: 'POST', headers: { 'content-type': 'application/json', ...(csrf ? { 'x-gow-backoffice': '1' } : {}) }, body: JSON.stringify(body) })).status
+    try {
+      expect(await verify({ token_hash: 'codigo-usado-0000' })).toBe(401)
+      expect(await verify({ token_hash: 'codigo-caido-0000' })).toBe(502)
+      expect(await verify({ token_hash: 'codigo-sin-csrf-0' }, false)).toBe(403)
+      expect(await verify({ token_hash: 'corto' })).toBe(400)
+      expect(seen).toEqual(['codigo-usado-0000', 'codigo-caido-0000'])
+      // Without the exchange (no Supabase Auth, or an older client) the route does not exist.
+      expect((await fetch(`${off.base}/session/email-link`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-gow-backoffice': '1' }, body: '{}' })).status).toBe(404)
     } finally {
       await new Promise((r) => s.server.close(r))
     }
