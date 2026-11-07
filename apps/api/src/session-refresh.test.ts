@@ -1,8 +1,8 @@
 /**
- * Sesión renovable con Supabase Auth (ADR 0036), contra Postgres real y con GoTrue simulado: el
- * refresh token vive cifrado en una cookie HttpOnly; la API renueva cerca del vencimiento o ya
- * vencido, comparte una renovación entre peticiones en paralelo, respeta la pertenencia y los
- * límites, y al salir cierra la sesión de GoTrue.
+ * Renewable session with Supabase Auth, against real Postgres and a simulated GoTrue: the refresh
+ * token lives encrypted in an HttpOnly cookie; the API renews near expiry or after it, shares one
+ * renewal across parallel requests, respects membership and limits, and on logout closes the
+ * GoTrue session.
  */
 import { createHmac, randomUUID } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
@@ -23,8 +23,8 @@ const LIMITS = { maxSeconds: 12 * 3600, idleSeconds: 8 * 3600 }
 const now = () => Math.floor(Date.now() / 1000)
 
 /**
- * Un access token como los de GoTrue: HS256 con el JWT secret, `session_id` y, si hay pertenencia,
- * `tenant_id`. Vence en `ttl` segundos y su vida total es `life` (emitido hace `life - ttl`).
+ * An access token like GoTrue's: HS256 with the JWT secret, `session_id` and, if there is a
+ * membership, `tenant_id`. Expires in `ttl` seconds and its total life is `life` (issued `life - ttl` ago).
  */
 function accessToken(claims: { sub: string; email: string; session_id: string; tenant_id?: string | null }, ttl: number, life = 3600): string {
   const b64 = (x: unknown) => Buffer.from(JSON.stringify(x)).toString('base64url')
@@ -35,11 +35,11 @@ function accessToken(claims: { sub: string; email: string; session_id: string; t
 }
 const sessionOf = (token: string) => (JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { session_id: string }).session_id
 
-/** GoTrue en memoria: rota el refresh token en cada uso y rechaza uno ya usado o de una sesión cerrada. */
+/** In-memory GoTrue: rotates the refresh token on every use and rejects one already used or from a closed session. */
 function fakeGoTrue() {
   const state = {
     live: new Map<string, { sub: string; email: string; sessionId: string }>(),
-    /** El tenant que pondría el hook (lo que diga la prueba, aunque la pertenencia ya no exista). */
+    /** The tenant the hook would set (whatever the test says, even if the membership no longer exists). */
     hook: new Map<string, string | null>(),
     closed: new Set<string>(),
     refreshCalls: 0,
@@ -69,7 +69,7 @@ function fakeGoTrue() {
       return Promise.resolve()
     },
   }
-  /** Lo que trae el fragmento de `/entrar` al abrir el enlace. */
+  /** What the `/entrar` fragment carries when the link is opened. */
   function signIn(sub: string, email: string, tenant: string, ttl: number) {
     const sessionId = randomUUID()
     const rt = `rt-${randomUUID()}`
@@ -80,7 +80,7 @@ function fakeGoTrue() {
   return { state, auth, signIn }
 }
 
-/** Las cookies de un `Set-Cookie` (nombre → { valor, atributos }). */
+/** The cookies of a `Set-Cookie` (name → { value, attributes }). */
 function setCookies(h: Headers): Map<string, { value: string; attrs: string }> {
   const out = new Map<string, { value: string; attrs: string }>()
   for (const line of h.getSetCookie()) {
@@ -120,8 +120,8 @@ describe.skipIf(!available)('Sesión renovable con Supabase Auth (necesita Postg
   }
 
   /**
-   * Entra por `/entrar` y devuelve las cookies. Con `ttl`, la cookie de sesión lleva después un access
-   * token de la misma sesión que vence en `ttl` segundos (negativo: ya vencido).
+   * Signs in through `/entrar` and returns the cookies. With `ttl`, the session cookie afterwards
+   * carries an access token from the same session that expires in `ttl` seconds (negative: already expired).
    */
   async function login(email: string, ttl?: number, life?: number) {
     const sub = await member(email)
@@ -190,7 +190,7 @@ describe.skipIf(!available)('Sesión renovable con Supabase Auth (necesita Postg
     const after = openRefresh(SECRET, r.cookies.get('gow_refresh')?.value ?? '', LIMITS)
     expect(after?.rt).not.toBe(s.refresh_token)
     expect(after?.iat).toBe(before?.iat)
-    // Con las cookies nuevas sigue sin renovar otra vez; el refresh token viejo ya no sirve en GoTrue.
+    // With the new cookies it does not renew again; the old refresh token no longer works in GoTrue.
     expect((await call('GET', '/me', { cookie: jar(r.cookies) })).status).toBe(200)
     expect(gotrue.state.refreshCalls).toBe(1)
     expect(gotrue.state.live.has(s.refresh_token)).toBe(false)
@@ -230,7 +230,7 @@ describe.skipIf(!available)('Sesión renovable con Supabase Auth (necesita Postg
     expect(rs.map((r) => r.status)).toEqual([200, 200, 200, 200, 200, 200])
     expect(gotrue.state.refreshCalls).toBe(1)
     expect(new Set(rs.map((r) => r.cookies.get('gow_session')?.value)).size).toBe(1)
-    // Una rezagada con la cookie vieja, ya rotada en GoTrue, recibe los mismos tokens nuevos.
+    // A straggler with the old cookie, already rotated in GoTrue, gets the same new tokens.
     const late = await call('GET', '/me', { cookie: s.cookie })
     expect(late.status).toBe(200)
     expect(late.cookies.get('gow_session')?.value).toBe(rs[0]?.cookies.get('gow_session')?.value)
@@ -239,7 +239,7 @@ describe.skipIf(!available)('Sesión renovable con Supabase Auth (necesita Postg
 
   it('carrera entre instancias: si GoTrue ya rotó el refresh token pero el access token sirve, se sigue sin tocar las cookies', async () => {
     const s = await login('otrainstancia@prestamista.test', 120)
-    // Otra instancia de la API ya lo usó (fuera de su intervalo de reúso, GoTrue lo rechaza).
+    // Another API instance already used it (outside its reuse interval, GoTrue rejects it).
     await gotrue.auth.refreshSession(s.refresh_token)
     const r = await call('GET', '/me', { cookie: s.cookie })
     expect(r.status).toBe(200)
@@ -301,7 +301,7 @@ describe.skipIf(!available)('Sesión renovable con Supabase Auth (necesita Postg
     expect(gotrue.state.revoked).toEqual([s.sessionId])
     expect(r.cookies.get('gow_session')?.value).toBe('')
     expect(r.cookies.get('gow_refresh')?.value).toBe('')
-    // Quien hubiera copiado la cookie de refresh ya no renueva nada.
+    // Whoever copied the refresh cookie can no longer renew anything.
     expect((await call('GET', '/me', { cookie: `gow_refresh=${s.cookies.get('gow_refresh')?.value ?? ''}` })).status).toBe(401)
 
     const expired = await login('sale2@prestamista.test', -5)

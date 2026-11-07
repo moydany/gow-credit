@@ -1,8 +1,8 @@
-/* eslint-disable no-console -- punto de entrada: una línea JSON por evento, solo ids y códigos (sin PII) */
+/* eslint-disable no-console -- entry point: one JSON line per event, only ids and codes (no PII) */
 /**
- * pnpm worker: proceso de larga vida del modo full. Roles de base separados para negocio
- * (gow_worker), cola (gow_queue) y Mastra (gow_mastra); las URL salen del entorno o, sin él, del
- * Postgres local de docker compose.
+ * pnpm worker: the long-lived full-mode process. Separate database roles for business
+ * (gow_worker), queue (gow_queue) and Mastra (gow_mastra); URLs come from the environment or,
+ * without it, from the local docker compose Postgres.
  */
 import { join, resolve } from 'node:path'
 import { ResendEmailTransport } from '@gow/channels'
@@ -38,21 +38,21 @@ if (!secret) {
 }
 const limit = createLimiter(Number(env.WORKER_MODEL_CONCURRENCY ?? 3))
 const business = connect(databaseUrl('worker'), { max: 5 })
-// Cada intercambio con el modelo, crudo, queda en app.llm_exchanges para analizar un caso (ADR 0064).
-// Por fuera de la caché: también quedan las respuestas que salieron de ella.
+// Every raw model exchange is stored in app.llm_exchanges to analyze a case.
+// Outside the cache: responses served from it are recorded too.
 const llm = new RecordingStructuredLlm(
   new CachingStructuredLlm(cacheMode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, cacheMode),
   new DbLlmExchangeSink(business.db),
   { onError: (m) => { log('error', m) } },
 )
-// Prompts: la versión activa de cada uno sale de la base y se refresca sola (ADR 0065); sin base, de prompts/.
+// Prompts: each one's active version comes from the database and refreshes itself; without a database, from prompts/.
 const prompts = await startPromptRefresh({ load: () => loadActivePrompts(business.db), logger: { info: (m) => { log('info', m) }, error: (m) => { log('error', m) } } })
 const mastraStore = new PostgresStore({ id: 'gow-full', connectionString: databaseUrl('mastra'), schemaName: 'mastra' })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } })
 const email = env.RESEND_API_KEY && env.RESEND_FROM ? new ResendEmailTransport({ apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM }) : undefined
-// Por defecto, cualquier número de WhatsApp puede registrarse como proveedor mandando su estado de
-// cuenta (ADR 0038 y 0062): el sistema es una demo y el número vinculado por QR es el único canal.
-// `WHATSAPP_SELF_REGISTRATION=false` lo apaga.
+// By default, any WhatsApp number can register as a supplier by sending its bank statement:
+// the system is a demo and the QR-linked number is the only channel.
+// `WHATSAPP_SELF_REGISTRATION=false` turns it off.
 const selfRegistration = env.WHATSAPP_SELF_REGISTRATION?.trim().toLowerCase() !== 'false'
 
 const worker = await startWorker(
@@ -67,17 +67,17 @@ const worker = await startWorker(
     limit,
     googleAvailable,
     selfRegistration,
-    // "Hoy" del negocio para la fecha de cálculo y los vencimientos (ADR 0046).
+    // Business "today" for the calculation date and due dates.
     today: () => calendarToday(env.GOW_TIME_ZONE ?? BUSINESS_TIME_ZONE),
-    // Solo con llamadas reales: en modo caché no hay respuestas guardadas de conversaciones y la
-    // conversación sigue con reglas (ADR 0040).
+    // Only with real calls: in cache mode there are no stored conversation responses and the
+    // conversation continues with rules.
     ...(cacheMode !== 'read' && anthropic.apiKey ? { interpreter: new HaikuInterpreter(llm, { onError: (m) => { log('error', m) } }) } : {}),
     transports: email ? { email } : {},
     logger: { info: (m) => { log('info', m) }, error: (m) => { log('error', m) } },
   },
   boss,
 )
-log('info', `worker listo${selfRegistration ? ' · registro de proveedores por WhatsApp activo (demo, ADR 0038)' : ''}${cacheMode !== 'read' && anthropic.apiKey ? ' · intérprete de mensajes con Haiku' : ''}`)
+log('info', `worker listo${selfRegistration ? ' · registro de proveedores por WhatsApp activo (demo)' : ''}${cacheMode !== 'read' && anthropic.apiKey ? ' · intérprete de mensajes con Haiku' : ''}`)
 
 const shutdown = async () => {
   await worker.stop()

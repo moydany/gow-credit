@@ -1,4 +1,4 @@
-/** Refresco de los prompts activos (ADR 0065): carga, cambia con la base y sobrevive a una falla. */
+/** Active prompt refresh: loads, changes with the database and survives a failure. */
 import { createHash } from 'node:crypto'
 import { clearActivePrompts, loadPrompt, type ActivePromptInput } from '@gow/llm'
 import { afterEach, describe, expect, it } from 'vitest'

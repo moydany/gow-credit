@@ -1,17 +1,17 @@
 /**
- * Destino en Postgres de la grabación de intercambios con el modelo (ADR 0064): una fila por
- * llamada en `app.llm_exchanges`, en la transacción del tenant del ámbito. Sin tenant en el ámbito
- * no hay a quién atribuirla y no se guarda (no pasa en el worker: cada trabajo abre su ámbito).
+ * Postgres sink for model exchange recording: one row per call in `app.llm_exchanges`, in the
+ * scope's tenant transaction. With no tenant in scope there is nobody to attribute it to and it is
+ * not stored (does not happen in the worker: each job opens its scope).
  */
 import { llmExchanges, withTenant, type Db } from '@gow/db'
 import { boundText, MAX_RAW_CHARS, type LlmExchange, type LlmExchangeSink, type LlmScope } from '@gow/llm'
 
-/** Postgres no acepta U+0000 ni en text ni en jsonb. */
+/** Postgres accepts U+0000 neither in text nor in jsonb. */
 function text(value: string): string {
   return value.replaceAll('\u0000', '')
 }
 
-/** El objeto como jsonb; si es enorme, va recortado como texto en `raw_output`. */
+/** The object as jsonb; if huge, it is truncated as text into `raw_output`. */
 function responseColumns(e: LlmExchange): { response: unknown; rawOutput: string | null } {
   if (e.response === null || e.response === undefined) return { response: null, rawOutput: e.rawOutput === null ? null : text(e.rawOutput) }
   const json = JSON.stringify(e.response).replaceAll('\\u0000', '')

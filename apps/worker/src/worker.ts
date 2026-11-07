@@ -1,11 +1,11 @@
 /**
- * El worker del modo full (docs/02 §4): consume `application.process` y `application.resume`, corre
- * el workflow de Mastra con estado en Postgres (el run suspendido vive en el esquema `mastra` y se
- * reanuda desde otro proceso), guarda lo que deja cada corrida y barre los mensajes entrantes.
+ * The full-mode worker: consumes `application.process` and `application.resume`, runs the Mastra
+ * workflow with state in Postgres (the suspended run lives in the `mastra` schema and resumes from
+ * another process), stores what each run leaves and sweeps inbound messages.
  *
- * Todo lo externo entra por `WorkerServices`: almacenamiento, modelos, transportes y fuentes
- * externas. Los escenarios usan las mismas piezas con dobles (docs/06: "solo cambian las
- * implementaciones de las interfaces externas").
+ * Everything external enters through `WorkerServices`: storage, models, transports and external
+ * sources. Scenarios use the same pieces with doubles (only the implementations of the external
+ * interfaces change).
  */
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -28,10 +28,10 @@ import type { MessageInterpreter } from './interpret.ts'
 import { handleRedecide } from './redecide.ts'
 import { loadContext, persistOutcome, requestOf, setStatus, supplierIdentity, type AppContext } from './store.ts'
 
-/** Confianza del clasificador desde la que el modo full no extrae un documento que no es estado de cuenta (ADR 0002). */
+/** Classifier confidence from which full mode does not extract a document that is not a bank statement. */
 export const REJECT_NOT_STATEMENT_ABOVE = 0.9
 
-/** Estado de cuenta sintético guardado como documento (solo escenarios y desarrollo). */
+/** Synthetic bank statement stored as a document (scenarios and development only). */
 export const SYNTHETIC_SUFFIX = '.synthetic.json'
 
 export interface SyntheticDocument {
@@ -51,15 +51,15 @@ export interface WorkerServices {
   limit: Limiter
   googleAvailable: boolean
   transports: { email?: Transport }
-  /** Fuentes externas del perfil por proveedor (con las extracciones, para los UUID y RFC de contraparte); sin ellas, snapshot vacío. */
+  /** External sources for the supplier profile (with the extractions, for counterparty UUIDs and RFCs); without them, an empty snapshot. */
   external?: (ctx: AppContext, state: AppState) => Promise<ExternalSnapshot>
-  /** Construye un estado de cuenta sintético; solo los escenarios lo pasan. */
+  /** Builds a synthetic bank statement; only scenarios pass it. */
   synthetic?: (doc: SyntheticDocument) => StatementExtraction
-  /** Demo (ADR 0038): un número de WhatsApp sin vínculo se registra conversando. Apagado por defecto. */
+  /** Demo: an unlinked WhatsApp number registers by chatting. Off by default. */
   selfRegistration?: boolean
-  /** Haiku para respuestas que las reglas no leen (ADR 0040); sin él, solo reglas. */
+  /** Haiku for replies the rules cannot read; without it, rules only. */
   interpreter?: MessageInterpreter
-  /** "Hoy" para la antigüedad del documento cuando la solicitud no fija `as_of`. */
+  /** "Today" for document age when the request does not set `as_of`. */
   today?: () => string
   logger: { info(message: string): void; error(message: string): void }
 }
@@ -72,11 +72,11 @@ function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
         if (!s.synthetic) throw new Error('documento sintético fuera de un escenario')
         return s.synthetic(JSON.parse(bytes.toString('utf8')) as SyntheticDocument)
       }
-      // extractStatement lee de disco: copia temporal con el nombre original (va en document.file_name).
+      // extractStatement reads from disk: temporary copy with the original name (it goes in document.file_name).
       const dir = await mkdtemp(join(tmpdir(), 'gow-doc-'))
       const file = join(dir, basename(path))
       await writeFile(file, bytes)
-      // Modo full: un documento que con seguridad no es estado de cuenta, o que trae más de uno, no se extrae (ADR 0002, 0042 y 0057).
+      // Full mode: a document that is surely not a bank statement, or that holds more than one, is not extracted.
       return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE, rejectMultipleStatements: true })
     },
     transactionClassifier: s.transactionClassifier,
@@ -121,7 +121,7 @@ export async function handleProcess(s: WorkerServices, job: ProcessJob): Promise
   return status
 }
 
-/** ` (no es estado de cuenta: credit_card_statement)`: el tipo de motivo, nunca datos del documento (ADR 0041). */
+/** ` (not a bank statement: credit_card_statement)`: the reason type, never document data. */
 function failureSuffix(status: string, reason: string | null): string {
   if (status !== 'failed') return ''
   const f = describeFailure(reason)
@@ -133,7 +133,7 @@ export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<s
   const { runId, suspendedStep } = ctx.application
   if (runId === null || suspendedStep === null) return ctx.application.status
   const [clar] = await withTenant(s.db, job.tenant_id, (tx) => tx.select().from(clarifications).where(eq(clarifications.id, job.clarification_id)))
-  // La aclaración tiene que ser de esta solicitud y de este tenant (RLS ya filtró el tenant).
+  // The clarification must belong to this request and tenant (RLS already filtered the tenant).
   if (clar?.applicationId !== ctx.application.id || clar.status !== 'answered') return ctx.application.status
   const answers = z.array(OwnerAnswer).parse(clar.answers)
   const outcome = await resumeApplication(createRuntime(deps(s, ctx), s.mastraStore), runId, z.array(z.string()).parse(suspendedStep), { answers, base_dir: null })
@@ -142,17 +142,17 @@ export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<s
   return status
 }
 
-/** Procesa los entrantes pendientes; los que completan una aclaración encolan la reanudación. */
+/** Processes pending inbound messages; those that complete a clarification enqueue the resume. */
 export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<number> {
   const pending = await pendingInbound(s.db)
   for (const m of pending) {
-    // Lo que lea Haiku de este mensaje queda atribuido a él (ADR 0064).
+    // Whatever Haiku reads from this message is attributed to it.
     const r = await withLlmScope({ tenantId: m.tenant_id, inboundMessageId: m.id }, () =>
       resolveInbound(s.db, m.tenant_id, m.id, { storage: s.storage, selfRegistration: s.selfRegistration === true, ...(s.today ? { today: s.today } : {}), ...(s.interpreter ? { interpreter: s.interpreter } : {}) }),
     )
     s.logger.info(`entrante ${m.id} → ${r.resolution}${r.interpreted ? ' (Haiku)' : ''}`)
     if (r.resume) await enqueueResume(boss, r.resume)
-    // Monto pedido después de la oferta (ADR 0053): se decide de nuevo con él, sin modelos.
+    // Amount requested after the offer: decide again with it, without models.
     if (r.redecide) await enqueueRedecide(boss, r.redecide)
     if (r.process) {
       await enqueueProcess(boss, r.process.job, r.process.sha256)
@@ -163,9 +163,9 @@ export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<num
 }
 
 /**
- * Limpieza de un proveedor borrado desde el backoffice (ADR 0059): la base ya no tiene sus filas; aquí
- * se borran sus PDFs, los trabajos de la cola de sus solicitudes y el estado de Mastra de sus corridas.
- * Todo es idempotente: si pg-boss reintenta, lo que ya no está no es error.
+ * Cleanup of a supplier deleted from the backoffice: the database no longer has their rows; here
+ * their PDFs, their requests' queue jobs and their runs' Mastra state are deleted. Everything is
+ * idempotent: if pg-boss retries, what is already gone is not an error.
  */
 export async function handlePurge(s: WorkerServices, boss: PgBoss, job: PurgeJob): Promise<{ files: number; runs: number; jobs: number }> {
   let files = 0
@@ -182,7 +182,7 @@ export async function handlePurge(s: WorkerServices, boss: PgBoss, job: PurgeJob
   return { files, runs: job.run_ids.length, jobs }
 }
 
-/** Cada llamada al modelo de un trabajo queda atribuida a su solicitud (ADR 0064). */
+/** Every model call in a job is attributed to its request. */
 function scopeOf(job: { tenant_id: string; application_id: string }): { tenantId: string; applicationId: string } {
   return { tenantId: job.tenant_id, applicationId: job.application_id }
 }
@@ -193,7 +193,7 @@ export interface RunningWorker {
 
 export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweepMs?: number; pollingSeconds?: number } = {}): Promise<RunningWorker> {
   const polling = { pollingIntervalSeconds: opts.pollingSeconds ?? 2 }
-  // Un fallo lanza: pg-boss reintenta con backoff y, agotado, lo manda a application.dead.
+  // A failure throws: pg-boss retries with backoff and, once exhausted, sends it to application.dead.
   await boss.work<ProcessJob>(QUEUES.process, polling, async ([job]) => {
     if (!job) return
     try {

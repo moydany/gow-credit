@@ -1,7 +1,7 @@
 /**
- * Reevaluación tras la corrección de un analista (ADR 0020), contra Postgres real y sin modelos:
- * la extracción guardada tiene un monto mal leído que rompe el cuadre; el analista lo corrige; el
- * worker decide de nuevo con la corrección y deja el veredicto anterior intacto.
+ * Re-evaluation after an analyst correction, against real Postgres and without models: the stored
+ * extraction has a misread amount that breaks the reconciliation; the analyst fixes it; the worker
+ * decides again with the correction and leaves the previous verdict intact.
  */
 import { randomUUID } from 'node:crypto'
 import { StatementExtraction, type Decision } from '@gow/contracts'
@@ -36,7 +36,7 @@ describe.skipIf(!available)('reevaluar con correcciones (necesita el Postgres de
 
     const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
     const good = syntheticStatement({ start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, 'redecide-1')
-    // El modelo leyó mal el primer movimiento: el periodo ya no cuadra contra el saldo final impreso.
+    // The model misread the first transaction: the period no longer reconciles against the printed closing balance.
     const bad = structuredClone(good)
     const period = bad.accounts[0]?.periods[0]
     const first = period?.transactions[0]
@@ -90,7 +90,7 @@ describe.skipIf(!available)('reevaluar con correcciones (necesita el Postgres de
     const log = await admin.query("SELECT details FROM app.audit_log WHERE tenant_id = $1 AND action = 'application.redecided'", [tenant])
     expect(log.rows).toHaveLength(1)
 
-    // Repetir el trabajo (reintento de pg-boss) no duplica el veredicto.
+    // Repeating the job (pg-boss retry) does not duplicate the verdict.
     expect(await handleRedecide(services(), job())).toBe(status)
     const again = await admin.query("SELECT count(*)::int AS n FROM app.decisions WHERE application_id = $1 AND kind = 'active'", [applicationId])
     expect((again.rows[0] as { n: number }).n).toBe(1)

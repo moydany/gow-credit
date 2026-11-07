@@ -1,5 +1,5 @@
-/* eslint-disable no-console -- punto de entrada: una línea JSON por evento, sin PII */
-/** pnpm api: la API del modo full sobre el Postgres de docker compose (o las URL del entorno). */
+/* eslint-disable no-console -- entry point: one JSON line per event, no PII */
+/** pnpm api: the full-mode API on the docker compose Postgres (or the env URLs). */
 import { join, resolve } from 'node:path'
 import { connect, databaseUrl } from '@gow/db'
 import { loadRootEnv } from '@gow/llm'
@@ -21,13 +21,13 @@ if (!secret) {
   process.exit(2)
 }
 const port = Number(env.PORT ?? 3000)
-// En local solo loopback; en Cloud Run el tráfico entra por la interfaz del contenedor (HOST=0.0.0.0).
+// Loopback only locally; on Cloud Run traffic enters on the container interface (HOST=0.0.0.0).
 const host = env.HOST ?? '127.0.0.1'
 const publicUrl = env.API_PUBLIC_URL ?? `http://127.0.0.1:${String(port)}`
 const db = connect(databaseUrl('api'), { max: 10 })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } }, { supervise: false })
 const auth = supabaseAuthFromEnv(env)
-/** Horas de una variable del entorno (positivas); sin ella, el valor por defecto. */
+/** Hours from an env variable (positive); falls back to the default. */
 const hours = (name: string, fallback: number): number => {
   const raw = env[name]?.trim()
   if (!raw) return fallback

@@ -1,4 +1,4 @@
-/** Proveedores del backoffice: lista, alta, detalle, edición y borrado (docs/08 §2, ADR 0059). */
+/** Backoffice suppliers: list, create, detail, edit and delete. */
 import { suppliers, supplierContacts, withTenant } from '@gow/db'
 import { SupplierCreateBody, SupplierDeleted, SupplierUpdateBody, type ApplicationRow, type SupplierDetail, type SupplierRow } from '@gow/contracts'
 import { enqueuePurge, pathBelongsTo } from '@gow/platform'
@@ -8,8 +8,7 @@ import { z } from 'zod'
 import { audit, HttpError, parse } from '../ops.ts'
 import { actorOf, iso, PENDING_SUPPLIER_NAME, SUPPLIER_NOT_FOUND, uniqueViolation, who, type BackofficeDeps } from './shared.ts'
 
-/** Violación de unicidad de Postgres, venga directa o envuelta por Drizzle. */
-/** El proveedor tiene una solicitud en proceso (`app.purge_supplier`, 55006 object_in_use). */
+/** The supplier has a request in progress (`app.purge_supplier`, 55006 object_in_use). */
 function inUse(e: unknown): boolean {
   for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 5; x = (x as { cause?: unknown }).cause, depth++) {
     if ((x as { code?: unknown }).code === '55006') return true
@@ -21,7 +20,7 @@ const PurgeResult = z.object({ application_ids: z.array(z.uuid()), run_ids: z.ar
 
 export function suppliersRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
-  // ---------- Proveedores: lista, alta, detalle y edición (docs/08 §2)
+  // ---------- Suppliers: list, create, detail and edit
   r.get('/suppliers', async (_req, res) => {
     const rows = await withTenant(deps.db, who(res).tenantId, (tx) =>
       tx.execute<{ id: string; legal_name: string; rfc: string | null; external_ref: string | null; created_at: Date; applications: number; last_id: string | null; last_status: ApplicationRow['status'] | null; last_at: Date | null }>(sql`
@@ -45,7 +44,7 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
     res.json(list)
   })
 
-  /** Alta sin contactos: un vínculo verificado entra por la API de integración (KYC del tenant, docs/05 §2b). */
+  /** Create without contacts: a verified link comes in through the integration API (tenant KYC). */
   r.post('/suppliers', async (req, res) => {
     const w = who(res)
     const body = parse(SupplierCreateBody, req.body)
@@ -77,7 +76,7 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
           left join lateral (select dd.status, dd.limit_amount, dd.score from app.decisions dd where dd.application_id = a.id and dd.kind = 'active' order by dd.created_at desc limit 1) d on true
          where a.supplier_id = ${id}::uuid
          order by a.created_at desc`)
-      // Ver un proveedor es ver su RFC y sus CLABEs: queda en la bitácora como ver una solicitud.
+      // Viewing a supplier means viewing their RFC and CLABEs: audit-logged like viewing a request.
       await audit(tx, w.tenantId, actorOf(w), 'supplier.viewed', id)
       return { s, contacts, apps: apps.rows }
     })
@@ -102,7 +101,7 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
     res.json(detail)
   })
 
-  /** Edición de razón social, RFC y CLABEs; la bitácora lleva solo los nombres de los campos, nunca los valores. */
+  /** Edit legal name, RFC and CLABEs; the audit log carries only field names, never values. */
   r.patch('/suppliers/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -118,11 +117,11 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Borrar un proveedor con todo lo suyo (ADR 0059): solicitudes, documentos, extracciones, decisiones,
-   * aclaraciones, resultados de crédito, correcciones, registro y mensajes. La base se borra en una sola
-   * transacción con `app.purge_supplier` (el rol de la API no tiene DELETE sobre esas tablas); los PDFs,
-   * los trabajos de la cola y el estado de Mastra los borra el worker con `supplier.purge`. Con una
-   * solicitud en proceso no se borra (409). La bitácora guarda solo los conteos.
+   * Delete a supplier with everything of theirs: requests, documents, extractions, decisions,
+   * clarifications, credit results, corrections, registration and messages. The database part is
+   * one transaction through `app.purge_supplier` (the API role has no DELETE on those tables); the
+   * worker deletes the PDFs, queue jobs and Mastra state with `supplier.purge`. Refused with 409
+   * while a request is in progress. The audit log keeps only counts.
    */
   r.delete('/suppliers/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)

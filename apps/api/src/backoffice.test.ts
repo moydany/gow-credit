@@ -1,6 +1,6 @@
 /**
- * El backoffice contra Postgres real: sesión por cookie, pertenencia verificada en cada petición,
- * CSRF, aislamiento entre tenants, bandeja, respuesta manual de una aclaración y bitácora con el usuario.
+ * The backoffice against real Postgres: cookie session, membership verified on every request,
+ * CSRF, tenant isolation, inbox, manual answer to a clarification and audit log with the user.
  */
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
@@ -30,7 +30,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   let boss: PgBoss
   let server: Server
   let base = ''
-  // La misma API con Supabase Auth simulado (ADR 0035).
+  // The same API with a simulated Supabase Auth.
   let serverSb: Server
   let baseSb = ''
   const gotrue = {
@@ -122,7 +122,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   it('rechaza tokens vencidos, de otro secreto y de quien no pertenece al tenant', async () => {
     expect((await call('POST', '/session', { body: { token: tokenFor(userA, tenantA, 'a@prestamista.test', -10) } })).status).toBe(401)
     expect((await call('POST', '/session', { body: { token: issueToken('otro-secreto-muy-largo-0000', { sub: userA, email: 'a@prestamista.test', tenant_id: tenantA }, 60) } })).status).toBe(401)
-    // El usuario A con el tenant B en el claim: la pertenencia no existe.
+    // User A with tenant B in the claim: the membership does not exist.
     expect((await call('POST', '/session', { body: { token: tokenFor(userA, tenantB, 'a@prestamista.test') } })).status).toBe(401)
   })
 
@@ -165,7 +165,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(after.answered_by).toBe('a@prestamista.test')
     const log = await q("SELECT actor, action FROM app.audit_log WHERE tenant_id = $1 AND action = 'clarification.answered'", [tenantA])
     expect(log.rows).toEqual([{ actor: `user:${userA}`, action: 'clarification.answered' }])
-    // Se encola la reanudación (aunque aquí no haya worker que la tome).
+    // The resume is enqueued (even though no worker is here to take it).
     const jobs = await q('SELECT count(*)::int AS n FROM pgboss.job WHERE name = $1', [QUEUES.resume])
     expect((jobs.rows[0] as { n: number }).n).toBe(1)
   })
@@ -186,10 +186,10 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
     const fix = { target: { kind: 'transaction', transaction_id: 'a1.p1.t2', field: 'amount' }, value: 1300, page: 1 }
 
-    // Inválida: nada se guarda y la solicitud sigue en revisión.
+    // Invalid: nothing is saved and the request stays in review.
     expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [{ ...fix, value: -4 }] } })).status).toBe(400)
     expect((await q('SELECT count(*)::int AS n FROM app.corrections WHERE application_id = $1', [app])).rows[0]).toEqual({ n: 0 })
-    // Otro tenant no la ve.
+    // Another tenant does not see it.
     expect((await call('POST', `/applications/${app}/corrections`, { cookie: b, body: { corrections: [fix] } })).status).toBe(404)
 
     const ok = await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })
@@ -199,14 +199,14 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await q('SELECT status FROM app.applications WHERE id = $1', [app])).rows[0]).toEqual({ status: 'deciding' })
     expect((await q('SELECT count(*)::int AS n FROM pgboss.job WHERE name = $1', [QUEUES.redecide])).rows[0]).toEqual({ n: 1 })
 
-    // El detalle devuelve la extracción con la corrección encima; la guardada no cambia.
+    // The detail returns the extraction with the correction on top; the stored one is unchanged.
     const detail = (await call('GET', `/applications/${app}`, { cookie: a })).json as unknown as { extraction: { accounts: { periods: { transactions: { id: string; amount: number; provenance: string }[] }[] }[] }; corrections: { read_value: number; value: number; created_by: string }[] }
     expect(detail.extraction.accounts[0]?.periods[0]?.transactions[1]).toMatchObject({ amount: 1300, provenance: 'analyst_answer' })
     expect(detail.corrections).toMatchObject([{ read_value: 1250.5, value: 1300, created_by: 'a@prestamista.test' }])
     const stored = (await q('SELECT payload FROM app.extractions WHERE document_id = $1', [doc])).rows[0] as { payload: { accounts: { periods: { transactions: { amount: number }[] }[] }[] } }
     expect(stored.payload.accounts[0]?.periods[0]?.transactions[1]?.amount).toBe(1250.5)
 
-    // Ya no está en revisión: no se vuelve a corregir hasta que el worker termine.
+    // No longer in review: it cannot be corrected again until the worker finishes.
     expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })).status).toBe(409)
   })
 
@@ -219,17 +219,17 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
 
-    // Motivo fuera de la lista, o texto libre: 400 y nada cambia.
+    // Reason outside the list, or free text: 400 and nothing changes.
     expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'otro' } })).status).toBe(400)
     expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'illegible', note: 'x' } })).status).toBe(400)
-    // Otro tenant no la ve.
+    // Another tenant does not see it.
     expect((await call('POST', `/applications/${app}/discard`, { cookie: b, body: { reason: 'illegible' } })).status).toBe(404)
 
     const ok = await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'altered' } })
     expect(ok.status).toBe(200)
     expect((await q('SELECT status, failure_reason FROM app.applications WHERE id = $1', [app])).rows[0]).toEqual({ status: 'not_qualified', failure_reason: 'document_discarded:altered' })
     expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'application.discarded'", [app])).rows[0]).toEqual({ actor: `user:${userA}`, details: { reason: 'altered' } })
-    // Ya no está en revisión humana.
+    // No longer in human review.
     expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'altered' } })).status).toBe(409)
   })
 
@@ -238,7 +238,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
 
-    // Alta inválida: 400 con la ruta del campo y sin el valor en la respuesta.
+    // Invalid create: 400 with the field path and without the value in the response.
     const bad = await call('POST', '/suppliers', { cookie: a, body: { legal_name: 'Proveedor Uno', rfc: 'NOPE99', clabes: ['123456'] } })
     expect(bad.status).toBe(400)
     expect((bad.json as unknown as { issues: { path: string }[] }).issues.map((i) => i.path).sort()).toEqual(['clabes.0', 'rfc'])
@@ -261,15 +261,15 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const detail = (await call('GET', `/suppliers/${sup}`, { cookie: a })).json as unknown as { contacts: { channel: string; verified_at: string | null }[]; applications: { id: string; outcomes: { outcome: string }[] }[] }
     expect(detail.contacts.map((c) => [c.channel, c.verified_at !== null])).toEqual([['whatsapp', true], ['email', false]])
     expect(detail.applications).toMatchObject([{ id: app, outcomes: [{ outcome: 'paid' }] }])
-    // El domicilio sale del estado de cuenta (ADR 0066).
+    // The address comes from the bank statement.
     expect((detail as unknown as { address: string | null }).address).toBe('AV. REFORMA 100, CDMX')
 
-    // Otro tenant ni lo lista, ni lo ve, ni lo edita.
+    // Another tenant can neither list, see nor edit it.
     expect(((await call('GET', '/suppliers', { cookie: b })).json as unknown as { id: string }[]).some((x) => x.id === sup)).toBe(false)
     expect((await call('GET', `/suppliers/${sup}`, { cookie: b })).status).toBe(404)
     expect((await call('PATCH', `/suppliers/${sup}`, { cookie: b, body: { legal_name: 'Robado' } })).status).toBe(404)
 
-    // Edición: validada con los mismos validadores, y nada cambia si falla.
+    // Edit: validated with the same validators, and nothing changes if it fails.
     expect((await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: {} })).status).toBe(400)
     expect((await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: { clabes: ['012180001234567890'] } })).status).toBe(400)
     expect((await call('PATCH', `/suppliers/${sup}`, { cookie: a, body: { external_ref: 'x' } })).status).toBe(400)
@@ -285,10 +285,10 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(JSON.stringify(log.rows)).not.toMatch(/GOMA|0021800/)
   })
 
-  it('borrar un proveedor se lleva todo lo suyo, deja lo de otros, no deja con una solicitud en proceso y encola la limpieza (ADR 0059)', async () => {
+  it('borrar un proveedor se lleva todo lo suyo, deja lo de otros, no deja con una solicitud en proceso y encola la limpieza', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const count = async (sql: string, v: unknown[]) => ((await q(sql, v)).rows[0] as { n: number }).n
-    // Con Bearer: no gasta intentos de /session (20 por minuto por IP) que usan las pruebas de abajo.
+    // With Bearer: does not spend /session attempts (20 per minute per IP) that the tests below use.
     const a = tokenFor(userA, tenantA, 'a@prestamista.test')
     const b = tokenFor(userB, tenantB, 'b@prestamista.test')
     const [sup, other, app, doc, clar] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()]
@@ -305,7 +305,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     await q("INSERT INTO app.clarifications (id, tenant_id, application_id, supplier_id, round, channel, questions) VALUES ($1, $2, $3, $4, 1, 'whatsapp', '[]')", [clar, tenantA, app, sup])
     await q("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, clarification_id) VALUES ($1, 'whatsapp', $2, 'hola', $3), ($1, 'whatsapp', '+5215559990000', 'de otro', null)", [tenantA, phone, clar])
     await q("INSERT INTO app.outbound_messages (tenant_id, channel, destination, body, kind) VALUES ($1, 'whatsapp', $2, 'aviso', 'generic')", [tenantA, phone])
-    // Intercambios con el modelo (ADR 0064): de la solicitud, de un mensaje suyo y de un mensaje de otro.
+    // Model exchanges: of the request, of one of its messages and of another tenant's message.
     const llmRow = "INSERT INTO app.llm_exchanges (tenant_id, application_id, inbound_message_id, purpose, model, schema_name, prompt_version, effort, max_output_tokens, server_fallback, system, instruction, outcome, latency_ms) SELECT $1, $2::uuid, (SELECT id FROM app.inbound_messages WHERE from_address = $3::text), $4, 'm', 's.v1', 'p.v1', 'low', 10, false, 'sys', 'ins', 'ok', 1"
     await q(llmRow, [tenantA, app, 'ninguno', 'summary'])
     await q(llmRow, [tenantA, null, phone, 'interpret'])
@@ -314,7 +314,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const busy = randomUUID()
     await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'extracting')", [busy, tenantA, other])
 
-    // Otro tenant no lo encuentra; con una solicitud en proceso no se borra y nada cambia.
+    // Another tenant does not find it; with a request in progress it is not deleted and nothing changes.
     expect((await call('DELETE', `/suppliers/${sup}`, { bearer: b })).status).toBe(404)
     expect((await call('DELETE', `/suppliers/${other}`, { bearer: a })).status).toBe(409)
     expect(await count('SELECT count(*)::int AS n FROM app.suppliers WHERE id = $1', [other])).toBe(1)
@@ -329,18 +329,18 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(await count('SELECT count(*)::int AS n FROM app.outbound_messages WHERE destination = $1', [phone])).toBe(0)
     expect(await count('SELECT count(*)::int AS n FROM app.supplier_registrations WHERE address = $1', [phone])).toBe(0)
     expect(await count('SELECT count(*)::int AS n FROM app.llm_exchanges WHERE application_id = $1', [app])).toBe(0)
-    // Lo de otros se queda.
+    // Other suppliers' data stays.
     expect(await count('SELECT count(*)::int AS n FROM app.inbound_messages WHERE from_address = $1', ['+5215559990000'])).toBe(1)
     expect(await count("SELECT count(*)::int AS n FROM app.llm_exchanges WHERE tenant_id = $1 AND purpose = 'interpret'", [tenantA])).toBe(1)
     expect(await count('SELECT count(*)::int AS n FROM app.applications WHERE supplier_id = $1', [other])).toBe(1)
-    // La bitácora guarda solo conteos; la limpieza fuera de la base queda encolada para el worker.
+    // The audit log keeps only counts; cleanup outside the database is enqueued for the worker.
     expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'supplier.deleted'", [sup])).rows).toEqual([{ actor: `user:${userA}`, details: { applications: 1, documents: 1, outcomes: 1, clarifications: 1, messages: 2 } }])
     const job = (await q('SELECT data FROM pgboss.job WHERE name = $1', [QUEUES.purge])).rows[0] as { data: unknown }
     expect(job.data).toEqual({ tenant_id: tenantA, supplier_id: sup, application_ids: [app], run_ids: ['run-borrar'], storage_paths: [path] })
     expect((await call('DELETE', `/suppliers/${sup}`, { bearer: a })).status).toBe(404)
   })
 
-  it('llamadas al modelo: la lista va sin contenido, se filtra por solicitud y error, el detalle trae lo crudo y se audita (ADR 0064)', async () => {
+  it('llamadas al modelo: la lista va sin contenido, se filtra por solicitud y error, el detalle trae lo crudo y se audita', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const a = tokenFor(userA, tenantA, 'a@prestamista.test')
     const b = tokenFor(userB, tenantB, 'b@prestamista.test')
@@ -356,7 +356,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(list.status).toBe(200)
     expect(list.json).toHaveLength(2)
     expect(list.json[0]).toEqual(expect.objectContaining({ application_id: app, model: 'gemini-3.8-flash', response_cache_hit: false }))
-    // La lista no trae prompts ni respuestas.
+    // The list carries no prompts or responses.
     expect(JSON.stringify(list.json)).not.toMatch(/Distribuidora|portada|transactions":\[/)
     expect((await call('GET', `/llm-exchanges?application_id=${app}&outcome=error`, { bearer: a })).json.map((x) => (x as { id: string }).id)).toEqual([badRow.id])
     expect((await call('GET', '/llm-exchanges?outcome=raro', { bearer: a })).status).toBe(400)
@@ -369,7 +369,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(log.rows).toEqual([{ actor: `user:${userA}`, subject: okRow.id, details: { application_id: app } }])
     expect(JSON.stringify(log.rows)).not.toMatch(/Distribuidora/)
 
-    // Otro tenant no ve nada.
+    // Another tenant sees nothing.
     expect((await call('GET', '/llm-exchanges', { bearer: b })).json).toEqual([])
     expect((await call('GET', `/llm-exchanges/${okRow.id}`, { bearer: b })).status).toBe(404)
   })
@@ -380,7 +380,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
 
     expect((await call('POST', '/users', { cookie: a, body: { email: 'no-es-correo' } })).status).toBe(400)
-    // Ya está en este tenant, o en otro: no se emite enlace.
+    // Already in this tenant, or in another: no link is issued.
     expect((await call('POST', '/users', { cookie: a, body: { email: 'a@prestamista.test' } })).status).toBe(409)
     expect((await call('POST', '/users', { cookie: a, body: { email: 'b@prestamista.test' } })).status).toBe(409)
 
@@ -411,7 +411,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   })
 
   it('con Supabase Auth: invitar crea la cuenta de Auth, guarda su id y manda el enlace; no hay enlace que compartir', async () => {
-    // Con el JWT como Bearer: el límite de inicios de sesión por IP es del otro servidor y ya va gastado.
+    // With the JWT as Bearer: the per-IP login limit belongs to the other server and is already spent.
     const a = tokenFor(userA, tenantA, 'a@prestamista.test')
     const added = await call('POST', '/users', { base: baseSb, bearer: a, body: { email: 'Auth@Prestamista.test' } })
     expect(added.status).toBe(201)
@@ -421,7 +421,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const rows = await admin.query('SELECT tenant_id, user_id FROM app.tenant_users WHERE email = $1', ['auth@prestamista.test'])
     expect(rows.rows).toEqual([{ tenant_id: tenantA, user_id: authId }])
 
-    // Un conflicto visible en el tenant no toca Auth; GoTrue caído no deja pertenencia a medias.
+    // A conflict visible in the tenant does not touch Auth; GoTrue being down leaves no half-made membership.
     const before = gotrue.users.size
     expect((await call('POST', '/users', { base: baseSb, bearer: a, body: { email: 'auth@prestamista.test' } })).status).toBe(409)
     expect(gotrue.users.size).toBe(before)
@@ -433,7 +433,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     }
     expect((await admin.query('SELECT 1 FROM app.tenant_users WHERE email = $1', ['caido@prestamista.test'])).rowCount).toBe(0)
 
-    // Quitarlo solo quita la pertenencia: la cuenta de Auth sigue, pero ya no entra.
+    // Removing only removes the membership: the Auth account stays, but can no longer sign in.
     expect((await call('DELETE', `/users/${String(authId)}`, { base: baseSb, bearer: a })).status).toBe(204)
     expect(gotrue.users.has('auth@prestamista.test')).toBe(true)
   })
@@ -453,7 +453,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(maxAge).toBeGreaterThan(3500)
     expect(maxAge).toBeLessThanOrEqual(3600)
     expect(gotrue.revoked).toEqual([token])
-    // Lo que emite GoTrue para quien no es miembro: sin el claim del hook.
+    // What GoTrue issues for a non-member: without the hook's claim.
     expect((await call('POST', '/session', { base: baseSb, body: { token: supabaseToken(claims) } })).status).toBe(401)
     expect(gotrue.revoked).toHaveLength(1)
   })
@@ -475,7 +475,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const stored = (await q('SELECT key_hash, tenant_id::text AS tenant FROM app.api_keys WHERE id = $1', [key.id])).rows[0] as { key_hash: string; tenant: string }
     expect(stored).toEqual({ key_hash: createHash('sha256').update(secret).digest('hex'), tenant: tenantA })
 
-    // La lista nunca trae el secreto ni el hash.
+    // The list never carries the secret or the hash.
     const listed = await call('GET', '/api-keys', { cookie: a })
     expect(JSON.stringify(listed.json)).not.toContain(secret)
     expect(JSON.stringify(listed.json)).not.toContain(stored.key_hash)
@@ -505,7 +505,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null }, analysis: { statement_max_age_months: null } })
   })
 
-  it('configuración: la antigüedad máxima del estado de cuenta se cambia, se valida y queda en la bitácora (ADR 0049)', async () => {
+  it('configuración: la antigüedad máxima del estado de cuenta se cambia, se valida y queda en la bitácora', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const bearer = tokenFor(userA, tenantA, 'a@prestamista.test')
     const patch = (body: unknown) => call('PATCH', '/settings', { bearer, body })
@@ -518,7 +518,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     for (const bad of [{ statement_max_age_months: 0 }, { statement_max_age_months: 25 }, { statement_max_age_months: 1.5 }, { statement_max_age_months: '3' }, {}, { statement_max_age_months: 3, name: 'otro' }]) {
       expect((await patch(bad)).status, JSON.stringify(bad)).toBe(400)
     }
-    // B no ve ni toca el ajuste de A.
+    // B neither sees nor touches A's setting.
     expect(((await call('GET', '/settings', { bearer: tokenFor(userB, tenantB, 'b@prestamista.test') })).json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: null })
     const log = await q("SELECT actor, details FROM app.audit_log WHERE action = 'settings.updated' AND tenant_id = $1 ORDER BY at", [tenantA])
     expect(log.rows).toEqual([
@@ -527,7 +527,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     ])
   })
 
-  // El inicio de sesión tiene límite por IP y las pruebas anteriores lo agotan: estas van con el JWT como Bearer.
+  // Login has a per-IP limit and the earlier tests exhaust it: these use the JWT as Bearer.
   const as = (user: string, tenant: string, email: string) => {
     const bearer = tokenFor(user, tenant, email)
     return (method: string, path: string) => call(method, path, { bearer })
@@ -536,11 +536,11 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
   it('WhatsApp: sin proceso no hay QR ni se puede desvincular; el estado de cada tenant es suyo', async () => {
     const a = as(userA, tenantA, 'a@prestamista.test')
     const b = as(userB, tenantB, 'b@prestamista.test')
-    // Nunca ha corrido el proceso para A.
+    // The process has never run for A.
     expect((await a('GET', '/whatsapp')).json).toEqual({ process_running: false, status: null, linked_number: null, qr: null, qr_expires_at: null, unlink_pending: false, updated_at: null })
     expect((await a('POST', '/whatsapp/unlink')).status).toBe(409)
 
-    // B tiene el proceso vivo y esperando QR; A tiene un latido viejo con un QR vigente en la fila.
+    // B has the process alive and waiting for a QR; A has an old heartbeat with a current QR in the row.
     await admin.query("INSERT INTO app.whatsapp_sessions (tenant_id, status, qr, qr_expires_at, heartbeat_at) VALUES ($1, 'waiting_qr', '2@reto-de-b', now() + interval '1 minute', now())", [tenantB])
     await admin.query("INSERT INTO app.whatsapp_sessions (tenant_id, status, qr, qr_expires_at, heartbeat_at) VALUES ($1, 'waiting_qr', '2@reto-de-a', now() + interval '1 minute', now() - interval '45 seconds')", [tenantA])
     const stale = await a('GET', '/whatsapp')
@@ -560,7 +560,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await a('GET', '/whatsapp')).json).toMatchObject({ process_running: true, qr: '2@reto-1' })
     expect((await a('GET', '/whatsapp')).json).toMatchObject({ qr: '2@reto-1' })
     expect((await viewed()).rows).toHaveLength(1)
-    // Un QR nuevo es otra vista; el valor nunca va a la bitácora, solo una huella truncada.
+    // A new QR is a different view; the value never goes to the audit log, only a truncated fingerprint.
     await q("UPDATE app.whatsapp_sessions SET qr = '2@reto-2' WHERE tenant_id = $1", [tenantA])
     expect((await a('GET', '/whatsapp')).json).toMatchObject({ qr: '2@reto-2' })
     const rows = (await viewed()).rows as { actor: string; details: { qr_digest: string } }[]
@@ -568,17 +568,17 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(rows.every((r) => r.actor === `user:${userA}` && /^[0-9a-f]{16}$/.test(r.details.qr_digest))).toBe(true)
     expect(JSON.stringify(rows)).not.toContain('reto')
 
-    // Caducado: no se entrega ni se audita.
+    // Expired: neither delivered nor audited.
     await q("UPDATE app.whatsapp_sessions SET qr = '2@reto-3', qr_expires_at = now() - interval '1 second' WHERE tenant_id = $1", [tenantA])
     expect((await a('GET', '/whatsapp')).json).toMatchObject({ process_running: true, status: 'waiting_qr', qr: null, qr_expires_at: null })
     expect((await viewed()).rows).toHaveLength(2)
 
-    // Abierta: el número, sin QR; aparece también en /me.
+    // Open: the number, no QR; it also shows in /me.
     await q("UPDATE app.whatsapp_sessions SET status = 'open', qr = NULL, qr_expires_at = NULL, linked_number = '+5215500000001' WHERE tenant_id = $1", [tenantA])
     expect((await a('GET', '/whatsapp')).json).toMatchObject({ process_running: true, status: 'open', linked_number: '+5215500000001', qr: null, unlink_pending: false })
     expect((await a('GET', '/me')).json).toMatchObject({ tenant: { whatsapp_linked_number: '+5215500000001' } })
 
-    // Desvincular queda pendiente hasta que el proceso lo atienda.
+    // Unlinking stays pending until the process handles it.
     const un = await a('POST', '/whatsapp/unlink')
     expect(un.status).toBe(202)
     expect(un.json).toEqual({ unlink_requested_at: expect.any(String) as unknown })
@@ -588,10 +588,10 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const log = await q("SELECT actor, details FROM app.audit_log WHERE tenant_id = $1 AND action = 'whatsapp.unlink_requested'", [tenantA])
     expect(log.rows).toEqual([{ actor: `user:${userA}`, details: { status: 'open' } }])
     expect(JSON.stringify(log.rows)).not.toContain('+52')
-    // El tenant B no vio nada de esto.
+    // Tenant B saw none of this.
     expect((await q("SELECT unlink_requested_at FROM app.whatsapp_sessions WHERE tenant_id = $1", [tenantB])).rows).toEqual([{ unlink_requested_at: null }])
 
-    // Con el proceso detenido, /me deja de mostrar el número vinculado.
+    // With the process stopped, /me stops showing the linked number.
     await q("UPDATE app.whatsapp_sessions SET heartbeat_at = NULL WHERE tenant_id = $1", [tenantA])
     expect((await a('GET', '/me')).json).toMatchObject({ tenant: { whatsapp_linked_number: null } })
   })

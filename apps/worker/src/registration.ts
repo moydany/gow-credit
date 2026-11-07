@@ -1,15 +1,15 @@
 /**
- * Registro con el estado de cuenta primero (ADR 0047, solo la demo con `WHATSAPP_SELF_REGISTRATION`).
+ * Registration with the bank statement first (demo only, with `WHATSAPP_SELF_REGISTRATION`).
  *
- * 1. Un número sin vínculo saluda: se le pide el estado de cuenta.
- * 2. Llega el PDF: se crea un proveedor sin identidad (`legal_name` null) con el contacto verificado
- *    por posesión del número, y la solicitud se analiza de inmediato.
- * 3. Termina el análisis: el resultado no sale. Se le muestra al mismo número el titular y el RFC
- *    leídos para que los confirme o corrija (`startConfirmation`), y se pide lo que falte: el RFC
- *    completo si vino sin homoclave, el representante legal si es persona moral.
- * 4. Con esos datos, el proveedor queda con su identidad y sale el resultado
- *    (`completeRegistration`): el veredicto que ya había o, si el motor esperaba la identidad, la
- *    aclaración se contesta con lo confirmado y la reanudación decide.
+ * 1. An unlinked number greets: it is asked for the bank statement.
+ * 2. The PDF arrives: a supplier with no identity (`legal_name` null) is created with the contact
+ *    verified by possession of the number, and the request is analyzed immediately.
+ * 3. Analysis ends: the result is not sent. The same number is shown the holder and RFC read so it
+ *    can confirm or correct them (`startConfirmation`), and asked for what is missing: the full
+ *    RFC if it came without homoclave, the legal representative for a persona moral.
+ * 4. With that data, the supplier gets its identity and the result goes out
+ *    (`completeRegistration`): the verdict that already existed or, if the engine was waiting for
+ *    the identity, the clarification is answered with what was confirmed and the resume decides.
  */
 import { failureNotice, isComplete, isDocumentRequest, nextConversational, notQualifiedReasons, parseLegalName, parseRfc, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestionAt, renderVerdict } from '@gow/channels'
 import { ApplicationRequest, Decision, describeFailure, OwnerAnswer, Question, rfcRoot } from '@gow/contracts'
@@ -25,18 +25,18 @@ export const FINAL_VERDICTS = ['qualified', 'qualified_with_limit', 'not_qualifi
 
 type Registration = typeof supplierRegistrations.$inferSelect
 
-/** El RFC tal como se compara: sin espacios ni guiones y en mayúsculas. */
+/** The RFC as compared: no spaces or hyphens, uppercase. */
 function cleanRfc(raw: string | null): string | null {
   const s = raw?.replace(/[\s-]/g, '').toUpperCase() ?? ''
   return s.length ? s : null
 }
 
-/** El RFC del titular, si viene completo. */
+/** The holder's RFC, if it came complete. */
 export function completeRfc(holderRfc: string | null): string | null {
   return holderRfc ? parseRfc(holderRfc) : null
 }
 
-/** Por qué se pide el RFC al proveedor. */
+/** Why the RFC is asked of the supplier. */
 export function rfcAskReason(reg: Pick<Registration, 'corrected' | 'holderRfc'>) {
   if (reg.corrected) return { kind: 'corrected' as const }
   const root = rfcRoot(reg.holderRfc)
@@ -44,9 +44,9 @@ export function rfcAskReason(reg: Pick<Registration, 'corrected' | 'holderRfc'>)
 }
 
 /**
- * Termina la primera lectura de un proveedor que se está registrando. Si falló (no era estado de
- * cuenta, no se pudo leer), el aviso sale como siempre y el registro vuelve a esperar un PDF. Si no,
- * el resultado se retiene y se pregunta si el titular y el RFC leídos son los suyos.
+ * Finishes the first read of a registering supplier. If it failed (not a bank statement,
+ * unreadable), the notice goes out as usual and registration goes back to waiting for a PDF.
+ * Otherwise the result is held and the supplier is asked whether the holder and RFC read are theirs.
  */
 export async function startConfirmation(tx: Tx, ctx: AppContext, state: AppState | null, status: string): Promise<void> {
   const [reg] = await tx
@@ -69,8 +69,8 @@ export async function startConfirmation(tx: Tx, ctx: AppContext, state: AppState
 }
 
 /**
- * Lo que el registro está esperando, con el mismo texto que se le pidió (ADR 0051): se repite después
- * de contestar a una foto o nota de voz. El paso lo fija el bloque de registro de inbound.ts.
+ * What registration is waiting for, with the same text it was asked with: repeated after replying
+ * to a photo or voice note. The step is set by the registration block in inbound.ts.
  */
 export function registrationPrompt(reg: Registration | undefined): string {
   if (!reg || reg.step === 'done' || reg.step === 'statement' || reg.step === 'legal_name' || (reg.step === 'rfc' && !reg.applicationId)) return REGISTRATION_REPLIES.ask_statement
@@ -81,7 +81,7 @@ export function registrationPrompt(reg: Registration | undefined): string {
   return reg.corrected ? REGISTRATION_REPLIES.ask_name_corrected : REGISTRATION_REPLIES.ask_name
 }
 
-/** Texto del veredicto ya guardado de una solicitud, con la misma plantilla que el aviso del worker. */
+/** Text of a request's stored verdict, with the same template as the worker's notice. */
 export async function verdictText(tx: Tx, app: { id: string; status: string; request: unknown }): Promise<string | null> {
   const status = FINAL_VERDICTS.find((s) => s === app.status)
   if (!status) return null
@@ -99,8 +99,8 @@ export interface Completion {
 }
 
 /**
- * Escribe la identidad confirmada en el proveedor y decide qué contestar: el veredicto retenido, la
- * siguiente pregunta de la aclaración o, si la aclaración solo esperaba la identidad, la reanudación.
+ * Writes the confirmed identity to the supplier and decides what to reply: the held verdict, the
+ * clarification's next question or, if the clarification only waited for the identity, the resume.
  */
 export async function completeRegistration(tx: Tx, tenantId: string, reg: Registration, identity: { legalName: string; rfc: string; representative: string | null }): Promise<Completion> {
   if (!reg.supplierId) throw new Error('registro sin proveedor')
@@ -116,7 +116,7 @@ export async function completeRegistration(tx: Tx, tenantId: string, reg: Regist
   const verdict = await verdictText(tx, app)
   if (verdict) {
     await tx.insert(auditLog).values({ tenantId, actor: `inbound:${reg.channel}`, action: 'verdict.queued', subject: app.id, details: { status: app.status, channel: reg.channel, held_until: 'registration' } })
-    // Sin monto pedido y con línea, también aquí se pregunta cuánto quiere adelantar (ADR 0053).
+    // With no requested amount and a line, here too we ask how much they want to advance.
     const [d] = await tx.select({ limit: decisions.limitAmount }).from(decisions).where(and(eq(decisions.applicationId, app.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
     const offer = reg.channel === 'whatsapp' ? await offerAmount(tx, { tenantId, applicationId: app.id, status: app.status, limit: d?.limit == null ? null : Number(d.limit), request: app.request, channel: 'whatsapp', address: reg.address }) : null
     return say(offer ? `${verdict}\n\n${offer}` : verdict, 'verdict')
@@ -131,7 +131,7 @@ export async function completeRegistration(tx: Tx, tenantId: string, reg: Regist
     .orderBy(desc(clarifications.round))
     .limit(1)
   if (!open) return say(REGISTRATION_REPLIES.analyst)
-  // La pregunta de identidad se contesta con lo que el proveedor acaba de confirmar o corregir.
+  // The identity question is answered with what the supplier just confirmed or corrected.
   const questions = z.array(Question).parse(open.questions)
   const prior = z.array(OwnerAnswer).parse(open.answers)
   const identityAnswers: OwnerAnswer[] = questions.filter((q) => q.kind === 'identity' && !prior.some((a) => a.question_id === q.id)).map((q) => ({ question_id: q.id, kind: 'identity', legal_name: identity.legalName, rfc: identity.rfc, clabe: null }))
@@ -141,17 +141,17 @@ export async function completeRegistration(tx: Tx, tenantId: string, reg: Regist
     return say(REGISTRATION_REPLIES.finishing, 'registration', open.id, { tenant_id: tenantId, application_id: app.id, clarification_id: open.id })
   }
   await tx.update(clarifications).set({ answers }).where(eq(clarifications.id, open.id))
-  // Quedan abonos por preguntar por este chat: la pregunta retenida sale ahora.
+  // Payments left to ask over this chat: the held question goes out now.
   const answered = new Set(answers.map((a) => a.question_id))
   const next = nextConversational(questions, open.currentQuestion)
   const q = next >= 0 ? questions[next] : undefined
-  // El resumen para confirmar sale al contestar la última (ADR 0051); sin preguntas por el chat no hay resumen.
+  // The summary to confirm goes out on answering the last one; with no chat questions there is no summary.
   if (open.channel === 'whatsapp' && q && !answered.has(q.id)) {
     await tx.update(clarifications).set({ currentQuestion: next, step: 'asking' }).where(eq(clarifications.id, open.id))
     return say(renderQuestionAt(questions, next), 'question', open.id)
   }
-  // Sin preguntas por el chat, la de páginas faltantes se contesta mandando el PDF por este chat: sale el
-  // pedido, igual que cuando no hay registro de por medio (channel.ts), y no el aviso del analista.
+  // With no chat questions, the missing-pages one is answered by sending the PDF over this chat: the
+  // request goes out, as when there is no registration in between (channel.ts), not the analyst notice.
   const doc = questions.findIndex((x) => isDocumentRequest(x) && !answered.has(x.id))
   const request = doc >= 0 ? questions[doc] : undefined
   if (open.channel === 'whatsapp' && request) {

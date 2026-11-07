@@ -1,6 +1,6 @@
 /**
- * Acceso a datos del worker. Todo pasa por `withTenant` con el rol `gow_worker`: una consulta sin
- * tenant no ve filas aunque haya un bug (docs/05 §2b, "RLS también para procesos internos").
+ * Worker data access. Everything goes through `withTenant` with the `gow_worker` role: a query
+ * without a tenant sees no rows even if there is a bug (RLS applies to internal processes too).
  */
 import { notQualifiedReasons, renderVerdict } from '@gow/channels'
 import { describeFailure, parsePolicy, type ApplicationRequest, type Decision, type Policy, type StatementAgeSetting, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
@@ -24,7 +24,7 @@ export interface AppContext {
   documents: (typeof documents.$inferSelect)[]
   active: PolicyRef | null
   shadow: PolicyRef | null
-  /** Ajuste de antigüedad del tenant (ADR 0049): la antigüedad del documento advierte, no pide otro. */
+  /** Tenant statement-age setting: the document's age warns, it does not ask for another. */
   statementAge: StatementAgeSetting
 }
 
@@ -58,12 +58,12 @@ export async function loadContext(db: Db, tenantId: string, applicationId: strin
   })
 }
 
-/** Null mientras el proveedor que se registra por WhatsApp no confirma sus datos (ADR 0047). */
+/** Null until the supplier registering over WhatsApp confirms their data. */
 export function supplierIdentity(s: AppContext['supplier']): SupplierIdentity | null {
   return s.legalName === null ? null : { legal_name: s.legalName, rfc: s.rfc, clabes: s.clabes }
 }
 
-/** Proveedor que se está registrando con su primer estado de cuenta: el resultado espera a sus datos. */
+/** A supplier registering with their first bank statement: the result waits for their data. */
 export function identityPending(ctx: AppContext): boolean {
   return ctx.supplier.legalName === null
 }
@@ -80,7 +80,7 @@ export function requestOf(ctx: AppContext): ApplicationRequest | null {
   return (ctx.application.request ?? null) as ApplicationRequest | null
 }
 
-/** El veredicto activo y, si hay una política en sombra, el de esa (se evalúa y se registra sin decidir; docs/02 §6). */
+/** The active verdict and, if a shadow policy exists, that one's (evaluated and recorded without deciding). */
 export async function insertDecisions(tx: Tx, ctx: AppContext, d: Decision): Promise<void> {
   await tx.insert(decisions).values({ tenantId: ctx.tenantId, applicationId: ctx.application.id, policyVersionId: ctx.active?.id ?? null, kind: 'active', status: d.status, limitAmount: d.limit === null ? null : String(d.limit), score: d.score === null ? null : String(d.score), payload: d })
   if (ctx.shadow) {
@@ -93,15 +93,15 @@ const VERDICT_STATUSES = ['qualified', 'qualified_with_limit', 'not_qualified', 
 type VerdictStatus = (typeof VERDICT_STATUSES)[number]
 
 /**
- * Avisa el resultado al proveedor por su WhatsApp verificado (ADR 0039): un mensaje con plantilla
- * fija en el buzón de salida, en la misma transacción que guarda el estado. `needs_clarification` no
- * avisa: ahí ya salió la pregunta. Sin WhatsApp verificado no hay aviso (el resultado sigue en la
- * API y el backoffice). El destino sale del vínculo, nunca del llamador.
+ * Notifies the supplier of the result on their verified WhatsApp: a fixed-template message in
+ * the outbox, in the same transaction that saves the state. `needs_clarification` sends no notice:
+ * the question already went out. Without verified WhatsApp there is no notice (the result stays
+ * in the API and backoffice). The destination comes from the link, never from the caller.
  */
 export async function queueVerdict(tx: Tx, ctx: AppContext, status: typeof applications.$inferSelect.status, limit: number | null, failureReason: string | null = null, decision: Decision | null = null): Promise<boolean> {
   if (!(VERDICT_STATUSES as readonly string[]).includes(status)) return false
-  // Registro en curso (ADR 0047): el veredicto sale cuando el proveedor confirma sus datos. Un fallo
-  // sí sale, porque no hay nada que confirmar y hace falta otro documento.
+  // Registration in progress: the verdict goes out when the supplier confirms their data. A failure
+  // does go out, because there is nothing to confirm and another document is needed.
   if (identityPending(ctx) && status !== 'failed') return false
   const [contact] = await tx
     .select({ address: supplierContacts.address })
@@ -114,7 +114,7 @@ export async function queueVerdict(tx: Tx, ctx: AppContext, status: typeof appli
   const request = requestOf(ctx)
   const failure = status === 'failed' ? describeFailure(failureReason) : null
   const verdict = renderVerdict({ status: status as VerdictStatus, limit, request, tenantName: tenant?.name ?? 'la institución crediticia', failure, reasons: status === 'not_qualified' ? notQualifiedReasons(decision) : [] })
-  // Sin monto pedido y con línea, el aviso termina preguntando cuánto quiere adelantar (ADR 0053).
+  // With no requested amount and a line, the notice ends by asking how much they want to advance.
   const offer = await offerAmount(tx, { tenantId: ctx.tenantId, applicationId: ctx.application.id, status, limit, request, channel: 'whatsapp', address: contact.address })
   const body = offer ? `${verdict}\n\n${offer}` : verdict
   await tx.insert(outboundMessages).values({ tenantId: ctx.tenantId, kind: 'verdict', channel: 'whatsapp', destination: contact.address, body })
@@ -123,11 +123,11 @@ export async function queueVerdict(tx: Tx, ctx: AppContext, status: typeof appli
 }
 
 /**
- * Guarda lo que dejó una corrida del workflow: extracciones nuevas, el veredicto con la política
- * activa, el de la política en sombra (se evalúa, se registra y no decide; docs/02 §6) y el estado
- * de la solicitud con el run para reanudar.
+ * Stores what a workflow run left: new extractions, the verdict under the active policy, the
+ * shadow policy's (evaluated and recorded, does not decide) and the request state with the run to
+ * resume.
  */
-/** El domicilio del estado de cuenta más reciente (por fin de periodo) que lo trae; null si ninguno. */
+/** The address from the most recent bank statement (by period end) that has one; null if none. */
 export function latestAddress(statements: readonly StatementExtraction[]): string | null {
   let best: { end: string; address: string } | null = null
   for (const s of statements) {
@@ -147,12 +147,12 @@ export async function persistOutcome(db: Db, ctx: AppContext, outcome: RunOutcom
     for (const s of state?.statements ?? []) {
       const doc = ctx.documents.find((d) => d.sha256 === s.document.sha256)
       if (!doc) continue
-      // La extracción es inmutable: lo que el dueño aclara vive en la aclaración y en el veredicto.
+      // The extraction is immutable: what the owner clarifies lives in the clarification and the verdict.
       const [existing] = await tx.select({ id: extractions.id }).from(extractions).where(eq(extractions.documentId, doc.id))
       if (!existing) await tx.insert(extractions).values({ tenantId: ctx.tenantId, documentId: doc.id, schemaVersion: s.schema_version, status: s.extraction.status, payload: s, costUsd: String(s.extraction.cost_usd) })
     }
     if (state?.decision) await insertDecisions(tx, ctx, state.decision)
-    // El domicilio del titular, si algún estado de cuenta lo trae, queda en el perfil del proveedor (ADR 0066).
+    // The holder's address, if any bank statement carries it, goes into the supplier profile.
     const address = latestAddress(state?.statements ?? [])
     if (address) await tx.update(suppliers).set({ address }).where(eq(suppliers.id, ctx.supplier.id))
     const failure = status === 'failed' ? (state?.failure_reason ?? outcome.error ?? 'el workflow terminó sin veredicto') : null
@@ -161,7 +161,7 @@ export async function persistOutcome(db: Db, ctx: AppContext, outcome: RunOutcom
       .set({ status, failureReason: failure, runId: outcome.runId, suspendedStep: outcome.suspendedStep, updatedAt: new Date() })
       .where(eq(applications.id, ctx.application.id))
     await tx.insert(auditLog).values({ tenantId: ctx.tenantId, actor: 'worker', action: `application.${outcome.status}`, subject: ctx.application.id, details: { status } })
-    // Sin monto solicitado, el monto del aviso es la línea máxima.
+    // Without a requested amount, the notice amount is the maximum line.
     await queueVerdict(tx, ctx, status, state?.decision?.limit ?? state?.max_line?.amount ?? null, failure, state?.decision ?? null)
     if (identityPending(ctx)) await startConfirmation(tx, ctx, state, status)
   })

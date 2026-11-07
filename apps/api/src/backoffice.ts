@@ -1,8 +1,8 @@
 /**
- * API del backoffice (docs/08): lo que lee y hace un usuario del prestamista desde el navegador.
- * Misma regla que `/v1`: el tenant sale de la credencial (aquí la sesión), nunca de un parámetro,
- * y todo corre en `withTenant` con el rol `gow_api`. Cada mutación entra a la bitácora con el
- * usuario; la vista de una solicitud también (docs/08 §2, "quién vio qué").
+ * Backoffice API: what a lender's user reads and does from the browser. Same rule as `/v1`: the
+ * tenant comes from the credential (here the session), never from a parameter, and everything runs
+ * in `withTenant` with the `gow_api` role. Every mutation is audit-logged with the user, and so is
+ * viewing a request ("who saw what").
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
@@ -27,27 +27,27 @@ import type { AuthDirectory } from './supabase-auth.ts'
 export type { BackofficeDeps }
 
 /**
- * Con menos de esto de vida, el access token se renueva en la petición que llegue: 5 min, o la mitad
- * de su vida si es más corta (un `JWT_EXPIRY` de 2 min no renueva en cada petición).
+ * With less life than this left, the access token is renewed on the next request: 5 min, or half
+ * its life if shorter (a 2 min `JWT_EXPIRY` must not renew on every request).
  */
 const REFRESH_BEFORE_SECONDS = 5 * 60
 const refreshBefore = (c: SessionClaims) => (c.iat === undefined ? REFRESH_BEFORE_SECONDS : Math.min(REFRESH_BEFORE_SECONDS, Math.floor((c.exp - c.iat) / 2)))
 /**
- * Una renovación se comparte con las peticiones que lleguen con el mismo refresh token en este lapso
- * (las que salieron en paralelo del navegador antes de recibir las cookies nuevas).
+ * A renewal is shared with requests carrying the same refresh token within this window (the ones
+ * the browser sent in parallel before receiving the new cookies).
  */
 const REFRESH_SHARE_MS = 30_000
 const nowSeconds = () => Math.floor(Date.now() / 1000)
 const SESSION_REQUIRED = 'sesión requerida'
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'error')
-/** Una escritura con cookie debe traer el encabezado: un formulario de otro sitio no puede ponerlo. */
+/** A cookie-authenticated write must carry the header: a form on another site cannot set it. */
 function assertCsrf(req: Request): void {
   if (req.header(CSRF_HEADER) !== '1') throw new HttpError(403, 'petición no permitida')
 }
 
 /**
- * Ventana fija por llave en memoria (un proceso de API). Se limpia sola al crecer: un atacante que
- * rota llaves no la hace crecer sin límite.
+ * Fixed per-key window in memory (one API process). Self-pruning as it grows, so an attacker
+ * rotating keys cannot make it grow without bound.
  */
 function windowLimiter(limit: number, windowMs: number) {
   const hits = new Map<string, { start: number; count: number }>()
@@ -67,7 +67,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
   r.use(express.json({ limit: '2mb' }))
   r.use((_req, res, next) => {
-    // Datos de un tenant: nunca en cachés compartidas.
+    // Tenant data: never in shared caches.
     res.setHeader('Cache-Control', 'private, no-store')
     next()
   })
@@ -75,13 +75,13 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   const attempts = new Map<string, { start: number; count: number }>()
   const secure = deps.secureCookies === true
   const backofficeOrigin = backofficeBase(deps)
-  // Pedir enlaces: por IP responde 429; por correo se descarta en silencio (la respuesta no cambia).
+  // Link requests: 429 per IP; per email they are dropped silently (the response is the same).
   const magicLinkPerIp = windowLimiter(5, 60_000)
   const magicLinkPerEmail = windowLimiter(3, 15 * 60_000)
 
   const limits: SessionLimits = { maxSeconds: (deps.sessionMaxHours ?? 12) * 3600, idleSeconds: (deps.sessionIdleHours ?? 8) * 3600 }
 
-  /** La pertenencia vigente de unos claims ya verificados, o null si ya no es miembro. */
+  /** Current membership for already-verified claims, or null if no longer a member. */
   async function memberOf(claims: SessionClaims): Promise<(Who & { exp: number; supabaseSession: boolean }) | null> {
     const [m] = await withTenant(deps.db, claims.tenant_id, (tx) => tx.select().from(tenantUsers).where(and(eq(tenantUsers.tenantId, claims.tenant_id), eq(tenantUsers.userId, claims.sub))))
     return m ? { userId: m.userId, email: m.email, tenantId: m.tenantId, exp: claims.exp, supabaseSession: claims.session_id !== undefined } : null
@@ -92,7 +92,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     return claims ? memberOf(claims) : null
   }
 
-  /** Cierra la sesión de GoTrue de un access token; si falla, solo se registra el código. */
+  /** Closes the GoTrue session for an access token; on failure only the code is logged. */
   async function revokeQuietly(auth: AuthDirectory, accessToken: string, what: string): Promise<void> {
     await auth.revokeSession(accessToken).catch((e: unknown) => {
       deps.logger?.error(`backoffice: no se cerró la sesión de Auth ${what} (${errorText(e)})`)
@@ -100,9 +100,9 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   }
 
   /**
-   * Renovaciones en curso o recién hechas, por hash del refresh token (nunca el token como llave).
-   * Varias peticiones en paralelo con la misma cookie hacen una sola llamada a GoTrue y reciben los
-   * mismos tokens nuevos. Entre instancias, lo cubre el intervalo de reúso de GoTrue (ADR 0036).
+   * Renewals in flight or just done, keyed by refresh token hash (never the token itself).
+   * Parallel requests with the same cookie make one GoTrue call and get the same new tokens.
+   * Across instances, GoTrue's reuse interval covers it.
    */
   const refreshes = new Map<string, { at: number; result: Promise<{ accessToken: string; refreshToken: string } | null> }>()
   function refreshOnce(auth: AuthDirectory, refreshToken: string): Promise<{ accessToken: string; refreshToken: string } | null> {
@@ -113,14 +113,14 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (hit && now - hit.at <= REFRESH_SHARE_MS) return hit.result
     const result = auth.refreshSession(refreshToken)
     refreshes.set(key, { at: now, result })
-    // Un error transitorio no se comparte más allá de quien ya esperaba: la siguiente petición reintenta.
+    // A transient error is not shared beyond those already waiting: the next request retries.
     result.catch(() => {
       if (refreshes.get(key)?.result === result) refreshes.delete(key)
     })
     return result
   }
 
-  /** Las cookies de una sesión renovada: el access token y el refresh token nuevo, cifrado. */
+  /** Cookies for a renewed session: the access token and the new, encrypted refresh token. */
   function renewedCookies(accessToken: string, exp: number, payload: RefreshPayload): string[] {
     const now = nowSeconds()
     const left = refreshRemaining(payload, limits, now)
@@ -133,10 +133,10 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   }
 
   /**
-   * Sesión por cookie (ADR 0036). Con un access token vigente y de un miembro, entra; si le quedan
-   * menos de 5 min y hay cookie de refresh, se renueva antes. Sin access token vigente, se renueva
-   * con la cookie de refresh o se responde 401 y se borran las cookies. Mientras el access token
-   * actual sirva, un fallo al renovar no saca a nadie.
+   * Cookie session. With a valid access token from a member it passes; if under 5 min remain and
+   * there is a refresh cookie, it renews first. Without a valid access token it renews with the
+   * refresh cookie or answers 401 and clears the cookies. While the current access token still
+   * works, a failed renewal does not log anyone out.
    */
   async function cookieSession(req: Request, res: Response): Promise<Who> {
     const header = req.header('cookie')
@@ -152,7 +152,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (claims && token) {
       current = await memberOf(claims)
       if (!current) {
-        // Quitaron al usuario: fuera, y su sesión de GoTrue se cierra con el token que trae.
+        // User removed: out, and their GoTrue session is closed with the token they sent.
         if (deps.auth && claims.session_id !== undefined) await revokeQuietly(deps.auth, token, 'de un usuario sin pertenencia')
         throw unauthorized(res, true)
       }
@@ -170,15 +170,15 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       throw new HttpError(503, 'no se pudo renovar la sesión; intenta de nuevo')
     }
     if (!fresh) {
-      // GoTrue rechazó el refresh token. Si el access token actual sirve, se sigue con él: otra
-      // petición en paralelo pudo haber rotado ya el refresh token y sus cookies son las buenas.
+      // GoTrue rejected the refresh token. If the current access token works, carry on with it:
+      // a parallel request may already have rotated the refresh token, and its cookies are the good ones.
       if (current) return current
       throw unauthorized(res, true)
     }
     const next = verifyToken(deps.backofficeJwtSecret, fresh.accessToken)
     const renewed = next && next.sub === rc.sub ? await memberOf(next) : null
     if (!next || !renewed) {
-      // Sin `tenant_id` (el hook ya no lo pone) o sin pertenencia: fuera, y se cierra su sesión de GoTrue.
+      // No `tenant_id` (the hook no longer sets it) or no membership: out, and the GoTrue session is closed.
       await revokeQuietly(auth, fresh.accessToken, 'de un usuario sin pertenencia')
       throw unauthorized(res, true)
     }
@@ -186,7 +186,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     return renewed
   }
 
-  /** Correo con el enlace de acceso, fuera de la petición: el tiempo de respuesta no dice si la cuenta existe. */
+  /** Sends the access link email outside the request, so response time does not reveal whether the account exists. */
   function sendMagicLink(auth: AuthDirectory, email: string): void {
     auth.sendMagicLink(email, `${backofficeOrigin}${ENTER_PATH}`).catch((e: unknown) => {
       deps.logger?.error(`backoffice: no se pidió el enlace de acceso (${e instanceof Error ? e.message : 'error'})`)
@@ -203,7 +203,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     return { user: { id: w.userId, email: w.email }, tenant: { id: t.id, name: t.name, whatsapp_number: t.whatsapp, whatsapp_linked_number: linked } }
   }
 
-  // ---------- Sesión: el enlace de acceso trae el JWT; la API lo cambia por una cookie HttpOnly
+  // ---------- Session: the access link carries the JWT; the API swaps it for an HttpOnly cookie
   r.post('/session', async (req, res) => {
     const key = req.ip ?? 'local'
     const now = Date.now()
@@ -216,20 +216,20 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (!w) throw new HttpError(401, 'el enlace de acceso no es válido o ya venció')
     const at = nowSeconds()
     if (deps.auth && w.supabaseSession && body.refresh_token) {
-      // Supabase Auth (ADR 0036): el refresh token se queda del lado de la API, cifrado en una cookie
-      // HttpOnly, y la sesión se renueva sola hasta sus límites.
+      // Supabase Auth: the refresh token stays on the API side, encrypted in an HttpOnly cookie,
+      // and the session renews itself up to its limits.
       res.setHeader('Set-Cookie', renewedCookies(body.token, w.exp, { v: 1, rt: body.refresh_token, sub: w.userId, iat: at, rat: at }))
     } else {
-      // Enlace de desarrollo: la cookie vive lo que el token (8 h como máximo).
+      // Dev link: the cookie lives as long as the token (8 h at most).
       res.setHeader('Set-Cookie', sessionCookie(body.token, { maxAgeSeconds: Math.min(SESSION_SECONDS, w.exp - at), secure }))
-      // Un token de Supabase sin su refresh token: nadie va a usar ese refresh token, que viajó en
-      // la URL. Se cierra su sesión de Auth; el access token sigue valiendo hasta `exp` (ADR 0035).
+      // A Supabase token without its refresh token: nobody will use that refresh token, which
+      // travelled in the URL. Its Auth session is closed; the access token stays valid until `exp`.
       if (deps.auth && w.supabaseSession) await revokeQuietly(deps.auth, body.token, 'sin refresh token')
     }
     res.json(await meOf(w))
   })
 
-  /** Si todavía no existe ningún tenant (`app.setup_pending`, ADR 0060). Solo contesta un booleano. */
+  /** Whether no tenant exists yet (`app.setup_pending`). Answers only a boolean. */
   async function setupPending(): Promise<boolean> {
     const found = await deps.db.execute<{ pending: boolean }>(sql`select app.setup_pending() as pending`)
     return found.rows[0]?.pending === true
@@ -241,10 +241,10 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Primer inicio (ADR 0060): crea el tenant, su política base activa y a su administrador, y deja la
-   * sesión abierta con la misma cookie que el enlace de desarrollo. Solo funciona mientras no exista
-   * ningún tenant (la función de la base lo decide con un candado); después responde 409. Pensado para
-   * una instalación local: no pide más prueba de quién llama que esa.
+   * First run: creates the tenant, its active base policy and its admin, and opens the session
+   * with the same cookie as the dev link. Works only while no tenant exists (the database function
+   * decides, with a lock); afterwards it answers 409. Meant for a local install: it asks for no
+   * more proof of who is calling than that.
    */
   r.post('/setup', async (req, res) => {
     assertCsrf(req)
@@ -253,7 +253,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (!(await setupPending())) throw taken
     let userId: string = randomUUID()
     if (deps.auth) {
-      // La cuenta de Auth se crea antes, para que el correo ya sirva con el enlace por correo después.
+      // The Auth account is created first, so the email already works with the email link afterwards.
       try {
         userId = await deps.auth.ensureUser(body.email)
       } catch (e) {
@@ -272,9 +272,9 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Pedir el enlace de acceso por correo (Supabase Auth). Siempre 202 con el mismo cuerpo, exista o
-   * no la cuenta: no revela quién tiene acceso. GoTrue no crea cuentas aquí (`create_user: false`).
-   * El correo nunca va a los registros.
+   * Request the access link by email (Supabase Auth). Always 202 with the same body whether or not
+   * the account exists, so it does not reveal who has access. GoTrue does not create accounts here
+   * (`create_user: false`). The email never goes to the logs.
    */
   r.post('/session/magic-link', (req, res) => {
     const auth = deps.auth
@@ -288,8 +288,8 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Salir: borra las dos cookies y, con Supabase Auth, cierra la sesión de GoTrue (su refresh token
-   * deja de servir). Si el access token ya venció, se renueva una vez solo para poder cerrarla.
+   * Sign out: clears both cookies and, with Supabase Auth, closes the GoTrue session (its refresh
+   * token stops working). If the access token already expired, it renews once just to close it.
    */
   r.delete('/session', async (req, res) => {
     assertCsrf(req)
@@ -311,19 +311,19 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.status(204).end()
   })
 
-  // ---------- Todo lo demás exige sesión vigente y miembro del tenant
+  // ---------- Everything else requires a valid session and tenant membership
   r.use(async (req: Request, res: Response, next: NextFunction) => {
     const bearer = /^Bearer (.+)$/.exec(req.header('authorization') ?? '')?.[1]
     if (bearer) {
-      // Con Bearer no hay cookies ni renovación: el token vale lo que dice su `exp`.
+      // With Bearer there are no cookies or renewal: the token is good for what its `exp` says.
       const w = await membership(bearer)
       if (!w) throw new HttpError(401, SESSION_REQUIRED)
       res.locals.who = w
       next()
       return
     }
-    // Con cookie, toda escritura debe traer el encabezado: un formulario de otro sitio no puede. Se
-    // revisa antes de renovar nada.
+    // With a cookie, every write must carry the header: a form on another site cannot. Checked
+    // before renewing anything.
     const header = req.header('cookie')
     const withCookies = Boolean(readCookie(header, SESSION_COOKIE) ?? readCookie(header, REFRESH_COOKIE))
     if (withCookies && !['GET', 'HEAD'].includes(req.method)) assertCsrf(req)
@@ -335,7 +335,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json(await meOf(who(res)))
   })
 
-  // ---------- Bandeja de solicitudes
+  // ---------- Request inbox
   r.get('/applications', async (req, res) => {
     const w = who(res)
     const statuses = typeof req.query.status === 'string' && req.query.status ? z.array(ApplicationStatus).parse(req.query.status.split(',')) : null
@@ -384,7 +384,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json(list)
   })
 
-  // ---------- Detalle: documento, extracción, decisión, aclaraciones
+  // ---------- Detail: document, extraction, decision, clarifications
   async function clarificationItems(tx: Parameters<Parameters<Db['transaction']>[0]>[0], where: ReturnType<typeof sql>): Promise<ClarificationItem[]> {
     const rows = await tx.execute<{
       id: string; application_id: string; legal_name: string; round: number; status: ClarificationItem['status']; channel: ClarificationItem['channel']
@@ -435,7 +435,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       updated_at: out.a.updatedAt.toISOString(),
       supplier: { id: out.s.id, legal_name: out.s.legalName ?? PENDING_SUPPLIER_NAME, rfc: out.s.rfc, external_ref: out.s.externalRef, clabes: out.s.clabes },
       documents: out.docs.map((d) => ({ id: d.id, sha256: d.sha256, size_bytes: d.sizeBytes, media_type: d.mediaType })),
-      // La extracción guardada es inmutable: se muestra con las correcciones del analista encima.
+      // The stored extraction is immutable: shown with the analyst's corrections on top.
       extraction: (out.ex ? applyCorrections(out.ex.payload as NonNullable<ApplicationDetail['extraction']>, fixes) : null),
       decision: out.dec ? { id: out.dec.id, policy_version: version(out.dec.policyVersionId), created_at: out.dec.createdAt.toISOString(), payload: out.dec.payload as NonNullable<ApplicationDetail['decision']>['payload'] } : null,
       shadow: out.shadow ? { policy_version: version(out.shadow.policyVersionId), status: out.shadow.status, limit: out.shadow.limitAmount === null ? null : Number(out.shadow.limitAmount), score: out.shadow.score === null ? null : Number(out.shadow.score) } : null,
@@ -446,7 +446,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json(detail)
   })
 
-  /** El PDF, desde el almacenamiento propio y solo si es de este tenant (RLS + prefijo de ruta). */
+  /** The PDF, from our own storage and only if it belongs to this tenant (RLS + path prefix). */
   r.get('/documents/:id/file', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -459,32 +459,32 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.send(bytes)
   })
 
-  /** Corrección de valores en revisión humana: guarda los pares leído/correcto y reencola a decidir. */
+  /** Value corrections in human review: stores the read/correct pairs and re-enqueues to decide. */
   r.post('/applications/:id/corrections', async (req, res) => {
     const w = who(res)
     res.status(202).json(await recordCorrections(deps, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
   })
 
-  /** Descartar el documento en revisión humana: cierra la solicitud sin reevaluar. */
+  /** Discard the document in human review: closes the request without re-evaluating. */
   r.post('/applications/:id/discard', async (req, res) => {
     const w = who(res)
     res.json(await discardDocument(deps.db, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
   })
 
-  // ---------- Aclaraciones con respuesta manual
+  // ---------- Clarifications with a manual answer
   r.get('/clarifications', async (req, res) => {
     const status = typeof req.query.status === 'string' ? ClarificationStatus.safeParse(req.query.status) : null
     const items = await withTenant(deps.db, who(res).tenantId, (tx) => clarificationItems(tx, status?.success ? sql`c.status = ${status.data}::app.clarification_status` : sql`true`))
     res.json(items)
   })
 
-  /** Respuesta a nombre del proveedor: entra por la misma operación que la API, con el usuario en la bitácora. */
+  /** Answer on the supplier's behalf: goes through the same operation as the API, with the user in the audit log. */
   r.post('/clarifications/:id/answers', async (req, res) => {
     const w = who(res)
     res.json(await answerClarification(deps, w.tenantId, actorOf(w), parse(z.uuid(), req.params.id), req.body))
   })
 
-  // ---------- Políticas
+  // ---------- Policies
   r.get('/policies/versions', async (_req, res) => {
     const rows = await withTenant(deps.db, who(res).tenantId, (tx) => tx.select().from(policyVersions).orderBy(desc(policyVersions.version)))
     const list: PolicyVersionItem[] = rows.map((v) => ({ id: v.id, version: v.version, status: v.status, document: v.document, simulation: v.simulation as PolicyVersionItem['simulation'], created_at: v.createdAt.toISOString(), activated_at: iso(v.activatedAt) }))
@@ -510,7 +510,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     res.json(await transitionVersion(deps.db, w.tenantId, actorOf(w), parse(z.uuid(), req.params.id), 'active'))
   })
 
-  // ---------- Outcomes y bitácora
+  // ---------- Outcomes and audit log
   r.post('/outcomes', async (req, res) => {
     const w = who(res)
     await recordOutcome(deps.db, w.tenantId, actorOf(w), req.body)

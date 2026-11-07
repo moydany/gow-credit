@@ -1,11 +1,12 @@
-/* eslint-disable no-console -- CLI: solo conteos y rutas, nunca valores */
+/* eslint-disable no-console -- CLI: only counts and paths, never values */
 /**
  * pnpm corrections:export --tenant <id> [--out data/corrections]
  *
- * Exporta las correcciones del analista (ADR 0020) al formato que lee la eval de correcciones
- * (`pnpm -F @gow/evals corrections`): un archivo por documento, `<sha256>.json`, con la última
- * corrección de cada valor. Corre con el rol de solo lectura y dentro del tenant (RLS). La salida
- * no lleva usuario, tenant ni solicitud; sí los valores, por eso va a `data/`, que no se versiona.
+ * Exports analyst corrections in the format the corrections eval reads
+ * (`pnpm -F @gow/evals corrections`): one `<sha256>.json` per document, with the latest
+ * correction of each value. Runs with the read-only role, inside the tenant (RLS). The output has
+ * no user, tenant or request, but it does have the values, so it goes to `data/`, which is not
+ * versioned.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -34,7 +35,7 @@ try {
         from app.corrections c join app.documents d on d.id = c.document_id
        order by d.sha256, c.created_at`),
   )
-  // La última corrección de cada valor gana; el valor leído es el de la primera (lo que leyó el modelo).
+  // The latest correction of each value wins; the read value is the first one's (what the model read).
   const byDoc = new Map<string, Map<string, CorrectionsExport['corrections'][number]>>()
   for (const r of rows.rows) {
     const target = CorrectionTarget.parse(r.target)

@@ -1,31 +1,31 @@
 /**
- * Resolución de cada mensaje entrante (docs/05 §2b):
+ * Resolution of each inbound message:
  *
- * 1. Llega un mensaje de N por el canal del tenant T (el proceso de WhatsApp o el webhook de
- *    correo ya fijaron T).
- * 2. Vínculos verificados (T, canal, N). Sin vínculo: respuesta fija y registro; nada se encola.
- * 3. Con vínculo: solo las aclaraciones abiertas de esos proveedores con ese destino. El texto del
- *    mensaje nunca autoriza nada: citar un folio ajeno no abre esa solicitud.
- * 4. Se lee la respuesta contra la pregunta que se espera; ambigua → se repregunta con números. Un
- *    mensaje puede traer varias respuestas ("1, 3, 1"): van a la actual y a las siguientes.
- * 5. Contestadas las preguntas del chat, se manda un resumen; con "sí", la aclaración queda
- *    `answered` y se encola la reanudación; con un número o una corrección, se cambia esa respuesta
- *    y se vuelve al resumen (ADR 0051). Si quedan preguntas para el analista, se le avisa.
+ * 1. A message arrives from N on tenant T's channel (the WhatsApp process or the email webhook
+ *    already fixed T).
+ * 2. Verified links (T, channel, N). No link: fixed reply and a log entry; nothing is enqueued.
+ * 3. With a link: only the open clarifications of those suppliers with that destination. The
+ *    message text never authorizes anything: quoting someone else's folio does not open that request.
+ * 4. The reply is read against the expected question; ambiguous -> re-ask with numbers. One
+ *    message may carry several answers ("1, 3, 1"): they go to the current question and the next ones.
+ * 5. Once the chat questions are answered, a summary is sent; on "yes", the clarification becomes
+ *    `answered` and the resume is enqueued; with a number or a correction, that answer is changed
+ *    and it returns to the summary. If analyst questions remain, the analyst is notified.
  *
- * Una foto, nota de voz, video o sticker no se lee: se contesta que hace falta el PDF y se repite lo
- * pendiente (ADR 0051).
+ * A photo, voice note, video or sticker is not read: the reply says the PDF is needed and repeats
+ * what is pending.
  *
- * Un mensaje con documento (ADR 0037) no responde aclaraciones, con una excepción: si se le pidió el
- * PDF completo por páginas faltantes (`isDocumentRequest`), el PDF nuevo contesta esa pregunta, se
- * agrega a la misma solicitud y se encola su reanudación. Fuera de eso, con un solo proveedor en el
- * vínculo verificado y un PDF válido abre una solicitud, igual que la API con una llave de ingesta, y
- * se encola su procesamiento. Los bytes pasan del entrante al almacenamiento del tenant y la columna
- * queda vacía. A quien lo mandó solo se le contesta un texto fijo.
+ * A message with a document does not answer clarifications, with one exception: if the full PDF
+ * was requested because of missing pages (`isDocumentRequest`), the new PDF answers that question,
+ * is added to the same request and its resume is enqueued. Otherwise, with a single supplier on
+ * the verified link and a valid PDF, it opens a request, like the API with an ingest key, and
+ * its processing is enqueued. The bytes move from the inbound row to the tenant's storage and the
+ * column is emptied. The sender only gets a fixed text reply.
  *
- * Con `selfRegistration` (solo la demo, ADR 0038 y 0047), un número de WhatsApp sin vínculo no
- * recibe la respuesta fija: se le pide su estado de cuenta, que se analiza de inmediato; al leerlo,
- * confirma o corrige el titular y el RFC, completa lo que falte y, si es persona moral, da su
- * representante legal. Entonces queda como proveedor con su identidad y sale el resultado
+ * With `selfRegistration` (demo only), an unlinked WhatsApp number does not get the fixed reply:
+ * it is asked for its bank statement, which is analyzed immediately; once read, it confirms or
+ * corrects the holder and RFC, fills in what is missing and, for a persona moral, gives its legal
+ * representative. Then it becomes a supplier with its identity and the result goes out
  * (registration.ts).
  */
 import { createHash, randomUUID } from 'node:crypto'
@@ -73,7 +73,7 @@ import type { InboundOptions, InboundResult, Resolution } from './inbound-types.
 import { OFFER_STEP, offerAmount } from './offer.ts'
 import { completeRegistration, completeRfc, registrationPrompt, rfcAskReason, verdictText } from './registration.ts'
 
-/** Lo que salió de leer un dato: el valor, que no lo quiere dar, o por qué no se entendió. */
+/** What came out of reading a value: the value, that they will not give it, or why it was not understood. */
 type FieldRead<T> = { value: T } | { skip: true } | { invalid: 'not_understood' | 'off_topic' | null }
 
 const Questions = z.array(Question)
@@ -90,18 +90,18 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     const [msg] = await tx.select().from(inboundMessages).where(and(eq(inboundMessages.id, messageId), isNull(inboundMessages.processedAt)))
     if (!msg) return { resolution: 'already_processed', resume: null }
     const finish = async (resolution: Resolution, clarificationId: string | null, reply: { body: string; kind: string } | null, details: Record<string, string> = {}) => {
-      // El adjunto se vacía siempre: si se aceptó ya está en el almacenamiento; si no, no se guarda.
+      // The attachment is always emptied: if accepted it is already in storage; if not, it is not kept.
       await tx.update(inboundMessages).set({ processedAt: new Date(), resolution, clarificationId, attachment: null }).where(eq(inboundMessages.id, msg.id))
       if (reply && msg.channel !== 'manual') await tx.insert(outboundMessages).values({ tenantId, clarificationId, kind: reply.kind, channel: msg.channel, destination: msg.fromAddress, body: reply.body })
-      // El número va solo en la fila del mensaje; la bitácora lleva ids y la resolución.
+      // The number goes only in the message row; the audit log carries ids and the resolution.
       await tx.insert(auditLog).values({ tenantId, actor: `inbound:${msg.channel}`, action: `inbound.${resolution}`, subject: msg.id, details: { clarification_id: clarificationId, ...details, ...(interpreted ? { interpreted: 'haiku' } : {}) } })
     }
     let interpreted = false
     const done = (r: InboundResult): InboundResult => (interpreted ? { ...r, interpreted } : r)
     /**
-     * Lee un dato del mensaje (ADR 0040). Campos con formato (RFC, monto, fecha): primero la regla y,
-     * si no alcanza, Haiku. Texto libre (`free`): primero Haiku, que distingue un nombre de "asdfg";
-     * sin él, la regla. Lo que propone Haiku vuelve a pasar por `parse`.
+     * Reads a value from the message. Formatted fields (RFC, amount, date): rule first and, if it
+     * falls short, Haiku. Free text (`free`): Haiku first, which tells a name from "asdfg"; without
+     * it, the rule. What Haiku proposes goes back through `parse`.
      */
     const readField = async <T>(field: ExpectedField, question: string, parse: (text: string) => T | null, o: { free?: boolean; allowSkip?: boolean; options?: readonly string[] } = {}): Promise<FieldRead<T>> => {
       if (o.allowSkip && isSkip(msg.body)) return { skip: true }
@@ -125,13 +125,13 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       }
       return { invalid: null }
     }
-    /** Texto de repregunta: por qué no se entendió y la pregunta pendiente, o el texto específico del campo. */
+    /** Re-ask text: why it was not understood and the pending question, or the field's specific text. */
     const reask = (why: 'not_understood' | 'off_topic' | null, question: string, specific: string) => (why ? `${CONVERSATION_FALLBACKS[why]}\n\n${question}` : specific)
 
     /**
-     * Valida y guarda el PDF del mensaje en el almacenamiento del tenant. Un PDF ya guardado en el tenant
-     * se reutiliza. `rejected`: `password` si pide contraseña para abrirse (ADR 0049), que se contesta con
-     * su propio mensaje; `invalid` en cualquier otro caso.
+     * Validates and stores the message's PDF in the tenant's storage. A PDF already stored in the
+     * tenant is reused. `rejected`: `password` if it needs a password to open, answered with its
+     * own message; `invalid` otherwise.
      */
     const storeDocument = async (supplierId: string, bytes: Buffer): Promise<{ documentId: string; storagePath: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
       if (!storage || bytes.length === 0 || bytes.length > MAX_DOCUMENT_BYTES || !isPdf(bytes)) return { rejected: 'invalid' }
@@ -139,7 +139,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       const sha256 = createHash('sha256').update(bytes).digest('hex')
       const [existing] = await tx.select({ id: documents.id, storagePath: documents.storagePath }).from(documents).where(eq(documents.sha256, sha256))
       if (existing) return { documentId: existing.id, storagePath: existing.storagePath, sha256 }
-      // Si la transacción se revierte después, queda un archivo huérfano; nunca una fila sin archivo.
+      // If the transaction rolls back later, an orphan file remains; never a row without a file.
       const storagePath = `${tenantId}/${randomUUID()}.pdf`
       await storage.put(storagePath, bytes)
       const [doc] = await tx.insert(documents).values({ tenantId, supplierId, storagePath, sha256, sizeBytes: bytes.length, mediaType: 'application/pdf' }).returning({ id: documents.id })
@@ -148,9 +148,9 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     }
 
     /**
-     * Guarda el PDF del mensaje y abre una solicitud del proveedor. Un PDF ya guardado en el tenant
-     * se reutiliza. `rejected` si el adjunto no es un PDF aceptable: `password` si pide contraseña
-     * para abrirse (ADR 0049), que se contesta con su propio mensaje; `invalid` en cualquier otro caso.
+     * Stores the message's PDF and opens a request for the supplier. A PDF already stored in the
+     * tenant is reused. `rejected` if the attachment is not an acceptable PDF: `password` if it
+     * needs a password to open, answered with its own message; `invalid` otherwise.
      */
     const openApplication = async (supplierId: string, bytes: Buffer): Promise<{ applicationId: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
       const stored = await storeDocument(supplierId, bytes)
@@ -167,7 +167,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       .from(supplierContacts)
       .where(and(eq(supplierContacts.channel, msg.channel), eq(supplierContacts.address, msg.fromAddress), isNotNull(supplierContacts.verifiedAt)))
 
-    /** La aclaración abierta más vieja de los proveedores de este vínculo con este destino. */
+    /** The oldest open clarification of this link's suppliers with this destination. */
     const openClarification = async () => {
       if (links.length === 0) return undefined
       const [row] = await tx
@@ -179,8 +179,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       return row
     }
 
-    // Registro de la demo con el estado de cuenta primero (ADR 0038 y 0047): solo WhatsApp. Lo lleva
-    // un número sin vínculo, o uno cuyo registro sigue abierto (su contacto ya quedó verificado).
+    // Demo registration with the bank statement first: WhatsApp only. Carried by an unlinked
+    // number, or one whose registration is still open (its contact is already verified).
     const [reg] =
       selfRegistration && msg.channel === 'whatsapp'
         ? await tx
@@ -189,8 +189,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
             .where(and(eq(supplierRegistrations.channel, msg.channel), eq(supplierRegistrations.address, msg.fromAddress)))
         : []
 
-    // Foto, nota de voz, video o sticker (ADR 0051): no se lee ni se guarda. Se contesta que hace falta
-    // el PDF y se repite lo pendiente (registro, factura o aclaración), sin cambiar ningún estado.
+    // Photo, voice note, video or sticker: neither read nor stored. The reply says the PDF is needed
+    // and repeats what is pending (registration, invoice or clarification), changing no state.
     if (msg.mediaKind !== null) {
       let pendingText: string | null = null
       let clarificationId: string | null = null
@@ -222,7 +222,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         return done({ resolution, resume: null })
       }
       if (!reg || reg.step === 'done') {
-        // Sin registro, o con uno terminado cuyo contacto ya no está verificado: se empieza de nuevo.
+        // No registration, or a finished one whose contact is no longer verified: start over.
         const [tenant] = await tx.select({ name: tenants.name }).from(tenants)
         const fresh = { step: 'statement', legalName: null, rfc: null, holderName: null, holderRfc: null, corrected: false, supplierId: null, applicationId: null, updatedAt: new Date() }
         if (reg) await tx.update(supplierRegistrations).set(fresh).where(eq(supplierRegistrations.id, reg.id))
@@ -231,7 +231,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       }
       const save = (set: Partial<typeof supplierRegistrations.$inferInsert>) => tx.update(supplierRegistrations).set({ ...set, updatedAt: new Date() }).where(eq(supplierRegistrations.id, reg.id))
 
-      // Lo que sigue con el nombre y el RFC que hay; con todo, el registro termina y sale el resultado.
+      // What follows with the name and RFC we have; with everything, registration ends and the result goes out.
       const advance = async (data: { legalName: string | null; rfc: string | null; representative?: string }) => {
         if (!data.legalName) {
           await save({ step: 'name', legalName: null, rfc: data.rfc })
@@ -250,14 +250,14 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         return done({ resolution: 'registration_completed', resume: c.resume })
       }
 
-      // Un registro que quedó a medias con el flujo anterior (razón social y RFC primero) vuelve al inicio.
+      // A registration left half-done by the previous flow (legal name and RFC first) goes back to the start.
       const step = reg.step === 'legal_name' || (reg.step === 'rfc' && !reg.applicationId) ? 'statement' : reg.step
       if (step === 'statement') {
         if (msg.attachment === null) return reply('registration_waiting', REGISTRATION_REPLIES.ask_statement)
         let supplierId = reg.supplierId
         if (!supplierId) {
-          // Proveedor sin identidad hasta que confirme sus datos. Verificado por posesión: el mensaje
-          // llegó desde ese número. No equivale a un KYC.
+          // Supplier with no identity until they confirm their data. Verified by possession: the message
+          // came from that number. Not equivalent to KYC.
           const [created] = await tx.insert(suppliers).values({ tenantId, legalName: null, rfc: null }).returning({ id: suppliers.id })
           if (!created) throw new Error('no se creó el proveedor del registro')
           supplierId = created.id
@@ -299,7 +299,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       if (step === 'name') {
         const read = await readField('legal_name', current, parseLegalName, { free: true })
         if (!('value' in read)) return reply('registration_invalid', reask('invalid' in read ? read.invalid : null, current, REGISTRATION_REPLIES.invalid_name))
-        // Sin corrección, un RFC completo del documento se conserva; corregido, se pide siempre.
+        // Without a correction, a complete RFC from the document is kept; once corrected, it is always asked.
         return advance({ legalName: read.value, rfc: reg.corrected ? null : completeRfc(reg.holderRfc) })
       }
       if (step === 'rfc') {
@@ -314,8 +314,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       return advance({ legalName: reg.legalName, rfc: reg.rfc, representative: read.value })
     }
 
-    // Datos de la factura pendientes (ADR 0039): van antes que las aclaraciones porque la solicitud
-    // todavía no se analiza. Solo para un número con vínculo verificado.
+    // Pending invoice data: goes before clarifications because the request is not analyzed yet.
+    // Only for a number with a verified link.
     const [intake] = links.length
       ? await tx
           .select()
@@ -324,8 +324,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
           .orderBy(desc(invoiceIntakes.createdAt))
           .limit(1)
       : []
-    // Monto que pide después de la oferta de la línea máxima (ADR 0053). Un PDF nuevo cierra la oferta
-    // y sigue como cualquier documento.
+    // Amount requested after the maximum-line offer. A new PDF closes the offer and proceeds like
+    // any document.
     if (intake?.step === OFFER_STEP) {
       const offer = OfferDraft.safeParse(intake.draft)
       const close = () => tx.update(invoiceIntakes).set({ step: 'done', updatedAt: new Date() }).where(eq(invoiceIntakes.applicationId, intake.applicationId))
@@ -348,7 +348,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
           await finish('offer_invalid', null, say(AMOUNT_OFFER.over(max)))
           return done({ resolution: 'offer_invalid', resume: null })
         }
-        // El monto entra a la solicitud y la reevaluación decide con él, sin modelos (redecide.ts).
+        // The amount goes into the request and re-evaluation decides with it, without models (redecide.ts).
         const request = ApplicationRequest.parse({ amount: read.value, maturity: null, buyer: null })
         await tx.update(applications).set({ request, status: 'deciding', updatedAt: new Date() }).where(eq(applications.id, intake.applicationId))
         await close()
@@ -356,7 +356,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         return done({ resolution: 'offer_accepted', resume: null, redecide: { tenant_id: tenantId, application_id: intake.applicationId, correction_batch: randomUUID() } })
       }
     }
-    // Una conversación de factura que quedó abierta se termina aunque la opción ya esté apagada.
+    // An invoice conversation left open is ended even if the option is now off.
     if (intake && intake.step !== OFFER_STEP) {
       const ask = (body: string) => ({ body, kind: 'invoice' })
       const draft = InvoiceDraft.parse(intake.draft)
@@ -391,7 +391,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         await finish('intake_step', null, ask(INVOICE_REPLIES.ask_maturity))
         return done({ resolution: 'intake_step', resume: null })
       }
-      // Una fecha pasada es una lectura válida que se rechaza: no se le pide a Haiku otra.
+      // A past date is a valid reading that gets rejected: Haiku is not asked for another.
       const read = await readField('maturity', current, (t) => parseMaturity(t, today()), { allowSkip: true })
       if ('invalid' in read) return invalid(reask(read.invalid, current, INVOICE_REPLIES.invalid_maturity))
       if ('value' in read && 'past' in read.value) return invalid(INVOICE_REPLIES.past_maturity)
@@ -412,13 +412,13 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         return { resolution: 'document_ambiguous', resume: null }
       }
       const bytes = msg.attachment
-      // Se le pidió el PDF completo (páginas faltantes): este PDF contesta esa pregunta, no abre otra solicitud.
+      // The full PDF was requested (missing pages): this PDF answers that question, it does not open another request.
       const requesting = await openClarification()
       const request = requesting ? documentRequestOf(requesting) : undefined
       if (requesting && request) {
         const stored = await storeDocument(supplierId, bytes)
         if ('rejected' in stored) {
-          // La pregunta sigue abierta: se le dice por qué no sirve el archivo y puede mandar otro.
+          // The question stays open: they are told why the file is unusable and can send another.
           await finish('document_rejected', requesting.id, reply(stored.rejected === 'password' ? 'password_protected' : 'rejected'), { reason: stored.rejected })
           return { resolution: 'document_rejected', resume: null }
         }
@@ -433,7 +433,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         await tx.insert(applicationDocuments).values({ tenantId, applicationId: requesting.applicationId, documentId: stored.documentId, origin: 'owner_answer' })
         const answers = [...Answers.parse(requesting.answers), { question_id: request.id, kind: 'documents' as const, paths: [stored.storagePath] }]
         const complete = isComplete(Questions.parse(requesting.questions), answers)
-        // Con todo contestado se reanuda con el PDF como respuesta; si quedan preguntas para el analista, se le avisa.
+        // With everything answered, it resumes with the PDF as the answer; if analyst questions remain, the analyst is notified.
         await tx.update(clarifications).set(complete ? { answers, step: 'confirmed', status: 'answered', answeredAt: sql`now()` } : { answers, step: 'confirmed' }).where(eq(clarifications.id, requesting.id))
         const texts = documentRequestReplies(request)
         await finish('document_answer', requesting.id, { body: complete ? texts.received : texts.forReview, kind: 'document' }, { application_id: requesting.applicationId })
@@ -442,7 +442,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       const sha256 = createHash('sha256').update(bytes).digest('hex')
       const [existing] = await tx.select({ id: documents.id }).from(documents).where(eq(documents.sha256, sha256))
       if (existing) {
-        // La solicitud más reciente de ese documento: la respuesta depende de cómo terminó.
+        // The most recent request for that document: the reply depends on how it ended.
         const [prev] = await tx
           .select({ id: applications.id, status: applications.status, failureReason: applications.failureReason, request: applications.request })
           .from(applicationDocuments)
@@ -451,7 +451,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
           .orderBy(desc(applications.createdAt))
           .limit(1)
         const failure = prev?.status === 'failed' ? describeFailure(prev.failureReason) : null
-        // Un error nuestro se puede reintentar con el mismo archivo: se abre una solicitud nueva abajo.
+        // Our own error can be retried with the same file: a new request is opened below.
         if (prev && failure?.kind !== 'internal') {
           const body = await duplicateReply(tx, prev, failure, msg.channel === 'whatsapp' ? { tenantId, address: msg.fromAddress } : null)
           await finish('document_duplicate', null, { body, kind: 'document' }, { application_id: prev.id, previous_status: prev.status })
@@ -465,12 +465,12 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       }
       const created = { id: opened.applicationId }
       if (askInvoice) {
-        // Con preguntas de factura (ADR 0039), el análisis espera a los datos y se encola al terminar.
+        // With invoice questions, analysis waits for the data and is enqueued when they finish.
         await tx.insert(invoiceIntakes).values({ applicationId: created.id, tenantId, channel: msg.channel, address: msg.fromAddress, step: 'amount', documentSha256: sha256 })
         await finish('document_received', null, { body: INVOICE_REPLIES.ask_amount, kind: 'invoice' }, { application_id: created.id })
         return { resolution: 'document_received', resume: null }
       }
-      // Sin preguntas (lo de la demo): se analiza ya y el resultado es la línea máxima.
+      // No questions (the demo): analyzed right away and the result is the maximum line.
       await finish('document_received', null, reply('received'), { application_id: created.id })
       return { resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: created.id }, sha256 } }
     }
@@ -482,7 +482,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     const open = await openClarification()
     if (!open) {
       if (selfRegistration && msg.channel === 'whatsapp') {
-        // En la demo, un proveedor registrado que saluda recibe qué hacer, no la respuesta genérica.
+        // In the demo, a registered supplier who greets is told what to do, not the generic reply.
         const [s] = await tx.select({ legalName: suppliers.legalName }).from(suppliers).where(inArray(suppliers.id, links.map((l) => l.supplierId))).limit(1)
         await finish('registered_idle', null, { body: REGISTRATION_REPLIES.idle(s?.legalName ?? 'tu empresa'), kind: 'registration' })
         return { resolution: 'registered_idle', resume: null }
@@ -491,9 +491,9 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       return { resolution: 'no_open_clarification', resume: null }
     }
 
-    // Aclaración abierta (ADR 0051): pregunta por pregunta (`asking`), varias respuestas en un mensaje,
-    // un resumen para confirmar (`confirming`), cambiar una respuesta (`revising`) y, confirmado, la
-    // reanudación o, si quedan preguntas para el analista, el aviso (`confirmed`).
+    // Open clarification: question by question (`asking`), several answers in one message, a summary
+    // to confirm (`confirming`), changing an answer (`revising`) and, once confirmed, the resume or,
+    // if analyst questions remain, the notice (`confirmed`).
     const questions: QuestionT[] = Questions.parse(open.questions)
     let answers = Answers.parse(open.answers)
     const convo = conversationalIndexes(questions)
@@ -503,11 +503,11 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       return done({ resolution, resume })
     }
     const withAnswers = (given: readonly OwnerAnswerT[]) => [...answers.filter((a) => !given.some((g) => g.question_id === a.question_id)), ...given]
-    /** Lee una respuesta a la pregunta `q`: reglas y, si hay opciones y no alcanzan, Haiku (ADR 0040). */
+    /** Reads an answer to question `q`: rules and, if there are options and they fall short, Haiku. */
     const readOne = async (q: QuestionT): Promise<{ answer: OwnerAnswerT | null; offTopic: boolean }> => {
       const direct = parseReply(msg.body, q)
       if (direct || q.options.length === 0) return { answer: direct, offTopic: false }
-      // Haiku solo traduce la respuesta a una opción; parseReply sigue siendo quien la acepta.
+      // Haiku only maps the reply to an option; parseReply remains what accepts it.
       const read = await readField('option', q.text, (t) => parseReply(t, q), { options: q.options.map((o) => o.label) })
       return { answer: 'value' in read ? read.value : null, offTopic: 'invalid' in read && read.invalid === 'off_topic' }
     }
@@ -519,7 +519,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       const summary = () => renderSummary(questions, answers)
       let read = parseConfirmation(msg.body, questions)
       if (!read) {
-        // Sí o no con Haiku cuando las reglas no alcanzan; una corrección se pide con el número.
+        // Yes or no via Haiku when the rules fall short; a correction is requested with the number.
         const yes = await readField('option', summary(), parseYesNo, { options: ['Sí, es correcto', 'No, quiero cambiar una respuesta'] })
         if ('value' in yes) read = yes.value ? { kind: 'confirm' } : { kind: 'reject' }
       }
@@ -532,13 +532,13 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         answers = withAnswers([read.answer])
         return answer('corrected', `${CONFIRMATION_REPLIES.changed(read.number)}\n\n${summary()}`, 'summary', { answers })
       }
-      // Confirmado: con todo contestado se reanuda; si quedan preguntas para el analista, se le avisa.
+      // Confirmed: with everything answered it resumes; if analyst questions remain, the analyst is notified.
       if (isComplete(questions, answers)) return answer('completed', CONFIRMATION_REPLIES.sent, 'confirmation', { step: 'confirmed', status: 'answered', answeredAt: sql`now()` }, { tenant_id: tenantId, application_id: open.applicationId, clarification_id: open.id })
       return answer('confirmed', CONFIRMATION_REPLIES.sent_analyst, 'analyst', { step: 'confirmed' })
     }
 
     const current = questions[open.currentQuestion]
-    // Se espera un PDF (el completo o uno con domicilio): un texto no lo contesta y no cambia ningún estado.
+    // A PDF is expected (the full one or one with an address): text does not answer it and changes no state.
     if (current && isDocumentRequest(current)) return answer('awaiting_document', documentRequestReplies(current).sendPdf, 'reask')
     if (!current || !isConversational(current)) return answer('awaiting_analyst', ANALYST_NOTICE, 'analyst', { step: 'confirmed' })
 
@@ -549,7 +549,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       return answer('corrected', `${CONFIRMATION_REPLIES.changed(convo.indexOf(open.currentQuestion) + 1)}\n\n${renderSummary(questions, answers)}`, 'summary', { answers, step: 'confirming' })
     }
 
-    // Varias respuestas en un mensaje: van a la actual y a las siguientes, en orden. Primero las reglas.
+    // Several answers in one message: they go to the current question and the next, in order. Rules first.
     const pending = convo.filter((i) => i >= open.currentQuestion).map((i) => questions[i] as QuestionT)
     const multi = parseMultipleReplies(msg.body, pending)
     let given: OwnerAnswerT[]
@@ -564,12 +564,12 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     const answered = new Set(answers.map((a) => a.question_id))
     const next = convo.find((i) => !answered.has((questions[i] as QuestionT).id))
     if (next !== undefined) return answer('matched', renderQuestionAt(questions, next), 'question', { answers, currentQuestion: next })
-    // Contestadas todas las del chat: el resumen, antes de evaluar.
+    // All chat questions answered: the summary, before evaluating.
     return answer('summary', renderSummary(questions, answers), 'summary', { answers, step: 'confirming' })
   })
 }
 
-/** Lo que la aclaración está esperando: la pregunta actual, el resumen o, si ya confirmó, el aviso del analista. */
+/** What the clarification is waiting for: the current question, the summary or, once confirmed, the analyst notice. */
 function clarificationPrompt(open: typeof clarifications.$inferSelect): string {
   const questions = Questions.parse(open.questions)
   if (open.step === 'confirming') return renderSummary(questions, Answers.parse(open.answers))
@@ -579,8 +579,8 @@ function clarificationPrompt(open: typeof clarifications.$inferSelect): string {
 }
 
 /**
- * La pregunta de páginas faltantes que la aclaración está esperando (`isDocumentRequest`) y que el PDF
- * del proveedor contesta: la que se le hizo (`currentQuestion`) y todavía sin respuesta.
+ * The missing-pages question that the clarification is waiting on (`isDocumentRequest`) and that
+ * the supplier's PDF answers: the one that was asked (`currentQuestion`) and is still unanswered.
  */
 function documentRequestOf(open: typeof clarifications.$inferSelect): QuestionT | undefined {
   if (open.step === 'confirmed') return undefined
@@ -588,22 +588,22 @@ function documentRequestOf(open: typeof clarifications.$inferSelect): QuestionT 
   return q && isDocumentRequest(q) && !Answers.parse(open.answers).some((a) => a.question_id === q.id) ? q : undefined
 }
 
-/** Mensajes entrantes sin procesar de todos los tenants (función revisada, solo ids). */
+/** Unprocessed inbound messages from all tenants (reviewed function, ids only). */
 export async function pendingInbound(db: Db, limit = 50): Promise<{ id: string; tenant_id: string }[]> {
   const res = await db.execute<{ id: string; tenant_id: string }>(sql`select id, tenant_id from app.pending_inbound(${limit})`)
   return res.rows
 }
 
 /**
- * Qué contestar a un PDF que ya se había mandado (ADR 0041): si sigue en análisis, que no hace falta
- * mandarlo; si falló, el mismo motivo; si ya tiene veredicto, el mismo aviso. Nunca "en revisión"
- * para algo que ya terminó.
+ * What to reply to a PDF that was already sent: if still being analyzed, that there is no need to
+ * send it again; if it failed, the same reason; if it has a verdict, the same notice. Never
+ * "under review" for something that already finished.
  */
 async function duplicateReply(tx: Tx, prev: { id: string; status: string; request: unknown }, failure: FailureInfo | null, whatsapp: { tenantId: string; address: string } | null): Promise<string> {
   if (failure) return failureNotice(failure)
   const verdict = await verdictText(tx, prev)
   if (!verdict) return DOCUMENT_REPLIES.duplicate
-  // Si aún no dijo cuánto quiere adelantar, se le vuelve a preguntar (ADR 0053).
+  // If they have not yet said how much they want to advance, ask again.
   const [d] = whatsapp ? await tx.select({ limit: decisions.limitAmount }).from(decisions).where(and(eq(decisions.applicationId, prev.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1) : []
   const offer = whatsapp ? await offerAmount(tx, { tenantId: whatsapp.tenantId, applicationId: prev.id, status: prev.status, limit: d?.limit == null ? null : Number(d.limit), request: prev.request, channel: 'whatsapp', address: whatsapp.address }) : null
   return `Ya habíamos revisado este estado de cuenta. ${verdict}${offer ? `\n\n${offer}` : ''}`

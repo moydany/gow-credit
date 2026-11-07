@@ -1,11 +1,11 @@
 /**
- * Intérprete de respuestas por WhatsApp con Haiku (ADR 0040). Las reglas fijas leen primero; el
- * modelo entra cuando no alcanzan, y siempre en los campos de texto libre (razón social,
- * comprador), donde las reglas no distinguen un nombre de "asdfg".
+ * WhatsApp reply interpreter using Haiku. The fixed rules read first; the model steps in when they
+ * fall short, always on free-text fields (legal name, buyer), where rules cannot tell a name from
+ * "asdfg".
  *
- * El modelo no decide nada: clasifica el mensaje y propone el dato, que vuelve a pasar por el
- * mismo lector determinista. Si la llamada falla (sin llave, modo caché, error del proveedor), se
- * devuelve null y la conversación sigue solo con las reglas.
+ * The model decides nothing: it classifies the message and proposes the value, which goes back
+ * through the same deterministic reader. If the call fails (no key, cache mode, provider error),
+ * it returns null and the conversation continues with the rules only.
  */
 import { LIGHT_MODEL, LlmCallError, loadPrompt, type StructuredLlm } from '@gow/llm'
 import { z } from 'zod'
@@ -20,12 +20,12 @@ export type Interpretation = z.infer<typeof Interpretation>
 
 export interface InterpretInput {
   field: ExpectedField
-  /** El texto de la pregunta que se le hizo, tal como se mandó. */
+  /** The text of the question asked, as sent. */
   question: string
   message: string
-  /** Solo para `option`: las etiquetas de las opciones, en orden. */
+  /** `option` only: the option labels, in order. */
   options?: readonly string[]
-  /** AAAA-MM-DD, para fechas relativas. */
+  /** YYYY-MM-DD, for relative dates. */
   today: string
 }
 
@@ -63,7 +63,7 @@ export class HaikuInterpreter implements MessageInterpreter {
       })
       return res.object
     } catch (err) {
-      // Solo el código del error: el mensaje del proveedor nunca va a los registros.
+      // Error code only: the provider's message never goes to the logs.
       this.#onError(`intérprete: ${err instanceof LlmCallError ? `${err.code}${err.status ? ` ${String(err.status)}` : ''}` : err instanceof Error ? err.name : 'error'}`)
       return null
     }

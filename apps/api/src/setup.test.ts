@@ -1,6 +1,6 @@
 /**
- * Primer inicio (ADR 0060) contra Postgres real y una base vacía: el wizard crea el tenant, su
- * política base y al administrador, deja la sesión abierta y no vuelve a funcionar una vez creado.
+ * First-run setup against real Postgres and an empty database: the wizard creates the tenant, its
+ * base policy and the admin, leaves the session open, and stops working once created.
  */
 import { mkdtempSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -107,7 +107,7 @@ describe.skipIf(!available)('Primer inicio (necesita el Postgres de docker compo
     expect(versions.rows).toEqual([{ version: 1, status: 'active' }])
     const audit = await admin.query("SELECT actor FROM app.audit_log WHERE tenant_id = $1 AND action = 'tenant.setup'", [tenant])
     expect(audit.rows).toHaveLength(1)
-    // El wizard no emite llave de API: se crea después desde Configuración.
+    // The wizard issues no API key: it is created later from Settings.
     expect(await countOf('api_keys', 'tenant_id = $1', [tenant])).toBe(0)
   })
 

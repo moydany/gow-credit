@@ -1,9 +1,9 @@
 /**
- * Reevaluación tras la corrección de un analista (docs/08 §2, ADR 0020). No pasa por el workflow
- * ni por ningún modelo: toma la extracción guardada, le aplica las correcciones (que recalculan el
- * cuadre), vuelve a aplicar las respuestas del proveedor que ya hubo y decide de nuevo con la
- * política activa y el ajuste de antigüedad vigente del tenant (ADR 0049), con el mismo código puro
- * que el workflow (`decideState`). El resultado queda como un veredicto nuevo; el anterior se conserva.
+ * Re-evaluation after an analyst correction. It goes through neither the workflow nor any model:
+ * it takes the stored extraction, applies the corrections (which recompute the reconciliation),
+ * re-applies the supplier answers that already existed and decides again with the active policy
+ * and the tenant's current statement-age setting, using the same pure code as the workflow
+ * (`decideState`). The result is stored as a new verdict; the previous one is kept.
  */
 import { calendarToday, CorrectionTarget, Decision, emptyExternalSnapshot, NO_DECLARATIONS, OwnerAnswer, Question, StatementExtraction, type OwnerDeclarations, type SupplierIdentity } from '@gow/contracts'
 import { auditLog, applications, clarifications, corrections, decisions, extractions, withTenant } from '@gow/db'
@@ -18,7 +18,7 @@ import type { WorkerServices } from './worker.ts'
 
 export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promise<string> {
   const ctx = await loadContext(s.db, job.tenant_id, job.application_id)
-  // La API pone la solicitud en `deciding` al guardar las correcciones; si ya no está así, este trabajo ya se hizo.
+  // The API puts the request in `deciding` when saving corrections; if it no longer is, this job already ran.
   if (ctx.application.status !== 'deciding') return ctx.application.status
   if (!ctx.active) throw new Error('el tenant no tiene una política activa')
   const doc = ctx.documents[0]
@@ -37,7 +37,7 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
     StatementExtraction.parse(loaded.ex.payload),
     loaded.fixes.map((c) => ({ target: CorrectionTarget.parse(c.target), value: z.union([z.string(), z.number()]).parse(c.value) })),
   )
-  // Lo que el proveedor ya contestó sigue valiendo: se reaplica en el orden de las rondas.
+  // What the supplier already answered still holds: re-applied in round order.
   let supplier: SupplierIdentity | null = supplierIdentity(ctx.supplier)
   let declarations: OwnerDeclarations = NO_DECLARATIONS
   const contradictions: AppState['contradictions'] = []
@@ -49,7 +49,7 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
     contradictions.push(...applied.contradictions)
   }
 
-  // Mismo "hoy" que la decisión anterior: corregir un valor no envejece el documento.
+  // Same "today" as the previous decision: correcting a value does not age the document.
   const previous = loaded.last ? Decision.safeParse(loaded.last.payload) : null
   const asOf = ctx.application.asOf ?? (previous?.success ? previous.data.profile.computed_at.slice(0, 10) : (s.today ? s.today() : calendarToday()))
   const state: AppState = {
@@ -74,15 +74,15 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
   }
   const external = s.external ? await s.external(ctx, state) : emptyExternalSnapshot()
   let decided = decideState(state, external)
-  // Sin correcciones, la reevaluación viene del monto que pidió después de la oferta (ADR 0053): el
-  // motor no abre preguntas nuevas por ese monto (p. ej. el cliente principal) y decide con lo que hay.
+  // Without corrections, the re-evaluation comes from the amount requested after the offer: the
+  // engine opens no new questions for that amount (e.g. main client) and decides with what it has.
   if (decided.decision?.status === 'needs_clarification' && loaded.fixes.length === 0) {
     decided = decideState({ ...state, rounds: ctx.active.policy.clarification.maxRounds }, external)
   }
   let decision = decided.decision
   if (!decision) throw new Error('el motor no devolvió un veredicto')
-  // Con la corrección el motor podría pedir una aclaración nueva; no hay workflow suspendido al cual
-  // devolverla, así que se queda con el analista en vez de dejar la solicitud sin salida.
+  // With the correction the engine might ask a new clarification; there is no suspended workflow to
+  // hand it back to, so it stays with the analyst rather than leaving the request with no way out.
   if (decision.status === 'needs_clarification') {
     decision = Decision.parse({
       ...decision,

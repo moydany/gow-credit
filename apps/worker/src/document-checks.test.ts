@@ -1,7 +1,7 @@
 /**
- * ADR 0049 contra Postgres real: un PDF con contraseña se rechaza al llegar por WhatsApp con su
- * mensaje propio, y la antigüedad del estado de cuenta es un ajuste del tenant que advierte en vez
- * de pedir otro documento, tanto al procesar como al reevaluar.
+ * Document checks against real Postgres: a password-protected PDF is rejected on arrival over
+ * WhatsApp with its own message, and bank statement age is a tenant setting that warns instead of
+ * asking for another document, both on processing and on re-evaluation.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
@@ -29,7 +29,7 @@ const SUPPLIER_PHONE = '+5215511120002'
 const NEWCOMER = '+5215577780008'
 const noClassifier: Classifier = { classify: () => Promise.reject(new Error('sin clasificador en esta prueba')) }
 
-describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cuenta (ADR 0049; necesita Postgres)', () => {
+describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cuenta (necesita Postgres)', () => {
   let tdb: TestDatabase
   let admin: pg.Client
   let worker: Database
@@ -49,7 +49,7 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
     await whatsapp.connect()
     store = new PostgresStore({ id: 'gow-test-age', connectionString: tdb.url('mastra'), schemaName: 'mastra' })
     const storage = new LocalDocumentStorage({ root: mkdtempSync(join(tmpdir(), 'gow-dc-')), secret: 's', publicBaseUrl: 'http://x' })
-    // Sin la columna en el INSERT: el tenant toma el valor por defecto (sin límite, ADR 0054).
+    // Without the column in the INSERT: the tenant takes the default (no limit).
     await admin.query("INSERT INTO app.tenants (id, name, whatsapp_number) VALUES ($1, 'Fintech Demo', '+5215500000002')", [tenant])
     await admin.query("INSERT INTO app.policies (id, tenant_id, name) VALUES ($1, $2, 'base')", [policyId, tenant])
     await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 1, 'active', $3)", [tenant, policyId, JSON.stringify(basePolicyTemplate())])
@@ -121,7 +121,7 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
   })
 
   describe('antigüedad del estado de cuenta, ajuste del tenant', () => {
-    /** Una solicitud con un estado de cuenta sintético de septiembre, evaluada a `asOf`. */
+    /** A request with a synthetic September bank statement, evaluated at `asOf`. */
     async function application(asOf: string, seed: string): Promise<string> {
       const doc: SyntheticDocument = {
         input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] },
@@ -141,7 +141,7 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
     const decisionsOf = async (appId: string) => (await admin.query<{ kind: string; payload: Decision }>('SELECT kind, payload FROM app.decisions WHERE application_id = $1 ORDER BY created_at', [appId])).rows
     const warned = (d: Decision | undefined) => d?.reasons.some((r) => r.code === DOCUMENT_AGE_WARNING) ?? false
 
-    it('por defecto no hay límite (ADR 0054): un estado de 4 meses se analiza normal y no advierte', async () => {
+    it('por defecto no hay límite: un estado de 4 meses se analiza normal y no advierte', async () => {
       const stored = await admin.query<{ months: number | null }>('SELECT statement_max_age_months AS months FROM app.tenants WHERE id = $1', [tenant])
       expect(stored.rows[0]?.months).toBeNull()
       const appId = await application('2027-02-15', 'age-default')
@@ -149,7 +149,7 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
       expect(warned((await decisionsOf(appId))[0]?.payload)).toBe(false)
     })
 
-    it('con un límite de 3 meses un estado de 4 meses se analiza normal y la decisión advierte (ADR 0049)', async () => {
+    it('con un límite de 3 meses un estado de 4 meses se analiza normal y la decisión advierte', async () => {
       await admin.query('UPDATE app.tenants SET statement_max_age_months = 3 WHERE id = $1', [tenant])
       const appId = await application('2027-02-15', 'age-three')
       const status = await handleProcess(services, { tenant_id: tenant, application_id: appId })
@@ -167,7 +167,7 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
       expect(await handleProcess(services, { tenant_id: tenant, application_id: appId })).toBe('qualified_with_limit')
       expect(warned((await decisionsOf(appId))[0]?.payload)).toBe(false)
 
-      // El analista corrige algo y se reevalúa con 1 mes: ahora sí advierte (la solicitud no se detiene).
+      // The analyst corrects something and it is re-evaluated with 1 month: now it warns (the request is not held back).
       await admin.query('UPDATE app.tenants SET statement_max_age_months = 1 WHERE id = $1', [tenant])
       await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 2, 'shadow', $3)", [tenant, policyId, JSON.stringify({ ...basePolicyTemplate(), version: 2 })])
       await admin.query("UPDATE app.applications SET status = 'deciding' WHERE id = $1", [appId])

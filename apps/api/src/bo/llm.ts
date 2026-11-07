@@ -1,7 +1,7 @@
 /**
- * Intercambios con el modelo (ADR 0064): la pestaña "Llamadas al modelo" de la bitácora. La lista va
- * sin contenido; el detalle trae el prompt y la respuesta tal cual y verlo queda en la bitácora de
- * movimientos, como abrir una solicitud.
+ * Model exchanges: the "model calls" tab of the audit log. The list carries no content; the detail
+ * returns the prompt and response as they were, and viewing it is audit-logged like opening a
+ * request.
  */
 import { llmExchanges, withTenant } from '@gow/db'
 import { LlmExchangeListQuery, TokenUsage, type LlmExchangeDetail, type LlmExchangeRow } from '@gow/contracts'
@@ -80,7 +80,7 @@ export function llmRouter(deps: BackofficeDeps): express.Router {
     const detail = await withTenant(deps.db, w.tenantId, async (tx) => {
       const [x] = await tx.select().from(llmExchanges).where(eq(llmExchanges.id, id))
       if (!x) return null
-      // Ver el prompt y la respuesta es ver datos del documento: queda en la bitácora (sin contenido).
+      // Viewing the prompt and response means viewing document data: it is audit-logged (without content).
       await audit(tx, w.tenantId, actorOf(w), 'llm_exchange.viewed', id, x.applicationId ? { application_id: x.applicationId } : {})
       const out: LlmExchangeDetail = {
         ...rowOf(x),

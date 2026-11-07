@@ -1,11 +1,11 @@
 /**
- * API del modo full (docs/02 §1 y §4, docs/05 §2 y §5). Reglas:
- * - La API nunca ejecuta un workflow: guarda y encola.
- * - El tenant sale de la llave de API (hash, comparación en tiempo constante), nunca de un
- *   parámetro; cada consulta corre en `withTenant` con el rol `gow_api`.
- * - Zod en cada cuerpo; los errores devuelven la ruta del campo, nunca el valor.
- * - El PDF no pasa por la API: URL firmada de vida corta, y al crear la solicitud se lee del
- *   almacenamiento propio (nunca de una URL del usuario).
+ * Full-mode API. Rules:
+ * - The API never runs a workflow: it stores and enqueues.
+ * - The tenant comes from the API key (hash, constant-time compare), never from a parameter;
+ *   each query runs in `withTenant` with the `gow_api` role.
+ * - Zod on every body; errors return the field path, never the value.
+ * - The PDF does not go through the API: short-lived signed URL, and on request creation it is
+ *   read from our own storage (never from a user URL).
  */
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { verifySvix } from '@gow/channels'
@@ -25,25 +25,25 @@ export interface ApiDeps {
   db: Db
   boss: PgBoss
   storage: DocumentStorage
-  /** Secreto del webhook de correo entrante (Svix); sin él, el webhook responde 404. */
+  /** Inbound email webhook secret (Svix); without it the webhook returns 404. */
   resendWebhookSecret?: string | null
-  /** Solo escenarios: acepta estados de cuenta sintéticos además de PDF. */
+  /** Scenarios only: accepts synthetic statements besides PDF. */
   allowSynthetic?: boolean
-  /** Peticiones por minuto por llave. */
+  /** Requests per minute per key. */
   rateLimitPerMinute?: number
   logger?: { error(message: string): void }
-  /** Secreto con el que se verifican los JWT del backoffice; sin él `/bo/v1` responde 404. */
+  /** Secret that verifies backoffice JWTs; without it `/bo/v1` returns 404. */
   backofficeJwtSecret?: string | null
-  /** Cookie de sesión con `Secure` (producción detrás de HTTPS). */
+  /** Session cookie with `Secure` (production behind HTTPS). */
   secureCookies?: boolean
-  /** Origen del backoffice para los enlaces de acceso de usuarios invitados (`BACKOFFICE_URL`). */
+  /** Backoffice origin for invited users' access links (`BACKOFFICE_URL`). */
   backofficeUrl?: string | null
-  /** Supabase Auth para el login del backoffice por correo (ADR 0035); sin él, solo el enlace con el JWT. */
+  /** Supabase Auth for email login to the backoffice; without it, only the JWT link works. */
   auth?: AuthDirectory | null
-  /** Límites de la sesión renovable con Supabase Auth (ADR 0036), en horas: absoluto e inactividad. */
+  /** Renewable Supabase Auth session limits, in hours: absolute and idle. */
   sessionMaxHours?: number
   sessionIdleHours?: number
-  /** Quién crea y activa versiones de prompts (ADR 0065); null: solo con una sola institución crediticia. */
+  /** Who creates and activates prompt versions; null: only with a single lender. */
   promptEditors?: PromptEditors
 }
 
@@ -81,7 +81,7 @@ const ResendInbound = z.object({
   data: z.object({ email_id: z.string().optional(), from: z.string(), to: z.union([z.string(), z.array(z.string())]), text: z.string().optional() }),
 })
 
-/** "Nombre <correo@x>" → correo@x */
+/** "Name <email@x>" → email@x */
 function bareAddress(a: string): string {
   return (/<([^>]+)>/.exec(a)?.[1] ?? a).trim().toLowerCase()
 }
@@ -92,7 +92,7 @@ export function createApp(deps: ApiDeps): express.Express {
   const windows = new Map<string, { start: number; count: number }>()
   const limitPerMinute = deps.rateLimitPerMinute ?? 120
 
-  // ---------- Subida directa (solo almacenamiento local de desarrollo y escenarios)
+  // ---------- Direct upload (local dev storage and scenarios only)
   if (deps.storage instanceof LocalDocumentStorage) {
     const local = deps.storage
     app.put('/storage/upload/:token', express.raw({ type: () => true, limit: MAX_DOCUMENT_BYTES }), async (req, res) => {
@@ -105,14 +105,14 @@ export function createApp(deps: ApiDeps): express.Express {
     })
   }
 
-  // ---------- Webhook de correo entrante (Resend, firmado con Svix)
+  // ---------- Inbound email webhook (Resend, signed with Svix)
   app.post('/v1/webhooks/resend', express.text({ type: () => true, limit: '1mb' }), async (req, res) => {
     const secret = deps.resendWebhookSecret
     if (!secret) throw new HttpError(404, 'no encontrado')
     const body = typeof req.body === 'string' ? req.body : ''
     if (!verifySvix(secret, { id: req.header('svix-id'), timestamp: req.header('svix-timestamp'), signature: req.header('svix-signature') }, body)) throw new HttpError(401, 'firma inválida')
     const event = ResendInbound.safeParse(JSON.parse(body))
-    // Siempre 200 tras verificar: la respuesta no dice si el destinatario existe.
+    // Always 200 after verifying: the response must not reveal whether the recipient exists.
     if (!event.success || event.data.type !== 'email.received') return void res.status(200).json({ ok: true })
     const to = (Array.isArray(event.data.data.to) ? event.data.data.to : [event.data.data.to]).map(bareAddress)
     for (const address of to) {
@@ -133,7 +133,7 @@ export function createApp(deps: ApiDeps): express.Express {
     res.json({ ok: true })
   })
 
-  // ---------- Autenticación por llave de API y límite por llave
+  // ---------- API key auth and per-key rate limit
   const v1 = express.Router()
   v1.use(express.json({ limit: '1mb' }))
   v1.use(async (req, res, next) => {
@@ -157,14 +157,14 @@ export function createApp(deps: ApiDeps): express.Express {
   }
   const actor = (res: Response) => `api:${auth(res).keyPrefix}`
 
-  // ---------- Documentos
+  // ---------- Documents
   v1.post('/uploads', need('ingest'), (req, res) => {
     const body = parse(z.strictObject({ synthetic: z.boolean().default(false) }), req.body ?? {})
     if (body.synthetic && deps.allowSynthetic !== true) throw new HttpError(400, 'los documentos sintéticos solo existen en escenarios')
     res.status(201).json(deps.storage.createSignedUpload(auth(res).tenantId, undefined, body.synthetic ? SyntheticSuffix : '.pdf'))
   })
 
-  // ---------- Proveedores y vínculos verificados
+  // ---------- Suppliers and verified links
   v1.post('/suppliers', need('ingest'), async (req, res) => {
     const body = parse(SupplierBody, req.body)
     const { tenantId } = auth(res)
@@ -194,7 +194,7 @@ export function createApp(deps: ApiDeps): express.Express {
     res.status(201).json({ id: contact?.id, verified: body.verified_by_kyc })
   })
 
-  // ---------- Solicitudes
+  // ---------- Requests
   v1.post('/applications', need('ingest'), async (req, res) => {
     const body = parse(ApplicationBody, req.body)
     const { tenantId } = auth(res)
@@ -252,12 +252,12 @@ export function createApp(deps: ApiDeps): express.Express {
     res.json(rows.map((c) => ({ id: c.id, round: c.round, status: c.status, channel: c.channel, questions: c.questions, answers: c.answers })))
   })
 
-  /** Respuestas por la API (integración o enlace de un solo uso): las que no van por WhatsApp o correo. */
+  /** Answers through the API (integration or one-time link): those not sent via WhatsApp or email. */
   v1.post('/clarifications/:id/answers', need('ingest'), async (req, res) => {
     res.json(await answerClarification(deps, auth(res).tenantId, actor(res), parse(z.uuid(), req.params.id), req.body))
   })
 
-  // ---------- Políticas: borrador → simular → sombra → activa (docs/03 §5)
+  // ---------- Policies: draft → simulate → shadow → active
   v1.get('/policies/versions', need('policies'), async (_req, res) => {
     const rows = await withTenant(deps.db, auth(res).tenantId, (tx) => tx.select({ id: policyVersions.id, version: policyVersions.version, status: policyVersions.status, created_at: policyVersions.createdAt, activated_at: policyVersions.activatedAt }).from(policyVersions).orderBy(desc(policyVersions.version)))
     res.json(rows)
@@ -279,13 +279,13 @@ export function createApp(deps: ApiDeps): express.Express {
     res.json(await transitionVersion(deps.db, auth(res).tenantId, actor(res), parse(z.uuid(), req.params.id), 'active'))
   })
 
-  // ---------- Outcomes (docs/03 §8)
+  // ---------- Outcomes
   v1.post('/outcomes', need('ingest'), async (req, res) => {
     await recordOutcome(deps.db, auth(res).tenantId, actor(res), req.body)
     res.status(201).json({ ok: true })
   })
 
-  // ---------- Backoffice: sesión de usuario, no llave de API (docs/08)
+  // ---------- Backoffice: user session, not an API key
   if (deps.backofficeJwtSecret) app.use('/bo/v1', backofficeRouter({ ...deps, backofficeJwtSecret: deps.backofficeJwtSecret }))
 
   app.use('/v1', v1)
@@ -298,7 +298,7 @@ export function createApp(deps: ApiDeps): express.Express {
     const e = err as { type?: string; status?: number }
     if (e.type === 'entity.too.large') return void res.status(413).json({ error: 'cuerpo demasiado grande' })
     if (e.type === 'entity.parse.failed') return void res.status(400).json({ error: 'JSON inválido' })
-    // Sin detalle hacia afuera ni hacia el log: solo el tipo.
+    // Nothing outward or to the log except the error type.
     deps.logger?.error(`api: ${err instanceof Error ? err.name : 'error'}`)
     res.status(500).json({ error: 'error interno' })
   })

@@ -1,26 +1,27 @@
 /**
- * Recorrido de una solicitud (ADR 0067): `GET /bo/v1/applications/:id/timeline`. La API arma las filas que
- * pide `TimelineSources` del esquema `app` y `buildTimeline` (packages/contracts) las vuelve una línea de
- * tiempo. Nada se guarda: se reconstruye en cada petición, y por eso no deja bitácora de "visto"; la
- * respuesta lleva ids, estados, conteos, tiempos y costos, no el contenido de nada.
+ * Request timeline: `GET /bo/v1/applications/:id/timeline`. The API builds the rows that
+ * `TimelineSources` from the `app` schema asks for and `buildTimeline` (packages/contracts) turns
+ * them into a timeline. Nothing is stored: it is rebuilt on every request, so no "viewed" audit
+ * row; the response carries ids, statuses, counts, times and costs, never content.
  *
- * Qué NO se selecciona nunca (la API no lo lee, así que no puede filtrarse por un error del constructor):
- * - `inbound_messages`: `body`, `from_address`, `external_id`, `attachment*` (de `attachment_name` solo si existe).
- * - `outbound_messages`: `body` y `destination` (y la base lo impide: 0023 da SELECT solo por columna).
+ * Never selected (the API does not read them, so a builder bug cannot leak them):
+ * - `inbound_messages`: `body`, `from_address`, `external_id`, `attachment*` (`attachment_name` only for existence).
+ * - `outbound_messages`: `body` and `destination` (the database enforces it too: 0023 grants SELECT per column).
  * - `llm_exchanges`: `system`, `instruction`, `response`, `raw_output`, `error_message`.
- * - `corrections`: `read_value` y `value`; el blanco se reduce a `<tipo>.<campo>`.
- * - `clarifications`: `questions` y `answers` solo como conteos; `destination`, nunca.
- * - `decisions`: `payload` completo (el constructor valida y descarta lo que no lee); sin `limit_amount`.
+ * - `corrections`: `read_value` and `value`; the target is reduced to `<type>.<field>`.
+ * - `clarifications`: `questions` and `answers` only as counts; never `destination`.
+ * - `decisions`: the full `payload` (the builder validates and drops what it does not read); no `limit_amount`.
  *
- * Reglas de enlace (cada fuente, a la solicitud):
- * - inbound: `clarification_id` ∈ aclaraciones de la solicitud; o una fila de bitácora `inbound.*` cuyo
- *   `subject` es el id del mensaje y `details.application_id` es la solicitud; o la fila `application.received`
- *   de la solicitud con `details.inbound_message_id`.
- * - audit: `subject` = solicitud, ∈ aclaraciones, ∈ esos mensajes; o `details.application_id` = solicitud.
- * - outbound: `clarification_id` ∈ aclaraciones; o `created_at` = `at` de una fila `inbound.*`,
- *   `verdict.queued` o `registration.confirmation_asked` de ese conjunto de bitácora. Las dos filas se
- *   insertan en la misma transacción y comparten `now()` (el default de ambas columnas).
- * - exchanges: `application_id` = solicitud o `inbound_message_id` ∈ esos mensajes.
+ * How each source links to the request:
+ * - inbound: `clarification_id` in the request's clarifications; or an `inbound.*` audit row whose
+ *   `subject` is the message id and `details.application_id` is the request; or the request's
+ *   `application.received` row with `details.inbound_message_id`.
+ * - audit: `subject` = request, in the clarifications, or in those messages; or
+ *   `details.application_id` = request.
+ * - outbound: `clarification_id` in the clarifications; or `created_at` = `at` of an `inbound.*`,
+ *   `verdict.queued` or `registration.confirmation_asked` row in that audit set. Both rows are
+ *   inserted in the same transaction and share `now()` (the default of both columns).
+ * - exchanges: `application_id` = request or `inbound_message_id` in those messages.
  */
 import { withTenant, type Tx } from '@gow/db'
 import { ApplicationStatus, ApplicationTimeline, buildTimeline, CorrectionTarget, TokenUsage, type StatementExtraction, type TimelineSources } from '@gow/contracts'
@@ -35,10 +36,10 @@ type Channel = 'whatsapp' | 'email' | 'manual'
 const at = (d: Date | string): Date => new Date(d)
 const atOrNull = (d: Date | string | null): Date | null => (d === null ? null : new Date(d))
 
-/** `array[...]::<tipo>[]` con parámetros; vacío da el arreglo vacío (un `IN ()` no existe). */
+/** `array[...]::<type>[]` with parameters; empty gives the empty array (`IN ()` does not exist). */
 const list = (ids: readonly string[], type: 'uuid' | 'text'): SQL => (ids.length ? sql`array[${sql.join(ids.map((i) => sql`${i}`), sql`, `)}]::${sql.raw(type)}[]` : sql`'{}'::${sql.raw(type)}[]`)
 
-/** `<tipo>.<campo>` del blanco de una corrección (por ejemplo `holder.rfc`, `transaction.amount`), nunca el valor. */
+/** `<type>.<field>` of a correction's target (e.g. `holder.rfc`, `transaction.amount`), never the value. */
 function targetText(target: unknown): string {
   const t = CorrectionTarget.safeParse(target)
   return t.success ? `${t.data.kind}.${t.data.field}` : 'unknown'
@@ -55,7 +56,7 @@ async function loadApplication(tx: Tx, applicationId: string): Promise<Sources['
   return a ? { id: a.id, status: ApplicationStatus.parse(a.status), createdAt: at(a.created_at), updatedAt: at(a.updated_at), failureReason: a.failure_reason } : null
 }
 
-// Documentos de la solicitud con su extracción guardada (la más antigua, como el detalle; es inmutable).
+// The request's documents with their stored extraction (the oldest, like the detail view; immutable).
 async function loadDocuments(tx: Tx, applicationId: string): Promise<Sources['documents']> {
   const rows = (
     await tx.execute<{ document_id: string; origin: 'submitted' | 'owner_answer'; created_at: Date; sha256: string; extraction_id: string | null; extraction_at: Date | null; payload: unknown }>(sql`
@@ -88,8 +89,8 @@ async function loadClarifications(tx: Tx, applicationId: string): Promise<Source
   return rows.map((c) => ({ id: c.id, round: c.round, status: c.status, channel: c.channel, step: c.step, questions: c.questions, answers: c.answers, createdAt: at(c.created_at), answeredAt: atOrNull(c.answered_at) }))
 }
 
-// Mensajes entrantes ligados (ver la cabecera). `hasDocument`: la columna `attachment` se vacía al procesar,
-// así que se decide con lo que sobrevive: el nombre del adjunto o una resolución `document_*`.
+// Linked inbound messages (see the header). `hasDocument`: the `attachment` column is emptied on
+// processing, so it is decided from what survives: the attachment name or a `document_*` resolution.
 async function loadInbound(tx: Tx, applicationId: string, clarIds: string[]): Promise<Sources['inbound']> {
   const rows = (
     await tx.execute<{ id: string; channel: Channel; received_at: Date; processed_at: Date | null; resolution: string | null; clarification_id: string | null; has_document: boolean; media_kind: string | null }>(sql`
@@ -123,8 +124,8 @@ async function loadAudit(tx: Tx, applicationId: string, relatedIds: string[]): P
   return rows.map((a) => ({ id: a.id, actor: a.actor, action: a.action, subject: a.subject, details: a.details ?? {}, at: at(a.at) }))
 }
 
-// Salientes: por aclaración, o creados en la misma transacción que una fila de bitácora de la solicitud.
-// La igualdad de instantes se hace en SQL: pasarlos por JavaScript los recorta a milisegundos y `now()` tiene microsegundos.
+// Outbound: by clarification, or created in the same transaction as one of the request's audit rows.
+// Instants are compared in SQL: passing them through JavaScript truncates to milliseconds and `now()` has microseconds.
 async function loadOutbound(tx: Tx, clarIds: string[], audit: Sources['audit']): Promise<Sources['outbound']> {
   const sameTxAudit = audit.filter((a) => a.action.startsWith('inbound.') || a.action === 'verdict.queued' || a.action === 'registration.confirmation_asked').map((a) => a.id)
   const rows = (
@@ -193,8 +194,8 @@ async function loadOutcomes(tx: Tx, applicationId: string): Promise<Sources['out
 }
 
 /**
- * Las filas de la solicitud, o null si no existe en este tenant (RLS la esconde si es de otro). Corre en la
- * transacción de `withTenant`: sin tenant fijado no devuelve nada.
+ * The request's rows, or null if it does not exist in this tenant (RLS hides another tenant's).
+ * Runs in the `withTenant` transaction: with no tenant set it returns nothing.
  */
 export async function loadTimelineSources(tx: Tx, applicationId: string): Promise<TimelineSources | null> {
   const application = await loadApplication(tx, applicationId)

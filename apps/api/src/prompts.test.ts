@@ -1,8 +1,7 @@
 /**
- * Prompts en el backoffice (ADR 0065) contra Postgres real: lista y detalle sembrados desde prompts/,
- * permiso de edición (lista de editores o, sin ella, una sola institución crediticia), versión nueva
- * inmutable con validación de variables, comparación, activación global con bitácora y lo que el
- * worker carga después.
+ * Prompts in the backoffice against real Postgres: list and detail seeded from prompts/, edit
+ * permission (editor list or, without it, a single lender), new immutable version with variable
+ * validation, comparison, global activation with audit log, and what the worker loads afterwards.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
@@ -22,7 +21,7 @@ import { createTenant } from './admin.ts'
 import { createApp, type ApiDeps } from './app.ts'
 import { issueToken } from './session.ts'
 
-/** La versión de archivo de `extract_summary` que fija el catálogo y la que crea el backoffice encima. */
+/** The file version of `extract_summary` that the catalog pins, and the one the backoffice creates on top of it. */
 const D = PROMPT_CATALOG.extract_summary.version
 const NEW = D + 1
 
@@ -64,7 +63,7 @@ async function stop(h: Harness): Promise<void> {
   await h.tdb.drop()
 }
 
-/** Cliente con sesión de un usuario del backoffice contra un servidor. */
+/** Client with a backoffice user's session against a server. */
 async function session(base: string, user: { id: string; tenant: string; email: string }) {
   const raw = async (method: string, path: string, body?: unknown, cookie?: string) => {
     const headers: Record<string, string> = { 'x-gow-backoffice': '1' }
@@ -78,7 +77,7 @@ async function session(base: string, user: { id: string; tenant: string; email: 
   expect(login.status).toBe(200)
   const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
   const send = (method: string, path: string, body?: unknown) => raw(method, path, body, cookie)
-  /** Respuesta exitosa validada contra su contrato Zod. */
+  /** Successful response validated against its Zod contract. */
   const typed = async <T>(schema: z.ZodType<T>, method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> => {
     const r = await send(method, path, body)
     return { status: r.status, json: schema.parse(r.json) }
@@ -157,18 +156,18 @@ describe.skipIf(!available)('Prompts en el backoffice (necesita el Postgres de d
 
     const activated = await editorA.post(PromptActivated, `/prompts/extract_summary/versions/${created.json.id}/activate`)
     expect(activated).toMatchObject({ status: 200, json: { version: NEW, previous_version: D } })
-    // Global: la otra institución ve la misma versión activa.
+    // Global: the other lender sees the same active version.
     const seenByB = await viewerB.get(PromptCatalogResponse, '/prompts')
     expect(seenByB.json.prompts.find((p) => p.name === 'extract_summary')?.active).toMatchObject({ version: NEW, source: 'backoffice', activated_by: 'editora@a.test' })
 
-    // Bitácora del tenant de quien cambió, sin el texto.
+    // Audit log of the tenant of whoever changed it, without the text.
     const log = await h.admin.query<{ action: string; subject: string; details: Record<string, unknown> }>("SELECT action, subject, details FROM app.audit_log WHERE tenant_id = $1 AND action LIKE 'prompt.%' ORDER BY at", [tenantA])
     expect(log.rows).toEqual([
       { action: 'prompt.version_created', subject: 'extract_summary', details: { version: NEW, prompt_id: created.json.prompt_id } },
       { action: 'prompt.activated', subject: 'extract_summary', details: { version: NEW, previous_version: D, prompt_id: created.json.prompt_id, source: 'backoffice' } },
     ])
 
-    // Lo que el worker carga: la versión activa con su id de huella.
+    // What the worker loads: the active version with its fingerprint id.
     const worker = connect(h.tdb.url('worker'))
     try {
       setActivePrompts(await loadActivePrompts(worker.db))
@@ -179,7 +178,7 @@ describe.skipIf(!available)('Prompts en el backoffice (necesita el Postgres de d
       await worker.close()
     }
 
-    // Volver a la de archivo: también es una activación.
+    // Back to the file version: that is also an activation.
     expect((await editorA.send('POST', `/prompts/extract_summary/versions/${v2.id}/activate`)).json).toMatchObject({ version: D, previous_version: NEW })
   })
 

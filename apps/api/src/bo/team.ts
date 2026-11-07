@@ -1,4 +1,4 @@
-/** Configuración del backoffice: usuarios y llaves de API. */
+/** Backoffice settings: users and API keys. */
 import { randomUUID } from 'node:crypto'
 import { apiKeys, tenantUsers, withTenant, type Tx } from '@gow/db'
 import { ApiKeyCreateBody, TenantUserCreateBody, type ApiKeyCreated, type ApiKeyItem, type TenantUserCreated, type TenantUserItem } from '@gow/contracts'
@@ -10,14 +10,14 @@ import { issueToken } from '../session.ts'
 import { audit, HttpError, parse } from '../ops.ts'
 import { actorOf, backofficeBase, ENTER_PATH, iso, SESSION_SECONDS, uniqueViolation, who, type BackofficeDeps } from './shared.ts'
 
-/** Columnas visibles de una llave de API: el hash nunca sale de la base (ni siquiera hay privilegio para leerlo). */
+/** Visible API key columns: the hash never leaves the database (there is not even a privilege to read it). */
 const apiKeyColumns = { id: apiKeys.id, prefix: apiKeys.prefix, scopes: apiKeys.scopes, createdAt: apiKeys.createdAt, revokedAt: apiKeys.revokedAt }
 const apiKeyItem = (k: { id: string; prefix: string; scopes: string[]; createdAt: Date; revokedAt: Date | null }): ApiKeyItem => ({ id: k.id, prefix: k.prefix, scopes: k.scopes as ApiKeyItem['scopes'], created_at: k.createdAt.toISOString(), revoked_at: iso(k.revokedAt) })
 
 export function teamRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
   const backofficeOrigin = backofficeBase(deps)
-  // ---------- Configuración: usuarios del backoffice
+  // ---------- Settings: backoffice users
   r.get('/users', async (_req, res) => {
     const w = who(res)
     const rows = await withTenant(deps.db, w.tenantId, (tx) =>
@@ -31,10 +31,10 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Invitar: da de alta la pertenencia. Sin Supabase Auth devuelve, una sola vez, el enlace de acceso
-   * con el mismo JWT que emite `pnpm tenant user add`. Con Supabase Auth (ADR 0035) crea o encuentra
-   * la cuenta de Auth, guarda su id como `user_id` y le manda el enlace por correo; no hay enlace que
-   * compartir. Un usuario que ya existe no recibe enlace nuevo por aquí: sería entrar a nombre de otro.
+   * Invite: creates the membership. Without Supabase Auth it returns, once, the access link with
+   * the same JWT that `pnpm tenant user add` issues. With Supabase Auth it creates or finds the
+   * Auth account, stores its id as `user_id` and emails the link; there is no link to share. An
+   * existing user gets no new link here: that would be signing in as someone else.
    */
   r.post('/users', async (req, res) => {
     const w = who(res)
@@ -43,7 +43,7 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     const memberOfThisTenant = async (tx: Tx) => (await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))).length > 0
     let userId: string = randomUUID()
     if (deps.auth) {
-      // Antes de tocar Auth, para no crear cuentas por un conflicto que ya se ve aquí.
+      // Before touching Auth, so we do not create accounts for a conflict already visible here.
       if (await withTenant(deps.db, w.tenantId, memberOfThisTenant)) throw conflict
       try {
         userId = await deps.auth.ensureUser(body.email)
@@ -62,8 +62,8 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
         return u
       })
     } catch (e) {
-      // El correo es único entre tenants: si es de otro, RLS no deja verlo y la unicidad lo detiene.
-      // Con Supabase la cuenta de Auth ya existe y se queda sin pertenencia: sin tenant_id no entra.
+      // The email is unique across tenants: if it belongs to another, RLS hides it and uniqueness stops us.
+      // With Supabase the Auth account already exists and stays without membership: no tenant_id, no entry.
       if (uniqueViolation(e)) throw conflict
       throw e
     }
@@ -87,9 +87,9 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Quitar a un usuario corta su sesión en la siguiente petición (la pertenencia se lee siempre). Con
-   * Supabase Auth solo se quita la pertenencia: la cuenta de Auth se queda (sin tenant_id no entra) y
-   * su id sigue explicando la bitácora.
+   * Removing a user cuts their session on the next request (membership is always read). With
+   * Supabase Auth only the membership is removed: the Auth account stays (no tenant_id, no entry)
+   * and its id still explains the audit log.
    */
   r.delete('/users/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
@@ -103,7 +103,7 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     res.status(204).end()
   })
 
-  // ---------- Configuración: llaves de API (la completa se muestra una vez; se guarda el hash)
+  // ---------- Settings: API keys (the full key is shown once; only the hash is stored)
   r.get('/api-keys', async (_req, res) => {
     const rows = await withTenant(deps.db, who(res).tenantId, (tx) => tx.select(apiKeyColumns).from(apiKeys).orderBy(desc(apiKeys.createdAt)))
     res.json(rows.map(apiKeyItem))
@@ -123,7 +123,7 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     res.status(201).json(out)
   })
 
-  /** Revocar es inmediato: `resolve_api_key` ignora las revocadas. La fila se conserva para la bitácora. */
+  /** Revocation is immediate: `resolve_api_key` ignores revoked keys. The row is kept for the audit log. */
   r.post('/api-keys/:id/revoke', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)

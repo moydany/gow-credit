@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // Compone workflows de Mastra (ADR 0004).
+    // Composes Mastra workflows.
     "exactOptionalPropertyTypes": false
   },
   "include": ["src/**/*.ts"]

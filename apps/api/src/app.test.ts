@@ -1,6 +1,6 @@
 /**
- * La API contra Postgres real (docker compose): llaves por tenant, aislamiento, subida firmada,
- * deduplicación, políticas, respuestas por la API y el webhook de correo firmado.
+ * The API against real Postgres (docker compose): per-tenant keys, isolation, signed upload,
+ * deduplication, policies, answers through the API and the signed email webhook.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
@@ -59,7 +59,7 @@ describe.skipIf(!available)('API del modo full (necesita el Postgres de docker c
     keyA = a.apiKey
     keyB = b.apiKey
     tenantA = a.tenantId
-    // Primero el servidor (para saber el puerto) y después la app: la URL firmada apunta a la API.
+    // Server first (to learn the port), then the app: the signed URL points at the API.
     server = createServer()
     server.listen(0)
     await new Promise((r) => server.once('listening', r))

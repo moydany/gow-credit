@@ -1,14 +1,14 @@
 /**
- * Alta de tenant (docs/06 escenario 1): la única operación con el rol administrador fuera de las
- * migraciones. Crea el tenant, clona la política base como versión activa y emite la primera llave
- * de API, que se muestra una sola vez y se guarda como hash (docs/05 §2).
+ * Tenant creation: the only operation that uses the admin role outside migrations. Creates the
+ * tenant, clones the base policy as the active version and issues the first API key, shown once
+ * and stored as a hash.
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { ApiKeyScope, type Policy } from '@gow/contracts'
 import { apiKeys, auditLog, policies, policyVersions, tenants, withTenant, type Db } from '@gow/db'
 import { basePolicyTemplate } from '@gow/decision'
 
-/** Alcances de una llave; el contrato vive en `@gow/contracts` (lo usa también el backoffice). */
+/** Key scopes; the contract lives in `@gow/contracts` (the backoffice uses it too). */
 export const API_KEY_SCOPES = ApiKeyScope.options
 export type { ApiKeyScope }
 
@@ -16,7 +16,7 @@ export function hashSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex')
 }
 
-/** `gowk_<8 hex>.<secreto>`: el prefijo identifica la llave, el secreto solo existe en manos del tenant. */
+/** `gowk_<8 hex>.<secret>`: the prefix identifies the key; only the tenant holds the secret. */
 export function newApiKey(): { prefix: string; secret: string; key: string } {
   const prefix = `gowk_${randomBytes(4).toString('hex')}`
   const secret = randomBytes(32).toString('base64url')
@@ -31,7 +31,7 @@ export interface NewTenant {
   scopes?: readonly ApiKeyScope[]
 }
 
-/** Con el rol administrador; todo lo demás se escribe ya dentro del tenant (RLS). */
+/** Runs with the admin role; everything else is written inside the tenant (RLS). */
 export async function createTenant(admin: Db, input: NewTenant): Promise<{ tenantId: string; apiKey: string; policyVersionId: string }> {
   const tenantId = randomUUID()
   const key = newApiKey()

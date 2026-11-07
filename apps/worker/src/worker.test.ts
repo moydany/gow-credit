@@ -1,8 +1,8 @@
 /**
- * El worker contra Postgres real (docker compose), sin modelos: estado de cuenta sintético,
- * redacción con plantillas y Mastra con estado en el esquema `mastra`. Recorre el ciclo de
- * docs/02 §3: procesar → pausar con una aclaración por WhatsApp → respuesta → reanudar en otra
- * instancia de Mastra → veredicto. Y docs/05 §2b: un número ajeno no abre nada.
+ * The worker against real Postgres (docker compose), without models: synthetic bank statement,
+ * template-based wording and Mastra with state in the `mastra` schema. Covers the cycle: process
+ * -> pause with a WhatsApp clarification -> answer -> resume on another Mastra instance -> verdict.
+ * And: a foreign number opens nothing.
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
@@ -56,7 +56,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     store = new PostgresStore({ id: 'gow-test', connectionString: tdb.url('mastra'), schemaName: 'mastra' })
     const storage = new LocalDocumentStorage({ root: mkdtempSync(join(tmpdir(), 'gow-wk-')), secret: 's', publicBaseUrl: 'http://x' })
 
-    // Alta como administrador: tenant, política activa, proveedor con WhatsApp verificado, documento y solicitud.
+    // Admin setup: tenant, active policy, supplier with verified WhatsApp, document and request.
     const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
     const doc: SyntheticDocument = {
       input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }, { kind: 'cash_deposit', amount: 150000 }] },
@@ -101,7 +101,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     await tdb.drop()
   })
 
-  /** Una foto o nota de voz tal como la guarda el proceso de WhatsApp: solo el tipo (ADR 0051). */
+  /** A photo or voice note as the WhatsApp process stores it: only the type. */
   async function inboundMedia(from: string, kind: string): Promise<string> {
     await whatsapp.query('BEGIN')
     await whatsapp.query("SELECT set_config('app.tenant_id', $1, true)", [tenant])
@@ -129,7 +129,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const app = await admin.query<{ status: string; run_id: string | null }>('SELECT status, run_id FROM app.applications WHERE id = $1', [applicationId])
     expect(app.rows[0]).toMatchObject({ status: 'needs_clarification' })
     expect(app.rows[0]?.run_id).not.toBeNull()
-    // Reintento del mismo trabajo: no repite nada.
+    // Retry of the same job: repeats nothing.
     expect(await handleProcess(services, { tenant_id: tenant, application_id: applicationId })).toBe('needs_clarification')
     expect((await admin.query('SELECT 1 FROM app.clarifications WHERE application_id = $1', [applicationId])).rowCount).toBe(1)
   })
@@ -146,30 +146,30 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const vague = await inbound(SUPPLIER_PHONE, 'hola, buenas tardes')
     expect((await resolveInbound(worker.db, tenant, vague)).resolution).toBe('unparsed')
     const good = await inbound(SUPPLIER_PHONE, '1')
-    // Antes de evaluar, el resumen para confirmar (ADR 0051).
+    // Before evaluating, the summary to confirm.
     expect(await resolveInbound(worker.db, tenant, good)).toEqual({ resolution: 'summary', resume: null })
     const summary = await admin.query<{ body: string }>("SELECT body FROM app.outbound_messages WHERE destination = $1 AND kind = 'summary'", [SUPPLIER_PHONE])
     expect(summary.rows[0]?.body).toMatch(/^Esto es lo que entendí:\n1\) abono de \$150,000\.00 pesos del \d+ de septiembre: Pago de un cliente o venta\n\n¿Es correcto\? Responde sí/)
     const r = await resolveInbound(worker.db, tenant, await inbound(SUPPLIER_PHONE, 'Sí'))
     expect(r.resolution).toBe('completed')
     expect(r.resume?.application_id).toBe(applicationId)
-    // Otra instancia de Mastra sobre el mismo store: es lo que hace el worker al tomar el trabajo.
+    // Another Mastra instance on the same store: what the worker does when it picks up the job.
     expect(await handleResume(services, r.resume ?? { tenant_id: tenant, application_id: applicationId, clarification_id: randomUUID() })).toBe('qualified_with_limit')
     const decisions = await admin.query<{ status: string }>('SELECT status FROM app.decisions WHERE application_id = $1 ORDER BY created_at', [applicationId])
     expect(decisions.rows.map((d) => d.status)).toEqual(['needs_clarification', 'qualified_with_limit'])
     expect((await admin.query('SELECT 1 FROM app.extractions WHERE tenant_id = $1', [tenant])).rowCount).toBe(1)
   })
 
-  it('el veredicto final se avisa al WhatsApp verificado, con plantilla y sin datos del documento (ADR 0039)', async () => {
+  it('el veredicto final se avisa al WhatsApp verificado, con plantilla y sin datos del documento', async () => {
     const v = await admin.query<{ body: string; status: string }>("SELECT body, status FROM app.outbound_messages WHERE destination = $1 AND kind = 'verdict'", [SUPPLIER_PHONE])
-    // Una sola vez: needs_clarification no avisa (ahí salió la pregunta); la reanudación sí.
+    // Only once: needs_clarification sends no notice (the question already went out); the resume does.
     expect(v.rows).toHaveLength(1)
     expect(v.rows[0]?.body).toMatch(/^Revisamos tu factura de \$100,000\.00 pesos a Cadena Norte SA de CV\. Califica con un límite: podemos adelantarte hasta \$[\d,]+\.\d{2} pesos\./)
     expect(v.rows[0]?.body).not.toContain('DFI150304AB1')
   })
 
-  it('la limpieza de un proveedor borrado quita su PDF, el estado de Mastra de sus corridas y sus trabajos en cola (ADR 0059)', async () => {
-    // Las tablas de Mastra se crean al primer uso; esta prueba puede correr sola.
+  it('la limpieza de un proveedor borrado quita su PDF, el estado de Mastra de sus corridas y sus trabajos en cola', async () => {
+    // Mastra tables are created on first use; this test can run alone.
     await store.init()
     const workflows = await store.getStore('workflows')
     const runId = `purge-${randomUUID()}`
@@ -188,14 +188,14 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       await enqueueProcess(boss, { tenant_id: tenant, application_id: kept }, 'b'.repeat(64))
 
       const r = await handlePurge(services, boss, { tenant_id: tenant, supplier_id: randomUUID(), application_ids: [gone], run_ids: [runId], storage_paths: [path, outside] })
-      // Una ruta de otro tenant no se toca aunque venga en el trabajo.
+      // A path from another tenant is not touched even if it comes in the job.
       expect(r).toEqual({ files: 1, runs: 1, jobs: 2 })
       expect(await services.storage.exists(path)).toBe(false)
       expect(await services.storage.exists(outside)).toBe(true)
       for (const workflowName of [WORKFLOW_ID, CLARIFICATION_LOOP_ID]) expect(await workflows?.loadWorkflowSnapshot({ workflowName, runId })).toBeNull()
       expect(await boss.findJobs(QUEUES.process, { data: { application_id: gone } })).toEqual([])
       expect(await boss.findJobs(QUEUES.process, { data: { application_id: kept } })).toHaveLength(1)
-      // Idempotente: si pg-boss reintenta, lo que ya no está no es error.
+      // Idempotent: if pg-boss retries, what is already gone is not an error.
       expect(await handlePurge(services, boss, { tenant_id: tenant, supplier_id: randomUUID(), application_ids: [gone], run_ids: [runId], storage_paths: [path] })).toEqual({ files: 1, runs: 1, jobs: 0 })
     } finally {
       await boss.stop({ graceful: false })
@@ -207,7 +207,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     expect(await handleResume(services, { tenant_id: tenant, application_id: applicationId, clarification_id: otherClar })).toBe('qualified_with_limit')
   })
 
-  describe('aclaración por el chat: varias respuestas, resumen, correcciones y aviso del analista (ADR 0051)', () => {
+  describe('aclaración por el chat: varias respuestas, resumen, correcciones y aviso del analista', () => {
     const PHONE = '+5215533330003'
     const supplier = randomUUID()
     const application = randomUUID()
@@ -298,14 +298,14 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const channel = new DbClarificationChannel(worker.db, ctx)
       const q = Question.parse(identity)
       await channel.send(app2, 1, [q])
-      // Reintento del trabajo: la ronda ya existe y no se repite el aviso.
+      // Job retry: the round already exists and the notice is not repeated.
       await channel.send(app2, 1, [q])
       const notices = await admin.query<{ body: string; clarification_id: string | null }>("SELECT body, clarification_id FROM app.outbound_messages WHERE destination = $1 AND kind = 'analyst' AND clarification_id IN (SELECT id FROM app.clarifications WHERE application_id = $2)", [PHONE, app2])
       expect(notices.rows.map((n) => n.body)).toEqual(['Un analista revisará tu estado de cuenta y te avisaremos el resultado por este chat.'])
       const clar = await admin.query<{ channel: string; destination: string | null }>('SELECT channel, destination FROM app.clarifications WHERE application_id = $1', [app2])
       expect(clar.rows).toEqual([{ channel: 'manual', destination: null }])
 
-      // Proveedor sin identidad (registro de la demo, ADR 0047): no sale nada.
+      // Supplier with no identity (demo registration): nothing goes out.
       const outbox = async () => (await admin.query('SELECT 1 FROM app.outbound_messages WHERE destination = $1', [PHONE])).rowCount
       const before = await outbox()
       await new DbClarificationChannel(worker.db, { ...ctx, supplier: { ...ctx.supplier, legalName: null } }).send(app2, 2, [q])
@@ -313,7 +313,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     })
   })
 
-  describe('fotos, notas de voz y stickers (ADR 0051)', () => {
+  describe('fotos, notas de voz y stickers', () => {
     const lastTo = async (to: string) => (await admin.query<{ body: string; kind: string }>('SELECT body, kind FROM app.outbound_messages WHERE destination = $1 ORDER BY created_at DESC LIMIT 1', [to])).rows[0]
 
     it('un número sin vínculo recibe que solo se lee el PDF; en el registro de la demo, también la petición del estado de cuenta', async () => {
@@ -326,13 +326,13 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await resolveInbound(worker.db, tenant, await inbound(NEW, 'Hola'), opts)).resolution).toBe('registration_started')
       expect((await resolveInbound(worker.db, tenant, await inboundMedia(NEW, 'sticker'), opts)).resolution).toBe('media_unsupported')
       expect((await lastTo(NEW))?.body).toMatch(/^Solo puedo leer el estado de cuenta en PDF[^\n]*\n\nPara empezar, mándame por este chat tu estado de cuenta/)
-      // El registro sigue esperando el PDF; nada cambió.
+      // Registration is still waiting for the PDF; nothing changed.
       const reg = await admin.query<{ step: string }>('SELECT step FROM app.supplier_registrations WHERE address = $1', [NEW])
       expect(reg.rows).toEqual([{ step: 'statement' }])
     })
   })
 
-  describe('estado de cuenta por WhatsApp (ADR 0037)', () => {
+  describe('estado de cuenta por WhatsApp', () => {
     const pdf = Buffer.from('%PDF-1.7\n% estado de cuenta de prueba\n%%EOF\n')
     const replies = async (to: string) => (await admin.query<{ kind: string; body: string }>("SELECT kind, body FROM app.outbound_messages WHERE destination = $1 AND kind = 'document' ORDER BY created_at", [to])).rows
     const attachmentOf = async (id: string) => (await admin.query<{ attachment: Buffer | null; resolution: string }>('SELECT attachment, resolution FROM app.inbound_messages WHERE id = $1', [id])).rows[0]
@@ -352,14 +352,14 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(await attachmentOf(id)).toEqual({ attachment: null, resolution: 'document_rejected' })
     })
 
-    it('un PDF del vínculo verificado abre la solicitud, pide la factura y al terminar encola el análisis (ADR 0039)', async () => {
+    it('un PDF del vínculo verificado abre la solicitud, pide la factura y al terminar encola el análisis', async () => {
       const opts = { storage: services.storage, today: () => '2026-11-06', askInvoice: true }
       const say = async (body: string, attachment: Buffer | null = null) => resolveInbound(worker.db, tenant, await inbound(SUPPLIER_PHONE, body, attachment), opts)
       const lastInvoiceReply = async () => (await admin.query<{ body: string }>("SELECT body FROM app.outbound_messages WHERE destination = $1 AND kind = 'invoice' ORDER BY created_at DESC LIMIT 1", [SUPPLIER_PHONE])).rows[0]?.body ?? ''
 
       const id = await inbound(SUPPLIER_PHONE, 'mi estado de cuenta', pdf)
       const r = await resolveInbound(worker.db, tenant, id, opts)
-      // Sin factura todavía no se analiza nada.
+      // Without an invoice, nothing is analyzed yet.
       expect(r).toEqual({ resolution: 'document_received', resume: null })
       const created = await admin.query<{ id: string; supplier_id: string; status: string; request: unknown; storage_path: string; size_bytes: string; step: string }>(
         'SELECT a.id::text, a.supplier_id::text, a.status, a.request, d.storage_path, d.size_bytes, i.step FROM app.invoice_intakes i JOIN app.applications a ON a.id = i.application_id JOIN app.application_documents ad ON ad.application_id = a.id JOIN app.documents d ON d.id = ad.document_id WHERE i.address = $1',
@@ -370,10 +370,10 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(await services.storage.read(created.rows[0]?.storage_path ?? '')).toEqual(pdf)
       expect(await attachmentOf(id)).toEqual({ attachment: null, resolution: 'document_received' })
       expect(await lastInvoiceReply()).toMatch(/Recibimos tu estado de cuenta[\s\S]*tres datos[\s\S]*monto/)
-      // Reintento del barrido: el mensaje ya se procesó y no abre otra solicitud.
+      // Sweep retry: the message was already processed and does not open another request.
       expect((await resolveInbound(worker.db, tenant, id, opts)).resolution).toBe('already_processed')
 
-      // Otro PDF a medio camino no se recibe; se repite la pregunta pendiente.
+      // Another PDF mid-way is not accepted; the pending question is repeated.
       expect((await say('', Buffer.from('%PDF-1.7\n% otro\n'))).resolution).toBe('intake_invalid')
       expect(await lastInvoiceReply()).toMatch(/Antes de recibir otro documento[\s\S]*monto/)
       expect((await say('mucho')).resolution).toBe('intake_invalid')
@@ -389,7 +389,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const app = await admin.query<{ request: unknown }>('SELECT request FROM app.applications WHERE id = $1', [appId])
       expect(app.rows[0]?.request).toEqual({ amount: 180000, maturity: '2026-12-20', buyer: { name: 'Cadena Norte SA de CV', rfc: null, aliases: [] } })
       expect(await lastInvoiceReply()).toMatch(/Reviso tu factura de \$180,000\.00 pesos a Cadena Norte SA de CV con vencimiento el 20\/12\/2026/)
-      // Ya sin preguntas pendientes, un texto vuelve al flujo normal.
+      // With no pending questions left, a text returns to the normal flow.
       expect((await say('hola')).resolution).toBe('no_open_clarification')
     })
 
@@ -415,24 +415,24 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       ])
     })
 
-    it('un duplicado contesta según cómo terminó la primera vez (ADR 0041)', async () => {
+    it('un duplicado contesta según cómo terminó la primera vez', async () => {
       const appOfPdf = async () =>
         (await admin.query<{ id: string }>('SELECT a.id::text FROM app.applications a JOIN app.application_documents ad ON ad.application_id = a.id JOIN app.documents d ON d.id = ad.document_id WHERE d.sha256 = $1 ORDER BY a.created_at DESC LIMIT 1', [createHash('sha256').update(pdf).digest('hex')])).rows[0]?.id ?? ''
       const send = async () => resolveInbound(worker.db, tenant, await inbound(SUPPLIER_PHONE, '', pdf), { storage: services.storage })
       const lastDoc = async () => (await admin.query<{ body: string }>("SELECT body FROM app.outbound_messages WHERE destination = $1 AND kind IN ('document', 'invoice') ORDER BY created_at DESC LIMIT 1", [SUPPLIER_PHONE])).rows[0]?.body ?? ''
       const first = await appOfPdf()
 
-      // Falló por ser tarjeta de crédito: se repite el motivo, no "sigue en revisión".
+      // It failed for being a credit card statement: the reason is repeated, not "still under review".
       await admin.query("UPDATE app.applications SET status = 'failed', failure_reason = $2 WHERE id = $1", [first, notBankStatementReason('credit_card_statement')])
       expect((await send()).resolution).toBe('document_duplicate')
       expect(await lastDoc()).toMatch(/^Lo que mandaste es un estado de cuenta de tarjeta de crédito/)
 
-      // Ya tiene veredicto: "ya lo revisamos" y el mismo aviso.
+      // It already has a verdict: "we already reviewed it" and the same notice.
       await admin.query("UPDATE app.applications SET status = 'not_qualified', failure_reason = NULL WHERE id = $1", [first])
       expect((await send()).resolution).toBe('document_duplicate')
       expect(await lastDoc()).toMatch(/^Ya habíamos revisado este estado de cuenta\. Revisamos tu factura de \$180,000\.00 pesos[\s\S]*no califica/)
 
-      // Falló por un error nuestro: el mismo archivo abre una solicitud nueva.
+      // It failed from an error of ours: the same file opens a new request.
       await admin.query("UPDATE app.applications SET status = 'failed', failure_reason = 'el workflow terminó sin veredicto' WHERE id = $1", [first])
       const retry = await send()
       expect(retry.resolution).toBe('document_received')
@@ -453,11 +453,11 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
   })
 
   /**
-   * Manda el saludo y el PDF desde `phone` y analiza la solicitud con un estado de cuenta sintético a
-   * nombre de `holder` en lugar del PDF (el worker no extrae en estas pruebas).
+   * Sends the greeting and the PDF from `phone` and analyzes the request with a synthetic bank
+   * statement in `holder`'s name instead of the PDF (the worker does not extract in these tests).
    */
   async function registerWithStatement(phone: string, holder: SyntheticDocument['holder'], seed: string, opts: Parameters<typeof resolveInbound>[3]) {
-    // Un número que ya saludó recibe de nuevo la petición del PDF.
+    // A number that already greeted gets the PDF request again.
     expect(['registration_started', 'registration_waiting']).toContain((await resolveInbound(worker.db, tenant, await inbound(phone, 'Hola'), opts)).resolution)
     const r = await resolveInbound(worker.db, tenant, await inbound(phone, '', Buffer.from(`%PDF-1.7\n% ${seed}\n%%EOF\n`)), opts)
     expect(r.resolution).toBe('document_received')
@@ -471,7 +471,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     return { appId, status }
   }
 
-  describe('registro por WhatsApp con el estado de cuenta primero (ADR 0038 y 0047)', () => {
+  describe('registro por WhatsApp con el estado de cuenta primero', () => {
     const NEWCOMER = '+5215577770007'
     const opts = () => ({ storage: services.storage, selfRegistration: true })
     const step = async (body: string, attachment: Buffer | null = null, from = NEWCOMER) => resolveInbound(worker.db, tenant, await inbound(from, body, attachment), opts())
@@ -490,20 +490,20 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await lastReply()).body).toMatch(/asistente de Fintech Demo[\s\S]*estado de cuenta bancario más reciente en PDF/)
       expect((await step('¿qué necesito?')).resolution).toBe('registration_waiting')
       expect((await lastReply()).body).toMatch(/^Para empezar, mándame por este chat tu estado de cuenta/)
-      // Lo que no es PDF se rechaza y no crea solicitud.
+      // Anything that is not a PDF is rejected and creates no request.
       expect((await step('foto', Buffer.from('\x89PNG\r\n'))).resolution).toBe('document_rejected')
     })
 
     it('persona moral: el PDF se analiza al llegar, el resultado espera a que confirme sus datos y al representante legal', async () => {
       const { status } = await registerWithStatement(NEWCOMER, { name: 'Comercializadora Nueva SA de CV', rfc: 'CNU150304AB1', clabe: null }, 'reg-moral', opts())
-      // La identidad no decide (ADR 0052): ya hay veredicto, pero no sale hasta que confirme sus datos.
+      // Identity does not decide: there is already a verdict, but it does not go out until they confirm their data.
       expect(['qualified', 'qualified_with_limit', 'not_qualified']).toContain(status)
       expect(await supplierOf(NEWCOMER)).toEqual([{ legal_name: null, rfc: null, representative_name: null, verified: true, method: 'whatsapp_self_registration' }])
       expect(await kinds(NEWCOMER)).not.toContain('verdict')
       expect(await kinds(NEWCOMER)).not.toContain('question')
       expect((await lastReply()).body).toMatch(/Está a nombre de Comercializadora Nueva SA de CV, con RFC CNU150304AB1\.\n\n¿Son correctos\? Responde sí o no\./)
 
-      // Mientras tanto, otro PDF no se recibe.
+      // Meanwhile, another PDF is not accepted.
       expect((await step('', Buffer.from('%PDF-1.7\n% otro\n'))).resolution).toBe('registration_invalid')
       expect((await lastReply()).body).toMatch(/^Antes de recibir otro documento[\s\S]*¿Son correctos\?/)
       expect((await step('quizá')).resolution).toBe('registration_invalid')
@@ -512,7 +512,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const done = await step('Ana María López Pérez')
       expect(done.resolution).toBe('registration_completed')
       expect(await supplierOf(NEWCOMER)).toEqual([{ legal_name: 'Comercializadora Nueva SA de CV', rfc: 'CNU150304AB1', representative_name: 'Ana María López Pérez', verified: true, method: 'whatsapp_self_registration' }])
-      // El veredicto retenido sale con el agradecimiento, sin reanudar nada.
+      // The held verdict goes out with the thanks, resuming nothing.
       expect(done.resume).toBeNull()
       const verdict = await lastReply()
       expect(verdict.kind).toBe('verdict')
@@ -523,7 +523,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     })
 
     it('ya registrado, un saludo dice qué hacer y un PDF abre la solicitud de su proveedor', async () => {
-      // El aviso anterior pudo preguntar cuánto quiere adelantar (ADR 0053): "omitir" cierra esa pregunta.
+      // The previous notice may have asked how much they want to advance: "omitir" closes that question.
       expect(['offer_skipped', 'registered_idle']).toContain((await step('omitir')).resolution)
       expect((await step('hola de nuevo')).resolution).toBe('registered_idle')
       expect((await lastReply()).body).toMatch(/Ya tienes registrada a Comercializadora Nueva SA de CV/)
@@ -536,7 +536,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     it('si la aclaración retenida solo pide el PDF completo, al terminar el registro sale ese pedido y no el aviso del analista', async () => {
       const PHONE = '+5215577770057'
       const { appId } = await registerWithStatement(PHONE, { name: 'Marta Ruiz Gómez', rfc: 'RUGM800101AB1', clabe: null }, 'reg-paginas', opts())
-      // Lo que deja una corrida con páginas faltantes: aclaración por WhatsApp retenida mientras se registra.
+      // What a run with missing pages leaves: a WhatsApp clarification held while registering.
       await admin.query("UPDATE app.applications SET status = 'needs_clarification' WHERE id = $1", [appId])
       const missing = { id: 'q1', topic: 'missing_pages', kind: 'documents', transaction: null, facts: [{ name: 'pagina_faltante', value: 2 }, { name: 'paginas_del_documento', value: 3 }], options: [], text: 'Te falta una página en el estado de cuenta que nos mandaste: la 2 de 3. ¿Nos puedes enviar el PDF completo, por favor?', text_source: 'template' }
       const clar = await admin.query<{ id: string }>("INSERT INTO app.clarifications (tenant_id, application_id, supplier_id, round, channel, destination, questions) SELECT tenant_id, id, supplier_id, 1, 'whatsapp', $2, $3 FROM app.applications WHERE id = $1 ON CONFLICT (application_id, round) DO UPDATE SET channel = 'whatsapp', destination = $2, questions = $3, answers = '[]', status = 'open', step = 'asking', current_question = 0 RETURNING id", [appId, PHONE, JSON.stringify([missing])])
@@ -550,12 +550,12 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(row.rows[0]).toEqual({ step: 'asking', current_question: 0, status: 'open' })
     })
 
-    it('el domicilio que trae el estado de cuenta queda en el perfil del proveedor (ADR 0066)', async () => {
+    it('el domicilio que trae el estado de cuenta queda en el perfil del proveedor', async () => {
       const PHONE = '+5215577770067'
       await registerWithStatement(PHONE, { name: 'Pedro Sánchez Luna', rfc: 'SALP800101AB1', clabe: null, address: 'CALLE 5 DE MAYO 12, CENTRO, PUEBLA, PUE., C.P. 72000' }, 'reg-domicilio', opts())
       const row = await admin.query<{ address: string | null }>("SELECT s.address FROM app.supplier_contacts c JOIN app.suppliers s ON s.id = c.supplier_id WHERE c.address = $1 AND c.channel = 'whatsapp'", [PHONE])
       expect(row.rows).toEqual([{ address: 'CALLE 5 DE MAYO 12, CENTRO, PUEBLA, PUE., C.P. 72000' }])
-      // Sin domicilio en el estado de cuenta no se pide nada por eso: la plantilla base no lo exige.
+      // With no address on the bank statement nothing is asked for it: the base template does not require it.
       expect((await lastReply(PHONE)).body).not.toMatch(/domicilio/)
     })
 
@@ -570,14 +570,14 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await step('LOPB800101AB1', null, PHONE)).resolution).toBe('registration_invalid')
       expect((await lastReply(PHONE)).body).toMatch(/no empieza como el de tu estado de cuenta/)
       const done = await step('lopa800101h2a', null, PHONE)
-      // Persona física: no se pide representante.
+      // Natural person (persona física): no representative is asked for.
       expect(done.resolution).toBe('registration_completed')
       expect(await supplierOf(PHONE)).toEqual([{ legal_name: 'Ana López Pérez', rfc: 'LOPA800101H2A', representative_name: null, verified: true, method: 'whatsapp_self_registration' }])
       expect(done.resume).toBeNull()
       expect((await lastReply(PHONE)).kind).toBe('verdict')
     })
 
-    it('sin monto, el aviso ofrece la línea máxima y pregunta cuánto; con el monto se decide de nuevo (ADR 0053)', async () => {
+    it('sin monto, el aviso ofrece la línea máxima y pregunta cuánto; con el monto se decide de nuevo', async () => {
       const PHONE = '+5215577770047'
       const { appId, status } = await registerWithStatement(PHONE, { name: 'Ríos y Vega SA de CV', rfc: 'RVE150304AB1', clabe: null }, 'reg-oferta', opts())
       expect(['qualified', 'qualified_with_limit']).toContain(status)
@@ -589,7 +589,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(offer.body).toMatch(/¿Cuánto quieres adelantar\? Escribe el monto en pesos, hasta \$[\d,]+\.\d{2} pesos\./)
       const maxValue = Number((max ?? '0').replace(/,/g, ''))
       expect(maxValue).toBeGreaterThan(1000)
-      // Más que la línea: se repregunta. Algo ilegible: también.
+      // More than the line: re-asked. Something illegible: also.
       expect((await step(String(Math.ceil(maxValue + 1000)), null, PHONE)).resolution).toBe('offer_invalid')
       expect((await lastReply(PHONE)).body).toMatch(/pasa del máximo/)
       expect((await step('mucho', null, PHONE)).resolution).toBe('offer_invalid')
@@ -604,7 +604,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const verdict = await lastReply(PHONE)
       expect(verdict.kind).toBe('verdict')
       expect(verdict.body).toMatch(/tu solicitud de adelanto de \$[\d,]+\.00 pesos/)
-      // Ya con monto, no se vuelve a ofrecer.
+      // With an amount already given, it is not offered again.
       expect(verdict.body).not.toMatch(/¿Cuánto quieres adelantar/)
       expect((await step('hola', null, PHONE)).resolution).toBe('registered_idle')
     })
@@ -623,7 +623,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     it('si el estado de cuenta falla, se avisa por qué y se espera otro PDF', async () => {
       const PHONE = '+5215577770037'
       const { appId } = await registerWithStatement(PHONE, { name: 'Ana López Pérez', rfc: 'LOPA800101H2A', clabe: null }, 'reg-fail', opts())
-      // Un fallo al terminar la lectura (no era estado de cuenta): se simula sobre lo que dejó la corrida.
+      // A failure at the end of the read (not a bank statement): simulated on what the run left.
       const ctx = await loadContext(worker.db, tenant, appId)
       await admin.query("UPDATE app.supplier_registrations SET step = 'reading', application_id = $2 WHERE address = $1", [PHONE, appId])
       await withTenant(worker.db, tenant, async (tx) => {
@@ -634,7 +634,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await step('hola', null, PHONE)).resolution).toBe('registration_waiting')
     })
   })
-  describe('intérprete de mensajes con Haiku (ADR 0040)', () => {
+  describe('intérprete de mensajes con Haiku', () => {
     const PHONE = '+5215588880008'
     const calls: InterpretInput[] = []
     const answers: Record<string, Interpretation> = {
@@ -664,7 +664,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(await lastReply()).toMatch(/^Por este chat solo puedo pedirte los datos de tu solicitud[\s\S]*¿Son correctos\?/)
       expect((await say('no')).resolution).toBe('registration_step')
       expect((await say('Somos Abarrotes La Esperanza, gracias')).resolution).toBe('registration_step')
-      // Un RFC que propone Haiku y no tiene formato no se acepta.
+      // An RFC proposed by Haiku that has no valid format is not accepted.
       expect((await say('no sé, inventa uno')).resolution).toBe('registration_invalid')
       expect(await lastReply()).toMatch(/formato correcto/)
       expect((await say('mi rfc es ale 150304 ab1')).resolution).toBe('registration_step')
@@ -672,7 +672,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await say('Juan Pérez Soto')).resolution).toBe('registration_completed')
       const rfc = await admin.query<{ legal_name: string; rfc: string }>('SELECT s.legal_name, s.rfc FROM app.supplier_contacts c JOIN app.suppliers s ON s.id = c.supplier_id WHERE c.address = $1', [PHONE])
       expect(rfc.rows).toEqual([{ legal_name: 'Abarrotes La Esperanza', rfc: 'ALE150304AB1' }])
-      // Sí/no y RFC con formato no llaman a Haiku; los nombres siempre.
+      // Yes/no and well-formed RFCs do not call Haiku; names always do.
       expect(calls.map((c) => c.field)).toEqual(['option', 'option', 'legal_name', 'rfc', 'rfc', 'legal_name'])
     })
 
@@ -692,7 +692,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(r).toEqual({ resolution: 'intake_step', resume: null })
     })
   })
-  it('una solicitud que falla avisa al proveedor por qué, sin datos del documento (ADR 0041)', async () => {
+  it('una solicitud que falla avisa al proveedor por qué, sin datos del documento', async () => {
     const ctx = await loadContext(worker.db, tenant, applicationId)
     await withTenant(worker.db, tenant, (tx) => queueVerdict(tx, ctx, 'failed', null, notBankStatementReason('credit_card_statement')))
     const last = await admin.query<{ body: string }>("SELECT body FROM app.outbound_messages WHERE destination = $1 AND kind = 'verdict' ORDER BY created_at DESC LIMIT 1", [SUPPLIER_PHONE])
@@ -716,7 +716,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const APPLICATION = randomUUID()
     const PHONE = '+5215512340012'
     const holder = { name: 'Refaccionaria Ficticia SA de CV', rfc: 'RFI150304AB1', clabe: null }
-    // Lo que el estado de cuenta incompleto trae de la extracción: la bandera y el hueco en la paginación.
+    // What the incomplete bank statement carries from the extraction: the flag and the gap in pagination.
     const incomplete = (d: SyntheticDocument) => {
       const s = syntheticStatement(d.input, d.holder, d.seed)
       const issue = { id: 'pm1', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } } satisfies Issue
@@ -736,9 +736,9 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const clar = async () => (await admin.query<{ id: string; status: string; step: string; current_question: number; answers: { question_id: string; kind: string; paths?: string[] }[] }>('SELECT id, status, step, current_question, answers FROM app.clarifications WHERE application_id = $1', [APPLICATION])).rows[0]
 
     beforeAll(async () => {
-      // La compuerta de páginas completas del motor (sección M) pregunta `missing_pages`; aquí la hace una de
-      // meses de historia sobre un documento que la respuesta completa: lo que importa es el canal. Reemplaza a
-      // la de la plantilla base, que usa el mismo id.
+      // The engine's full-pages gate asks `missing_pages`; here a months-of-history one on a document
+      // the full answer satisfies does it: what matters is the channel. It replaces the base
+      // template's, which uses the same id.
       const policy = basePolicyTemplate()
       const gate = { id: 'pages_complete', description: 'Prueba', when: { feature: 'months_of_history', op: '>=', value: 2 }, onFail: { status: 'needs_clarification', ask: 'missing_pages' } } as const
       const doc: SyntheticDocument = { input: { start: '2026-08-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed: 'incompleto' }
@@ -780,8 +780,8 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     it('un archivo que no es PDF se rechaza y la pregunta sigue abierta; el mismo archivo incompleto no sirve', async () => {
       expect((await say('', Buffer.from('\x89PNG\r\n'))).resolution).toBe('document_rejected')
       expect(await clar()).toMatchObject({ status: 'open', answers: [] })
-      // El archivo que ya está en la solicitud (al que le faltan páginas) tampoco contesta. El de la prueba es
-      // sintético: por un momento se le pone el hash de un PDF para volver a mandarlo.
+      // The file already on the request (the one missing pages) does not answer either. The test's is
+      // synthetic: for a moment it gets a real PDF's hash so it can be sent again.
       const incompletePdf = Buffer.from('%PDF-1.7\n% estado de cuenta incompleto\n%%EOF\n')
       const original = (await admin.query<{ id: string; sha256: string }>('SELECT d.id, d.sha256 FROM app.documents d JOIN app.application_documents ad ON ad.document_id = d.id WHERE ad.application_id = $1', [APPLICATION])).rows[0]
       await admin.query('UPDATE app.documents SET sha256 = $2 WHERE id = $1', [original?.id, createHash('sha256').update(incompletePdf).digest('hex')])
@@ -799,7 +799,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const c = await clar()
       expect(r).toEqual({ resolution: 'document_answer', resume: { tenant_id: TENANT, application_id: APPLICATION, clarification_id: c?.id } })
       expect(await lastBody()).toEqual({ kind: 'document', body: DOCUMENT_REPLIES.answer_received })
-      // No abrió otra solicitud: el documento quedó ligado a la misma, como respuesta del proveedor.
+      // It opened no other request: the document stayed linked to the same one, as the supplier's answer.
       expect((await admin.query('SELECT 1 FROM app.applications WHERE tenant_id = $1', [TENANT])).rowCount).toBe(before)
       const linked = await admin.query<{ origin: string; storage_path: string; sha256: string }>('SELECT ad.origin, d.storage_path, d.sha256 FROM app.application_documents ad JOIN app.documents d ON d.id = ad.document_id WHERE ad.application_id = $1 ORDER BY ad.origin', [APPLICATION])
       expect(linked.rows.map((x) => x.origin)).toEqual(['submitted', 'owner_answer'])
@@ -807,13 +807,13 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(added?.sha256).toBe(createHash('sha256').update(complete).digest('hex'))
       expect(await services.storage.read(added?.storage_path ?? '')).toEqual(complete)
       expect(c).toMatchObject({ status: 'answered', step: 'confirmed', answers: [{ question_id: 'q1', kind: 'documents', paths: [added?.storage_path] }] })
-      // El adjunto no se queda en el entrante.
+      // The attachment is not kept on the inbound row.
       expect((await admin.query('SELECT 1 FROM app.inbound_messages WHERE tenant_id = $1 AND attachment IS NOT NULL', [TENANT])).rowCount).toBe(0)
     })
 
     it('la reanudación extrae el PDF nuevo, decide otra vez y avisa el resultado', async () => {
-      // El worker de la prueba no extrae PDFs reales: el documento nuevo se sustituye por un estado de cuenta
-      // sintético del mes siguiente, como hacen las demás pruebas.
+      // The test worker does not extract real PDFs: the new document is replaced by a synthetic bank
+      // statement for the following month, as the other tests do.
       const added = await admin.query<{ id: string; storage_path: string }>("SELECT d.id, d.storage_path FROM app.documents d JOIN app.application_documents ad ON ad.document_id = d.id WHERE ad.application_id = $1 AND ad.origin = 'owner_answer'", [APPLICATION])
       const doc: SyntheticDocument = { input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed: 'completo' }
       const path = `${TENANT}/${randomUUID()}${SYNTHETIC_SUFFIX}`
@@ -825,12 +825,12 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect(['qualified', 'qualified_with_limit', 'not_qualified', 'human_review']).toContain(status)
       const app = await admin.query<{ status: string }>('SELECT status FROM app.applications WHERE id = $1', [APPLICATION])
       expect(app.rows[0]?.status).toBe(status)
-      // Las dos extracciones quedaron guardadas, la del PDF completo con su documento.
+      // Both extractions were stored, the full PDF's with its document.
       expect((await admin.query('SELECT 1 FROM app.extractions e JOIN app.application_documents ad ON ad.document_id = e.document_id WHERE ad.application_id = $1', [APPLICATION])).rowCount).toBe(2)
       expect((await lastBody())?.kind).toBe('verdict')
     })
 
-    it('si el proveedor manda el PDF cuando no se le pidió nada, abre una solicitud nueva como siempre (ADR 0037)', async () => {
+    it('si el proveedor manda el PDF cuando no se le pidió nada, abre una solicitud nueva como siempre', async () => {
       const r = await say('otro mes', Buffer.from('%PDF-1.7\n% otro mes\n%%EOF\n'))
       expect(r.resolution).toBe('document_received')
       expect(r.process?.job.application_id).not.toBe(APPLICATION)

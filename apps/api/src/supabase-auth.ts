@@ -1,28 +1,28 @@
 /**
- * Supabase Auth (GoTrue) del lado del servidor, para el login del backoffice por correo (ADR 0035).
- * Solo la API y el CLI lo usan, con la llave service_role (nunca llega al navegador):
- * - `ensureUser`: al dar de alta a un usuario del backoffice, crea su cuenta de Auth ya confirmada
- *   (o encuentra la existente) y devuelve su id, que se guarda como `tenant_users.user_id`;
- * - `sendMagicLink`: pide a GoTrue el correo con el enlace de acceso, sin crear cuentas;
- * - `refreshSession`: cambia un refresh token por un access token nuevo (ADR 0036; GoTrue rota el
- *   refresh token en cada uso);
- * - `revokeSession`: cierra la sesión de GoTrue de un access token (invalida su refresh token).
+ * Server-side Supabase Auth (GoTrue), for backoffice email login. Only the API and the CLI use
+ * it, with the service_role key (never sent to the browser):
+ * - `ensureUser`: when a backoffice user is added, creates their already-confirmed Auth account
+ *   (or finds the existing one) and returns its id, stored as `tenant_users.user_id`;
+ * - `sendMagicLink`: asks GoTrue to email the access link, without creating accounts;
+ * - `refreshSession`: swaps a refresh token for a new access token (GoTrue rotates the refresh
+ *   token on every use);
+ * - `revokeSession`: closes the GoTrue session of an access token (invalidates its refresh token).
  *
- * Ningún error lleva el correo ni los tokens: solo el código HTTP.
+ * No error carries the email or tokens: only the HTTP code.
  */
 import { z } from 'zod'
 
 export interface AuthDirectory {
   /**
-   * Id de la cuenta de Auth con ese correo; la crea confirmada si no existe. `preferredId` se usa
-   * como id de la cuenta nueva (para ligar una pertenencia que ya existía sin cambiar su id).
+   * Id of the Auth account with that email; creates it confirmed if missing. `preferredId` is
+   * used as the new account's id (to link a membership that already existed without changing its id).
    */
   ensureUser(email: string, preferredId?: string): Promise<string>
-  /** true si GoTrue mandó el correo; false si no hay cuenta con ese correo (no se crea). */
+  /** true if GoTrue sent the email; false if no account has that email (none is created). */
   sendMagicLink(email: string, redirectTo: string): Promise<boolean>
   /**
-   * Tokens nuevos, o null si GoTrue rechazó el refresh token (vencido, ya usado fuera del intervalo de
-   * reúso, sesión cerrada, usuario bloqueado). Un error transitorio (5xx, 429, red) se lanza.
+   * New tokens, or null if GoTrue rejected the refresh token (expired, already used outside the
+   * reuse interval, session closed, user banned). A transient error (5xx, 429, network) is thrown.
    */
   refreshSession(refreshToken: string): Promise<RefreshedSession | null>
   revokeSession(accessToken: string): Promise<void>
@@ -36,7 +36,7 @@ export interface RefreshedSession {
 export interface SupabaseAuthConfig {
   url: string
   serviceRoleKey: string
-  /** Para /otp y /logout basta la llave anon; sin ella se usa la service_role. */
+  /** /otp and /logout only need the anon key; without it the service_role key is used. */
   anonKey?: string | null
   fetch?: typeof fetch
   timeoutMs?: number
@@ -53,7 +53,7 @@ const AdminUserList = z.object({ users: z.array(AdminUser) })
 const TokenResponse = z.object({ access_token: z.string().min(20), refresh_token: z.string().min(1) })
 const GoTrueError = z.object({ error_code: z.string().optional() }).loose()
 
-/** Con `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en el entorno; si falta alguno, null (modo sin Supabase). */
+/** With `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the environment; if either is missing, null (no-Supabase mode). */
 export function supabaseAuthFromEnv(env: NodeJS.ProcessEnv): AuthDirectory | null {
   const url = env.SUPABASE_URL?.trim()
   const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim()
@@ -87,7 +87,7 @@ export function supabaseAuth(cfg: SupabaseAuthConfig): AuthDirectory {
   const errorCode = (json: unknown) => GoTrueError.safeParse(json).data?.error_code
 
   async function findByEmail(email: string): Promise<string | null> {
-    // `filter` busca por coincidencia parcial: se compara exacto aquí.
+    // `filter` matches partially: compare exactly here.
     const r = await admin('GET', `/admin/users?filter=${encodeURIComponent(email)}&per_page=50`)
     if (r.status !== 200) throw new AuthDirectoryError(r.status)
     const found = AdminUserList.parse(r.json).users.find((u) => u.email?.toLowerCase() === email)
@@ -110,7 +110,7 @@ export function supabaseAuth(cfg: SupabaseAuthConfig): AuthDirectory {
       const email = rawEmail.trim().toLowerCase()
       const r = await call('POST', `/otp?redirect_to=${encodeURIComponent(redirectTo)}`, { key: publicKey, body: { email, create_user: false } })
       if (r.status === 200) return true
-      // Sin cuenta: GoTrue no la crea (create_user: false) y responde 422 otp_disabled.
+      // No account: GoTrue does not create one (create_user: false) and answers 422 otp_disabled.
       if (r.status === 422) return false
       throw new AuthDirectoryError(r.status)
     },
@@ -122,14 +122,14 @@ export function supabaseAuth(cfg: SupabaseAuthConfig): AuthDirectory {
         if (!t.success) throw new AuthDirectoryError(r.status)
         return { accessToken: t.data.access_token, refreshToken: t.data.refresh_token }
       }
-      // 429: el límite de renovaciones de GoTrue (por IP); no dice nada del token.
+      // 429: GoTrue's renewal limit (per IP); says nothing about the token.
       if (r.status === 429 || r.status >= 500) throw new AuthDirectoryError(r.status)
       return null
     },
 
     async revokeSession(accessToken) {
       const r = await call('POST', '/logout?scope=local', { key: publicKey, bearer: accessToken })
-      // 204 cerrada; 401/403/404: la sesión ya no existe. Nada que hacer en ningún caso.
+      // 204 closed; 401/403/404: the session no longer exists. Nothing to do either way.
       if (r.status >= 500) throw new AuthDirectoryError(r.status)
     },
   }

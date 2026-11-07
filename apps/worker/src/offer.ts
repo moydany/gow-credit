@@ -1,22 +1,23 @@
 /**
- * Oferta de la línea máxima y monto pedido después (ADR 0053). El brief no pide el monto al recibir
- * el estado de cuenta: sin monto se decide con la línea máxima (ADR 0045) y, si califica, el aviso
- * termina preguntando cuánto quiere adelantar. La respuesta (inbound.ts) guarda el monto en la
- * solicitud y la reevaluación decide de nuevo con él, sin modelos (redecide.ts).
+ * Offering the maximum line and asking for the amount afterwards. The amount is not requested on
+ * receiving the bank statement: without one, the decision uses the maximum line and, if it
+ * qualifies, the notice ends by asking how much they want to advance. The reply (inbound.ts)
+ * stores the amount on the request and re-evaluation decides again with it, without models
+ * (redecide.ts).
  */
 import { AMOUNT_OFFER } from '@gow/channels'
 import { ApplicationRequest } from '@gow/contracts'
 import { applicationDocuments, documents, invoiceIntakes, type Tx } from '@gow/db'
 import { eq, sql } from 'drizzle-orm'
 
-/** Paso de `invoice_intakes` que espera el monto después de la oferta. */
+/** `invoice_intakes` step that waits for the amount after the offer. */
 export const OFFER_STEP = 'requested_amount'
 
 const OFFER_STATUSES = ['qualified', 'qualified_with_limit']
 
 /**
- * Si el veredicto califica, no hay monto pedido y hay línea, deja abierta la pregunta del monto y
- * devuelve su texto para agregarlo al aviso. Si no aplica, null.
+ * If the verdict qualifies, no amount was requested and there is a line, leaves the amount
+ * question open and returns its text to append to the notice. Otherwise null.
  */
 export async function offerAmount(tx: Tx, o: { tenantId: string; applicationId: string; status: string; limit: number | null; request: unknown; channel: 'whatsapp'; address: string }): Promise<string | null> {
   if (!OFFER_STATUSES.includes(o.status) || o.limit === null || o.limit <= 0) return null

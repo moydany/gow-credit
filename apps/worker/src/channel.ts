@@ -1,10 +1,9 @@
 /**
- * `ClarificationChannel` del modo full (docs/02 §3, docs/05 §2b): abrir una aclaración es una fila
- * con el destino copiado del vínculo verificado y, si hay preguntas por el chat, el primer mensaje en
- * el buzón de salida; si solo hay preguntas para el analista, el aviso de que un analista lo revisará
- * (ADR 0051). Quién lo entrega depende del canal: correo desde aquí (Resend), WhatsApp
- * desde apps/whatsapp, y en los escenarios el transporte simulado. Ningún código ni modelo pasa un
- * destinatario.
+ * Full-mode `ClarificationChannel`: opening a clarification is a row with the destination copied
+ * from the verified link and, if there are chat questions, the first message in the outbox; if
+ * there are only analyst questions, a notice that an analyst will review it. Delivery depends on
+ * the channel: email from here (Resend), WhatsApp from apps/whatsapp, and simulated transport in
+ * scenarios. No code or model ever passes a recipient.
  */
 import { ANALYST_NOTICE, isConversational, isDocumentRequest, nextConversational, renderDocumentRequest, renderQuestion, type Transport } from '@gow/channels'
 import type { Question } from '@gow/contracts'
@@ -31,9 +30,9 @@ export class DbClarificationChannel implements ClarificationChannel {
     const contact = contacts.find((c) => c.channel === 'whatsapp') ?? contacts.find((c) => c.channel === 'email') ?? null
     const first = nextConversational(questions, 0)
     const conversational = questions.filter(isConversational).length
-    // Páginas faltantes (robustez documental, sección W): sin preguntas de chat, el proveedor con WhatsApp
-    // verificado recibe el pedido del PDF completo y el PDF nuevo lo contesta. Solo por WhatsApp: el
-    // correo no recibe adjuntos (ADR 0037).
+    // Missing pages (document robustness): with no chat questions, a supplier with verified WhatsApp
+    // is asked for the complete PDF and the new PDF answers it. WhatsApp only: email takes no
+    // attachments.
     const whatsappContact = contacts.find((c) => c.channel === 'whatsapp') ?? null
     const documentRequest = first < 0 && whatsappContact ? questions.findIndex(isDocumentRequest) : -1
     const chat = first >= 0 ? contact : documentRequest >= 0 ? whatsappContact : null
@@ -43,16 +42,16 @@ export class DbClarificationChannel implements ClarificationChannel {
       const [row] = await tx
         .insert(clarifications)
         .values({ tenantId, applicationId, supplierId: supplier.id, round, channel, destination: chat?.address ?? null, contactId: chat?.id ?? null, questions, currentQuestion: Math.max(asked, 0) })
-        // Un reintento del trabajo después de enviar no duplica la pregunta (una por ronda).
+        // A job retry after sending does not duplicate the question (one per round).
         .onConflictDoNothing()
         .returning({ id: clarifications.id })
       if (!row) return null
       await tx.insert(auditLog).values({ tenantId, actor: 'worker', action: 'clarification.opened', subject: row.id, details: { application_id: applicationId, round, channel, questions: questions.length } })
-      // Registro en curso (ADR 0047): la pregunta sale cuando el proveedor confirma sus datos.
+      // Registration in progress: the question goes out when the supplier confirms their data.
       if (identityPending(this.#ctx)) return null
       if (!chat) {
-        // Solo preguntas para el analista (ADR 0051): el proveedor con WhatsApp verificado sabe que su
-        // caso sigue. Sale una vez por ronda: un reintento no llega aquí (la fila ya existía).
+        // Analyst-only questions: a supplier with verified WhatsApp learns their case is still open.
+        // Sent once per round: a retry does not get here (the row already existed).
         if (first < 0 && whatsappContact) await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'analyst', channel: 'whatsapp', destination: whatsappContact.address, body: ANALYST_NOTICE })
         return null
       }
@@ -65,7 +64,7 @@ export class DbClarificationChannel implements ClarificationChannel {
   }
 }
 
-/** Entrega un mensaje del buzón por su transporte y lo marca. El destino sale de la fila, no del llamador. */
+/** Delivers an outbox message through its transport and marks it. The destination comes from the row, not the caller. */
 export async function deliver(db: Db, tenantId: string, transport: Transport, messageId: string): Promise<void> {
   const [msg] = await withTenant(db, tenantId, (tx) => tx.select().from(outboundMessages).where(and(eq(outboundMessages.id, messageId), eq(outboundMessages.status, 'pending'))))
   if (!msg || msg.channel !== transport.channel) return

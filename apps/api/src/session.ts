@@ -1,22 +1,22 @@
 /**
- * Sesión del backoffice (docs/08 §1 y §4). El navegador presenta un JWT HS256 con `sub`,
- * `email`, `tenant_id` y `exp`: Supabase Auth lo emite tras el enlace por correo (`tenant_id` lo
- * agrega el custom access token hook, ADR 0035) y `pnpm tenant user add` uno equivalente sin
- * Supabase. La API lo verifica una vez y lo guarda en una cookie `HttpOnly; SameSite=Strict`:
- * ninguna pieza de JavaScript del navegador toca el token después (sin `localStorage`). La pertenencia al tenant se vuelve a leer de `tenant_users`
- * en cada petición, así que quitar a un usuario surte efecto de inmediato.
+ * Backoffice session. The browser presents an HS256 JWT with `sub`, `email`, `tenant_id` and
+ * `exp`: Supabase Auth issues it after the emailed link (`tenant_id` is added by the custom access
+ * token hook) and `pnpm tenant user add` issues an equivalent one without Supabase. The API
+ * verifies it once and stores it in an `HttpOnly; SameSite=Strict` cookie, so no browser
+ * JavaScript touches the token afterwards (no `localStorage`). Tenant membership is re-read from
+ * `tenant_users` on every request, so removing a user takes effect immediately.
  *
- * Con Supabase Auth, el refresh token va en una segunda cookie `HttpOnly`, cifrado con AES-256-GCM
- * junto con el inicio de la sesión y la última renovación (ADR 0036): la API renueva el access token
- * sin estado en el servidor y corta la sesión al pasar el límite absoluto o el de inactividad.
+ * With Supabase Auth, the refresh token goes in a second `HttpOnly` cookie, encrypted with
+ * AES-256-GCM together with the session start and last renewal: the API renews the access token
+ * with no server-side state and ends the session at the absolute or idle limit.
  */
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 
 export const SESSION_COOKIE = 'gow_session'
-/** Refresh token de Supabase Auth, cifrado (ADR 0036). Sin Supabase Auth no existe. */
+/** Supabase Auth refresh token, encrypted. Does not exist without Supabase Auth. */
 export const REFRESH_COOKIE = 'gow_refresh'
-/** Los POST/PUT/DELETE del backoffice exigen este encabezado: un formulario de otro sitio no puede mandarlo. */
+/** Backoffice POST/PUT/DELETE require this header: a form on another site cannot send it. */
 export const CSRF_HEADER = 'x-gow-backoffice'
 
 const Claims = z.object({
@@ -25,7 +25,7 @@ const Claims = z.object({
   tenant_id: z.uuid(),
   exp: z.number().int(),
   iat: z.number().int().optional(),
-  /** Solo en tokens de Supabase Auth: la sesión de GoTrue que los emitió. */
+  /** Supabase Auth tokens only: the GoTrue session that issued them. */
   session_id: z.string().optional(),
 })
 export type SessionClaims = z.infer<typeof Claims>
@@ -36,21 +36,21 @@ function sign(secret: string, payload: string): Buffer {
   return createHmac('sha256', secret).update(payload).digest()
 }
 
-/** JWT HS256 mínimo. En desarrollo lo emite el CLI; la verificación es la misma que para Supabase. */
+/** Minimal HS256 JWT. In development the CLI issues it; verification is the same as for Supabase. */
 export function issueToken(secret: string, claims: Omit<SessionClaims, 'exp' | 'iat' | 'session_id'>, ttlSeconds: number, nowSeconds = Math.floor(Date.now() / 1000)): string {
   const head = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const body = b64(JSON.stringify({ ...claims, exp: nowSeconds + ttlSeconds }))
   return `${head}.${body}.${b64(sign(secret, `${head}.${body}`))}`
 }
 
-/** Los claims de un token vigente y bien firmado, o null (nunca dice cuál de las dos cosas falló). */
+/** Claims of a valid, correctly signed token, or null (never says which of the two failed). */
 export function verifyToken(secret: string, token: string, nowSeconds = Math.floor(Date.now() / 1000)): SessionClaims | null {
   const parts = token.split('.')
   if (parts.length !== 3) return null
   const [head, body, sig] = parts as [string, string, string]
   try {
     const header = JSON.parse(Buffer.from(head, 'base64url').toString('utf8')) as { alg?: unknown }
-    // Solo HS256: nada de `alg: none` ni de confundir algoritmos.
+    // HS256 only: no `alg: none` and no algorithm confusion.
     if (header.alg !== 'HS256') return null
     const expected = sign(secret, `${head}.${body}`)
     const got = Buffer.from(sig, 'base64url')
@@ -83,42 +83,42 @@ export function refreshCookie(sealed: string, opts: { maxAgeSeconds: number; sec
   return cookie(REFRESH_COOKIE, sealed, opts.maxAgeSeconds, opts.secure)
 }
 
-/** Borra las dos cookies (la de refresh puede no existir: borrarla no estorba). */
+/** Clears both cookies (the refresh one may not exist; clearing it is harmless). */
 export function clearedCookies(secure: boolean): string[] {
   return [cookie(SESSION_COOKIE, '', 0, secure), cookie(REFRESH_COOKIE, '', 0, secure)]
 }
 
-// ---------- Cookie de refresh (ADR 0036)
+// ---------- Refresh cookie
 
 const RefreshPayload = z.strictObject({
   v: z.literal(1),
-  /** Refresh token de GoTrue. Rota en cada renovación. */
+  /** GoTrue refresh token. Rotates on every renewal. */
   rt: z.string().min(1).max(4000),
-  /** Usuario del access token con el que se abrió la sesión: el renovado debe ser el mismo. */
+  /** User of the access token the session was opened with: the renewed one must match. */
   sub: z.uuid(),
-  /** Inicio de la sesión (segundos). No cambia al renovar: de aquí se cuenta el límite absoluto. */
+  /** Session start (seconds). Unchanged on renewal: the absolute limit counts from here. */
   iat: z.number().int(),
-  /** Última renovación (segundos): de aquí se cuenta el límite por inactividad. */
+  /** Last renewal (seconds): the idle limit counts from here. */
   rat: z.number().int(),
 })
 export type RefreshPayload = z.infer<typeof RefreshPayload>
 
 export interface SessionLimits {
-  /** Vida máxima de la sesión desde el login; después hay que pedir otro enlace. */
+  /** Maximum session life since login; after that another link is needed. */
   maxSeconds: number
-  /** Sin renovar en este lapso (sin peticiones), la sesión termina. */
+  /** Without renewal (no requests) in this window, the session ends. */
   idleSeconds: number
 }
 
 const IV_BYTES = 12
 const TAG_BYTES = 16
-/** Liga el texto cifrado a esta cookie y a esta versión del formato. */
+/** Binds the ciphertext to this cookie and this format version. */
 const AAD = Buffer.from(`${REFRESH_COOKIE}.v1`)
 const keys = new Map<string, Buffer>()
 
 /**
- * Llave AES-256 derivada con HKDF-SHA256 de `BACKOFFICE_JWT_SECRET` con una etiqueta fija: nunca es
- * la misma llave que firma los JWT, y no hay un secreto más que desplegar ni rotar.
+ * AES-256 key derived with HKDF-SHA256 from `BACKOFFICE_JWT_SECRET` and a fixed label: never the
+ * same key that signs the JWTs, and no extra secret to deploy or rotate.
  */
 function refreshKey(secret: string): Buffer {
   let k = keys.get(secret)
@@ -138,8 +138,8 @@ export function sealRefresh(secret: string, payload: RefreshPayload): string {
 }
 
 /**
- * El contenido de una cookie de refresh íntegra y dentro de los límites, o null: alterada, de otra
- * llave, con otro formato, pasada del límite absoluto o del de inactividad (nunca dice cuál).
+ * Contents of an intact refresh cookie within its limits, or null: tampered, other key, other
+ * format, past the absolute or idle limit (never says which).
  */
 export function openRefresh(secret: string, sealed: string, limits: SessionLimits, nowSeconds = Math.floor(Date.now() / 1000)): RefreshPayload | null {
   try {
@@ -160,7 +160,7 @@ export function openRefresh(secret: string, sealed: string, limits: SessionLimit
   }
 }
 
-/** Segundos que le quedan a una sesión antes del primero de sus dos límites. */
+/** Seconds left in a session before the first of its two limits. */
 export function refreshRemaining(p: RefreshPayload, limits: SessionLimits, nowSeconds = Math.floor(Date.now() / 1000)): number {
   return Math.min(p.iat + limits.maxSeconds, p.rat + limits.idleSeconds) - nowSeconds
 }

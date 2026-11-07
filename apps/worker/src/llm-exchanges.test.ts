@@ -1,7 +1,7 @@
 /**
- * Grabación de intercambios con el modelo en Postgres (ADR 0064), con el rol del worker: inserta en
- * el tenant del ámbito, no puede leer lo que guardó, limpia lo que Postgres no acepta y, sin tenant,
- * no guarda nada. Necesita el Postgres de docker compose; sin él se salta.
+ * Model exchange recording in Postgres, with the worker role: inserts into the scope's tenant,
+ * cannot read back what it stored, cleans what Postgres does not accept and, without a tenant,
+ * stores nothing. Needs the docker compose Postgres; skipped without it.
  */
 import { randomUUID } from 'node:crypto'
 import { connect, type Database } from '@gow/db'

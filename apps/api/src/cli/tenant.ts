@@ -1,13 +1,13 @@
-/* eslint-disable no-console -- CLI: la llave y el enlace se muestran una sola vez */
+/* eslint-disable no-console -- CLI: the key and the link are shown only once */
 /**
- * pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...] [--policy archivo.json]
+ * pnpm tenant create --name "Fintech Demo" [--whatsapp +52...] [--email-from aclaraciones@...] [--policy file.json]
  * pnpm tenant user add --tenant <id> --email persona@institucion.mx [--hours 8]
  *
- * Alta de tenant con el rol administrador: clona la política base como activa y emite la primera
- * llave de API (solo se muestra aquí; se guarda como hash). `user add` da de alta al usuario del
- * backoffice (un rol, varios usuarios por tenant, docs/08 §1) e imprime su enlace de acceso, firmado
- * con el JWT secret del proyecto. Con SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY (ADR 0035) además crea
- * o encuentra su cuenta de Supabase Auth y usa ese id: la persona puede entrar con su correo.
+ * Creates a tenant with the admin role: clones the base policy as active and issues the first API
+ * key (shown only here; stored as a hash). `user add` creates a backoffice user (one role,
+ * several users per tenant) and prints their access link, signed with the project's JWT secret.
+ * With SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY it also creates or finds their Supabase Auth
+ * account and uses that id, so the person can sign in with their email.
  */
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -56,7 +56,7 @@ if (positionals[0] === 'create' && values.name) {
   const email = values.email.trim().toLowerCase()
   const tenantId = values.tenant
   const auth = supabaseAuthFromEnv(process.env)
-  // Con el rol administrador solo para esta alta; la pertenencia queda bajo RLS como cualquier fila.
+  // Admin role only for this creation; the membership is under RLS like any row.
   const existing = await withTenant(admin.db, tenantId, async (tx) => {
     const [t] = await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId))
     if (!t) throw new Error('no existe ese tenant')
@@ -65,12 +65,12 @@ if (positionals[0] === 'create' && values.name) {
   })
   let userId = existing?.userId ?? randomUUID()
   if (auth) {
-    // Una pertenencia anterior a Supabase Auth conserva su id: la cuenta nueva se crea con él, así la
-    // bitácora sigue apuntando a la misma persona.
+    // A membership from before Supabase Auth keeps its id: the new account is created with it, so the
+    // audit log keeps pointing at the same person.
     const authId = await auth.ensureUser(email, existing?.userId)
     if (existing && authId !== existing.userId) {
       await admin.close()
-      console.error('ese correo ya tiene una cuenta de Supabase Auth con otro id que el de su pertenencia; revísalo en Studio (ADR 0035)')
+      console.error('ese correo ya tiene una cuenta de Supabase Auth con otro id que el de su pertenencia; revísalo en Studio')
       process.exit(1)
     }
     userId = authId

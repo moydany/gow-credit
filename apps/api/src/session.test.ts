@@ -31,7 +31,7 @@ describe('JWT del backoffice', () => {
   })
 })
 
-describe('Cookie de refresh cifrada (ADR 0036)', () => {
+describe('Cookie de refresh cifrada', () => {
   const NOW = 1_800_000_000
   const limits = { maxSeconds: 12 * 3600, idleSeconds: 8 * 3600 }
   const payload: RefreshPayload = { v: 1, rt: 'refresh-token-de-gotrue', sub: claims.sub, iat: NOW - 3600, rat: NOW - 600 }
@@ -40,7 +40,7 @@ describe('Cookie de refresh cifrada (ADR 0036)', () => {
     const sealed = sealRefresh(SECRET, payload)
     expect(openRefresh(SECRET, sealed, limits, NOW)).toEqual(payload)
     expect(Buffer.from(sealed, 'base64url').toString('latin1')).not.toContain(payload.rt)
-    // IV aleatorio: dos sellos del mismo contenido no se parecen.
+    // Random IV: two seals of the same content look different.
     expect(sealRefresh(SECRET, payload)).not.toBe(sealed)
   })
 
@@ -66,7 +66,7 @@ describe('Cookie de refresh cifrada (ADR 0036)', () => {
     expect(openRefresh(SECRET, old, limits, NOW - 61)).not.toBeNull()
     const idle = sealRefresh(SECRET, { ...payload, iat: NOW - 9 * 3600, rat: NOW - 8 * 3600 })
     expect(openRefresh(SECRET, idle, limits, NOW)).toBeNull()
-    // Un inicio en el futuro o una renovación anterior al inicio no son de esta API.
+    // A start in the future or a renewal before the start did not come from this API.
     expect(openRefresh(SECRET, sealRefresh(SECRET, { ...payload, iat: NOW + 3600, rat: NOW + 3600 }), limits, NOW)).toBeNull()
     expect(openRefresh(SECRET, sealRefresh(SECRET, { ...payload, rat: payload.iat - 1 }), limits, NOW)).toBeNull()
   })

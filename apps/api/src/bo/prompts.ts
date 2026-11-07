@@ -1,10 +1,9 @@
 /**
- * Prompts de los modelos en el backoffice (ADR 0065): lista, detalle con versiones, comparación,
- * versión nueva y activación. Los prompts son globales (los mismos para todas las instituciones
- * crediticias): todos los usuarios los ven, pero crear y activar versiones lo puede solo quien diga
- * `BACKOFFICE_PROMPT_EDITORS` o, sin esa variable, cualquier usuario de una instalación con una
- * sola institución (la demo local). Cada cambio queda en la bitácora del tenant de quien lo hizo,
- * sin el texto del prompt.
+ * Model prompts in the backoffice: list, detail with versions, comparison, new version and
+ * activation. Prompts are global (the same for all lenders): every user sees them, but only
+ * those listed in `BACKOFFICE_PROMPT_EDITORS` can create and activate versions, or, without that
+ * variable, any user of a single-lender install (the local demo). Each change is logged to the
+ * acting user's tenant audit log, without the prompt text.
  */
 import { createHash } from 'node:crypto'
 import { promptVersions, prompts, withTenant, type Tx } from '@gow/db'
@@ -32,10 +31,10 @@ import { z } from 'zod'
 import { audit, HttpError, parse } from '../ops.ts'
 import { actorOf, iso, uniqueViolation, who, type BackofficeDeps, type Who } from './shared.ts'
 
-/** `*`: cualquier usuario; lista de correos; null: solo en una instalación con una sola institución. */
+/** `*`: any user; list of emails; null: only on a single-lender install. */
 export type PromptEditors = '*' | readonly string[] | null
 
-/** `BACKOFFICE_PROMPT_EDITORS`: vacío → null; `*` → todos; si no, correos separados por comas. */
+/** `BACKOFFICE_PROMPT_EDITORS`: empty → null; `*` → everyone; otherwise comma-separated emails. */
 export function parsePromptEditors(raw: string | undefined): PromptEditors {
   const v = raw?.trim()
   if (!v) return null
@@ -74,7 +73,7 @@ async function canEdit(deps: BackofficeDeps, w: Who): Promise<boolean> {
   const editors = deps.promptEditors ?? null
   if (editors === '*') return true
   if (editors !== null) return editors.includes(w.email.toLowerCase())
-  // Con una sola institución crediticia, es la del usuario (la sesión ya verificó su pertenencia).
+  // With a single lender, it is the user's (the session already verified membership).
   const r = await deps.db.execute<{ single: boolean }>(sql`select app.single_tenant_installation() as single`)
   return r.rows[0]?.single === true
 }
@@ -83,7 +82,7 @@ async function requireEditor(deps: BackofficeDeps, w: Who): Promise<void> {
   if (!(await canEdit(deps, w))) throw new HttpError(403, 'los prompts son globales: solo los editores de prompts pueden cambiarlos (BACKOFFICE_PROMPT_EDITORS)')
 }
 
-/** Resumen de cada prompt del catálogo, sembrado o no. */
+/** Summary of each prompt in the catalog, seeded or not. */
 async function summaries(deps: BackofficeDeps): Promise<PromptSummary[]> {
   const rows = await deps.db.select().from(prompts)
   const versions = await deps.db.select().from(promptVersions)
@@ -112,14 +111,14 @@ async function detail(deps: BackofficeDeps, name: PromptName, editable: boolean)
   return { ...summary, can_edit: editable, items: rows.map((v) => itemOf(v, summary.active?.id ?? null)) }
 }
 
-/** Fila del prompt bloqueada: serializa versiones nuevas y activaciones del mismo prompt. */
+/** Locks the prompt row: serializes new versions and activations of the same prompt. */
 async function lockPrompt(tx: Tx, name: PromptName) {
   const [p] = await tx.select().from(prompts).where(eq(prompts.name, name)).for('update')
   if (!p) throw new HttpError(409, 'el prompt aún no está en la base: corre pnpm db:migrate')
   return p
 }
 
-/** Inserta la versión siguiente con el prompt bloqueado; el mismo texto que otra versión es un 409. */
+/** Inserts the next version with the prompt locked; the same text as another version is a 409. */
 async function createVersion(deps: BackofficeDeps, w: Who, name: PromptName, body: PromptVersionCreateBody): Promise<PromptVersionItem> {
   const sha256 = createHash('sha256').update(body.text).digest('hex')
   try {
@@ -131,7 +130,7 @@ async function createVersion(deps: BackofficeDeps, w: Who, name: PromptName, bod
       const version = existing.reduce((max, v) => Math.max(max, v.version), 0) + 1
       const [row] = await tx.insert(promptVersions).values({ promptName: name, version, source: 'backoffice', fileVersion: null, text: body.text, sha256, note: body.note, createdBy: actorOf(w), createdByEmail: w.email }).returning()
       if (!row) throw new HttpError(500, 'no se creó la versión')
-      // Sin el texto: la bitácora no guarda contenido.
+      // No text: the audit log stores no content.
       await audit(tx, w.tenantId, actorOf(w), 'prompt.version_created', name, { version, prompt_id: promptIdOf(row) })
       return itemOf(row, p.activeVersionId)
     })
@@ -178,7 +177,7 @@ export function promptsRouter(deps: BackofficeDeps): express.Router {
     res.json(out)
   })
 
-  /** Versión nueva, inmutable. No se activa sola: activar es otro paso, con confirmación. */
+  /** New, immutable version. It does not activate itself: activating is a separate, confirmed step. */
   r.post('/prompts/:name/versions', async (req, res) => {
     const w = who(res)
     const name = nameOf(req.params.name)

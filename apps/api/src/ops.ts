@@ -1,8 +1,7 @@
 /**
- * Operaciones de negocio compartidas por la API de integración (`/v1`, llave de API) y la del
- * backoffice (`/bo/v1`, sesión de usuario). Cada una corre dentro de `withTenant` y deja su fila
- * en la bitácora con quien la hizo (`api:<prefijo>` o `user:<id>`): así una acción tiene el mismo
- * efecto y el mismo rastro sin importar por dónde llegó.
+ * Business operations shared by the integration API (`/v1`, API key) and the backoffice API
+ * (`/bo/v1`, user session). Each runs inside `withTenant` and logs who did it (`api:<prefix>` or
+ * `user:<id>`), so an action has the same effect and trail whichever way it arrived.
  */
 import { isComplete } from '@gow/channels'
 import { CorrectionsBody, DiscardBody, DISCARDED_PREFIX, OwnerAnswer, parsePolicy, Profile, Question, StatementExtraction, type SimulationCase } from '@gow/contracts'
@@ -26,7 +25,7 @@ export class HttpError extends Error {
 
 export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const r = schema.safeParse(value)
-  // Solo ruta y mensaje: el valor que falló puede traer datos personales.
+  // Path and message only: the failing value may contain personal data.
   if (!r.success) throw new HttpError(400, 'cuerpo inválido', r.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
   return r.data
 }
@@ -39,7 +38,7 @@ export const AnswersBody = z.strictObject({ answers: z.array(OwnerAnswer).min(1)
 export const PolicyBody = z.strictObject({ document: z.unknown() })
 export const OutcomeBody = z.strictObject({ application_id: z.uuid(), outcome: z.enum(['paid', 'late', 'default', 'fraud']), observed_at: z.iso.datetime({ offset: true }) })
 
-/** Respuestas a una aclaración abierta; si quedan completas, encola la reanudación del workflow. */
+/** Answers to an open clarification; once complete, enqueues the workflow resume. */
 export async function answerClarification(deps: { db: Db; boss: PgBoss }, tenantId: string, who: string, id: string, answersInput: unknown): Promise<{ id: string; complete: boolean }> {
   const body = parse(AnswersBody, answersInput)
   const r = await withTenant(deps.db, tenantId, async (tx) => {
@@ -82,14 +81,14 @@ export async function simulateVersion(db: Db, tenantId: string, who: string, id:
     const draft = versions.find((v) => v.id === id)
     if (!draft) throw new HttpError(404, 'versión no encontrada')
     const active = versions.find((v) => v.status === 'active')
-    // Cada veredicto guarda su perfil completo: la simulación lo reevalúa con la otra política.
+    // Each decision stores its full profile so a simulation can re-evaluate it under the other policy.
     const rows = await tx.selectDistinctOn([decisions.applicationId], { applicationId: decisions.applicationId, payload: decisions.payload }).from(decisions).where(eq(decisions.kind, 'active')).orderBy(decisions.applicationId, desc(decisions.createdAt))
     const outs = rows.length ? await tx.select().from(outcomes).where(inArray(outcomes.applicationId, rows.map((r) => r.applicationId))) : []
     const cases: SimulationCase[] = rows.map((r) => ({ id: r.applicationId, profile: Profile.parse((r.payload as { profile: unknown }).profile), outcome: outs.find((o) => o.applicationId === r.applicationId)?.outcome ?? null }))
     const policy = parsePolicy(draft.document)
     const baseline = active ? parsePolicy(active.document) : null
     if (!policy.ok) throw new HttpError(500, 'la versión guardada no es válida')
-    // Con el ajuste de antigüedad del tenant (ADR 0049), como decide el worker.
+    // Uses the tenant's statement-age setting, as the worker does.
     const [tenant] = await tx.select({ months: tenants.statementMaxAgeMonths }).from(tenants).where(eq(tenants.id, tenantId))
     const statementAge = tenant ? { statementAge: { max_months: tenant.months } } : {}
     const report = simulatePolicy({ id: draft.id, policy: policy.policy }, cases, active && baseline?.ok ? { id: active.id, policy: baseline.policy } : null, statementAge)
@@ -104,7 +103,7 @@ export async function transitionVersion(db: Db, tenantId: string, who: string, i
     const [v] = await tx.select().from(policyVersions).where(eq(policyVersions.id, id))
     if (!v) throw new HttpError(404, 'versión no encontrada')
     if (v.status === 'archived' || v.status === to) throw new HttpError(409, `la versión está ${v.status}`)
-    // La anterior en ese estado se archiva (activa) o vuelve a borrador (sombra).
+    // The previous one in that status is archived (active) or goes back to draft (shadow).
     await tx.update(policyVersions).set({ status: to === 'active' ? 'archived' : 'draft' }).where(eq(policyVersions.status, to))
     await tx.update(policyVersions).set({ status: to, ...(to === 'active' ? { activatedAt: new Date() } : {}) }).where(eq(policyVersions.id, id))
     await audit(tx, tenantId, who, `policy.${to === 'active' ? 'activated' : 'shadowed'}`, id, { version: v.version })
@@ -123,9 +122,9 @@ export async function recordOutcome(db: Db, tenantId: string, who: string, input
 }
 
 /**
- * El analista corrige valores de la extracción de una solicitud en revisión humana (docs/08 §2). Se
- * valida cada corrección aplicándola a la extracción (sin guardar nada si alguna falla), se guardan los
- * pares (valor leído, valor correcto) y se reencola la solicitud para decidir de nuevo.
+ * An analyst corrects extracted values on a request in human review. Every correction is
+ * validated by applying it to the extraction (nothing saved if any fails), the (read value,
+ * correct value) pairs are stored, and the request is re-enqueued to decide again.
  */
 export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId: string, userId: string, applicationId: string, input: unknown): Promise<{ batch: string; corrections: number }> {
   const body = parse(CorrectionsBody, input)
@@ -137,7 +136,7 @@ export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId
     const [link] = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, applicationId))
     const [ex] = link ? await tx.select().from(extractions).where(eq(extractions.documentId, link.documentId)).orderBy(extractions.createdAt).limit(1) : []
     if (!link || !ex) throw new HttpError(409, 'la solicitud no tiene una extracción que corregir')
-    // Se parte de lo ya corregido: una segunda corrección sobre el mismo valor lee el valor corregido.
+    // Start from what is already corrected: a second correction on the same value reads the corrected one.
     const prior = await tx.select().from(corrections).where(eq(corrections.applicationId, applicationId)).orderBy(corrections.createdAt)
     let current = applyCorrections(StatementExtraction.parse(ex.payload), prior.map((c) => ({ target: c.target as never, value: c.value as string | number })))
     for (const c of body.corrections) {
@@ -157,7 +156,7 @@ export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId
   return { batch, corrections: body.corrections.length }
 }
 
-/** Descartar el documento en revisión humana: la solicitud cierra en `not_qualified` sin pasar por el motor. */
+/** Discard the document in human review: the request closes as `not_qualified` without going through the engine. */
 export async function discardDocument(db: Db, tenantId: string, userId: string, applicationId: string, input: unknown): Promise<{ id: string; status: 'not_qualified' }> {
   const body = parse(DiscardBody, input)
   await withTenant(db, tenantId, async (tx) => {

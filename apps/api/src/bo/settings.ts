@@ -1,4 +1,4 @@
-/** Configuración del backoffice: ajustes del análisis y vínculo de WhatsApp por QR (ADR 0033, ADR 0049). */
+/** Backoffice settings: analysis settings and WhatsApp linking by QR. */
 import { createHash } from 'node:crypto'
 import { tenants, whatsappSessions, withTenant } from '@gow/db'
 import { TenantSettingsUpdateBody, type TenantSettings, type WhatsAppLinkState, type WhatsAppUnlinkRequested } from '@gow/contracts'
@@ -9,7 +9,7 @@ import { actorOf, iso, who, whatsappSession, type BackofficeDeps } from './share
 
 export function settingsRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
-  // ---------- Configuración: canales del tenant (solo lectura) y ajustes del análisis
+  // ---------- Settings: tenant channels (read-only) and analysis settings
   const settingsOf = (t: typeof tenants.$inferSelect): TenantSettings => ({
     tenant: { id: t.id, name: t.name, created_at: t.createdAt.toISOString() },
     whatsapp: { number: t.whatsappNumber },
@@ -24,8 +24,8 @@ export function settingsRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Antigüedad máxima del estado de cuenta (ADR 0049). Aplica a las solicitudes que se analicen desde
-   * ahora y a las reevaluaciones; una solicitud ya en curso conserva el ajuste con que empezó.
+   * Maximum statement age. Applies to requests analyzed from now on and to re-evaluations; a
+   * request already in progress keeps the setting it started with.
    */
   r.patch('/settings', async (req, res) => {
     const w = who(res)
@@ -42,11 +42,11 @@ export function settingsRouter(deps: BackofficeDeps): express.Router {
     res.json(settingsOf(t))
   })
 
-  // ---------- Configuración: vincular WhatsApp escaneando el QR (ADR 0033)
+  // ---------- Settings: link WhatsApp by scanning the QR
   /**
-   * El QR solo sale con el proceso vivo, en `waiting_qr` y sin caducar. Quien lo escanee vincula su
-   * cuenta al bot del tenant: verlo queda en la bitácora una vez por valor del QR y usuario (el
-   * navegador lo consulta cada 2 s), con una huella truncada del valor y nunca el valor.
+   * The QR is only served while the process is alive, in `waiting_qr` and unexpired. Whoever
+   * scans it links their account to the tenant's bot: viewing it is audit-logged once per QR
+   * value and user (the browser polls every 2 s), with a truncated fingerprint, never the value.
    */
   r.get('/whatsapp', async (_req, res) => {
     const w = who(res)
@@ -77,9 +77,9 @@ export function settingsRouter(deps: BackofficeDeps): express.Router {
   })
 
   /**
-   * Desvincular (o pedir un QR nuevo tras cerrar la sesión desde el teléfono): el proceso lo atiende
-   * en segundos, cierra la sesión en WhatsApp y publica un QR nuevo. Sin proceso vivo no hay quién
-   * lo atienda: 409.
+   * Unlink (or ask for a new QR after logging out from the phone): the process handles it within
+   * seconds, closes the WhatsApp session and publishes a new QR. With no live process nobody can
+   * handle it: 409.
    */
   r.post('/whatsapp/unlink', async (_req, res) => {
     const w = who(res)

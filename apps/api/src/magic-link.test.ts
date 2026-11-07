@@ -1,8 +1,8 @@
 /**
- * Login por correo (ADR 0035) con GoTrue simulado y sin base: estas rutas no tocan Postgres
- * (salvo la configuración, que pregunta si falta el primer inicio y aquí contesta una base falsa).
- * Siempre 202 con el mismo cuerpo, exista o no la cuenta; anti-CSRF; límite por IP (429) y por
- * correo (en silencio); sin Supabase Auth la ruta no existe y la configuración lo dice.
+ * Email login with a simulated GoTrue and no database: these routes do not touch Postgres
+ * (except config, which asks whether first-run setup is pending and gets a fake database here).
+ * Always 202 with the same body whether or not the account exists; anti-CSRF; rate limit per IP
+ * (429) and per email (silent); without Supabase Auth the route does not exist and config says so.
  */
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -84,7 +84,7 @@ describe('Backoffice: enlace de acceso por correo', () => {
   })
 
   it('por IP: al sexto intento en el minuto responde 429', async () => {
-    // Servidor nuevo: el límite por IP es por proceso y los casos anteriores ya gastaron intentos.
+    // New server: the IP limit is per process and earlier cases already spent attempts.
     const own = fakeAuth()
     const s = await serve(own.auth)
     try {

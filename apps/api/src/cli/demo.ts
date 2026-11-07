@@ -1,13 +1,13 @@
-/* eslint-disable no-console -- CLI: una línea por documento */
+/* eslint-disable no-console -- CLI: one line per document */
 /**
  * pnpm demo:load --key gowk_... [--dir data/dev] [--api http://127.0.0.1:3000]
  *
- * Carga los PDFs de una carpeta como solicitudes por la API real (URL firmada, proveedor,
- * solicitud): el worker los procesa igual que en producción. Con `LLM_CACHE_MODE=read` el worker
- * extrae desde la caché de respuestas (costo cero, sin llaves de modelos) y, como los proveedores
- * se crean sin contacto verificado, las aclaraciones quedan en la bandeja para responderlas a
- * mano: el backoffice funciona sin WhatsApp ni correo. Los proveedores son inventados; los
- * documentos son los reales del dataset, que no se versiona.
+ * Loads the PDFs in a folder as requests through the real API (signed URL, supplier, request):
+ * the worker processes them as in production. With `LLM_CACHE_MODE=read` the worker extracts from
+ * the response cache (zero cost, no model keys), and since suppliers are created without a
+ * verified contact, clarifications land in the inbox to be answered by hand: the backoffice works
+ * without WhatsApp or email. The suppliers are made up; the documents are the real ones from the
+ * dataset, which is not versioned.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

@@ -1,4 +1,4 @@
-/** Cliente de GoTrue con `fetch` simulado: lo que pide, con qué llave y qué hace con cada respuesta. */
+/** GoTrue client with a simulated `fetch`: what it requests, with which key, and what it does with each response. */
 import { describe, expect, it } from 'vitest'
 import { AuthDirectoryError, supabaseAuth, supabaseAuthFromEnv } from './supabase-auth.ts'
 

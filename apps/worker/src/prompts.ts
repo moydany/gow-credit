@@ -1,8 +1,8 @@
 /**
- * Prompts activos de la base (ADR 0065). El worker los carga al arrancar y los refresca cada pocos
- * segundos: activar una versión en el backoffice llega a las llamadas siguientes sin reiniciar. Si la
- * base no responde, siguen los últimos cargados (o los archivos, si nunca cargó). Solo se registran
- * ids de prompt, nunca su texto.
+ * Active prompts from the database. The worker loads them at startup and refreshes every few
+ * seconds: activating a version in the backoffice reaches later calls without a restart. If the
+ * database does not respond, the last loaded ones stay (or the files, if it never loaded). Only
+ * prompt ids are logged, never their text.
  */
 import { PROMPT_CATALOG, filePromptId } from '@gow/contracts'
 import { setActivePrompts, type ActivePromptInput } from '@gow/llm'
@@ -14,7 +14,7 @@ export interface PromptRefreshDeps {
 }
 
 export interface PromptRefresh {
-  /** Recarga ahora; resuelve aunque falle (el error queda en el registro). */
+  /** Reload now; resolves even on failure (the error is logged). */
   refresh(): Promise<void>
   stop(): void
 }
@@ -24,7 +24,7 @@ export async function startPromptRefresh(deps: PromptRefreshDeps): Promise<Promp
   const refresh = async () => {
     try {
       const report = setActivePrompts(await deps.load())
-      // Solo cuando cambia algo: el estado inicial y cada activación.
+      // Only when something changes: the initial state and each activation.
       const custom = report.loaded.filter((id) => !Object.entries(PROMPT_CATALOG).some(([name, c]) => id === filePromptId(name, c.version)))
       const signature = [...report.loaded, ...report.rejected].join('|')
       if (signature === last) return
