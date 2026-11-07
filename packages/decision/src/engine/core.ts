@@ -1,17 +1,15 @@
 /**
- * Núcleo del motor: aplica la política al perfil y produce estado, puntaje, banda, línea y
- * razones. Puro: mismo perfil y misma política dan exactamente el mismo resultado. Los
- * contrafactuales (counterfactuals.ts) lo llaman sobre perfiles modificados.
+ * Applies a policy to a profile and returns status, score, band, limit and reasons.
+ * Pure: same profile and policy, same result.
  *
- * Orden de precedencia del estado:
- *   1. Compuertas: not_qualified > human_review > needs_clarification. Excepción (ADR 0058): mientras
- *      una compuerta pide las páginas faltantes, la de integridad espera a que llegue el documento completo.
- *   2. Regla de docs/04 §5: si una feature excluida por no verificada, en conflicto o con
- *      confianza baja puede cambiar la banda, no se decide con ella: se pregunta al proveedor si
- *      puede aclararla, o va a revisión humana si no.
- *   3. Banda por puntaje, rebajada por los topes (`caps`).
- *   4. Línea: `limitFormula`; si queda en cero o menos, no califica (no hay línea que dar).
- *   5. Sin rondas de aclaración disponibles, needs_clarification se vuelve human_review.
+ * Status precedence:
+ *   1. Gates: not_qualified > human_review > needs_clarification. While a gate asks for missing
+ *      pages, the integrity gate waits for the full document (ADR 0058).
+ *   2. If a doubtful feature (unverified, conflicting, low confidence) could change the band,
+ *      don't decide with it: ask the supplier, or send it to human review (docs/04 §5).
+ *   3. Band from the score, lowered by caps.
+ *   4. Limit from `limitFormula`; zero or less means not qualified.
+ *   5. With no clarification rounds left, needs_clarification becomes human_review.
  */
 import {
   FINAL_STATUS_RANK,
@@ -41,7 +39,7 @@ type CapEval = z.infer<typeof CapEvaluation>
 type LimitEval = z.infer<typeof LimitEvaluation>
 export type ReasonOut = z.infer<typeof Reason>
 
-/** Orden de los estados para comparar resultados (contrafactuales, simulación). */
+/** Status order, used to compare results. */
 export const DECISION_STATUS_RANK: Readonly<Record<DecisionStatus, number>> = {
   qualified: 4,
   qualified_with_limit: 3,
@@ -51,9 +49,8 @@ export const DECISION_STATUS_RANK: Readonly<Record<DecisionStatus, number>> = {
 }
 
 /**
- * Qué se le puede pedir al proveedor cuando una feature no alcanza para decidir. Lo que
- * depende de la clasificación de abonos se aclara preguntando por ellos; el servicio de deuda,
- * por los cargos (ADR 0050); identidad, antigüedad e historia, pidiendo el dato o el documento.
+ * What we can ask the supplier when a feature isn't enough to decide. Income features are cleared
+ * by asking about deposits, debt service by asking about charges (ADR 0050).
  */
 export const FEATURE_ASK: Readonly<Partial<Record<FeatureName, AskTopic>>> = {
   operating_income_monthly: 'deposit_classification',
@@ -75,13 +72,12 @@ export const FEATURE_ASK: Readonly<Partial<Record<FeatureName, AskTopic>>> = {
   months_of_history: 'additional_months',
 }
 
-/** Features que el proveedor puede confirmar aunque la extracción no las haya verificado. */
+/** Features the supplier can confirm even if extraction left them unverified. */
 const OWNER_VERIFIABLE: ReadonlySet<FeatureName> = new Set(['identity_match', 'document_age_days', 'months_of_history'])
 
 /**
- * ¿Se le puede preguntar al proveedor? Confianza baja en la clasificación sí (él sabe de dónde
- * vino un abono); un valor no verificado contra el documento no, salvo identidad y fechas: lo
- * revisa una persona con la página a la vista (docs/04 §5).
+ * Can we ask the supplier? Low classification confidence yes (they know where a deposit came from).
+ * An unverified value no, except identity and dates, which a person checks against the page.
  */
 export function topicFor(feature: FeatureName, exclusion: ExclusionReason): AskTopic | null {
   const topic = FEATURE_ASK[feature] ?? null
@@ -132,10 +128,9 @@ export interface CoreOptions {
 }
 
 /**
- * Con páginas faltantes el cuadre se rompe por la misma causa: el documento está incompleto (ADR 0058).
- * Mientras una compuerta pide las páginas (`missing_pages`), una compuerta de `integrity_ok` que mandaría
- * a revisión humana espera: se le pide el PDF completo al proveedor y, si con él sigue sin cuadrar, la
- * compuerta vuelve a fallar. Sin una compuerta que pida las páginas (una política anterior) no cambia nada.
+ * Missing pages break the balance for the same reason: the document is incomplete (ADR 0058).
+ * While a gate asks for the pages, an `integrity_ok` gate that would go to human review waits.
+ * If the full PDF still doesn't balance, the gate fails again. Older policies are unaffected.
  */
 function deferIntegrityToMissingPages(evals: GateEval[], effects: GateEffect[]): string[] {
   if (!evals.some((e) => e.effect === 'needs_clarification' && e.ask === 'missing_pages')) return []
@@ -146,43 +141,37 @@ function deferIntegrityToMissingPages(evals: GateEval[], effects: GateEffect[]):
   return [...ids]
 }
 
+type GateResult = Pick<GateEval, 'outcome' | 'effect' | 'ask'>
+
+function gateResult(g: Policy['gates'][number], f: ReturnType<typeof readFeature>): GateResult {
+  if (f.exclusion === 'unknown') {
+    const ask = g.onFail.ask ?? null
+    switch (g.onUnknown) {
+      case 'pass':
+        return { outcome: 'unknown', effect: 'none', ask: null }
+      case 'fail':
+        return { outcome: 'unknown', effect: g.onFail.status, ask }
+      case 'ask':
+        return { outcome: 'unknown', effect: 'needs_clarification', ask }
+      case 'human_review':
+        return { outcome: 'unknown', effect: 'human_review', ask: null }
+    }
+  }
+  if (f.exclusion !== null) {
+    // An unverified value neither passes nor fails a gate.
+    const ask = g.onFail.ask ?? topicFor(g.when.feature, f.exclusion)
+    return { outcome: 'unknown', effect: ask !== null ? 'needs_clarification' : 'human_review', ask }
+  }
+  if (checkCondition(g.when, f.value)) return { outcome: 'pass', effect: 'none', ask: null }
+  return { outcome: 'fail', effect: g.onFail.status, ask: g.onFail.ask ?? null }
+}
+
 function evaluateGates(policy: Policy, profile: Profile): { evals: GateEval[]; effects: GateEffect[]; deferred: string[] } {
   const evals: GateEval[] = []
   const effects: GateEffect[] = []
   for (const g of policy.gates) {
     const f = readFeature(profile, g.when.feature)
-    let outcome: GateEval['outcome']
-    let effect: GateEval['effect'] = 'none'
-    let ask: AskTopic | null = null
-    if (f.exclusion === 'unknown') {
-      outcome = 'unknown'
-      switch (g.onUnknown) {
-        case 'pass':
-          break
-        case 'fail':
-          effect = g.onFail.status
-          ask = g.onFail.ask ?? null
-          break
-        case 'ask':
-          effect = 'needs_clarification'
-          ask = g.onFail.ask ?? null
-          break
-        case 'human_review':
-          effect = 'human_review'
-          break
-      }
-    } else if (f.exclusion !== null) {
-      // docs/04 §5: un valor no verificado no pasa ni reprueba una compuerta.
-      outcome = 'unknown'
-      ask = g.onFail.ask ?? topicFor(g.when.feature, f.exclusion)
-      effect = ask !== null ? 'needs_clarification' : 'human_review'
-    } else {
-      outcome = checkCondition(g.when, f.value) ? 'pass' : 'fail'
-      if (outcome === 'fail') {
-        effect = g.onFail.status
-        ask = g.onFail.ask ?? null
-      }
-    }
+    const { outcome, effect, ask } = gateResult(g, f)
     evals.push({ id: g.id, feature: g.when.feature, op: g.when.op, threshold: (g.when.value ?? null), value: f.value as GateEval['value'], outcome, effect, ask })
     if (effect !== 'none') effects.push({ id: g.id, feature: g.when.feature, status: effect, ask })
   }
@@ -193,39 +182,57 @@ function minStatus(a: FinalDecisionStatus, b: FinalDecisionStatus): FinalDecisio
   return FINAL_STATUS_RANK[b] < FINAL_STATUS_RANK[a] ? b : a
 }
 
+type DimensionDef = Policy['score']['dimensions'][number]
+
+/** A dimension's value (divided by `relativeTo` when set) and why it can't be used, if it can't. */
+function readDimension(d: DimensionDef, profile: Profile, minConf: number) {
+  const f = readFeature(profile, d.feature, minConf)
+  const r = d.relativeTo !== undefined ? readFeature(profile, d.relativeTo, minConf) : null
+  let exclusion: ExclusionReason | null = f.exclusion ?? r?.exclusion ?? null
+  const excludedFeature: FeatureName = f.exclusion !== null ? d.feature : (d.relativeTo ?? d.feature)
+  let raw = typeof f.value === 'number' ? f.value : null
+  if (r !== null) {
+    const rv = typeof r.value === 'number' ? r.value : null
+    if (raw !== null && rv !== null && rv > 0) raw = raw / rv
+    else {
+      raw = null
+      exclusion ??= 'unknown'
+    }
+  }
+  return { value: raw === null ? null : round4(raw), exclusion, excludedFeature }
+}
+
+function scoreDimension(d: DimensionDef, profile: Profile, minConf: number, optimistic: boolean, uncertain: Uncertain[]): DimensionEval {
+  const { value, exclusion, excludedFeature } = readDimension(d, profile, minConf)
+  const base = { id: d.id, feature: d.feature, relative_to: d.relativeTo ?? null, value, weight: d.weight }
+  if (exclusion !== null || value === null) {
+    const reason = exclusion ?? 'unknown'
+    if (reason !== 'unknown') uncertain.push({ feature: excludedFeature, exclusion: reason, topic: topicFor(excludedFeature, reason), where: `dimension:${d.id}` })
+    const full = optimistic && reason !== 'unknown'
+    return { ...base, normalized: full ? 1 : null, points: full ? d.weight : 0, used: false, excluded_reason: reason }
+  }
+  const normalized = round4(clamp01((value - d.zeroAt) / (d.fullAt - d.zeroAt)))
+  return { ...base, normalized, points: round4(d.weight * normalized), used: true, excluded_reason: null }
+}
+
+function evaluateCap(c: Policy['decision']['caps'][number], index: number, profile: Profile, optimistic: boolean, uncertain: Uncertain[]): CapEval {
+  const f = readFeature(profile, c.when.feature)
+  let applied: boolean
+  if (f.exclusion === 'unknown') applied = true // no data: apply the cap to be safe
+  else if (f.exclusion !== null) {
+    uncertain.push({ feature: c.when.feature, exclusion: f.exclusion, topic: topicFor(c.when.feature, f.exclusion), where: `cap:${String(index)}` })
+    applied = !optimistic
+  } else applied = checkCondition(c.when, f.value)
+  return { index, feature: c.when.feature, applied, max_status: c.maxStatus }
+}
+
 /**
- * Puntaje, banda y topes. Con `optimistic`, las dimensiones excluidas por dudas (no por falta de
- * dato) suman todos sus puntos y los topes que dependen de un dato dudoso no aplican: es el mejor
- * caso que permite la regla de docs/04 §5.
+ * Score, band and caps. With `optimistic`, dimensions excluded for doubt (not for missing data)
+ * get full points and caps on doubtful data don't apply: the best case docs/04 §5 allows.
  */
 function scoreProfile(policy: Policy, profile: Profile, optimistic: boolean): Scored {
-  const minConf = policy.score.minConfidence
   const uncertain: Uncertain[] = []
-  const dimensions: DimensionEval[] = policy.score.dimensions.map((d) => {
-    const f = readFeature(profile, d.feature, minConf)
-    const r = d.relativeTo !== undefined ? readFeature(profile, d.relativeTo, minConf) : null
-    let exclusion: ExclusionReason | null = f.exclusion ?? r?.exclusion ?? null
-    const excludedFeature: FeatureName = f.exclusion !== null ? d.feature : (d.relativeTo ?? d.feature)
-    let raw = typeof f.value === 'number' ? f.value : null
-    if (r !== null) {
-      const rv = typeof r.value === 'number' ? r.value : null
-      if (raw !== null && rv !== null && rv > 0) raw = raw / rv
-      else {
-        raw = null
-        exclusion ??= 'unknown'
-      }
-    }
-    const value = raw === null ? null : round4(raw)
-    const base = { id: d.id, feature: d.feature, relative_to: d.relativeTo ?? null, value, weight: d.weight }
-    if (exclusion !== null || value === null) {
-      const reason = exclusion ?? 'unknown'
-      if (reason !== 'unknown') uncertain.push({ feature: excludedFeature, exclusion: reason, topic: topicFor(excludedFeature, reason), where: `dimension:${d.id}` })
-      const full = optimistic && reason !== 'unknown'
-      return { ...base, normalized: full ? 1 : null, points: full ? d.weight : 0, used: false, excluded_reason: reason }
-    }
-    const normalized = round4(clamp01((value - d.zeroAt) / (d.fullAt - d.zeroAt)))
-    return { ...base, normalized, points: round4(d.weight * normalized), used: true, excluded_reason: null }
-  })
+  const dimensions = policy.score.dimensions.map((d) => scoreDimension(d, profile, policy.score.minConfidence, optimistic, uncertain))
   const score = round2(dimensions.reduce((s, d) => s + d.points, 0))
   const bands = policy.decision.bands
   const bandIndex = Math.max(
@@ -234,21 +241,12 @@ function scoreProfile(policy: Policy, profile: Profile, optimistic: boolean): Sc
   )
   const band = bands[bandIndex] as Band
 
+  const caps = policy.decision.caps.map((c, index) => evaluateCap(c, index, profile, optimistic, uncertain))
   let finalStatus: FinalDecisionStatus = band.status
-  const caps: CapEval[] = policy.decision.caps.map((c, index) => {
-    const f = readFeature(profile, c.when.feature)
-    let applied: boolean
-    if (f.exclusion === 'unknown') applied = true // sin dato: el tope aplica (conservador)
-    else if (f.exclusion !== null) {
-      uncertain.push({ feature: c.when.feature, exclusion: f.exclusion, topic: topicFor(c.when.feature, f.exclusion), where: `cap:${String(index)}` })
-      applied = !optimistic
-    } else applied = checkCondition(c.when, f.value)
-    if (applied) finalStatus = minStatus(finalStatus, c.maxStatus)
-    return { index, feature: c.when.feature, applied, max_status: c.maxStatus }
-  })
+  for (const c of caps) if (c.applied) finalStatus = minStatus(finalStatus, c.max_status)
 
-  // La línea sale de la banda del estado final: si un tope bajó el estado, de la primera banda con
-  // ese estado; si la política no tiene banda con ese estado, de la banda del puntaje.
+  // The limit comes from the band of the final status: the first band with that status after a
+  // cap, or the score's band if the policy has none.
   let limitBandIndex: number | null = null
   if (finalStatus !== 'not_qualified') {
     const same = bands.findIndex((b) => b.status === finalStatus)
@@ -270,11 +268,35 @@ function numberOf(profile: Profile, f: FeatureName): number | null {
   return typeof v === 'number' ? v : null
 }
 
+interface TermRead {
+  value: number | null
+  bandExclusion?: NonNullable<LimitResult['bandExclusion']>
+  assumedZero?: FeatureName
+}
+
+function readTerm(term: LimitTerm, policy: Policy, profile: Profile, band: Band): TermRead {
+  switch (term.type) {
+    case 'band': {
+      const lim = band.limit
+      if (!lim) return { value: null }
+      const f = readFeature(profile, lim.pctOf, policy.score.minConfidence)
+      if (f.exclusion !== null) return { value: null, bandExclusion: { feature: lim.pctOf, exclusion: f.exclusion } }
+      return { value: typeof f.value === 'number' ? round2((f.value * lim.pct) / 100) : null }
+    }
+    case 'feature':
+      return { value: numberOf(profile, term.feature) }
+    case 'difference': {
+      const a = numberOf(profile, term.minuend)
+      const b = numberOf(profile, term.subtrahend)
+      return { value: a === null ? null : round2(a - (b ?? 0)), ...(a !== null && b === null ? { assumedZero: term.subtrahend } : {}) }
+    }
+  }
+}
+
 /**
- * `limitFormula`: mínimo de los términos conocidos, nunca negativo. Un término de feature
- * desconocida no cuenta; en una resta, un sustraendo desconocido se toma como 0 y se dice
- * (sin adaptador de créditos vigentes no hay exposición conocida). El término `band` exige
- * su feature verificada: es la que fija el monto.
+ * `limitFormula`: the minimum of the known terms, never negative. Unknown feature terms are
+ * skipped. An unknown subtrahend counts as 0 and is reported. The `band` term needs its
+ * feature verified, since it sets the amount.
  */
 function computeLimit(policy: Policy, profile: Profile, band: Band): LimitResult {
   const parsed = parseLimitFormula(policy.decision.limitFormula)
@@ -283,29 +305,10 @@ function computeLimit(policy: Policy, profile: Profile, band: Band): LimitResult
   let bandExclusion: LimitResult['bandExclusion'] = null
   const assumedZero: FeatureName[] = []
   for (const term of parsed.formula.terms) {
-    switch (term.type) {
-      case 'band': {
-        const lim = band.limit
-        if (!lim) {
-          terms.push({ term, value: null })
-          break
-        }
-        const f = readFeature(profile, lim.pctOf, policy.score.minConfidence)
-        if (f.exclusion !== null) bandExclusion = { feature: lim.pctOf, exclusion: f.exclusion }
-        terms.push({ term, value: f.exclusion === null && typeof f.value === 'number' ? round2((f.value * lim.pct) / 100) : null })
-        break
-      }
-      case 'feature':
-        terms.push({ term, value: numberOf(profile, term.feature) })
-        break
-      case 'difference': {
-        const a = numberOf(profile, term.minuend)
-        const b = numberOf(profile, term.subtrahend)
-        if (a !== null && b === null) assumedZero.push(term.subtrahend)
-        terms.push({ term, value: a === null ? null : round2(a - (b ?? 0)) })
-        break
-      }
-    }
+    const read = readTerm(term, policy, profile, band)
+    terms.push({ term, value: read.value })
+    if (read.bandExclusion) bandExclusion = read.bandExclusion
+    if (read.assumedZero) assumedZero.push(read.assumedZero)
   }
   const known = terms.filter((t): t is { term: LimitTerm; value: number } => t.value !== null)
   const min = known.length === 0 ? null : known.reduce((a, b) => (b.value < a.value ? b : a))
@@ -319,7 +322,7 @@ function computeLimit(policy: Policy, profile: Profile, band: Band): LimitResult
   }
 }
 
-/** Una dimensión con dato que suma menos de esta fracción de su peso se explica en `reasons`. */
+/** A dimension scoring less than this share of its weight gets a reason. */
 const LOW_DIMENSION = 0.5
 
 function worstGate(effects: readonly GateEffect[]): GateEffect['status'] | null {
@@ -329,42 +332,54 @@ function worstGate(effects: readonly GateEffect[]): GateEffect['status'] | null 
   return null
 }
 
-export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions): Core {
-  const reasons: ReasonOut[] = []
-  const topics = new Set<AskTopic>()
-  const gates = evaluateGates(policy, profile)
-  const scored = scoreProfile(policy, profile, false)
-  const bands = policy.decision.bands
+/** Why a gate acts: it failed its condition, or its data is unusable. */
+function gateHow(profile: Profile, feature: FeatureName, g: GateEval | undefined): string {
+  if (g?.outcome === 'fail') return `${feature} = ${fmt(g.value)} no cumple ${g.op} ${fmt(g.threshold)}`
+  return `${feature}: ${EXCLUSION_TEXT[readFeature(profile, feature).exclusion ?? 'unknown']}`
+}
 
+function gateReasons(profile: Profile, gates: ReturnType<typeof evaluateGates>): ReasonOut[] {
+  const reasons: ReasonOut[] = []
   for (const e of gates.effects) {
     const g = gates.evals.find((x) => x.id === e.id)
-    const how = g?.outcome === 'fail' ? `${e.feature} = ${fmt(g.value)} no cumple ${g.op} ${fmt(g.threshold)}` : `${e.feature}: ${EXCLUSION_TEXT[readFeature(profile, e.feature).exclusion ?? 'unknown']}`
     reasons.push({
       code: g?.outcome === 'fail' ? codeOf('gate', e.id) : codeOf('gate', e.id, 'unknown'),
-      message: `Compuerta "${e.id}": ${how} → ${STATUS_TEXT[e.status]}${e.ask ? ` (pedir ${ASK_TEXT[e.ask]})` : ''}.`,
+      message: `Compuerta "${e.id}": ${gateHow(profile, e.feature, g)} → ${STATUS_TEXT[e.status]}${e.ask ? ` (pedir ${ASK_TEXT[e.ask]})` : ''}.`,
       features: [e.feature],
     })
   }
   for (const g of gates.evals.filter((x) => gates.deferred.includes(x.id))) {
-    const how = g.outcome === 'fail' ? `${g.feature} = ${fmt(g.value)} no cumple ${g.op} ${fmt(g.threshold)}` : `${g.feature}: ${EXCLUSION_TEXT[readFeature(profile, g.feature).exclusion ?? 'unknown']}`
     reasons.push({
       code: codeOf('gate', g.id, 'deferred'),
-      message: `Compuerta "${g.id}": ${how}, pero al documento le faltan páginas: primero se pide ${ASK_TEXT.missing_pages} y, si con el documento completo sigue sin cuadrar, pasa a revisión humana.`,
+      message: `Compuerta "${g.id}": ${gateHow(profile, g.feature, g)}, pero al documento le faltan páginas: primero se pide ${ASK_TEXT.missing_pages} y, si con el documento completo sigue sin cuadrar, pasa a revisión humana.`,
       features: [g.feature],
     })
   }
+  return reasons
+}
+
+const dimensionFeatures = (d: DimensionEval): FeatureName[] => (d.relative_to ? [d.feature, d.relative_to] : [d.feature])
+
+/** Dimensions that add no points: no data, or doubtful data (ADR 0045). */
+function unusedDimensionReasons(policy: Policy, profile: Profile, scored: Scored): ReasonOut[] {
+  const reasons: ReasonOut[] = []
   for (const d of scored.dimensions) {
     if (d.used) continue
     const reason = d.excluded_reason ?? 'unknown'
-    // Qué dato falta o no sirve: el de la dimensión o aquel contra el que se compara (ADR 0045).
+    // The missing feature is the dimension's own, or the one it's compared against.
     const missing = readFeature(profile, d.feature, policy.score.minConfidence).exclusion !== null || d.relative_to === null ? d.feature : d.relative_to
     reasons.push({
       code: codeOf('dimension', d.id, reason === 'unknown' ? 'without_data' : reason),
       message: `La dimensión "${d.id}" no suma puntos: ${reason === 'unknown' ? `sin dato de ${missing}` : `${missing}: ${EXCLUSION_TEXT[reason]}`}.`,
-      features: d.relative_to ? [d.feature, d.relative_to] : [d.feature],
+      features: dimensionFeatures(d),
     })
   }
-  // Lo que sí tiene dato pero suma poco también explica el puntaje (ADR 0045): menos de la mitad.
+  return reasons
+}
+
+/** Dimensions with data that score under half their weight (ADR 0045). */
+function lowDimensionReasons(policy: Policy, scored: Scored): ReasonOut[] {
+  const reasons: ReasonOut[] = []
   for (const d of scored.dimensions) {
     if (!d.used || d.normalized === null || d.normalized >= LOW_DIMENSION) continue
     const def = policy.score.dimensions.find((x) => x.id === d.id)
@@ -372,91 +387,138 @@ export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions
     reasons.push({
       code: codeOf('dimension', d.id, 'low'),
       message: `La dimensión "${d.id}" suma ${fmt(round2(d.points))} de ${fmt(d.weight)}: ${what} = ${fmt(d.value)}${def ? ` (cero puntos en ${fmt(def.zeroAt)}, completos en ${fmt(def.fullAt)})` : ''}.`,
-      features: d.relative_to ? [d.feature, d.relative_to] : [d.feature],
+      features: dimensionFeatures(d),
     })
   }
-  const band = bands[scored.bandIndex] as Band
-  reasons.push({
-    code: 'score_band',
-    message: `Puntaje ${fmt(scored.score)} de 100: banda "${STATUS_TEXT[band.status]}" (desde ${fmt(band.min)}).`,
-    features: scored.dimensions.filter((d) => d.used).map((d) => d.feature),
-  })
-  scored.caps.forEach((c) => {
-    if (!c.applied) return
+  return reasons
+}
+
+const dimensionReasons = (policy: Policy, profile: Profile, scored: Scored): ReasonOut[] => [...unusedDimensionReasons(policy, profile, scored), ...lowDimensionReasons(policy, scored)]
+
+function capReasons(policy: Policy, profile: Profile, scored: Scored): ReasonOut[] {
+  const reasons: ReasonOut[] = []
+  for (const c of scored.caps) {
+    if (!c.applied) continue
     const cap = policy.decision.caps[c.index]
     const f = readFeature(profile, c.feature)
     const max = `máximo "${STATUS_TEXT[c.max_status]}"`
     reasons.push({
       code: codeOf('cap', c.feature),
-      // Sin dato el tope aplica por precaución: decirlo así, no como si el valor cumpliera la condición.
+      // With no data the cap applies as a precaution; say so instead of quoting a value.
       message:
         f.exclusion === 'unknown'
           ? `Tope: sin dato de ${c.feature}, por precaución aplica ${max}.`
           : `Tope: ${c.feature} ${cap?.when.op ?? ''} ${fmt(cap?.when.value)} (valor: ${fmt(f.value)}${f.exclusion ? `, ${EXCLUSION_TEXT[f.exclusion]}` : ''}) → ${max}.`,
       features: [c.feature],
     })
-  })
-
-  // docs/04 §5: ¿cambia la banda si los datos dudosos fueran favorables?
-  let sensitive = false
-  if (scored.uncertain.length > 0) {
-    const best = scoreProfile(policy, profile, true)
-    sensitive = best.finalStatus !== scored.finalStatus || best.limitBandIndex !== scored.limitBandIndex
-    if (sensitive) {
-      const kinds = [...new Set(scored.uncertain.map((u) => u.exclusion))]
-      reasons.push({
-        code: kinds.includes('low_confidence') && kinds.length === 1 ? 'decision_depends_on_low_confidence' : 'decision_depends_on_unverified',
-        message: `Con ${scored.uncertain.map((u) => `${u.feature} (${EXCLUSION_TEXT[u.exclusion]})`).join('; ')} el resultado puede ir de "${STATUS_TEXT[scored.finalStatus]}" a "${STATUS_TEXT[best.finalStatus]}": no se decide con esos datos.`,
-        features: [...new Set(scored.uncertain.map((u) => u.feature))],
-      })
-    }
   }
+  return reasons
+}
 
-  const limitBand = scored.limitBandIndex !== null ? (bands[scored.limitBandIndex] as Band) : null
-  const lim = limitBand ? computeLimit(policy, profile, limitBand) : null
-
-  let status: DecisionStatus
-  let limit: number | null = null
-  const gateStatus = worstGate(gates.effects)
-  const addUncertainTopics = () => {
-    for (const u of scored.uncertain) if (u.topic) topics.add(u.topic)
+/** Would the band change if the doubtful data were favorable? If so, also returns the reason. */
+function sensitivityOf(policy: Policy, profile: Profile, scored: Scored): { sensitive: boolean; reason: ReasonOut | null } {
+  if (scored.uncertain.length === 0) return { sensitive: false, reason: null }
+  const best = scoreProfile(policy, profile, true)
+  const sensitive = best.finalStatus !== scored.finalStatus || best.limitBandIndex !== scored.limitBandIndex
+  if (!sensitive) return { sensitive, reason: null }
+  const kinds = [...new Set(scored.uncertain.map((u) => u.exclusion))]
+  return {
+    sensitive,
+    reason: {
+      code: kinds.includes('low_confidence') && kinds.length === 1 ? 'decision_depends_on_low_confidence' : 'decision_depends_on_unverified',
+      message: `Con ${scored.uncertain.map((u) => `${u.feature} (${EXCLUSION_TEXT[u.exclusion]})`).join('; ')} el resultado puede ir de "${STATUS_TEXT[scored.finalStatus]}" a "${STATUS_TEXT[best.finalStatus]}": no se decide con esos datos.`,
+      features: [...new Set(scored.uncertain.map((u) => u.feature))],
+    },
   }
-  if (gateStatus !== null) {
-    status = gateStatus
-    if (status === 'needs_clarification') {
-      for (const e of gates.effects) if (e.ask) topics.add(e.ask)
-      // Una sola ronda (docs/03 §7): lo que también se puede preguntar va en la misma.
-      if (sensitive) addUncertainTopics()
-    }
-  } else if (sensitive) {
-    const clarifiable = scored.uncertain.every((u) => u.topic !== null)
-    status = clarifiable ? 'needs_clarification' : 'human_review'
-    if (clarifiable) addUncertainTopics()
-  } else if (scored.finalStatus === 'not_qualified' || lim === null) {
-    status = 'not_qualified'
-  } else if (lim.bandExclusion !== null) {
+}
+
+interface Outcome {
+  status: DecisionStatus
+  limit: number | null
+  topics: Set<AskTopic>
+  reasons: ReasonOut[]
+}
+
+/** Gates decide first. A clarification can also carry doubtful topics, in the same round. */
+function gateOutcome(status: ReturnType<typeof worstGate> & string, gates: ReturnType<typeof evaluateGates>, scored: Scored, sensitive: boolean): Outcome {
+  const topics = new Set<AskTopic>()
+  if (status === 'needs_clarification') {
+    for (const e of gates.effects) if (e.ask) topics.add(e.ask)
+    // One round only (docs/03 §7): anything else we can ask goes in the same one.
+    if (sensitive) uncertainTopics(scored).forEach((t) => topics.add(t))
+  }
+  return { status, limit: null, topics, reasons: [] }
+}
+
+const uncertainTopics = (scored: Scored): AskTopic[] => scored.uncertain.flatMap((u) => (u.topic ? [u.topic] : []))
+
+/** The band depends on doubtful data: ask if every doubt is askable, otherwise a person reviews. */
+function sensitiveOutcome(scored: Scored): Outcome {
+  const clarifiable = scored.uncertain.every((u) => u.topic !== null)
+  return { status: clarifiable ? 'needs_clarification' : 'human_review', limit: null, topics: new Set(clarifiable ? uncertainTopics(scored) : []), reasons: [] }
+}
+
+/** No gate or doubt in the way: the score and the limit formula decide. */
+function limitOutcome(scored: Scored, lim: LimitResult | null): Outcome {
+  const topics = new Set<AskTopic>()
+  const none = (status: DecisionStatus, reasons: ReasonOut[] = []): Outcome => ({ status, limit: null, topics, reasons })
+  if (scored.finalStatus === 'not_qualified' || lim === null) return none('not_qualified')
+  if (lim.bandExclusion !== null) {
     const topic = topicFor(lim.bandExclusion.feature, lim.bandExclusion.exclusion)
-    status = topic ? 'needs_clarification' : 'human_review'
     if (topic) topics.add(topic)
-    reasons.push({
-      code: 'limit_depends_on_unverified',
-      message: `La línea se calcula sobre ${lim.bandExclusion.feature}, que no se puede usar: ${EXCLUSION_TEXT[lim.bandExclusion.exclusion]}.`,
-      features: [lim.bandExclusion.feature],
-    })
-  } else if (lim.value === null) {
-    status = 'human_review'
-    reasons.push({ code: 'limit_unavailable', message: 'No hay datos para calcular la línea.', features: [] })
-  } else if (lim.value <= 0) {
-    status = 'not_qualified'
-    reasons.push({
-      code: 'no_available_line',
-      message: `La fórmula de línea da ${fmt(lim.value)}: no hay línea disponible (${lim.evaluation.terms.map((t) => `${t.term} = ${fmt(t.value)}`).join('; ')}).`,
-      features: limitFeatures(lim.binding),
-    })
-  } else {
-    status = scored.finalStatus
-    limit = lim.value
+    return none(topic ? 'needs_clarification' : 'human_review', [
+      {
+        code: 'limit_depends_on_unverified',
+        message: `La línea se calcula sobre ${lim.bandExclusion.feature}, que no se puede usar: ${EXCLUSION_TEXT[lim.bandExclusion.exclusion]}.`,
+        features: [lim.bandExclusion.feature],
+      },
+    ])
   }
+  if (lim.value === null) return none('human_review', [{ code: 'limit_unavailable', message: 'No hay datos para calcular la línea.', features: [] }])
+  if (lim.value <= 0) {
+    return none('not_qualified', [
+      {
+        code: 'no_available_line',
+        message: `La fórmula de línea da ${fmt(lim.value)}: no hay línea disponible (${lim.evaluation.terms.map((t) => `${t.term} = ${fmt(t.value)}`).join('; ')}).`,
+        features: limitFeatures(lim.binding),
+      },
+    ])
+  }
+  return { status: scored.finalStatus, limit: lim.value, topics, reasons: [] }
+}
+
+/** Status and limit, following the precedence in the file header. */
+function resolveOutcome(gates: ReturnType<typeof evaluateGates>, scored: Scored, sensitive: boolean, lim: LimitResult | null): Outcome {
+  const gateStatus = worstGate(gates.effects)
+  if (gateStatus !== null) return gateOutcome(gateStatus, gates, scored, sensitive)
+  if (sensitive) return sensitiveOutcome(scored)
+  return limitOutcome(scored, lim)
+}
+
+export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions): Core {
+  const gates = evaluateGates(policy, profile)
+  const scored = scoreProfile(policy, profile, false)
+  const band = policy.decision.bands[scored.bandIndex] as Band
+
+  const reasons: ReasonOut[] = [
+    ...gateReasons(profile, gates),
+    ...dimensionReasons(policy, profile, scored),
+    {
+      code: 'score_band',
+      message: `Puntaje ${fmt(scored.score)} de 100: banda "${STATUS_TEXT[band.status]}" (desde ${fmt(band.min)}).`,
+      features: scored.dimensions.filter((d) => d.used).map((d) => d.feature),
+    },
+    ...capReasons(policy, profile, scored),
+  ]
+  const { sensitive, reason: sensitivity } = sensitivityOf(policy, profile, scored)
+  if (sensitivity) reasons.push(sensitivity)
+
+  const limitBand = scored.limitBandIndex !== null ? (policy.decision.bands[scored.limitBandIndex] as Band) : null
+  const lim = limitBand ? computeLimit(policy, profile, limitBand) : null
+  const outcome = resolveOutcome(gates, scored, sensitive, lim)
+  reasons.push(...outcome.reasons)
+  let { status } = outcome
+  const { topics } = outcome
 
   if (lim !== null && lim.binding !== null && (status === 'qualified' || status === 'qualified_with_limit')) {
     reasons.push(limitReason(profile, lim))
@@ -483,7 +545,7 @@ export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions
     dimensions: scored.dimensions,
     caps: scored.caps,
     limitEvaluation: lim?.evaluation ?? null,
-    limit,
+    limit: outcome.limit,
     topics: status === 'needs_clarification' ? [...topics] : [],
     reasons,
   }
@@ -501,7 +563,7 @@ function limitFeatures(t: LimitTerm | null): FeatureName[] {
   }
 }
 
-/** Qué término fija la línea. `existing_exposure` es el código que piden los escenarios de docs/06. */
+/** Which term sets the limit. `existing_exposure` is the code the docs/06 scenarios expect. */
 function limitReason(profile: Profile, lim: LimitResult): ReasonOut {
   const t = lim.binding as LimitTerm
   const value = fmt(lim.value)
@@ -524,7 +586,7 @@ function limitReason(profile: Profile, lim: LimitResult): ReasonOut {
           features: [t.minuend, t.subtrahend],
         }
       }
-      // Sin nada que restar, la fija el minuendo.
+      // Nothing to subtract: the minuend sets it.
       if (sub === null || sub === 0) return { code: codeOf('limit', t.minuend), message: `La línea (${value}) la fija ${t.minuend} = ${fmt(profile.features[t.minuend].value)}.`, features: [t.minuend] }
       return { code: codeOf('limit', t.minuend, 'minus', t.subtrahend), message: `La línea (${value}) la fija ${t.minuend} − ${t.subtrahend}.`, features: [t.minuend, t.subtrahend] }
     }
