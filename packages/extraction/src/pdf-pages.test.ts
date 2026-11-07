@@ -1,6 +1,6 @@
 /**
- * Páginas (ADR 0057): paginación impresa, varios estados en un PDF, páginas que faltan, repetidas y
- * giradas, en `loadPdf` y en las funciones puras. Todo con PDFs sintéticos de varias páginas.
+ * Pages: printed pagination, several statements in one PDF, missing, repeated and rotated pages,
+ * in `loadPdf` and in the pure functions. All with multi-page synthetic PDFs.
  */
 import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -69,9 +69,9 @@ describe('printedPagination (formatos de los bancos mexicanos)', () => {
 
   it('un "03/05" suelto es una fecha, no una página', () => {
     expect(printedPagination(['Saldo inicial 10,000.00\n03/05'])[0]).toEqual({ page: 1, printed: null, total: null })
-    // La misma fecha como pie de todas las páginas: no avanza, no es numeración.
+    // The same date as footer on every page: it does not advance, so it is not numbering.
     expect(printedPagination(['uno\n03/05', 'dos\n03/05', 'tres\n03/05']).map((p) => p.printed)).toEqual([null, null, null])
-    // Fechas distintas con meses distintos: tampoco comparten el total.
+    // Different dates with different months: they do not share the total either.
     expect(printedPagination(['uno\n03/05', 'dos\n04/06']).map((p) => p.printed)).toEqual([null, null])
   })
 
@@ -114,16 +114,16 @@ describe('multipleStatements: reinicio de la numeración', () => {
   })
 
   it('una página repetida no cuenta: ni una primera página repetida es otro documento', () => {
-    // [1, 2, 3, 1'] con la cuarta repetida de la primera
+    // [1, 2, 3, 1'] with the fourth repeating the first
     expect(multipleStatements(numbering([1, 2, 3, 1]), { exclude: new Set([4]) })).toEqual({ documents: 1, restartsAt: [] })
   })
 
   it('un comprobante fiscal con numeración propia no es otro estado de cuenta', () => {
     const texts = ['uno', 'dos', 'tres', 'Folio fiscal A1B2 Sello digital del SAT Cadena original del complemento\nPágina 1 de 1']
     expect(multipleStatements(numbering([1, 2, 3, 1]), { pageTexts: texts })).toEqual({ documents: 1, restartsAt: [] })
-    // Con el mismo reinicio pero sin marcas fiscales, sí.
+    // With the same restart but no fiscal marks, yes.
     expect(multipleStatements(numbering([1, 2, 3, 1]), { pageTexts: ['a', 'b', 'c', 'Saldo inicial'] }).documents).toBe(2)
-    // Y su "Página 1 de 1" tampoco inventa páginas faltantes al final del documento.
+    // And its "Página 1 de 1" does not invent missing pages at the end of the document.
     expect(missingPrintedPages(numbering([1, 2, 3, 1], 3), { pageTexts: texts }).missing).toEqual([])
   })
 })
@@ -151,7 +151,7 @@ describe('missingPrintedPages', () => {
 
   it('una página sin número impreso ocupa su lugar: no se reporta como faltante', () => {
     expect(missingPrintedPages(numbering([1, null, 3], 3)).missing).toEqual([])
-    // Pero si además falta una, se nota.
+    // But if one is also missing, it shows.
     expect(missingPrintedPages(numbering([1, null, 4], 4)).missing).toEqual([3])
   })
 
@@ -161,7 +161,7 @@ describe('missingPrintedPages', () => {
 
   it('las páginas repetidas no cuentan como páginas del documento', () => {
     expect(missingPrintedPages(numbering([1, 2, 2, 3], 3), { exclude: new Set([3]) }).missing).toEqual([])
-    // Con la tercera repetida y sin la última, se nota que falta la 3.
+    // With the third repeated and the last missing, it shows that page 3 is missing.
     expect(missingPrintedPages(numbering([1, 2, 2], 3), { exclude: new Set([3]) }).missing).toEqual([3])
   })
 
@@ -195,7 +195,8 @@ describe('fiscalStatementCount (los CFDI de ingreso como segunda regla)', () => 
 })
 
 describe('findDuplicatePages', () => {
-  // Una página con movimientos: con pocas letras o menos de tres montos, repetirla no duplica nada y no cuenta.
+  // A page with transactions: with few letters or fewer than three amounts, repeating it
+  // duplicates nothing and does not count.
   const body = ['BANCO FICTICIO ESTADO DE CUENTA MOVIMIENTOS DEL PERIODO', '05/03 SPEI RECIBIDO CLIENTE UNO 5,000.00 15,000.00', '12/03 PAGO PROVEEDOR DOS 1,250.50 13,749.50', '20/03 SPEI RECIBIDO CLIENTE TRES 2,000.00 15,749.50'].join('\n')
 
   it('la misma huella de operadores es una página repetida; la original es la primera', () => {
@@ -208,13 +209,13 @@ describe('findDuplicatePages', () => {
   it('el mismo texto normalizado con el mismo número impreso, también, aunque la huella no coincida', () => {
     const texts = [body, `${body} extra`, body]
     expect(findDuplicatePages(['x', 'y', 'z'], texts, numbering([2, 3, 2]))).toEqual([{ page: 3, sameAs: 1 }])
-    // El mismo texto con otro número de página no es la misma página.
+    // The same text with another page number is not the same page.
     expect(findDuplicatePages(['x', 'y', 'z'], texts, numbering([2, 3, 4]))).toEqual([])
   })
 
   it('páginas casi vacías, sin montos o sin huella no se comparan', () => {
     expect(findDuplicatePages([null, null], ['Hoja 1', 'Hoja 1'], numbering([null, null]))).toEqual([])
-    // Hojas finales iguales de publicidad (Banamex trae cinco): la misma huella y el mismo texto, pero sin montos.
+    // Identical trailing ad sheets (Banamex has five): same fingerprint and text, but no amounts.
     const ad = 'BANCO FICTICIO te invita a conocer sus promociones vigentes en sucursales y en la aplicación del banco durante este mes'
     expect(findDuplicatePages(['aa', 'aa'], [ad, ad], numbering([null, null]))).toEqual([])
     expect(findDuplicatePages([null, null, null], [body, body, ''], numbering([1, 1, null])).map((d) => d.page)).toEqual([2])
@@ -240,14 +241,14 @@ describe('pageRotation', () => {
   })
 })
 
-// ---------------------------------------------------------------- PDFs sintéticos de varias páginas
+// ---------------------------------------------------------------- multi-page synthetic PDFs
 
 const MOVEMENTS = [
   ['05/03   SPEI RECIBIDO CLIENTE UNO                         5,000.00   15,000.00', '12/03   PAGO PROVEEDOR PAPELERIA             1,000.00                14,000.00'],
   ['31/03   COMISION MANEJO DE CUENTA              250.50                13,749.50'],
 ] as const
 const HEADER = ['BANCO FICTICIO S.A. - ESTADO DE CUENTA', 'Titular: COMERCIALIZADORA DE PRUEBA SA DE CV   RFC: XAXX010101000', 'Periodo: del 01/03/2026 al 31/03/2026', 'Saldo inicial: 10,000.00   Depositos: 5,000.00   Retiros: 1,250.50   Saldo final: 13,749.50']
-/** Un estado de cuenta de tres páginas: encabezado, dos movimientos, un movimiento. Cada página imprime "Pág n de total". */
+/** A three-page statement (header, two transactions, one transaction); each page prints "Pág n de total". */
 const statementPages = (total = 3): string[][] => [
   [...HEADER, `Pág ${String(1)} de ${String(total)}`],
   ['FECHA   DESCRIPCION                          CARGO       ABONO      SALDO', ...MOVEMENTS[0], `Pág ${String(2)} de ${String(total)}`],
@@ -294,7 +295,7 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
     expect(prints[1]).toBe(prints[2])
     expect(prints[0]).not.toBe(prints[1])
     expect(new Set(prints).size).toBe(3)
-    // La huella sola alcanza: con el mismo contenido y sin texto utilizable que ayude.
+    // The fingerprint alone is enough: same content and no usable text to help.
     expect(findDuplicatePages(prints, [], numbering([null, null, null, null])).map((d) => d.page)).toEqual([3])
     const issues = new IssueSink()
     const flags = new Set<string>()
@@ -318,9 +319,9 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
   it('la numeración que reinicia es un segundo estado de cuenta', async () => {
     const pages = [...statementPages(3), ...statementPages(3)]
     const pdf = await loadPdf(write(syntheticStatementPages(pages)))
-    // Las páginas del segundo son idénticas a las del primero: las que traen movimientos se leen como
-    // repetidas (ADR 0057; la última, solo con el cierre, no tiene montos que duplicar), así que el segundo
-    // estado es distinto en el encabezado para esta prueba.
+    // The second's pages are identical to the first's: pages with transactions read as repeated
+    // (the last one, with only the closing, has no amounts to duplicate), so the second
+    // statement differs in the header for this test.
     expect(pdf.duplicatePages).toEqual([4, 5])
     const other = statementPages(3).map((lines, i) => (i === 0 ? lines.map((l) => l.replace('01/03/2026', '01/04/2026').replace('31/03/2026', '30/04/2026')) : lines.map((l) => l.replace('05/03', '05/04').replace('12/03', '12/04').replace('31/03', '30/04'))))
     const two = await loadPdf(write(syntheticStatementPages([...statementPages(3), ...other])))
@@ -338,7 +339,7 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
     const pdf = await loadPdf(write(original))
     expect(pdf.rotatedPages).toEqual([1, 2, 3].map((page) => ({ page, degrees: 90, target: 0 })))
     expect(pdf.straightened).toBe(true)
-    // El hash y el tamaño son los del original; el original no se toca.
+    // Hash and size are the original's; the original is untouched.
     expect(pdf.sha256).toBe(sha(original))
     expect(pdf.sizeBytes).toBe(original.byteLength)
     expect(Buffer.from(pdf.bytes).equals(original)).toBe(true)
@@ -350,7 +351,7 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
     expect(after.rotate).toBe(0)
     expect(after.pages).toBe(3)
     expect(after.text).toBe(before.text)
-    // El texto local ya se lee bien.
+    // The local text already reads fine.
     expect(pdf.pageTexts[1]).toContain('SPEI RECIBIDO CLIENTE UNO')
     const issues = new IssueSink()
     const flags = new Set<string>()
@@ -362,7 +363,7 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
   it('solo se endereza la página girada', async () => {
     const pdf = await loadPdf(write(syntheticStatementPages(statementPages())))
     expect(pdf.rotatedPages).toEqual([])
-    // Una copia con una sola página girada (se cambia el /Rotate de la segunda con pdf-lib).
+    // A copy with a single rotated page (the second's /Rotate is changed with pdf-lib).
     const doc = await PDFDocument.load(syntheticStatementPages(statementPages()))
     doc.getPages()[1]?.setRotation(degrees(270))
     const mixed = await doc.save()
@@ -378,11 +379,12 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
     const pdf = await loadPdf(write(original))
     expect(pdf.pageTexts[0]).toBe(lines.map((l) => l.replace(/\s+/g, ' ')).join('\n'))
     expect(pdf.textLayer).toBe('ok')
-    // Con /Rotate 0 y el texto girado, la página se ve girada; el /Rotate que la endereza es el ángulo del texto.
+    // With /Rotate 0 and rotated text the page looks rotated; the /Rotate that straightens it is
+    // the text angle.
     expect(pdf.rotatedPages).toEqual([{ page: 1, degrees: ((360 - angle) % 360) as 90 | 180 | 270, target: angle }])
     const copy = Buffer.from(pdf.base64, 'base64')
     expect((await pdfjsPage(copy)).rotate).toBe(angle)
-    // Y con el /Rotate que ya la deja derecha no hay nada que corregir.
+    // And with the /Rotate that already leaves it upright there is nothing to fix.
     const upright = await loadPdf(write(syntheticStatementPages([lines], { textAngle: angle, rotate: angle })))
     expect(upright.rotatedPages).toEqual([])
     expect(upright.straightened).toBe(false)
@@ -400,7 +402,10 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
 })
 
 describe('PDF escaneado (solo imágenes)', () => {
-  /** Un PDF de páginas con una imagen de grises cada una. `images[i]` es la semilla de los píxeles; la misma semilla comparte el objeto de imagen. */
+  /**
+   * A PDF with one grayscale image per page. `images[i]` seeds the pixels; the same seed shares
+   * the image object.
+   */
   async function scanned(images: readonly number[], opts: { rotate?: number; copyImageObject?: boolean } = {}): Promise<Uint8Array> {
     const doc = await PDFDocument.create()
     const refs = new Map<number, ReturnType<typeof doc.context.register>>()

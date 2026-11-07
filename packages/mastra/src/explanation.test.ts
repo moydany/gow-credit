@@ -12,7 +12,7 @@ const supplier: SupplierIdentity = { legal_name: holder.name, rfc: holder.rfc, c
 const noCredits: ExternalSnapshot = { ...emptyExternalSnapshot(), existing_credits: { available: true, simulated: true, credits: [] } }
 const request: ApplicationRequest = { amount: 100000, maturity: null, buyer: { name: 'Cadena Norte SA de CV', rfc: null, aliases: [] } }
 
-// Como la prueba real (ADR 0045): los pagos a créditos se comen casi todo el ingreso.
+// Like the real test: payments on credits eat almost all the income.
 const indebted = syntheticStatement(
   { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 52000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'loan_payment', amount: 48000 }, { kind: 'supplier_payment', amount: 14000 }] },
   holder,
@@ -36,7 +36,7 @@ class OneShot implements StructuredLlm {
   }
 }
 
-describe('explicación del resultado (ADR 0045)', () => {
+describe('explicación del resultado', () => {
   it('nombra la causa real con sus cifras, sin jerga, y la plantilla pasa su propio filtro', () => {
     const d = decideFor(indebted)
     const draft = explanationDraft(d)
@@ -55,7 +55,7 @@ describe('explicación del resultado (ADR 0045)', () => {
   })
 
   it('cada dimensión con un solo nombre; lo no evaluado por diseño, aparte y fuera de los motivos', () => {
-    // Sin monto ni comprador, como por WhatsApp.
+    // No amount or buyer, as over WhatsApp.
     const d = decideFor(indebted, null)
     const draft = explanationDraft(d, null, { holderType: 'individual' })
     const fact = (name: string) => String(draft.facts.find((f) => f.name === name)?.value ?? '')
@@ -64,18 +64,18 @@ describe('explicación del resultado (ADR 0045)', () => {
     expect(fact('dimensiones')).toMatch(/la estabilidad \(flujo libre sobre ingresos\): /)
     expect(fact('dimensiones')).not.toMatch(/capacidad de pago/)
     expect(fact('dimensiones')).toMatch(/los pagos del comprador: no se evaluó/)
-    // Los motivos que ve Haiku usan los mismos nombres y no traen lo no evaluado por diseño.
+    // The reasons Haiku sees use the same names and leave out what is not evaluated by design.
     expect(fact('motivos_del_motor')).not.toMatch(/"stability"|"buyer"|buyer_payments_count/)
     expect(draft.template).not.toMatch(/falta de datos: [^.]*(comprador|capacidad)/)
     expect(draft.template).not.toMatch(/limita el resultado/)
     expect(draft.context.no_evaluado_por_diseno).toEqual(expect.arrayContaining(['los pagos del comprador']))
-    // Persona física: se dice al principio, con lo que implica.
+    // Individual: said up front, with what it implies.
     expect(draft.template).toMatch(/El titular es persona física\./)
     expect(draft.template).toMatch(/gastos y créditos personales/)
     expect(checkFigures(draft.template, draft.facts).unsupported).toEqual([])
   })
 
-  it('con monto que cabe en la línea se aprueba el monto; el monto es un hecho y el filtro lo permite (ADR 0053)', () => {
+  it('con monto que cabe en la línea se aprueba el monto; el monto es un hecho y el filtro lo permite', () => {
     const fits = decideFor(healthy, { ...request, amount: 50000 })
     expect(fits.limit).not.toBeNull()
     const limit = fits.limit ?? 0
@@ -85,10 +85,10 @@ describe('explicación del resultado (ADR 0045)', () => {
     expect(draft.template).not.toMatch(/La línea aprobada es de/)
     expect(draft.facts).toContainEqual({ name: 'monto_solicitado', value: 50000 })
     expect(checkFigures(draft.template, draft.facts)).toEqual({ ok: true, unsupported: [] })
-    // Sin el hecho, el filtro rechazaría el monto: por eso se registra.
+    // Without the fact, the filter would reject the amount: that is why it is recorded.
     const withoutFact = checkFigures(draft.template, draft.facts.filter((f) => f.name !== 'monto_solicitado'))
     expect(withoutFact.unsupported).toContain('50,000.00')
-    // Pedir justo la línea también cabe.
+    // Asking for exactly the line also fits.
     expect(explanationDraft(decideFor(healthy, { ...request, amount: limit })).template).toContain('Se aprueba el monto solicitado de')
   })
 
@@ -105,7 +105,7 @@ describe('explicación del resultado (ADR 0045)', () => {
   })
 
   it('sin monto pedido (evaluado con la línea máxima) la frase sigue siendo "La línea aprobada"', () => {
-    // Como el workflow (ADR 0045): el monto del perfil es la línea máxima, no una petición.
+    // Like the workflow: the profile amount is the maximum line, not a request.
     const atLine = decideFor(healthy, { ...request, amount: decideFor(healthy, { ...request, amount: 50000 }).limit ?? 0 })
     const noAmount = Decision.parse({ ...atLine, reasons: [{ code: 'evaluated_at_max_line', message: 'Sin monto solicitado: se evaluó con la línea máxima.', features: ['requested_amount'] }, ...atLine.reasons] })
     const draft = explanationDraft(noAmount)

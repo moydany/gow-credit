@@ -1,27 +1,26 @@
 /**
- * Esquema que ve el modelo. Es uno solo para todas las llamadas de extracción sobre un
- * documento, porque el esquema forma parte del prefijo cacheado (ADR 0005): la pasada 1
- * llena `summary` y la 2 llena `transactions`.
+ * Schema the model sees. One schema for every extraction call on a document, because it is part
+ * of the cached prefix: pass 1 fills `summary` and pass 2 fills `transactions`.
  *
- * Restricciones de la API: a lo más 16 parámetros con uniones (cada `nullable` cuenta) y una
- * gramática compilada acotada. Por eso: casi nada es nullable (única unión: `summary`); los
- * valores citados son un solo tipo `{ field, value, page, snippet }` en listas por nivel, y lo
- * que no está impreso simplemente no se incluye; los enums traen `unknown`; y los montos van
- * como texto tal como están impresos ("1,250.50", "-$865.12"), que el código convierte.
+ * API limits: at most 16 union parameters (each `nullable` counts) and a bounded compiled
+ * grammar. Hence: almost nothing is nullable (the only union is `summary`); cited values are a
+ * single `{ field, value, page, snippet }` type in per-level lists, and anything not printed is
+ * simply left out; enums include `unknown`; and amounts are text as printed ("1,250.50",
+ * "-$865.12"), which code converts.
  */
 import { DocumentType, TransactionType } from '@gow/contracts'
 import { z } from 'zod'
 
 export const EXTRACTION_SCHEMA_NAME = 'extraction_chunk.v3'
 
-/** Un valor citado ausente: el modelo simplemente no lo incluye en la lista. */
+/** An absent cited value: the model just leaves it out of the list. */
 export const ABSENT: { value: string; page: number; snippet: string } = { value: '', page: 0, snippet: '' }
 
 export function pick(values: readonly { field: string; value: string; page: number; snippet: string }[], name: string) {
   return values.find((v) => v.field === name && v.value.trim().length > 0) ?? ABSENT
 }
 
-/** Nombres de los valores citados. Un solo tipo de objeto en todo el esquema mantiene chica la gramática. */
+/** Names of the cited values. A single object type across the schema keeps the grammar small. */
 export const HEADER_FIELDS = ['bank_name', 'holder_name', 'holder_rfc', 'holder_address'] as const
 export const ACCOUNT_FIELDS = ['product_name', 'account_number', 'clabe'] as const
 export const PERIOD_FIELDS = [
@@ -39,7 +38,7 @@ export const PERIOD_FIELDS = [
   'interest_earned',
   'tax_withheld',
 ] as const
-/** Bloque fiscal (docs/09 §3). Sin sellos ni cadena original completa: no tienen campo. */
+/** Fiscal block. No seals or full original string: they have no field. */
 export const FISCAL_FIELDS = [
   'cfdi_version',
   'uuid',

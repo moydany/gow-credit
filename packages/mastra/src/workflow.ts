@@ -1,13 +1,13 @@
 /**
- * Workflow `processApplication` (docs/02 §3) en modo standalone:
+ * `processApplication` workflow in standalone mode:
  *
  *   extract → classifyTransactions → decide → dountil(clarificationLoop) → explain → finalize
- *   clarificationLoop = askOwner (suspende) → applyAnswers → reDecide
+ *   clarificationLoop = askOwner (suspends) → applyAnswers → reDecide
  *
- * Mastra guarda el snapshot en cada paso; una solicitud suspendida en `askOwner` se reanuda en otra
- * invocación del CLI con `run.resume()` (spike 4). Lo determinístico vive en `@gow/decision`; aquí
- * solo se orquesta y se llama a los modelos (Jev o Haiku para movimientos, Haiku para redactar).
- * Las dependencias entran por la fábrica para que los tests usen dobles sin red.
+ * Mastra snapshots every step; a request suspended in `askOwner` resumes in another CLI
+ * invocation with `run.resume()`. Deterministic logic lives in `@gow/decision`; here we only
+ * orchestrate and call the models (Jev or Haiku for transactions, Haiku for writing).
+ * Dependencies enter through the factory so tests use doubles with no network.
  */
 import { resolve } from 'node:path'
 import { Decision, emptyExternalSnapshot, extractionFailure, multipleStatementsFailure, NO_DECLARATIONS, notBankStatementReason, type ExternalSnapshot, type HolderType, type Question, type StatementExtraction } from '@gow/contracts'
@@ -22,18 +22,18 @@ import { explanationDraft } from './explanation.ts'
 import { nextStepTemplate, type CallRecord, type Writer } from './writer.ts'
 
 export const WORKFLOW_ID = 'process-application'
-/** El ciclo de aclaración anidado: guarda su propio estado con el mismo run id (ADR 0059 lo borra). */
+/** The nested clarification loop: it keeps its own state under the same run id. */
 export const CLARIFICATION_LOOP_ID = 'clarification-loop'
 
 export interface WorkflowDeps {
-  /** Extrae un PDF; nunca lanza (una falla vuelve como extracción `failed`). */
+  /** Extracts a PDF; never throws (a failure comes back as a `failed` extraction). */
   extract(path: string): Promise<StatementExtraction>
-  /** null: sin modelo para movimientos (solo reglas). */
+  /** null: no model for transactions (rules only). */
   transactionClassifier: TransactionClassifier | null
   writer: Writer
   channel: ClarificationChannel
   limit: Limiter
-  /** Fuentes externas; en standalone no hay (perfil sin crédito vigente, buró ni SAT). */
+  /** External sources; none in standalone (no live credit, bureau or SAT in the profile). */
   external?: (state: AppState) => Promise<ExternalSnapshot>
 }
 
@@ -46,8 +46,8 @@ function extractionCalls(s: StatementExtraction): CallRecord[] {
 }
 
 /**
- * Aviso de que se analizó un documento que el clasificador (o el extractor) no llamó estado de cuenta
- * (ADR 0042, cambios). La clasificación queda tal cual en la extracción. Sin datos del documento.
+ * Notice that a document was analyzed that the classifier (or extractor) did not call a bank
+ * statement. The classification stays as is in the extraction. Carries no document data.
  */
 function classificationNotes(s: StatementExtraction): string[] {
   const { document_type: type, confidence } = s.classification
@@ -56,7 +56,7 @@ function classificationNotes(s: StatementExtraction): string[] {
   return []
 }
 
-/** ¿Alguna respuesta de esta ronda trae un documento para la pregunta de ese tema? */
+/** Does any answer in this round bring a document for that topic's question? */
 function answeredWithDocument(state: AppState, topic: Question['topic']): boolean {
   return state.answers.some((a) => a.kind === 'documents' && state.questions.some((q) => q.id === a.question_id && q.topic === topic))
 }
@@ -65,7 +65,7 @@ const answeredMissingPages = (state: AppState): boolean => answeredWithDocument(
 
 const hasAddress = (s: StatementExtraction): boolean => (s.holder.address.value ?? '').trim().length > 0
 
-/** Días que cubren los periodos del estado de cuenta, como intervalos `[inicio, fin]` (ISO, comparables como texto). */
+/** Days the statement's periods cover, as `[start, end]` intervals (ISO, comparable as text). */
 function coveredRanges(s: StatementExtraction): [string, string][] {
   const out: [string, string][] = []
   for (const p of s.accounts.flatMap((a) => a.periods)) if (p.period_start.value && p.period_end.value) out.push([p.period_start.value, p.period_end.value])
@@ -73,14 +73,11 @@ function coveredRanges(s: StatementExtraction): [string, string][] {
 }
 
 /**
- * El estado de cuenta con domicilio que contesta `statement_with_address` (ADR 0066) reemplaza a los que no lo
- * traen y cubren los mismos días: si se quedaran los dos, el periodo contaría doble. Uno de otro mes se queda.
- */
-/**
- * Lo que queda de los estados de cuenta anteriores cuando una respuesta trae PDFs nuevos:
- * - El PDF completo que contesta `missing_pages` reemplaza al incompleto (ADR 0058): si se quedaran los dos, el
- *   perfil vería las páginas faltantes del viejo y el periodo repetido, y volvería a preguntar.
- * - El que trae domicilio y contesta `statement_with_address` reemplaza a los del mismo periodo sin él (ADR 0066).
+ * What remains of earlier statements when an answer brings new PDFs:
+ * - The complete PDF answering `missing_pages` replaces the incomplete one: if both stayed, the
+ *   profile would see the old one's missing pages and the repeated period, and ask again.
+ * - The one with an address answering `statement_with_address` replaces those covering the same
+ *   days without it; one from another month stays. Keeping both would count the period twice.
  */
 function withoutReplaced(state: AppState, statements: StatementExtraction[], incoming: readonly StatementExtraction[], notes: string[]): StatementExtraction[] {
   if (incoming.length === 0) return statements
@@ -107,7 +104,7 @@ function documentOf(s: StatementExtraction, origin: 'submitted' | 'owner_answer'
   return { file_name: s.document.file_name, sha256: s.document.sha256, extraction_status: s.extraction.status, origin }
 }
 
-/** Movimientos con Jev o Haiku encima de las reglas; si el modelo falla, quedan las reglas. */
+/** Transactions with Jev or Haiku on top of the rules; if the model fails, the rules remain. */
 async function classifyStatements(deps: WorkflowDeps, state: AppState, statements: StatementExtraction[]): Promise<{ statements: StatementExtraction[]; summary: NonNullable<AppState['classification']>; calls: CallRecord[] }> {
   const request = state.input.request
   const c = deps.transactionClassifier
@@ -153,8 +150,8 @@ async function classifyStatements(deps: WorkflowDeps, state: AppState, statement
 const FINAL: ReadonlySet<string> = new Set(['qualified', 'qualified_with_limit', 'not_qualified'])
 
 /**
- * Tipo de titular del primer estado de cuenta, para la explicación (ADR 0045). Si no se leyó, el RFC
- * lo dice: 13 caracteres es persona física y 12, moral (ADR 0050).
+ * Holder type of the first statement, for the explanation. If not read, the RFC tells: 13
+ * characters is an individual and 12 a company.
  */
 export function holderTypeOf(state: Pick<AppState, 'statements'>): HolderType | null {
   const holder = state.statements[0]?.holder
@@ -165,14 +162,14 @@ export function holderTypeOf(state: Pick<AppState, 'statements'>): HolderType | 
 }
 
 /**
- * Qué se pregunta, sin el texto ni el id (que se repiten entre rondas): el tema y, si cita un
- * movimiento, cuál. Una segunda ronda no repite lo que ya se preguntó (ADR 0051).
+ * What is asked, without the text or id (which repeat across rounds): the topic and, if it cites
+ * a transaction, which one. A second round does not repeat what was already asked.
  */
 export function questionKey(q: Pick<Question, 'topic' | 'transaction'>): string {
   return q.transaction ? `${q.topic}:${q.transaction.document_sha256}#${q.transaction.transaction_id}` : q.topic
 }
 
-/** Un run suspendido antes de ADR 0051 no trae `asked_keys`: el default del esquema lo deja vacío. */
+/** A run suspended before `asked_keys` existed has none: the schema default leaves it empty. */
 function askedKeys(state: AppState): string[] {
   return AppState.shape.asked_keys.parse(state.asked_keys)
 }
@@ -182,9 +179,9 @@ function humanReview(decision: Decision, code: string, message: string): Decisio
 }
 
 /**
- * El veredicto de un estado, puro y sin modelos: perfil + motor, contradicciones de las respuestas,
- * preguntas concretas y `next_steps` con plantilla. Lo usan el workflow y la reevaluación tras una
- * corrección del analista (ADR 0020), que no pasa por el workflow.
+ * A statement's verdict, pure and model-free: profile + engine, contradictions in the answers,
+ * concrete questions and `next_steps` from a template. Used by the workflow and by re-evaluation
+ * after an analyst correction, which does not go through the workflow.
  */
 export function decideState(state: AppState, external: ExternalSnapshot): AppState {
   if (state.failure_reason !== null) return state
@@ -207,9 +204,9 @@ export function decideState(state: AppState, external: ExternalSnapshot): AppSta
       state.contradictions,
     )
   let decision = run(input.request)
-  // Sin monto solicitado, la capacidad no tiene contra qué medirse y el veredicto saldría peor de lo
-  // que es (ADR 0045): un veredicto final se decide con la línea máxima, el mayor monto que la
-  // política aprueba; si no hay ninguno, se dice así.
+  // With no requested amount, capacity has nothing to measure against and the verdict would come
+  // out worse than it is: a final verdict is decided at the maximum line, the largest amount the
+  // policy approves; if there is none, it says so.
   const noAmount = input.request?.amount == null
   const lineAtStart = noAmount ? maxLine(input.policy, decision.profile, age) : null
   if (noAmount && FINAL.has(decision.status)) {
@@ -221,8 +218,8 @@ export function decideState(state: AppState, external: ExternalSnapshot): AppSta
     }
   }
   const built = decision.status === 'needs_clarification' ? buildQuestions(decision, state.statements) : []
-  // Lo que ya se preguntó en una ronda anterior no se repite (ADR 0051): si el dueño no supo o su
-  // respuesta no alcanzó, preguntar lo mismo no lo cambia.
+  // What was already asked in an earlier round is not repeated: if the owner did not know or the
+  // answer fell short, asking the same thing changes nothing.
   const before = new Set(askedKeys(state))
   let questions = built.filter((q) => !before.has(questionKey(q)))
   if (decision.status === 'needs_clarification' && questions.length === 0) {
@@ -232,10 +229,10 @@ export function decideState(state: AppState, external: ExternalSnapshot): AppSta
         : humanReview(decision, 'no_concrete_question', 'El motor pide aclaración pero no hay una pregunta concreta que hacerle al dueño: pasa a revisión humana.')
     questions = []
   }
-  // Mientras no se redacte, cada next_step lleva la plantilla (siempre pasa el filtro de cifras).
+  // Until written up, each next_step carries the template (it always passes the figures filter).
   decision = { ...decision, next_steps: decision.next_steps.map((s) => ({ ...s, message: s.message ?? nextStepTemplate(s) })) }
   const max_line = noAmount ? lineAtStart : null
-  // Igual la explicación: la plantilla ya pasa el filtro; el paso `explain` la redacta con Haiku.
+  // Same for the explanation: the template already passes the filter; the `explain` step has Haiku write it.
   decision = { ...decision, explanation: { text: explanationDraft(decision, max_line, { holderType: holderTypeOf(state) }).template, text_source: 'template' } }
   return { ...state, decision, questions, max_line }
 }
@@ -253,14 +250,14 @@ export function createProcessApplication(deps: WorkflowDeps) {
     outputSchema: AppState,
     execute: async ({ inputData }) => {
       const s = await deps.extract(inputData.pdf_path)
-      // La clasificación solo falla la solicitud cuando la extracción no se hizo: el corte temprano del
-      // modo full (ADR 0042) vuelve `failed` con la bandera y falla por no ser estado de cuenta, no por
-      // la extracción. Cualquier otra falla es de la extracción (un PDF con contraseña o escaneado e
-      // ilegible lo dice, ADR 0049). Una extracción terminada (`complete` o `partial`) sigue con perfil y
-      // veredicto aunque el clasificador no la llamara estado de cuenta: solo deja una nota.
+      // Classification only fails the request when extraction did not happen: full mode's early
+      // cut returns `failed` with the flag and fails for not being a statement, not for extraction.
+      // Any other failure is the extraction's (a password-protected or illegible scanned PDF says
+      // so). A finished extraction (`complete` or `partial`) continues to profile and verdict even
+      // if the classifier did not call it a statement: it only leaves a note.
       const cutBeforeExtracting = s.extraction.status === 'failed' && s.flags.includes('not_a_bank_statement')
-      // Varios estados de cuenta en un PDF se rechazan antes que cualquier otra regla, hayan cortado la
-      // extracción (modo full) o no (standalone): hace falta cada estado de cuenta en su archivo.
+      // Several statements in one PDF are rejected before any other rule, whether they cut the
+      // extraction (full mode) or not (standalone): each statement is needed in its own file.
       const failure = multipleStatementsFailure(s) ?? (cutBeforeExtracting ? notBankStatementReason(s.classification.document_type) : extractionFailure(s))
       return {
         input: inputData,
@@ -305,10 +302,10 @@ export function createProcessApplication(deps: WorkflowDeps) {
     suspendSchema: AskSuspend,
     resumeSchema: AskResume,
     execute: async ({ inputData: state, resumeData, suspendData, suspend }) => {
-      // `.dountil()` corre el cuerpo al menos una vez (spike 4): sin nada que aclarar no se pregunta.
+      // `.dountil()` runs the body at least once: with nothing to clarify nothing is asked.
       if (state.decision?.status !== 'needs_clarification') return state
       if (resumeData) {
-        // El estado de la suspensión trae lo que pasó en la primera ejecución (la redacción y su costo).
+        // The suspension state carries what happened on the first run (the writing and its cost).
         const base = suspendData?.state ?? state
         return { ...base, questions: base.asked.length > 0 ? base.asked : base.questions, answers: resumeData.answers }
       }
@@ -390,7 +387,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
       const d = state.decision
       if (d === null) return state
       const steps = d.next_steps.length > 0 ? await deps.writer.nextSteps(d.next_steps.map((s) => ({ ...s, message: null }))) : { next_steps: d.next_steps, calls: [], errors: [] }
-      // La explicación en prosa (ADR 0045): Haiku sobre los hechos de la decisión, con filtro de cifras.
+      // The prose explanation: Haiku over the decision facts, with the figures filter.
       const ex = await deps.writer.explanation(explanationDraft(d, state.max_line, { holderType: holderTypeOf(state) }))
       const notes = [...state.notes]
       if (steps.errors.length) notes.push(`el redactor de next_steps falló; se usaron plantillas: ${steps.errors.join('; ')}`)
@@ -409,14 +406,14 @@ export function createProcessApplication(deps: WorkflowDeps) {
       .then(extract)
       .then(classify)
       .then(decideStep)
-      // Tras un sub-workflow la condición recibe `any` (spike 4): cast al esquema conocido.
+      // After a sub-workflow the condition receives `any`: cast to the known schema.
       .dountil(clarificationLoop, ({ inputData }) => Promise.resolve((inputData as AppState).decision?.status !== 'needs_clarification'))
       .then(explain)
       .commit()
   )
 }
 
-/** Resuelve las rutas de respuestas `documents` contra la carpeta del archivo de respuestas. */
+/** Resolves `documents` answer paths against the answers file's folder. */
 export function resolveAnswerPaths(resume: AskResume): AskResume {
   if (resume.base_dir === null) return resume
   const base = resume.base_dir

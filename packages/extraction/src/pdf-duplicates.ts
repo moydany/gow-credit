@@ -1,6 +1,6 @@
 /**
- * Páginas repetidas (ADR 0057): una huella por página a partir de su lista de operadores y de las
- * imágenes que pinta, y la regla que decide cuándo un duplicado importa para el análisis.
+ * Repeated pages: a fingerprint per page built from its operator list and the images it paints,
+ * and the rule for when a duplicate matters for the analysis.
  */
 import { createHash, type Hash } from 'node:crypto'
 import type { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
@@ -12,22 +12,22 @@ type PdfDocument = Awaited<ReturnType<typeof getDocument>['promise']>
 type PdfPage = Awaited<ReturnType<PdfDocument['getPage']>>
 
 export interface PageDuplicate {
-  /** La página repetida. */
+  /** The repeated page. */
   page: number
-  /** La primera página con el mismo contenido. */
+  /** The first page with the same content. */
   sameAs: number
 }
 
-/** Páginas que se huellan (un escaneo grande cuesta decodificar cada imagen); las de más no se comparan por huella. */
+/** Max pages fingerprinted (every image of a big scan must be decoded); the rest are skipped. */
 const MAX_FINGERPRINT_PAGES = 150
 
 const TEXT_OPS: ReadonlySet<number> = new Set([OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText])
-/** Las imágenes que pdfjs refiere por nombre; su contenido se pide aparte. */
+/** Images pdfjs refers to by name; their content is requested separately. */
 const NAMED_IMAGE_OPS: ReadonlySet<number> = new Set([OPS.paintImageXObject, OPS.paintImageXObjectRepeat])
-/** Las que traen los píxeles dentro de sus argumentos. */
+/** Those that carry their pixels inside the arguments. */
 const INLINE_IMAGE_OPS: ReadonlySet<number> = new Set([OPS.paintImageMaskXObject, OPS.paintImageMaskXObjectGroup, OPS.paintImageMaskXObjectRepeat, OPS.paintInlineImageXObject, OPS.paintInlineImageXObjectGroup])
 
-/** Serializa argumentos de operadores de forma estable: objetos con llaves ordenadas, bytes por su contenido. */
+/** Serializes operator arguments stably: objects with sorted keys, bytes by content. */
 function feed(hash: Hash, value: unknown, depth = 0): void {
   if (value === null || value === undefined) {
     hash.update('n;')
@@ -56,10 +56,10 @@ function feed(hash: Hash, value: unknown, depth = 0): void {
   }
 }
 
-/** Cuánto se espera a que pdfjs entregue una imagen decodificada (llega en un mensaje aparte, unos milisegundos después de la lista). */
+/** Wait for pdfjs to deliver a decoded image (separate message, a few ms after the list). */
 const IMAGE_WAIT_MS = 5000
 
-/** La imagen decodificada que pdfjs guarda con ese nombre; las compartidas entre páginas (`g_…`) viven en `commonObjs`. */
+/** Decoded image pdfjs holds under that name; images shared across pages (`g_…`) are in `commonObjs`. */
 function decodedImage(page: PdfPage, name: string): Promise<unknown> {
   const store = name.startsWith('g_') ? page.commonObjs : page.objs
   return new Promise((resolve) => {
@@ -73,7 +73,7 @@ function decodedImage(page: PdfPage, name: string): Promise<unknown> {
   })
 }
 
-/** Huella del contenido de una imagen ya decodificada por pdfjs, o null si no se pudo leer. */
+/** Fingerprint of an image pdfjs already decoded, or null if it could not be read. */
 async function imageDigest(page: PdfPage, name: unknown): Promise<string | null> {
   if (typeof name !== 'string') return null
   const image = await decodedImage(page, name)
@@ -86,10 +86,10 @@ async function imageDigest(page: PdfPage, name: unknown): Promise<string | null>
 }
 
 /**
- * Huella de una página: SHA-256 de su lista de operadores (qué se dibuja y con qué argumentos). Los
- * nombres de las imágenes dependen de la página (`img_p0_1`, `g_d0_img_p1_1`), así que se sustituyen
- * por la huella de sus píxeles; los `dependency` solo repiten esos nombres y se omiten. Null si la
- * página no dibuja texto ni imágenes, o si no se pudo leer una imagen: sin huella no se compara.
+ * Page fingerprint: SHA-256 of its operator list (what is drawn and with which arguments). Image
+ * names depend on the page (`img_p0_1`, `g_d0_img_p1_1`), so they are replaced by their pixel
+ * fingerprint; `dependency` entries just repeat those names and are omitted. Null if the page
+ * draws no text or images, or an image could not be read: with no fingerprint it is not compared.
  */
 async function fingerprintPage(page: PdfPage): Promise<string | null> {
   const list = await page.getOperatorList()
@@ -114,7 +114,7 @@ async function fingerprintPage(page: PdfPage): Promise<string | null> {
   return drawsContent ? hash.digest('hex') : null
 }
 
-/** Huella de cada página (índice 0 = página 1); sirve en las dos rutas, con y sin capa de texto. */
+/** Fingerprint of each page (index 0 = page 1); used on both routes, with and without text. */
 export async function pageFingerprints(doc: PdfDocument, maxPages = MAX_FINGERPRINT_PAGES): Promise<(string | null)[]> {
   const out: (string | null)[] = []
   for (let p = 1; p <= doc.numPages; p++) {
@@ -136,16 +136,16 @@ export async function pageFingerprints(doc: PdfDocument, maxPages = MAX_FINGERPR
   return out
 }
 
-/** Con menos letras y dígitos que esto, dos páginas de texto igual no prueban nada (una hoja casi en blanco). */
+/** Below this many letters and digits, equal text proves nothing (a nearly blank sheet). */
 const MIN_DUPLICATE_TEXT_CHARS = 100
-/** Montos impresos que debe tener una página para que repetirla pueda duplicar movimientos. */
+/** Printed amounts a page needs for repeating it to be able to duplicate transactions. */
 const MIN_DUPLICATE_AMOUNTS = 3
 const PRINTED_AMOUNT = /\d{1,3}(?:,\d{3})*\.\d{2}\b/g
 
 /**
- * ¿La página tiene con qué duplicar movimientos? Con texto, hacen falta letras y montos: las hojas finales
- * de publicidad o avisos legales se repiten en los PDFs reales (Banamex trae cinco iguales) y no alteran
- * nada. Sin texto (escaneado) no se puede saber y la huella decide sola.
+ * Can the page duplicate transactions? With text, it needs letters and amounts: trailing ad or
+ * legal pages repeat in real PDFs (Banamex has five identical ones) and change nothing. Without
+ * text (scanned) there is no way to tell and the fingerprint decides alone.
  */
 function duplicateMatters(text: string): boolean {
   const compact = text.replace(/[^a-z0-9]/g, '')
@@ -154,8 +154,8 @@ function duplicateMatters(text: string): boolean {
 }
 
 /**
- * Páginas que repiten una anterior: la misma huella de operadores o, con capa de texto, el mismo texto
- * normalizado (no vacío) y el mismo número de página impreso. La original es la primera.
+ * Pages that repeat an earlier one: same operator fingerprint or, with a text layer, same
+ * normalized (non-empty) text and same printed page number. The original is the first.
  */
 export function findDuplicatePages(fingerprints: readonly (string | null)[], pageTexts: readonly string[], pagination: readonly PageNumbering[]): PageDuplicate[] {
   const byPrint = new Map<string, number>()

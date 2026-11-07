@@ -1,7 +1,7 @@
 /**
- * Instancia de Mastra para standalone: el workflow sobre libSQL en un archivo de la carpeta de
- * salida (spike 4, decisión 3). Arrancar y reanudar devuelven lo mismo: el estado de la solicitud
- * y, si quedó pausada, la ruta del paso para reanudarla en otra invocación del CLI.
+ * Mastra instance for standalone: the workflow on libSQL in a file in the output folder. Starting
+ * and resuming return the same thing: the request's state and, if paused, the step path to
+ * resume it in another CLI invocation.
  */
 import { Mastra } from '@mastra/core'
 import type { MastraCompositeStore } from '@mastra/core/storage'
@@ -17,7 +17,7 @@ export interface RunOutcome {
   error: string | null
 }
 
-/** `storage`: archivo libSQL (standalone) o un store ya creado (PostgresStore en modo full, compartido entre trabajos). */
+/** `storage`: libSQL file (standalone) or an existing store (PostgresStore in full mode, shared). */
 export function createRuntime(deps: WorkflowDeps, storage: string | MastraCompositeStore) {
   const processApplication = createProcessApplication(deps)
   const store = typeof storage === 'string' ? new LibSQLStore({ id: 'gow-standalone', url: `file:${storage}` }) : storage
@@ -26,7 +26,7 @@ export function createRuntime(deps: WorkflowDeps, storage: string | MastraCompos
 }
 export type Runtime = ReturnType<typeof createRuntime>
 
-/** El payload de suspensión viene anidado por sub-workflow (spike 4); se busca el de `askOwner`. */
+/** The suspend payload comes nested per sub-workflow; the one for `askOwner` is looked up. */
 function findSuspend(payload: unknown): AskSuspend | null {
   const parsed = AskSuspend.safeParse(payload)
   if (parsed.success) return parsed.data
@@ -59,7 +59,7 @@ export async function startApplication(wf: Runtime, input: AppInput): Promise<Ru
   try {
     return outcome(run.runId, await run.start({ inputData: input }))
   } catch (err) {
-    // Un error de esquema en la entrada lanza en lugar de devolver failed (spike 2).
+    // A schema error in the input throws instead of returning failed.
     return { runId: run.runId, status: 'failed', state: null, suspendedStep: null, error: errorText(err) }
   }
 }

@@ -1,13 +1,13 @@
 /**
- * Normalización de montos, fechas y texto para comparar lo que dice el modelo contra la
- * capa de texto del PDF.
+ * Normalization of amounts, dates and text, to compare what the model says against the PDF text
+ * layer.
  */
 
 export function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-/** "1250.5" → ["1,250.50", "1250.50"]: las formas en que el monto puede aparecer impreso. */
+/** "1250.5" → ["1,250.50", "1250.50"]: the forms the amount may be printed in. */
 export function amountForms(n: number): string[] {
   const abs = Math.abs(n)
   const fixed = abs.toFixed(2)
@@ -16,7 +16,7 @@ export function amountForms(n: number): string[] {
   return [...new Set([`${grouped}.${dec}`, `${int}.${dec}`])]
 }
 
-/** Texto comparable: minúsculas, sin acentos, sin puntuación salvo dígitos, espacios simples. */
+/** Comparable text: lowercase, no accents, no punctuation except digits, single spaces. */
 export function normalizeText(s: string): string {
   return s
     .normalize('NFD')
@@ -27,7 +27,7 @@ export function normalizeText(s: string): string {
     .trim()
 }
 
-/** Texto sin separadores para encontrar montos y números aunque el PDF parta las columnas. */
+/** Text without separators, to find amounts and numbers even when the PDF splits columns. */
 export function compact(s: string): string {
   return s.replace(/[\s$]/g, '')
 }
@@ -63,9 +63,9 @@ function iso(y: number, m: number, d: number): string | null {
 }
 
 /**
- * Intenta convertir una fecha mexicana o mixta a ISO cuando el modelo no devolvió ISO:
- * "16/01/2025", "ENE. 16", "01/SEP", "31 JUL 2025", "13 de June de 2026". Sin año, usa el
- * año del periodo; si la fecha cae después del fin del periodo, usa el año anterior.
+ * Tries to convert a Mexican or mixed date to ISO when the model did not return ISO:
+ * "16/01/2025", "ENE. 16", "01/SEP", "31 JUL 2025", "13 de June de 2026". With no year, uses the
+ * period's year; if the date falls after the period end, uses the previous year.
  */
 export function parseLooseDate(raw: string, periodEnd: string | null): string | null {
   const s = raw.trim()
@@ -82,13 +82,13 @@ export function parseLooseDate(raw: string, periodEnd: string | null): string | 
   if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
   m = /^(\d{1,2})[/.-](\d{1,2})$/.exec(s)
   if (m) return withYear(Number(m[2]), Number(m[1]), null)
-  // Una fecha completa dentro de un texto más largo ("DEL 01/09/2025 AL 30/09/2025"): la primera.
+  // A full date inside longer text ("DEL 01/09/2025 AL 30/09/2025"): the first one.
   m = /(\d{4})-(\d{2})-(\d{2})/.exec(s)
   if (m) return iso(Number(m[1]), Number(m[2]), Number(m[3]))
   m = /(?<!\d)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)/.exec(s)
   if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
-  // Fechas con mes en letras: "ENE. 16", "01-ABR-2025", "31 JUL 2025", "13 de June de 2026".
-  // Si el texto trae un rango ("del 01-ABR-2025 al 30-ABR-2025"), vale la primera fecha completa.
+  // Dates with a month in letters: "ENE. 16", "01-ABR-2025", "31 JUL 2025", "13 de June de 2026".
+  // If the text holds a range ("del 01-ABR-2025 al 30-ABR-2025"), the first full date wins.
   const words = normalizeText(s)
     .replace(/[-/.,]/g, ' ')
     .split(' ')
@@ -108,14 +108,14 @@ export function parseLooseDate(raw: string, periodEnd: string | null): string | 
   return null
 }
 
-/** Días entre dos fechas ISO (b − a). */
+/** Days between two ISO dates (b − a). */
 export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000)
 }
 
 /**
- * Monto impreso → número: "1,250.50", "$ 1,620.67", "-$865.12", "+$100.00", "(1,234.00)",
- * "1,234.00-", "1.250,50" (coma decimal). Cadena vacía o ilegible → null.
+ * Printed amount → number: "1,250.50", "$ 1,620.67", "-$865.12", "+$100.00", "(1,234.00)",
+ * "1,234.00-", "1.250,50" (decimal comma). Empty or unreadable string → null.
  */
 export function parseAmount(raw: string): number | null {
   let s = raw.trim()
@@ -141,7 +141,7 @@ export function parseAmount(raw: string): number | null {
   return Number.isFinite(n) ? round2(negative ? -n : n) : null
 }
 
-/** Conteo impreso → entero no negativo, o null. */
+/** Printed count → non-negative integer, or null. */
 export function parseCount(raw: string): number | null {
   const s = raw.trim().replace(/[,\s]/g, '')
   return /^\d+$/.test(s) ? Number(s) : null

@@ -1,11 +1,10 @@
-/* eslint-disable no-console -- CLI: la salida en consola es el resultado */
+/* eslint-disable no-console -- CLI: console output is the result */
 /**
- * pnpm extract <pdf|carpeta>... [--out data/out/extractions] [--cache readwrite|read|off]
+ * pnpm extract <pdf|folder>... [--out data/out/extractions] [--cache readwrite|read|off]
  *              [--block-pages 4] [--tx-effort low] [--summary-effort medium] [--concurrency 3]
  *
- * Herramienta de desarrollo de la fase 2: extrae, verifica e imprime tokens y costo por
- * documento. El comando para evaluadores (`pnpm run evaluate`) llega en la fase 5 y usa la
- * misma función. La salida tiene datos del documento: por defecto va a data/ (ignorado).
+ * Dev tool: extracts, verifies and prints tokens and cost per document. Output holds document
+ * data, so it goes to data/ (git-ignored) by default.
  */
 import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
@@ -15,7 +14,7 @@ import { CachingStructuredLlm, createClassifier, createLimiter, EXTRACTION_MODEL
 import { DEFAULT_OPTIONS, extractStatement } from './extract.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
-/** pnpm -F corre el script dentro del paquete; las rutas del usuario son relativas a donde lo escribió. */
+/** pnpm -F runs the script inside the package; user paths are relative to where they typed it. */
 const USER_CWD = process.env.INIT_CWD ?? process.cwd()
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
@@ -90,14 +89,14 @@ async function main(): Promise<void> {
     }
   }
   const primary = values.model ?? (googleAvailable ? EXTRACTION_MODEL : PROVIDER_FALLBACK_MODEL)
-  // Aviso a quien ejecuta: con la llave de Google, los PDFs se mandan a Google (ADR 0011).
-  if (providerOf(primary) === 'google') console.error(`Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia (ADR 0011).`)
-  else if (!values.model) console.error(`Sin llave de Google: extracción con ${primary} (ADR 0011).`)
+  // Heads-up for whoever runs it: with a Google key the PDFs are sent to Google.
+  if (providerOf(primary) === 'google') console.error(`Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia.`)
+  else if (!values.model) console.error(`Sin llave de Google: extracción con ${primary}.`)
   const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
   const env = readAnthropicEnv()
   const base = env.apiKey ? new MastraStructuredLlm(env) : null
   if (!base && mode !== 'read') {
-    console.error('Falta ANTHROPIC_API_KEY (entorno o .env): la necesitan la clasificación, la doble lectura y la emergencia. Con GEMINI_API_KEY además, la extracción va con Gemini (ADR 0011). Con --cache read se usan solo respuestas guardadas.')
+    console.error('Falta ANTHROPIC_API_KEY (entorno o .env): la necesitan la clasificación, la doble lectura y la emergencia. Con GEMINI_API_KEY además, la extracción va con Gemini. Con --cache read se usan solo respuestas guardadas.')
     process.exit(2)
   }
   const llm = new CachingStructuredLlm(base, resolve(USER_CWD, values['cache-dir']), mode)

@@ -1,6 +1,6 @@
 /**
- * Doble lectura del encabezado en documentos sin texto (docs/04 §3.6, ADR 0011). Sin red: modelo
- * falso y PDFs sintéticos (uno sin capa de texto, que va por visión, y uno con ella).
+ * Header double read on documents without text. No network: fake model and synthetic PDFs (one
+ * without a text layer, which goes through vision, and one with it).
  */
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,7 +18,7 @@ import { SYNTHETIC_STATEMENT_LINES, syntheticStatementPdf } from './testing-synt
 
 type FieldName = CitedOut['field']
 
-/** Lo que imprime el estado de cuenta ficticio: cuadra 10,000 + 5,000 − 1,250.50 = 13,749.50. */
+/** What the fictional statement prints; it balances: 10,000 + 5,000 - 1,250.50 = 13,749.50. */
 const BASE: Partial<Record<FieldName, string>> = {
   bank_name: 'BANCO FICTICIO S.A.',
   holder_name: 'COMERCIALIZADORA DE PRUEBA SA DE CV',
@@ -41,7 +41,7 @@ const PERIOD: FieldName[] = ['period_start', 'period_end', 'statement_date', 'op
 
 type Overrides = Partial<Record<FieldName, string | null>>
 
-/** Una lectura del encabezado: `over` cambia un valor y `null` lo quita (no se leyó). */
+/** A header read: `over` changes a value and `null` removes it (not read). */
 function summaryOf(over: Overrides = {}, refs: { account: string; period: string } = { account: 'A1', period: 'A1-P1' }): SummaryOut {
   const values = (names: FieldName[]): CitedOut[] =>
     names.flatMap((field) => {
@@ -90,7 +90,7 @@ interface Seen {
   system: string
 }
 
-/** Modelo falso: la pasada 1 lee `first`, los bloques traen los movimientos y la doble lectura responde `second`. */
+/** Fake model: pass 1 reads `first`, blocks return the rows, the double read answers `second`. */
 function fakeLlm(second: (req: StructuredRequest<unknown>) => ExtractionChunk | Error, first: SummaryOut = summaryOf()): StructuredLlm & { seen: Seen[] } {
   const seen: Seen[] = []
   return {
@@ -109,7 +109,7 @@ const classifier: Classifier = {
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'gow-double-read-'))
-// Casi sin texto: la capa se evalúa como ausente y el documento va por visión.
+// Almost no text: the layer counts as absent and the document goes through vision.
 const scannedPath = join(dir, 'escaneado.pdf')
 writeFileSync(scannedPath, syntheticStatementPdf(['IMAGEN ESCANEADA']))
 const textPath = join(dir, 'con-texto.pdf')
@@ -118,7 +118,7 @@ writeFileSync(textPath, syntheticStatementPdf(SYNTHETIC_STATEMENT_LINES))
 const extractOpts = { ...DEFAULT_OPTIONS, limit: createLimiter(2), googleAvailable: true }
 const noText = new PageText({ pageTexts: [''], textLayer: 'absent', textRepaired: false })
 
-// ---------------------------------------------------------------- comparación pura
+// ---------------------------------------------------------------- pure comparison
 
 describe('compareHeaders', () => {
   const statuses = (second: SummaryOut, first: SummaryOut = summaryOf(), text = noText) => Object.fromEntries(compareHeaders(first, second, text).map((r) => [r.field, r.status]))
@@ -186,7 +186,7 @@ describe('compareHeaders', () => {
   })
 })
 
-// ---------------------------------------------------------------- lectura y aplicación
+// ---------------------------------------------------------------- reading and applying
 
 describe('headerDoubleRead y applyHeaderDoubleRead', () => {
   const pdfInput = { base64: 'AAAA', sha256: 'a'.repeat(64), cache: true }
@@ -313,14 +313,15 @@ describe('headerDoubleRead y applyHeaderDoubleRead', () => {
     const all = Object.entries(BASE).map(([f, v]) => `${f}: ${v}`)
     const text = (lines: string[]) => new PageText({ pageTexts: [lines.join('\n')], textLayer: 'ok', textRepaired: false })
 
-    // Todo verificado por el texto: sin llamada.
+    // Everything verified by the text: no call.
     const full = text(all)
     expect(assembleSummary(summaryOf(), full).bankName.verification).toBe('verified')
     const llmFull = fakeLlm(() => new Error('no debió llamarse'))
     expect(await headerDoubleRead({ llm: llmFull }, summaryOf(), pdfInput, options({ text: full }))).toEqual({ status: 'skipped' })
     expect(llmFull.seen).toEqual([])
 
-    // Solo el banco está en el texto: lo demás se relee y el banco no se degrada aunque el segundo lea otro.
+    // Only the bank is in the text: the rest is re-read, and the bank is not downgraded even if
+    // the second read differs.
     const partial = text(['bank_name: BANCO FICTICIO S.A.'])
     const summary = assembleSummary(summaryOf(), partial)
     const issues = new IssueSink()
@@ -331,7 +332,7 @@ describe('headerDoubleRead y applyHeaderDoubleRead', () => {
   })
 })
 
-// ---------------------------------------------------------------- de punta a punta
+// ---------------------------------------------------------------- end to end
 
 describe('extractStatement: documento sin texto', () => {
   it('acuerdo total: bandera, llamada registrada con la otra familia y el encabezado verificado', async () => {
@@ -377,8 +378,9 @@ describe('extractStatement: documento sin texto', () => {
   })
 
   it('el cuadre aritmético y los validadores de formato mandan sobre la doble lectura', async () => {
-    // Saldo final leído distinto en la segunda lectura, pero el periodo cuadra con la primera: queda verificado por la aritmética.
-    // Una CLABE que no pasa el dígito verificador no se verifica aunque las dos lecturas coincidan.
+    // Second read differs on the final balance, but the period balances with the first: verified
+    // by arithmetic.
+    // A CLABE that fails its check digit is not verified even if both reads agree.
     const bad = { clabe: '002010077777777772' }
     const llm = fakeLlm(() => chunk(summaryOf({ ...bad, closing_balance: '13,000.00' })), summaryOf(bad))
     const doc = await extractStatement(scannedPath, { llm, classifier }, extractOpts)

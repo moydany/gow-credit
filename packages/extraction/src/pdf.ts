@@ -1,13 +1,12 @@
 /**
- * Lectura local del PDF: hash, número de páginas y texto por página con pdfjs (JS puro, sin
- * binarios del sistema). El texto local sirve para dos cosas: decidir la ruta (texto y
- * visión, o solo visión) y verificar que lo extraído por el modelo esté en la página citada.
+ * Local PDF read: hash, page count and per-page text via pdfjs (pure JS, no system binaries).
+ * The local text serves two purposes: choosing the route (text and vision, or vision only) and
+ * verifying that what the model extracted is on the cited page.
  *
- * También mira el documento como objeto (ADR 0057): la paginación que imprime el banco (páginas
- * que faltan, varios estados de cuenta pegados), las páginas repetidas (por la lista de operadores
- * de cada página) y las páginas giradas. Al modelo se le manda el PDF original, salvo que haya
- * páginas giradas: entonces va una copia enderezada con `pdf-lib`. El hash y el tamaño siguen
- * siendo los del archivo original.
+ * It also looks at the document as an object: the pagination the bank prints (missing pages,
+ * several statements glued together), repeated pages (by each page's operator list) and rotated
+ * pages. The model gets the original PDF, unless there are rotated pages: then it gets a copy
+ * straightened with `pdf-lib`. Hash and size stay those of the original file.
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -23,30 +22,30 @@ export * from './pdf-pagination.ts'
 
 export interface LoadedPdf {
   fileName: string
-  /** Los bytes del archivo original. */
+  /** The original file bytes. */
   bytes: Uint8Array
   /**
-   * Lo que se le manda al modelo: el original, o una copia con las páginas giradas enderezadas
-   * (`straightened`). `sha256` y `sizeBytes` son siempre los del original.
+   * What is sent to the model: the original, or a copy with rotated pages straightened
+   * (`straightened`). `sha256` and `sizeBytes` are always the original's.
    */
   base64: string
   sha256: string
   sizeBytes: number
   pageCount: number
-  /** Texto por página (índice 0 = página 1), ya reparado si se pudo. */
+  /** Text per page (index 0 = page 1), repaired if possible. */
   pageTexts: string[]
   textLayer: TextLayer
-  /** true si la capa venía en EBCDIC y se decodificó (caso HSBC). */
+  /** true if the layer was EBCDIC and got decoded (the HSBC case). */
   textRepaired: boolean
-  /** Numeración impresa por página (`printed` y `total` nulos sin capa de texto utilizable). */
+  /** Printed numbering per page (`printed` and `total` null without a usable text layer). */
   pagination: PageNumbering[]
-  /** Páginas del PDF (1 = primera) que repiten una página anterior; sus filas no cuentan. */
+  /** PDF pages (1 = first) that repeat an earlier page; their rows do not count. */
   duplicatePages: number[]
-  /** Cada página repetida con la que repite. */
+  /** Each repeated page with the page it repeats. */
   duplicates: PageDuplicate[]
-  /** Páginas cuyo texto está girado respecto a cómo se muestran. */
+  /** Pages whose text is rotated relative to how they are displayed. */
   rotatedPages: PageRotation[]
-  /** true si `base64` es la copia enderezada y no el original. */
+  /** true if `base64` is the straightened copy and not the original. */
   straightened: boolean
 }
 
@@ -55,13 +54,13 @@ interface TextItem {
   transform: number[]
 }
 
-/** Dirección del texto en el espacio del PDF, en grados contra las manecillas del reloj. */
+/** Text direction in PDF space, in degrees counterclockwise. */
 export type TextAngle = 0 | 90 | 180 | 270
 
 const ANGLES = [0, 90, 180, 270] as const
 const ANGLE_TOLERANCE_DEG = 10
 
-/** Hacia dónde corre la línea de texto de un item (`|a| < 0.1 && |b| > 0.9` es 90 o 270), o null si va en diagonal. */
+/** Where a text item's line runs (`|a| < 0.1 && |b| > 0.9` is 90 or 270), or null if diagonal. */
 function itemAngle(transform: readonly number[]): TextAngle | null {
   const a = transform[0] ?? 0
   const b = transform[1] ?? 0
@@ -73,12 +72,12 @@ function itemAngle(transform: readonly number[]): TextAngle | null {
   return ANGLES[nearest] ?? null
 }
 
-/** Con menos texto que esto una página no tiene una orientación confiable (una nota vertical en el margen no la gira). */
+/** Below this much text a page has no reliable orientation (a vertical margin note proves nothing). */
 const MIN_ORIENTATION_CHARS = 20
 
 /**
- * Orientación mayoritaria del texto de una página (ponderada por caracteres), o null si no hay
- * texto suficiente o no hay una orientación clara. 0 es el texto normal, de izquierda a derecha.
+ * Majority text orientation of a page (weighted by characters), or null if there is not enough
+ * text or no clear orientation. 0 is normal text, left to right.
  */
 export function dominantTextAngle(items: readonly { str: string; transform: readonly number[] }[]): TextAngle | null {
   const weight = new Map<TextAngle, number>()
@@ -97,15 +96,15 @@ export function dominantTextAngle(items: readonly { str: string; transform: read
 }
 
 /**
- * Reconstruye líneas agrupando por la coordenada que no cambia a lo largo de la línea y ordenando
- * en el sentido en que se lee. Con el texto normal (0) son filas de arriba abajo y de izquierda a
- * derecha; con el texto girado las líneas son columnas del espacio del PDF (se agrupa por `x` y se
- * ordena por `y`), en el orden en que se leería la página puesta derecha.
+ * Rebuilds lines by grouping on the coordinate that stays constant along the line and sorting in
+ * reading direction. Normal text (0) gives rows top to bottom, left to right; rotated text gives
+ * lines that are columns in PDF space (grouped by `x`, sorted by `y`), in the order the page
+ * would be read held upright.
  */
 function itemsToText(items: TextItem[], angle: TextAngle = 0): string {
   const vertical = angle === 90 || angle === 270
-  // Sentido en que crece la coordenada de línea (y, o x si es vertical) de la primera línea a la última,
-  // y el sentido en que crece la coordenada a lo largo de la línea.
+  // Direction in which the line coordinate (y, or x if vertical) grows from first line to last,
+  // and the direction in which the coordinate along the line grows.
   const lineDirection = angle === 0 || angle === 270 ? -1 : 1
   const alongDirection = angle === 0 || angle === 90 ? 1 : -1
   const rows = new Map<number, { at: number; s: string }[]>()
@@ -135,7 +134,7 @@ function itemsToText(items: TextItem[], angle: TextAngle = 0): string {
 const SPANISH_MARKERS = /\b(saldo|cuenta|periodo|fecha|total|dep[oó]sito|retiro|cargo|abono|movimientos|estado)\b/gi
 const AMOUNT = /\d{1,3}(?:,\d{3})*\.\d{2}\b/g
 
-/** Puntaje de legibilidad: marcadores en español y montos con formato mexicano. */
+/** Legibility score: Spanish markers and amounts in Mexican format. */
 function readability(text: string): { markers: number; amounts: number; letters: number; weird: number } {
   const markers = text.match(SPANISH_MARKERS)?.length ?? 0
   const amounts = text.match(AMOUNT)?.length ?? 0
@@ -145,8 +144,8 @@ function readability(text: string): { markers: number; amounts: number; letters:
 }
 
 /**
- * Algunos PDFs (HSBC en desarrollo) traen fuentes Type 3 cuyo texto sale en EBCDIC leído
- * como Latin-1: "ÃäÅÕãÁ@ÔÁÅâãÙÁ" es "CUENTA MAESTRA". Se decodifica con cp037.
+ * Some PDFs (HSBC in dev) carry Type 3 fonts whose text is EBCDIC read as Latin-1:
+ * "ÃäÅÕãÁ@ÔÁÅâãÙÁ" is "CUENTA MAESTRA". Decoded with cp037.
  */
 const CP037_TO_ASCII: Record<number, string> = (() => {
   const map: Record<number, string> = { 0x40: ' ', 0x4b: '.', 0x4c: '<', 0x4d: '(', 0x4e: '+', 0x50: '&', 0x5b: '$', 0x5c: '*', 0x5d: ')', 0x5e: ';', 0x60: '-', 0x61: '/', 0x6b: ',', 0x6c: '%', 0x6d: '_', 0x6e: '>', 0x6f: '?', 0x7a: ':', 0x7b: '#', 0x7c: '@', 0x7d: "'", 0x7e: '=', 0x7f: '"' }
@@ -160,7 +159,7 @@ const CP037_TO_ASCII: Record<number, string> = (() => {
     [0xf0, '0123456789'],
   ]
   for (const [start, chars] of ranges) for (let i = 0; i < chars.length; i++) map[start + i] = chars.charAt(i)
-  // Acentos frecuentes en español en cp037.
+  // Common Spanish accents in cp037.
   Object.assign(map, { 0x45: 'á', 0x51: 'é', 0x55: 'í', 0xce: 'ó', 0xde: 'ú', 0x49: 'ñ', 0x69: 'Ñ', 0x65: 'Á', 0x71: 'É', 0x75: 'Í', 0xee: 'Ó', 0xfe: 'Ú' })
   return map
 })()
@@ -189,19 +188,19 @@ export function assessTextLayer(pageTexts: string[]): { layer: TextLayer; repair
   return { layer: 'corrupt', repaired: false, texts: pageTexts }
 }
 
-/** pdfjs rechaza con `PasswordException` un PDF que pide contraseña para abrirse. */
+/** pdfjs rejects a PDF that asks for an open password with `PasswordException`. */
 export function isPdfPasswordError(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'PasswordException'
 }
 
 const ENCRYPT_KEY = Buffer.from('/Encrypt', 'latin1')
-/** Delimitadores y espacios de PDF: tras `/Encrypt` va uno de estos, no otra letra (`/EncryptMetadata`). */
+/** PDF delimiters and whitespace: `/Encrypt` is followed by one of these, not a letter (`/EncryptMetadata`). */
 const NAME_END = new Set([0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20, 0x28, 0x29, 0x2f, 0x3c, 0x3e, 0x5b, 0x5d, 0x7b, 0x7d, 0x25])
 
 /**
- * ¿Trae el PDF un diccionario de cifrado? La llave `/Encrypt` vive en el trailer o en el
- * diccionario del xref stream, que nunca van comprimidos: basta buscarla en los bytes. Barato y sin
- * abrir el documento; no distingue si pide contraseña para abrirse o solo restringe permisos.
+ * Does the PDF carry an encryption dictionary? The `/Encrypt` key lives in the trailer or the xref
+ * stream dictionary, which are never compressed: searching the bytes is enough. Cheap and does
+ * not open the document; cannot tell an open password from mere permission restrictions.
  */
 export function hasEncryptDictionary(bytes: Uint8Array): boolean {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -213,12 +212,12 @@ export function hasEncryptDictionary(bytes: Uint8Array): boolean {
 }
 
 /**
- * - `none`: sin cifrado.
- * - `permissions_only`: cifrado sin contraseña de apertura (solo restringe imprimir, copiar…); se
- *   abre y se lee normal. También si pdfjs falla por otra cosa: que la extracción lo decida.
- * - `password`: pide contraseña para abrirse; no se puede leer (ADR 0049).
+ * - `none`: not encrypted.
+ * - `permissions_only`: encrypted with no open password (only restricts printing, copying...);
+ *   opens and reads normally. Also when pdfjs fails for another reason: let extraction decide.
+ * - `password`: needs a password to open; cannot be read.
  *
- * pdfjs solo corre si los bytes traen `/Encrypt`: casi todos los PDFs se resuelven con la búsqueda.
+ * pdfjs only runs if the bytes carry `/Encrypt`: most PDFs are settled by the search.
  */
 export type PdfProtection = 'none' | 'permissions_only' | 'password'
 
@@ -226,7 +225,7 @@ export async function pdfProtection(bytes: Uint8Array): Promise<PdfProtection> {
   if (!hasEncryptDictionary(bytes)) return 'none'
   let task: ReturnType<typeof getDocument> | null = null
   try {
-    // Copia como Uint8Array: pdfjs no acepta un Buffer y se queda con los bytes que recibe.
+    // Copy as Uint8Array: pdfjs does not accept a Buffer and keeps the bytes it receives.
     task = getDocument({ data: new Uint8Array(bytes), verbosity: 0, useSystemFonts: false })
     await task.promise
     return 'permissions_only'
@@ -237,21 +236,22 @@ export async function pdfProtection(bytes: Uint8Array): Promise<PdfProtection> {
   }
 }
 
-// ---------------------------------------------------------------- páginas giradas (ADR 0057)
+// ---------------------------------------------------------------- rotated pages
 
 export interface PageRotation {
-  /** Página del PDF (1 = primera). */
+  /** PDF page (1 = first). */
   page: number
-  /** Cuánto se ve girada la página, en grados en el sentido de las manecillas del reloj. */
+  /** How rotated the page looks, in degrees clockwise. */
   degrees: 90 | 180 | 270
-  /** El `/Rotate` que la deja derecha. */
+  /** The `/Rotate` that leaves it upright. */
   target: TextAngle
 }
 
 /**
- * ¿Se ve girada esta página? El texto corre en la dirección `angle` del espacio del PDF; la página se
- * muestra girada `rotate` grados a la derecha (su `/Rotate`). Queda derecha cuando las dos coinciden:
- * si no, el `/Rotate` que la endereza es el ángulo del texto. Sin texto suficiente (`angle` null) no se dice.
+ * Does this page look rotated? The text runs in direction `angle` of PDF space; the page is
+ * shown rotated `rotate` degrees clockwise (its `/Rotate`). It is upright when the two match;
+ * otherwise the `/Rotate` that straightens it is the text angle. Without enough text (`angle`
+ * null) it says nothing.
  */
 export function pageRotation(page: number, rotate: number, angle: TextAngle | null): PageRotation | null {
   if (angle === null) return null
@@ -261,8 +261,8 @@ export function pageRotation(page: number, rotate: number, angle: TextAngle | nu
 }
 
 /**
- * Copia del PDF con el `/Rotate` de cada página girada corregido. Null si `pdf-lib` no la puede abrir o
- * guardar (por ejemplo, un PDF cifrado con restricciones): se manda el original.
+ * Copy of the PDF with each rotated page's `/Rotate` fixed. Null if `pdf-lib` cannot open or
+ * save it (e.g. an encrypted PDF with restrictions): the original is sent.
  */
 export async function straightenPdf(bytes: Uint8Array, rotations: readonly PageRotation[]): Promise<Uint8Array | null> {
   try {
@@ -275,19 +275,19 @@ export async function straightenPdf(bytes: Uint8Array, rotations: readonly PageR
   }
 }
 
-// ---------------------------------------------------------------- avisos de la extracción (ADR 0057)
+// ---------------------------------------------------------------- extraction notices
 
 export interface PageChecks {
   statements: MultipleStatements
-  /** true si la numeración impresa alcanza para decidir (si no, vale la regla de los CFDI). */
+  /** true if the printed numbering is enough to decide (otherwise the CFDI rule applies). */
   paginated: boolean
 }
 
 type PageCheckInput = Pick<LoadedPdf, 'pagination' | 'pageTexts' | 'duplicates' | 'duplicatePages' | 'rotatedPages' | 'straightened'>
 
 /**
- * Banderas e issues que salen de mirar el PDF por fuera del texto: varios estados de cuenta, páginas
- * que faltan, repetidas y giradas. No llama a ningún modelo.
+ * Flags and issues from looking at the PDF outside its text: several statements, missing,
+ * repeated and rotated pages. Calls no model.
  */
 export function reportPageChecks(pdf: PageCheckInput, issues: IssueSink, flags: Set<DocumentFlag>): PageChecks {
   const scope = { exclude: new Set(pdf.duplicatePages), pageTexts: pdf.pageTexts }
@@ -329,7 +329,7 @@ export function reportPageChecks(pdf: PageCheckInput, issues: IssueSink, flags: 
   return { statements, paginated: paginationReliable(pdf.pagination, scope) }
 }
 
-/** Segunda regla de varios estados, para lo que no trae numeración confiable: los CFDI de ingreso (después de la pasada 1). */
+/** Second several-statements rule, for PDFs without reliable numbering: income CFDIs (after pass 1). */
 export function reportFiscalStatements(fiscal: readonly Pick<FiscalDocument, 'kind' | 'uuid' | 'certified_at'>[], issues: IssueSink, flags: Set<DocumentFlag>): MultipleStatements | null {
   const documents = fiscalStatementCount(fiscal)
   if (documents < 2) return null
@@ -343,7 +343,7 @@ export function reportFiscalStatements(fiscal: readonly Pick<FiscalDocument, 'ki
   return { documents, restartsAt: [] }
 }
 
-// ---------------------------------------------------------------- carga
+// ---------------------------------------------------------------- load
 
 interface PageGeometry {
   rotate: number
@@ -381,7 +381,7 @@ export async function loadPdf(path: string): Promise<LoadedPdf> {
   const usable = assessed.layer === 'ok' || assessed.layer === 'partial' || assessed.repaired
   const pagination = printedPagination(assessed.texts, assessed.layer)
   const duplicates = findDuplicatePages(prints, usable ? assessed.texts : [], pagination)
-  // Solo con una capa de texto utilizable se sabe hacia dónde corre el texto; en visión pura no se detecta.
+  // Text direction is only known with a usable text layer; pure vision does not detect it.
   const rotatedPages = usable ? geometry.flatMap((g, i) => pageRotation(i + 1, g.rotate, g.angle) ?? []) : []
   const fixed = rotatedPages.length > 0 ? await straightenPdf(bytes, rotatedPages) : null
   return {

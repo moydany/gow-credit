@@ -10,7 +10,7 @@ const base = { id: 'q1', topic: 'identity_fields' as const, transaction: null, o
 const withEvidence = (evidence: string[]) => ({ profile: { features: { identity_match: { evidence } } } }) as unknown as Decision
 const fact = (q: ReturnType<typeof identityQuestion>, name: string) => q.facts.find((f) => f.name === name)?.value
 
-describe('pregunta de identidad (ADR 0043 y 0044)', () => {
+describe('pregunta de identidad', () => {
   it('dice qué coincidió y qué no se pudo comparar, y pide solo lo que falta', () => {
     const q = identityQuestion(base, withEvidence(['D1:holder.name=match']))
     expect(q.text).toBe('Revisamos a quién pertenece la cuenta de tu estado de cuenta: el nombre del titular coincide con tus datos registrados; el RFC no se pudo comparar (en el estado de cuenta viene oculto o incompleto, o no lo tenemos registrado). ¿Nos confirmas el RFC del titular de la cuenta?')
@@ -36,7 +36,7 @@ describe('pregunta de identidad (ADR 0043 y 0044)', () => {
   })
 })
 
-describe('preguntas nuevas al proveedor (ADR 0050)', () => {
+describe('preguntas nuevas al proveedor', () => {
   const AT = '2026-10-05T12:00:00.000Z'
   const external: ExternalSnapshot = { ...emptyExternalSnapshot(), existing_credits: { available: true, simulated: true, credits: [] } }
   const moral = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
@@ -72,7 +72,7 @@ describe('preguntas nuevas al proveedor (ADR 0050)', () => {
 })
 
 describe('páginas faltantes: la pregunta pide el PDF completo (robustez documental, sección W)', () => {
-  // El motor pide el tema `missing_pages`; aquí solo importa a qué se parece la pregunta.
+  // The engine asks for the topic `missing_pages`; only what the question looks like matters here.
   const asking = { status: 'needs_clarification', clarification: { topics: ['missing_pages'], transactions: [] }, evaluation: { gates: [] } } as unknown as Decision
   const withIssue = (details: Record<string, unknown> | null): StatementExtraction => {
     const s = syntheticStatement({ start: '2026-07-01', opening_balance: 400000, monthly: [{ kind: 'customer_payment', amount: 60000 }] }, { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }, 'mp1')
@@ -86,7 +86,7 @@ describe('páginas faltantes: la pregunta pide el PDF completo (robustez documen
     expect(q).toMatchObject({ id: 'q1', topic: 'missing_pages', kind: 'documents', transaction: null, options: [], text_source: 'template' })
     expect(q?.text).toBe('Al estado de cuenta que mandaste le faltan páginas (por ejemplo la 2 de 3). ¿Nos mandas el PDF completo?')
     expect(q?.facts).toEqual([{ name: 'pagina_faltante', value: 2 }, { name: 'paginas_del_documento', value: 3 }])
-    // La plantilla pasa el filtro de cifras que el redactor aplica después.
+    // The template passes the figures filter that the writer applies afterwards.
     expect(checkFigures(q?.text ?? '', q?.facts ?? [])).toEqual({ ok: true, unsupported: [] })
   })
 
@@ -105,7 +105,7 @@ describe('páginas faltantes: la pregunta pide el PDF completo (robustez documen
   })
 })
 
-describe('estado de cuenta con domicilio (ADR 0066)', () => {
+describe('estado de cuenta con domicilio', () => {
   const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
   const spec = { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 40000 }] }
   const base = basePolicyTemplate()
@@ -122,7 +122,7 @@ describe('estado de cuenta con domicilio (ADR 0066)', () => {
   })
 })
 
-describe('el estado de cuenta con domicilio reemplaza al del mismo periodo (ADR 0066)', () => {
+describe('el estado de cuenta con domicilio reemplaza al del mismo periodo', () => {
   const holder = { name: 'Distribuidora Ficticia SA de CV', rfc: 'DFI150304AB1', clabe: null }
   const month = (start: string, address: string | null, seed: string) => syntheticStatement({ start, opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2 }, { kind: 'supplier_payment' as const, amount: 40000 }] }, { ...holder, address }, seed)
 
@@ -132,7 +132,7 @@ describe('el estado de cuenta con domicilio reemplaza al del mismo periodo (ADR 
     const aug = month('2026-08-01', null, 'r-ago')
     const septWithAddress = month('2026-09-01', 'CALLE 1, CENTRO, PUEBLA, C.P. 72000', 'r-sep-dom')
     expect(replacedByAddress([sept, aug], [septWithAddress])).toEqual([sept])
-    // Un PDF nuevo sin domicilio no reemplaza nada.
+    // A new PDF without an address replaces nothing.
     expect(replacedByAddress([sept], [month('2026-09-01', null, 'r-sep-2')])).toEqual([])
   })
 })

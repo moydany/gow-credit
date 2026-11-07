@@ -1,16 +1,15 @@
 /**
- * Explicación del resultado en lenguaje natural (ADR 0045). El motor deja motivos con códigos y
- * nombres de features, útiles para auditar pero difíciles de leer. Aquí se arman los hechos de la
- * decisión (resultado, puntaje, cifras del flujo, compuertas, dimensiones, topes) y una plantilla
- * que siempre pasa el filtro de cifras; Haiku la redacta en prosa sobre esos mismos hechos
- * (`Writer.explanation`), y si el texto cita una cifra que no está en los hechos se queda la
- * plantilla.
+ * Natural-language explanation of the result. The engine leaves reasons with codes and feature
+ * names, good for auditing but hard to read. Here the decision facts are assembled (result,
+ * score, cash-flow figures, gates, dimensions, caps) along with a template that always passes
+ * the figures filter; Haiku writes it up as prose over those same facts (`Writer.explanation`),
+ * and if the text cites a figure not in the facts the template stays.
  */
 import { DOCUMENT_AGE_WARNING, type AccountUse, type Decision, type FeatureName, type HolderType, type MaxLine, type QuestionFact } from '@gow/contracts'
 import { pesos } from './figures.ts'
 import { featureLabel, valueText } from './writer.ts'
 
-/** Para quien lee el backoffice o el reporte: el resultado en tercera persona. */
+/** For whoever reads the backoffice or the report: the result in third person. */
 const RESULT_TEXT: Record<Decision['status'], string> = {
   qualified: 'califica',
   qualified_with_limit: 'califica con límite',
@@ -58,7 +57,7 @@ function listEs(items: readonly string[]): string {
   return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1) ?? ''}`
 }
 
-/** Un valor de dimensión: proporción como porcentaje; razón contra otra feature, en veces. */
+/** A dimension value: a ratio as a percentage; a ratio against another feature, in times. */
 function dimensionValue(d: Decision['evaluation']['dimensions'][number]): string {
   if (d.value === null) return 'sin dato'
   if (d.relative_to !== null) return d.value <= 1 ? `${String(Math.round(d.value * 1000) / 10)}%` : `${String(Math.round(d.value * 100) / 100)} veces`
@@ -66,8 +65,8 @@ function dimensionValue(d: Decision['evaluation']['dimensions'][number]): string
 }
 
 /**
- * Un solo nombre por dimensión de la política base, el mismo en la plantilla, en los hechos y en los
- * motivos que ve el redactor (ADR 0045): con dos nombres para la misma, Haiku las contaba dos veces.
+ * One name per base-policy dimension, the same in the template, the facts and the reasons the
+ * writer sees: with two names for the same one, Haiku counted it twice.
  */
 const DIMENSION_LABEL: Partial<Record<string, string>> = {
   'operating_income_monthly/requested_amount': 'la capacidad (ingresos frente al monto pedido)',
@@ -85,7 +84,7 @@ const HOLDER_TEXT: Record<HolderType, string> = {
   legal_entity: 'persona moral',
 }
 
-/** Régimen del CFDI del estado de cuenta (docs/09 §5), si lo trae. */
+/** CFDI regime of the statement, if it carries one. */
 const REGIME_TEXT: Partial<Record<string, string>> = {
   '601': 'general de ley de personas morales',
   '603': 'personas morales con fines no lucrativos',
@@ -98,7 +97,7 @@ const REGIME_TEXT: Partial<Record<string, string>> = {
 }
 
 export interface ExplanationContext {
-  /** Tipo de titular que se leyó del estado de cuenta. */
+  /** Holder type read from the statement. */
   holderType?: HolderType | null
 }
 
@@ -118,12 +117,12 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
   const request = decision.profile.inputs.request
   const noAmount = typeof decision.profile.features.requested_amount.value !== 'number'
   const noBuyer = request?.buyer == null
-  // Lo que no se evalúa por diseño (no se pidió monto o comprador) no es una falta del proveedor:
-  // se dice aparte y una sola vez, no como "falta de datos" ni como causa (ADR 0045).
+  // What is not evaluated by design (no amount or buyer requested) is not a provider gap: it is
+  // said separately and once, not as "missing data" nor as a cause.
   const notCollected = (feature: FeatureName | null) => (feature === 'requested_amount' && noAmount) || (feature !== null && BUYER_FEATURES.has(feature) && noBuyer)
   const byDesign = (d: Decision['evaluation']['dimensions'][number]) => !d.used && (notCollected(d.relative_to) || notCollected(d.feature))
 
-  // 1. Resultado y puntaje.
+  // 1. Result and score.
   fact('resultado', RESULT_TEXT[decision.status])
   let head = `Resultado: ${RESULT_TEXT[decision.status]}`
   if (decision.score !== null) {
@@ -140,7 +139,7 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
     if (regimeText) fact('regimen_fiscal', regimeText)
     sentences.push(`El titular es ${holder}${regimeText ? ` (${regimeText})` : ''}.`)
   }
-  // Lo que dijo el dueño al aclarar (ADR 0050): queda dicho para quien revisa.
+  // What the owner said when clarifying: stays on record for the reviewer.
   const declared = decision.profile.inputs.declarations
   if (declared.account_use !== null) {
     fact('uso_de_la_cuenta', ACCOUNT_USE_TEXT[declared.account_use])
@@ -168,9 +167,9 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
   }
   if (decision.limit !== null && (decision.status === 'qualified' || decision.status === 'qualified_with_limit')) {
     fact('linea', decision.limit)
-    // Con monto pedido se aprueba el monto si cabe en la línea; si no, la línea (ADR 0053). El monto va
-    // como hecho para que el filtro de cifras lo permita. Si se evaluó con la línea máxima, el monto del
-    // perfil es esa línea, no una petición del proveedor.
+    // With a requested amount, the amount is approved if it fits the line; otherwise the line. The
+    // amount goes in as a fact so the figures filter allows it. If evaluated at the maximum line,
+    // the profile amount is that line, not a provider request.
     const requested = codes.has('evaluated_at_max_line') ? null : (request?.amount ?? null)
     if (requested === null) sentences.push(`La línea aprobada es de ${pesos(decision.limit)}.`)
     else {
@@ -183,7 +182,7 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
     }
   }
 
-  // 2. El flujo del periodo, si se conoce.
+  // 2. Period cash flow, if known.
   const income = num(decision, 'operating_income_monthly')
   const expenses = num(decision, 'operating_expenses_monthly')
   const debt = num(decision, 'debt_service_monthly')
@@ -218,7 +217,7 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
     if (ctx.holderType === 'individual' || ctx.holderType === 'individual_with_business_activity') sentences.push('Como es persona física, los gastos y créditos personales de la cuenta cuentan en ese flujo.')
   }
 
-  // 3. Compuertas que fallaron o no se pudieron evaluar.
+  // 3. Gates that failed or could not be evaluated.
   const failed = decision.evaluation.gates.filter((g) => g.outcome === 'fail')
   for (const g of failed) {
     fact(`compuerta_${g.id}_valor`, typeof g.value === 'number' || typeof g.value === 'string' || typeof g.value === 'boolean' ? g.value : g.value === null ? null : JSON.stringify(g.value))
@@ -227,7 +226,7 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
   }
   const unknownGates = decision.evaluation.gates.filter((g) => g.outcome === 'unknown' && g.effect !== 'none')
   if (unknownGates.length > 0) sentences.push(`No se pudo comprobar ${listEs(unknownGates.map((g) => lowerFirst(featureLabel(g.feature))))}.`)
-  // La antigüedad como advertencia del tenant (ADR 0049): no cambia el resultado, pero se dice.
+  // Age as a tenant warning: it does not change the result, but it is stated.
   if (codes.has(DOCUMENT_AGE_WARNING)) {
     const age = num(decision, 'document_age_days')
     if (age !== null) {
@@ -236,7 +235,7 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
     } else sentences.push('Aviso: no se pudo calcular la antigüedad del estado de cuenta; se analizó igual.')
   }
 
-  // 4. Dimensiones: las que suman poco y las que no tienen dato.
+  // 4. Dimensions: those that add little and those with no data.
   const low = decision.evaluation.dimensions.filter((d) => d.used && d.normalized !== null && d.normalized < 0.5)
   for (const d of low) {
     if (d.value !== null) fact(`dimension_${d.id}`, d.value)
@@ -247,10 +246,10 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
   const missing = decision.evaluation.dimensions.filter((d) => !d.used && !byDesign(d))
   if (missing.length > 0) sentences.push(`No suman puntos por falta de datos: ${listEs(missing.map((d) => dimensionLabel(d)))}.`)
   const skipped = decision.evaluation.dimensions.filter(byDesign)
-  // El monto ya se explicó arriba (línea máxima o ningún monto): aquí solo lo demás, como el comprador.
+  // The amount was explained above (maximum line or no amount): here only the rest, like the buyer.
   const skippedOther = skipped.filter((d) => d.relative_to !== 'requested_amount')
   if (skippedOther.length > 0) sentences.push(`No se evaluaron ${listEs(skippedOther.map((d) => dimensionLabel(d)))}, porque la solicitud no indica a quién se facturó.`)
-  // Una sola lista de dimensiones, con un nombre cada una, para que el redactor no las duplique.
+  // A single dimension list, one name each, so the writer does not duplicate them.
   fact(
     'dimensiones',
     decision.evaluation.dimensions
@@ -258,18 +257,18 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
       .join('; '),
   )
 
-  // 5. Topes que bajaron el resultado (si no califica, no cambian nada y no se mencionan).
+  // 5. Caps that lowered the result (if it does not qualify they change nothing and are not mentioned).
   const caps = decision.evaluation.caps.filter((c) => c.applied)
   if (caps.length > 0 && decision.status !== 'not_qualified') {
     const why = caps.map((c) => (notCollected(c.feature) ? 'no indicar el comprador' : lowerFirst(featureLabel(c.feature))))
     sentences.push(`Además, la política limita el resultado a "${RESULT_TEXT[caps[0]?.max_status ?? 'qualified_with_limit']}" por ${listEs(why)}.`)
   }
 
-  // 6. Lo que falta aclarar.
+  // 6. What remains to clarify.
   if (decision.clarification !== null) sentences.push(`Falta aclarar con el proveedor ${listEs(decision.clarification.topics.map((t) => ASK_LABEL[t] ?? t))}.`)
 
-  // Los motivos del motor van como hecho: sus cifras se pueden citar y dan contexto al redactor. Sin
-  // los de lo no evaluado por diseño, y con el mismo nombre de dimensión que la lista de arriba.
+  // Engine reasons go in as a fact: their figures can be cited and give the writer context. Without
+  // those of what is not evaluated by design, and with the same dimension name as the list above.
   const skippedCodes = new Set(skipped.map((d) => `dimension_${d.id}_without_data`))
   const motives = decision.reasons
     .filter((r) => !skippedCodes.has(r.code) && !(r.code.startsWith('cap_') && r.features.every((f) => notCollected(f))))

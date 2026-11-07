@@ -43,7 +43,7 @@ describe('salidas de evaluate', () => {
   })
 })
 
-/** Lector mínimo de CSV (RFC 4180) para comprobar que lo escrito se lee de vuelta tal cual. */
+/** Minimal CSV reader (RFC 4180) to check that what was written reads back as is. */
 function parseCsv(text: string): string[][] {
   const rows: string[][] = []
   let row: string[] = []
@@ -130,7 +130,7 @@ describe('resumen plano de la extracción (extraction-summary.csv)', () => {
     expect(back).toHaveLength(2)
     expect(back.map((r) => r.holder_name)).toEqual(['Comercial "El Sol", S.A. de C.V.', 'Comercial "El Sol", S.A. de C.V.'])
     expect(back.map((r) => r.account_number)).toEqual(['65-XXXX-4', '0123, 4567'])
-    // Cada fila lleva todas las columnas: el CSV no se desalinea con valores que traen coma.
+    // Every row carries all the columns: the CSV does not misalign with values that contain a comma.
     expect(parseCsv(csv).every((r) => r.length === COLUMNS.length)).toBe(true)
   })
 
@@ -150,7 +150,8 @@ describe('resumen plano de la extracción (extraction-summary.csv)', () => {
     if (!period) throw new Error('el sintético no trae periodo')
     const sparse = StatementExtraction.parse({ ...s, bank_name: { ...s.bank_name, value: null }, accounts: [{ ...first, clabe: { ...first.clabe, value: null }, periods: [{ ...period, summary: { ...period.summary, total_credits: { ...period.summary.total_credits, value: null, source: null, verification: 'unverified' as const } } }] }] })
     const [row] = asRecords(extractionSummaryCsv(extractionSummaryRows(sparse)))
-    // Sin banco leído, queda lo que dijo el clasificador; el total que no se imprimió, vacío (no la suma de los movimientos).
+    // With no bank read, what the classifier said stays; the total that was not printed is empty
+    // (not the sum of the transactions).
     expect(row).toMatchObject({ bank: 'BANCO FICTICIO', clabe: '', total_credits: '', total_debits: '0.00', reconciled: 'false', cfdi_uuid: '' })
   })
 

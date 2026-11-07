@@ -1,7 +1,7 @@
 /**
- * PDF con contraseña (ADR 0049): se detecta sin abrir el documento cuando no está cifrado, se
- * distingue la contraseña de apertura de las restricciones de permisos, y la extracción falla con su
- * motivo propio sin llamar a ningún modelo.
+ * Password-protected PDF: encryption is detected without opening the document, the open password
+ * is told apart from permission restrictions, and extraction fails with its own reason without
+ * calling any model.
  */
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,7 +24,7 @@ const write = (name: string, bytes: Buffer) => {
   return path
 }
 
-describe('PDF con contraseña (ADR 0049)', () => {
+describe('PDF con contraseña', () => {
   it('la llave /Encrypt del trailer delata el cifrado; /EncryptMetadata sola no', () => {
     expect(hasEncryptDictionary(plain)).toBe(false)
     expect(hasEncryptDictionary(restricted)).toBe(true)

@@ -1,21 +1,20 @@
 /**
- * Doble lectura del encabezado en documentos sin texto local (docs/04 §3.6, ADR 0011).
+ * Header double read for documents with no local text.
  *
- * En la ruta `vision_only` no hay capa de texto contra la cual comprobar los valores citados del
- * resumen (titular, RFC, cuenta, CLABE, periodo, saldos y totales): todos quedan `unverified` y
- * la antigüedad del estado de cuenta ni siquiera se puede calcular. La segunda lectura repite la
- * pasada 1 (mismo prompt, mismo esquema) con el modelo de la otra familia (`plan.doubleRead`, a
- * `effort` medio) y compara campo por campo:
+ * On the `vision_only` route there is no text layer to check the cited summary values against
+ * (holder, RFC, account, CLABE, period, balances, totals): all stay `unverified` and the
+ * statement's age cannot even be computed. The second read repeats pass 1 (same prompt, same
+ * schema) with a model from the other family (`plan.doubleRead`, medium `effort`) and compares
+ * field by field:
  *
- * - coinciden → `verified` (la fuente sigue siendo la cita de la primera lectura);
- * - difieren → `conflict` y el issue `header_read_conflict`;
- * - el segundo no lo leyó → queda como estaba.
+ * - they agree -> `verified` (the source stays the first read's quote);
+ * - they differ -> `conflict` and the `header_read_conflict` issue;
+ * - the second did not read it -> left as it was.
  *
- * Si la segunda lectura falla (proveedor caído, sin llave, sin respuesta en caché) el documento se
- * entrega como antes, con un issue informativo. Un valor que ya está verificado contra el texto
- * (HSBC con la capa EBCDIC reparada) no se vuelve a juzgar: la comparación contra el texto es más
- * fuerte que una segunda lectura. Los validadores de formato y el cuadre aritmético corren después
- * en `extract.ts` y mandan sobre este resultado.
+ * If the second read fails (provider down, no key, no cached response) the document ships as
+ * before, with an informational issue. A value already verified against the text (HSBC with its
+ * repaired EBCDIC layer) is not judged again: matching the text beats a second read. Format
+ * validators and the arithmetic balance check run afterwards in `extract.ts` and override this.
  */
 import type { TokenUsage } from '@gow/contracts'
 import { LlmCallError, type Effort, type Limiter, type PdfInput, type StructuredLlm } from '@gow/llm'
@@ -26,7 +25,7 @@ import { normalizeText } from './normalize.ts'
 import type { PageText } from './page-text.ts'
 import { supportsServerFallback } from './router.ts'
 
-/** Los valores del encabezado que se comparan; el resto del resumen (producto, comisiones...) no. */
+/** Header values that get compared; the rest of the summary (product, fees...) is not. */
 export const COMPARED_FIELDS = [
   'bank_name',
   'holder_name',
@@ -49,47 +48,47 @@ export type Agreement = 'agree' | 'disagree' | 'only_first'
 
 export interface FieldReading {
   field: ComparedField
-  /** Posición de la cuenta y del periodo en `summary.accounts`; null donde el campo no es de ese nivel. */
+  /** Index of the account/period in `summary.accounts`; null when the field is not at that level. */
   account: number | null
   period: number | null
   status: Agreement
-  /** Valores ya normalizados como los deja `assembleSummary` (fechas ISO, montos como número). */
+  /** Values normalized as `assembleSummary` leaves them (ISO dates, amounts as numbers). */
   first: string | number
   second: string | number | null
 }
 
 export type HeaderDoubleRead =
   | { status: 'done'; model: string; readings: FieldReading[] }
-  /** No hacía falta o no había con qué: sin llamada y sin aviso. */
+  /** Not needed or nothing to compare with: no call and no notice. */
   | { status: 'skipped' }
-  /** No se pudo: el documento sigue como hoy y se avisa con un issue informativo. */
+  /** Could not run: the document stays as is and an informational issue is raised. */
   | { status: 'failed'; reason: string }
 
 export const DOUBLE_READ_EFFORT: Effort = 'medium'
 const DOUBLE_READ_MAX_OUTPUT_TOKENS = 16_000
-/** Un campo que coincide en las dos lecturas sin texto local: menos que una cita comprobada en la página (0.95). */
+/** Confidence for a field both no-text reads agree on: below a quote checked on the page (0.95). */
 const AGREED_CONFIDENCE = 0.9
 const CONFLICT_CONFIDENCE = 0.3
 
 type RecordedCall = { model: string; usage: TokenUsage; costUsd: number; latencyMs: number; responseCacheHit: boolean }
 
 export interface HeaderDoubleReadOptions {
-  /** Texto local del PDF; solo sirve para normalizar las dos lecturas igual que la primera. */
+  /** Local PDF text; only used to normalize both reads the same way as the first. */
   text: PageText
-  /** Modelo de la segunda lectura (`plan.doubleRead`). */
+  /** Model for the second read (`plan.doubleRead`). */
   model: string
-  /** Modelo que hizo la pasada 1: si es el mismo, la segunda lectura no sería una segunda opinión. */
+  /** Model that did pass 1: if it is the same, the second read would not be a second opinion. */
   firstModel: string
   system: string
-  /** El mismo texto que se le dio a la pasada 1, nota de visión incluida. */
+  /** The same text pass 1 got, vision note included. */
   instruction: string
   promptVersion: string
   limit: Limiter
-  /** `record` de `extract.ts`: deja la llamada en `extraction.calls` con su costo y su acierto de caché. */
+  /** `record` from `extract.ts`: logs the call in `extraction.calls` with its cost and cache hit. */
   record: (purpose: string, prompt: string | null, effort: Effort | null, pages: number[], r: RecordedCall) => void
 }
 
-// ---------------------------------------------------------------- campos del resumen
+// ---------------------------------------------------------------- summary fields
 
 type Kind = 'bank' | 'holder' | 'id' | 'date' | 'amount' | 'count'
 
@@ -98,7 +97,7 @@ interface Slot {
   kind: Kind
   account: number | null
   period: number | null
-  /** El objeto que contiene el campo y su llave, para leerlo y reemplazarlo. */
+  /** The object holding the field and its key, to read and replace it. */
   parent: Record<string, unknown>
   key: string
 }
@@ -113,7 +112,7 @@ const PERIOD_NUMBERS = [
   ['debits_count', 'count'],
 ] as const
 
-/** Todos los campos comparables de un resumen, con su lugar. El orden y los índices son los de `assembleSummary`. */
+/** Every comparable field of a summary, with its location, in `assembleSummary` order and indexes. */
 function slotsOf(s: AssembledSummary): Slot[] {
   const out: Slot[] = []
   const add = (field: ComparedField, kind: Kind, account: number | null, period: number | null, parent: object, key: string) => {
@@ -136,7 +135,7 @@ function slotsOf(s: AssembledSummary): Slot[] {
 const fieldOf = (slot: Slot) => slot.parent[slot.key] as FieldOf<string | number>
 const slotKey = (field: string, account: number | null, period: number | null) => `${field}|${String(account)}|${String(period)}`
 
-/** JSON Pointer del campo dentro de la extracción (`Issue.path`). */
+/** JSON Pointer of the field within the extraction (`Issue.path`). */
 function pointerOf(r: Pick<FieldReading, 'field' | 'account' | 'period'>): string {
   if (r.account === null) return r.field === 'bank_name' ? '/bank_name' : `/holder/${r.field === 'holder_name' ? 'name' : 'rfc'}`
   const base = `/accounts/${String(r.account)}`
@@ -145,7 +144,7 @@ function pointerOf(r: Pick<FieldReading, 'field' | 'account' | 'period'>): strin
   return `${base}/periods/${String(r.period)}${inSummary ? '/summary' : ''}/${r.field}`
 }
 
-// ---------------------------------------------------------------- comparación
+// ---------------------------------------------------------------- comparison
 
 const LABEL: Record<ComparedField, string> = {
   bank_name: 'el nombre del banco',
@@ -166,7 +165,7 @@ const LABEL: Record<ComparedField, string> = {
 
 const alnum = (s: string) => normalizeText(s).replace(/[^a-z0-9]/g, '')
 
-/** ¿Es el mismo valor impreso? Tolera acentos, puntuación y espacios; no tolera un dígito distinto. */
+/** Same printed value? Tolerates accents, punctuation and spacing; not a different digit. */
 function sameValue(kind: Kind, a: string | number, b: string | number): boolean {
   switch (kind) {
     case 'amount':
@@ -179,7 +178,7 @@ function sameValue(kind: Kind, a: string | number, b: string | number): boolean 
     case 'holder':
       return alnum(String(a)) === alnum(String(b))
     case 'bank': {
-      // El banco se imprime con o sin su razón social completa: uno contenido en el otro es el mismo.
+      // The bank prints with or without its full legal name: one contained in the other is the same.
       const x = alnum(String(a))
       const y = alnum(String(b))
       const [short, long] = x.length <= y.length ? [x, y] : [y, x]
@@ -188,7 +187,7 @@ function sameValue(kind: Kind, a: string | number, b: string | number): boolean 
   }
 }
 
-/** Empareja por `ref` (A1, A1-P1); si el segundo les puso otros nombres pero hay las mismas, por posición. */
+/** Pairs by `ref` (A1, A1-P1); if the second renamed them but the counts match, pairs by position. */
 function matchByRef(first: readonly string[], second: readonly string[]): Map<number, number> {
   const norm = (r: string) => r.trim().toLowerCase()
   const matches = new Map<number, number>()
@@ -201,8 +200,8 @@ function matchByRef(first: readonly string[], second: readonly string[]): Map<nu
 }
 
 /**
- * Compara dos lecturas del mismo resumen. Solo juzga los campos que la primera leyó y que no están
- * ya verificados; lo que solo leyó la segunda no es un dato que verificar.
+ * Compares two reads of the same summary. Only judges fields the first read produced and that are
+ * not already verified; a field only the second read produced has nothing to verify.
  */
 export function compareHeaders(firstOut: SummaryOut, secondOut: SummaryOut, text: PageText): FieldReading[] {
   const first = assembleSummary(firstOut, text)
@@ -227,7 +226,7 @@ export function compareHeaders(firstOut: SummaryOut, secondOut: SummaryOut, text
   return readings
 }
 
-// ---------------------------------------------------------------- segunda lectura
+// ---------------------------------------------------------------- second read
 
 function errorText(err: unknown): string {
   if (err instanceof LlmCallError) return `${err.code}: ${err.message}`
@@ -235,8 +234,8 @@ function errorText(err: unknown): string {
 }
 
 /**
- * Repite la pasada 1 con otro modelo y compara. No lanza: ante cualquier falla devuelve
- * `failed` y la extracción sigue como si no se hubiera intentado.
+ * Repeats pass 1 with another model and compares. Never throws: on any failure it returns
+ * `failed` and the extraction continues as if it had not been attempted.
  */
 export async function headerDoubleRead(deps: { llm: StructuredLlm }, summaryOut: SummaryOut, pdfInput: PdfInput, opts: HeaderDoubleReadOptions): Promise<HeaderDoubleRead> {
   const pending = slotsOf(assembleSummary(summaryOut, opts.text)).some((s) => {
@@ -244,8 +243,8 @@ export async function headerDoubleRead(deps: { llm: StructuredLlm }, summaryOut:
     return f.value !== null && f.verification !== 'verified'
   })
   if (!pending) return { status: 'skipped' }
-  // Con el mismo modelo, mismo prompt y mismo effort la caché devolvería la primera respuesta y el
-  // "acuerdo" no probaría nada; con otro effort seguiría siendo la misma opinión.
+  // Same model, prompt and effort would hit the cache and return the first answer, so the
+  // "agreement" would prove nothing; a different effort would still be the same opinion.
   if (opts.model === opts.firstModel) return { status: 'failed', reason: `el modelo de la segunda lectura es el mismo que leyó primero (${opts.model})` }
   try {
     const res = await opts.limit(() =>
@@ -272,8 +271,8 @@ export async function headerDoubleRead(deps: { llm: StructuredLlm }, summaryOut:
 }
 
 /**
- * Aplica el resultado al resumen ensamblado de la primera lectura y deja los issues. Devuelve true
- * si la segunda lectura se hizo (bandera `header_double_read`).
+ * Applies the result to the first read's assembled summary and records the issues. Returns true
+ * if the second read happened (flag `header_double_read`).
  */
 export function applyHeaderDoubleRead(read: HeaderDoubleRead, summary: AssembledSummary, issues: IssueSink): boolean {
   if (read.status === 'skipped') return false
@@ -287,7 +286,7 @@ export function applyHeaderDoubleRead(read: HeaderDoubleRead, summary: Assembled
     if (!slot || r.status === 'only_first') continue
     const f = fieldOf(slot)
     if (r.status === 'agree') {
-      // Un valor extraído verificado debe citar su fuente (contrato): sin cita no hay con qué respaldarlo.
+      // A verified extracted value must cite its source (contract): without a quote nothing backs it.
       if (f.source !== null) slot.parent[slot.key] = { ...f, verification: 'verified', confidence: Math.max(f.confidence, AGREED_CONFIDENCE) }
       continue
     }

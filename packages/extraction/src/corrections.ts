@@ -1,12 +1,12 @@
 /**
- * Correcciones del analista sobre una extracción (docs/08 §2, ADR 0020). La extracción guardada es
- * inmutable: las correcciones viven aparte y se aplican en lectura, tanto para mostrar el
- * documento corregido como para reevaluar. Aplicar una corrección:
- * - pone el valor, `verified`, confianza 1 y procedencia `analyst_answer` (el motor lo trata como
- *   un dato confirmado por una persona, no como uno leído por un modelo);
- * - recalcula el cuadre de los periodos tocados con la misma función de la extracción, para que
- *   `integrity_ok` y las banderas reflejen la cifra corregida y no la leída.
- * Código puro: sin modelos, sin base.
+ * Analyst corrections over an extraction. The stored extraction is immutable: corrections live
+ * apart and are applied on read, both to show the corrected document and to re-evaluate.
+ * Applying one:
+ * - sets the value, `verified`, confidence 1 and provenance `analyst_answer` (the engine treats
+ *   it as confirmed by a person, not read by a model);
+ * - recomputes the balance check of touched periods with the extraction's own function, so
+ *   `integrity_ok` and the flags reflect the corrected figure, not the one read.
+ * Pure code: no models, no database.
  */
 import { checkClabe, checkCorrectionValue, checkRfc, correctionValueKind, type CorrectionInput, type CorrectionTarget, type Period, type StatementExtraction } from '@gow/contracts'
 import { round2 } from './normalize.ts'
@@ -44,7 +44,7 @@ function locate(x: StatementExtraction, target: CorrectionTarget) {
   throw new CorrectionError(target.kind === 'period' ? `no existe el periodo ${target.period_id}` : `no existe el movimiento ${target.transaction_id}`)
 }
 
-/** El valor que hoy tiene el blanco, para guardarlo como "valor leído". */
+/** The value the blank holds today, kept as the "read value". */
 export function readValue(x: StatementExtraction, target: CorrectionTarget): Value | null {
   const at = locate(x, target)
   if (target.kind === 'holder' && at.holder) return at.holder[target.field].value

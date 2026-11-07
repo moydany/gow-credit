@@ -1,16 +1,16 @@
 /**
- * Preguntas al dueño a partir del veredicto (docs/03 §7). El motor dice qué temas preguntar;
- * aquí se arma una pregunta por tema (una por abono en `deposit_classification` y una por cargo en
- * `charge_classification`) con los hechos que puede citar, las respuestas posibles y un texto de
- * plantilla que siempre pasa el filtro de cifras. El modelo redacta después sobre estos mismos
- * hechos (writer.ts).
+ * Questions to the owner from the verdict. The engine says which topics to ask about; here one
+ * question per topic is built (one per deposit in `deposit_classification` and one per charge in
+ * `charge_classification`) with the facts it may cite, the possible answers and template text
+ * that always passes the figures filter. The model then writes it up over those same facts
+ * (writer.ts).
  */
 import type { AskTopic, Decision, GateEvaluation, Question, QuestionFact, StatementExtraction, TransactionRef } from '@gow/contracts'
 import { buildLedger, CHARGE_DEBT_CONFIDENCE_TO_TRUST, LOAN_CONFIDENCE_TO_TRUST, type LedgerRow } from '@gow/decision'
 import { z } from 'zod'
 import { pesos, spanishDate } from './figures.ts'
 
-/** Abonos que se preguntan cuando el motor pide aclarar la clasificación sin señalar movimientos. */
+/** Deposits asked about when the engine wants classification clarified without naming transactions. */
 const FALLBACK_DEPOSITS = 5
 
 export const DEPOSIT_OPTIONS: Question['options'] = [
@@ -21,7 +21,7 @@ export const DEPOSIT_OPTIONS: Question['options'] = [
   { value: 'other', label: 'Otra cosa' },
 ]
 
-/** Cargos dudosos (ADR 0050). "Gasto personal" se guarda como `other`; ver `CHARGE_CATEGORY`. */
+/** Doubtful charges. "Gasto personal" is stored as `other`; see `CHARGE_CATEGORY`. */
 export const CHARGE_OPTIONS: Question['options'] = [
   { value: 'loan_payment', label: 'Pago de un crédito o préstamo' },
   { value: 'supplier_payment', label: 'Pago a un proveedor o gasto del negocio' },
@@ -30,13 +30,13 @@ export const CHARGE_OPTIONS: Question['options'] = [
   { value: 'other', label: 'Otra cosa' },
 ]
 
-/** Uso de la cuenta de una persona física (ADR 0050). */
+/** Account use of an individual. */
 export const ACCOUNT_USE_OPTIONS: Question['options'] = [
   { value: 'business_only', label: 'Solo para mi negocio' },
   { value: 'mixed', label: 'Para mi negocio y también gastos personales' },
 ]
 
-/** Primero lo que se contesta por chat (movimientos, cliente, uso de la cuenta); después datos y documentos. */
+/** First what is answered over chat (transactions, customer, account use); then data and documents. */
 const TOPIC_ORDER: readonly AskTopic[] = [
   'deposit_classification',
   'charge_classification',
@@ -66,7 +66,7 @@ function txRows(statements: readonly StatementExtraction[], refs: readonly Trans
   return out
 }
 
-/** Movimientos dudosos de un sentido, de mayor a menor, cuando el motor pide el tema sin señalarlos. */
+/** Doubtful transactions in one direction, largest first, when the engine asks without naming them. */
 function uncertainRows(statements: readonly StatementExtraction[], decision: Decision, type: 'credit' | 'debit'): TransactionRef[] {
   const min = decision.profile.parameters.min_classification_confidence
   const ledger = buildLedger(statements, { request: decision.profile.inputs.request, minConfidence: min, accountUse: decision.profile.inputs.declarations.account_use })
@@ -119,7 +119,7 @@ function chargeQuestion(id: string, row: TxRow): Question {
   }
 }
 
-/** Texto libre: el nombre se busca en los abonos del estado de cuenta (ADR 0050). */
+/** Free text: the name is looked up among the statement's deposits. */
 function buyerQuestion(id: string): Question {
   return {
     id,
@@ -154,7 +154,7 @@ function latestStatementDate(decision: Decision): string | null {
   return asOf.toISOString().slice(0, 10)
 }
 
-/** La identidad se verifica con nombre y RFC; la CLABE no se pregunta (ADR 0044). */
+/** Identity is verified with name and RFC; the CLABE is not asked. */
 type IdentityField = 'name' | 'rfc'
 const IDENTITY_FIELDS: readonly IdentityField[] = ['name', 'rfc']
 const FIELD_LABEL: Record<IdentityField, string> = { name: 'el nombre del titular', rfc: 'el RFC' }
@@ -164,9 +164,9 @@ function listEs(items: readonly string[]): string {
 }
 
 /**
- * Pregunta de identidad que dice qué coincidió, qué no y qué no se pudo comparar, y pide solo lo que
- * falta (ADR 0043). La evidencia del cotejo viene como `<doc>:<campo>=<resultado>`. Sin evidencia
- * (no hay proveedor registrado contra el cual comparar), la pregunta pide nombre y RFC.
+ * Identity question saying what matched, what did not and what could not be compared, and asking
+ * only for what is missing. The cross-check evidence comes as `<doc>:<field>=<result>`. Without
+ * evidence (no registered provider to compare against), the question asks for name and RFC.
  */
 export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>, decision: Decision): Question {
   const evidence = decision.profile.features.identity_match.evidence
@@ -208,7 +208,7 @@ export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>
   }
 }
 
-/** La primera página impresa que falta y el total de páginas, del issue `page_missing` de la extracción. */
+/** First missing printed page and the total pages, from the extraction's `page_missing` issue. */
 const PageMissingDetails = z.object({ missing: z.array(z.int().positive()).min(1), total: z.int().positive() })
 
 function firstMissingPage(statements: readonly StatementExtraction[]): { page: number; total: number } | null {
@@ -222,9 +222,9 @@ function firstMissingPage(statements: readonly StatementExtraction[]): { page: n
 }
 
 /**
- * Páginas faltantes (robustez documental, sección W): pide el PDF completo. Con el hueco conocido lo
- * dice con un ejemplo ("la 2 de 3"); sin él, solo que faltan páginas. En WhatsApp el PDF nuevo es la
- * respuesta (`isDocumentRequest` en `@gow/channels`); en standalone entra por `--answers`.
+ * Missing pages: asks for the complete PDF. With a known gap it gives an example (page 2 of 3);
+ * without, only that pages are missing. On WhatsApp the new PDF is the answer
+ * (`isDocumentRequest` in `@gow/channels`); in standalone it comes in through `--answers`.
  */
 function missingPagesQuestion(base: Pick<Question, 'id' | 'topic' | 'transaction' | 'options' | 'text_source'>, gap: { page: number; total: number } | null): Question {
   const example = gap ? ` (por ejemplo la ${String(gap.page)} de ${String(gap.total)})` : ''
@@ -271,12 +271,12 @@ function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classificat
     case 'missing_pages':
       return missingPagesQuestion(base, firstMissingPage(statements))
     case 'statement_with_address':
-      // Sin cifras ni datos del documento: solo se pide otro PDF (ADR 0066).
+      // No figures or document data: it only asks for another PDF.
       return { ...base, kind: 'documents', facts: [], text: 'El estado de cuenta que mandaste no trae tu domicilio. ¿Nos mandas uno que sí lo traiga? Suele venir en la primera página, junto a tu nombre.' }
   }
 }
 
-/** Preguntas para un veredicto `needs_clarification`. Vacío si no hay nada concreto que preguntar. */
+/** Questions for a `needs_clarification` verdict. Empty if there is nothing concrete to ask. */
 export function buildQuestions(decision: Decision, statements: readonly StatementExtraction[]): Question[] {
   const c = decision.clarification
   if (decision.status !== 'needs_clarification' || c === null) return []

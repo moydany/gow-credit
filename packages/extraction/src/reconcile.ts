@@ -1,15 +1,15 @@
 /**
- * Verificación aritmética de un periodo (docs/04 §3, puntos 1 a 3). Código puro: no sabe de
- * modelos ni de PDFs. Un estado de cuenta se auto-verifica: una fila inventada, omitida o
- * con el sentido invertido rompe el saldo corrido exactamente donde ocurrió.
+ * Arithmetic check of a period. Pure code: knows nothing of models or PDFs. A statement checks
+ * itself: an invented, omitted or sign-flipped row breaks the running balance exactly where it
+ * happened.
  */
 import type { Period, Reconciliation, Transaction } from '@gow/contracts'
 import { round2 } from './normalize.ts'
 
 export const GLOBAL_TOLERANCE = 1
-/** Fila por fila la aritmética es exacta salvo redondeo. */
+/** Row by row the arithmetic is exact apart from rounding. */
 export const ROW_TOLERANCE = 0.011
-/** Una fórmula de cuadre alternativa (sin traspasos internos o con conceptos no detallados) solo se acepta exacta. */
+/** Alternative balance formulas (no internal transfers, undetailed items) must match exactly. */
 export const EXACT_TOLERANCE = 0.011
 
 export interface PrintedSummary {
@@ -19,7 +19,7 @@ export interface PrintedSummary {
   totalDebits: number | null
   creditsCount: number | null
   debitsCount: number | null
-  /** Conceptos que el banco puede imprimir en el resumen sin detallarlos como movimiento. */
+  /** Items the bank may print in the summary without listing them as transactions. */
   interestEarned?: number | null
   feesCharged?: number | null
   taxWithheld?: number | null
@@ -27,14 +27,14 @@ export interface PrintedSummary {
 
 export interface RowCheck {
   transactionId: string
-  /** null si la fila no trae saldo impreso. */
+  /** null if the row prints no balance. */
   ok: boolean | null
 }
 
 export interface PeriodReconciliation {
   reconciliation: Reconciliation
   rows: RowCheck[]
-  /** Orden en que se verificó el saldo corrido. */
+  /** Order in which the running balance was verified. */
   order: 'printed' | 'reversed' | null
 }
 
@@ -56,10 +56,10 @@ interface ChainResult {
 }
 
 /**
- * Saldo corrido con tolerancia al orden dentro del mismo día: algunos bancos aplican los
- * movimientos de un día en un orden distinto al impreso (Fondeadora lista intereses e ISR al
- * final con saldos de antes del último depósito). Dentro de cada fecha se aplica primero la
- * fila que encadena con el saldo anterior; si ninguna encadena, la primera impresa rompe.
+ * Running balance tolerant of same-day order: some banks apply a day's transactions in an order
+ * different from the printed one (Fondeadora lists interest and ISR last, with balances from
+ * before the last deposit). Within each date the row that chains with the previous balance is
+ * applied first; if none chains, the first printed one breaks.
  */
 function runChain(txs: readonly Transaction[], opening: number | null): ChainResult {
   const result = new Map<string, boolean | null>()
@@ -76,7 +76,7 @@ function runChain(txs: readonly Transaction[], opening: number | null): ChainRes
       return
     }
     if (prev === null) {
-      // Sin saldo inicial: la primera fila con saldo fija el punto de partida.
+      // No opening balance: the first row with a balance sets the starting point.
       result.set(t.id, null)
       prev = t.balance
       return
@@ -87,7 +87,7 @@ function runChain(txs: readonly Transaction[], opening: number | null): ChainRes
     const ok = Math.abs(diff) <= ROW_TOLERANCE
     result.set(t.id, ok)
     if (!ok) breaks.push({ transaction_id: t.id, page: t.source.page, expected_balance: expected, printed_balance: t.balance, difference: diff })
-    // Se resincroniza con el saldo impreso para que un error no se propague a todas las filas.
+    // Resync with the printed balance so an error does not propagate to every row.
     prev = t.balance
   }
 
@@ -98,7 +98,7 @@ function runChain(txs: readonly Transaction[], opening: number | null): ChainRes
     while (j < txs.length && txs[j]?.date === date) j++
     const group = txs.slice(i, j)
     const pending = [...group]
-    // Con filas sin saldo en el día no se puede reordenar con seguridad: orden impreso.
+    // With rows lacking a balance on the day it cannot be safely reordered: printed order.
     const reorderable = group.length > 1 && group.every((t) => t.balance !== null)
     while (pending.length > 0) {
       let k = 0
@@ -131,7 +131,7 @@ function sums(txs: readonly Transaction[]): Sums {
   return { credits: round2(cr.reduce((s, t) => s + t.amount, 0)), debits: round2(db.reduce((s, t) => s + t.amount, 0)), nCredits: cr.length, nDebits: db.length }
 }
 
-/** Combinaciones de conceptos del resumen no detallados que pueden entrar al cuadre. */
+/** Combinations of undetailed summary items that may enter the balance check. */
 function adjustmentSets(p: PrintedSummary): Adjustment[][] {
   const parts: Adjustment[] = []
   if (p.interestEarned) parts.push({ item: 'interest_earned', amount: p.interestEarned })
@@ -145,7 +145,8 @@ function adjustmentSets(p: PrintedSummary): Adjustment[][] {
 export function reconcilePeriod(transactions: readonly Transaction[], printed: PrintedSummary): PeriodReconciliation {
   const all = sums(transactions)
   const hasInternal = transactions.some((t) => t.internal_transfer)
-  // Resumen consolidado (Nu): los traspasos entre la cuenta y sus apartados no son entradas ni salidas.
+  // Consolidated summary (Nu): transfers between the account and its pockets are neither
+  // inflows nor outflows.
   const external = hasInternal ? sums(transactions.filter((t) => !t.internal_transfer)) : null
 
   const global =
@@ -160,7 +161,8 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
           }
           const direct = attempt(all, false, [])
           if (Math.abs(direct.difference) <= GLOBAL_TOLERANCE) return { ...direct, ok: true }
-          // Fórmulas alternativas, solo si cuadran al centavo: una coincidencia exacta con un concepto impreso no es casualidad.
+          // Alternative formulas, only if they balance to the cent: an exact match with a printed
+          // item is no coincidence.
           const bases: [Sums, boolean][] = external ? [[external, true], [all, false]] : [[all, false]]
           for (const [base, excludes] of bases) {
             for (const adj of [[], ...adjustmentSets(printed)]) {
@@ -188,7 +190,8 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
   }
   const pick = (f: (s: Sums) => number) => (external ? [f(all), f(external)] : [f(all)])
 
-  // Saldo corrido: en el orden impreso y, si hay muchas rupturas, al revés (estados que listan del más reciente al más antiguo).
+  // Running balance: in printed order and, if there are many breaks, reversed (statements that
+  // list newest first).
   const withBalance = transactions.filter((t) => t.balance !== null).length
   let running: Reconciliation['running_balance'] = null
   let rows: RowCheck[] = transactions.map((t) => ({ transactionId: t.id, ok: null }))
@@ -211,8 +214,8 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
   }
 
   const checks = [global?.ok ?? null, totals.credits.ok, totals.debits.ok, totals.credits_count.ok, totals.debits_count.ok, running?.ok ?? null].filter((x): x is boolean => x !== null)
-  // El cuadre global exacto con saldo corrido sano manda: una diferencia contra los totales
-  // impresos es de presentación (bancos que no cuentan el ISR o las comisiones en su total).
+  // An exact global balance with a healthy running balance wins: a difference against the printed
+  // totals is a presentation matter (banks that leave ISR or fees out of their total).
   const strong = global?.ok === true && running?.ok !== false
   const status: Reconciliation['status'] = strong
     ? 'reconciled'
@@ -227,12 +230,12 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
   return { reconciliation: { status, tolerance: GLOBAL_TOLERANCE, global, totals, running_balance: running }, rows, order }
 }
 
-/** Páginas donde se rompe el saldo corrido: ahí se reintenta. */
+/** Pages where the running balance breaks: the retry targets them. */
 export function pagesWithBreaks(r: Reconciliation): number[] {
   return [...new Set((r.running_balance?.breaks ?? []).map((b) => b.page))].sort((a, b) => a - b)
 }
 
-/** Puntaje de calidad para elegir entre dos lecturas: menos rupturas y menor descuadre. */
+/** Quality score to pick between two reads: fewer breaks and smaller mismatch. */
 export function reconciliationScore(r: Reconciliation): number {
   const breaks = r.running_balance?.breaks.length ?? 0
   const globalDiff = Math.abs(r.global?.difference ?? 0)
@@ -240,7 +243,7 @@ export function reconciliationScore(r: Reconciliation): number {
   return breaks * 1_000_000 + Math.min(globalDiff + totalsDiff, 999_999)
 }
 
-/** Las cifras impresas de un periodo, tal como las usa el cuadre. */
+/** A period's printed figures, as the balance check uses them. */
 export function printedOf(p: Period) {
   return {
     opening: p.summary.opening_balance.value,

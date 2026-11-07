@@ -1,7 +1,7 @@
 /**
- * El workflow completo con dobles: extracción sintética, sin modelos, libSQL en un archivo
- * temporal. Pausar en una instancia de Mastra y reanudar en otra sobre el mismo archivo es lo que
- * hace `pnpm run evaluate --answers` entre dos invocaciones.
+ * The whole workflow with doubles: synthetic extraction, no models, libSQL in a temp file.
+ * Pausing in one Mastra instance and resuming in another over the same file is what
+ * `pnpm run evaluate --answers` does between two invocations.
  */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -34,47 +34,47 @@ const DOCS: Record<string, StatementExtraction> = {
     'wf2',
   ),
 }
-// Al aclarar el abono grande, otro abono incierto pasa a mover el resultado: segunda ronda (ADR 0051).
+// Clarifying the big deposit makes another uncertain deposit move the result: second round.
 DOCS['dos-rondas.pdf'] = syntheticStatement(
   { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 80000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }, { kind: 'cash_deposit', amount: 150000 }, { kind: 'cash_deposit', amount: 50000 }] },
   holder,
   'wf3',
 )
-// Tres meses sanos con pagos de Cadena Norte; la solicitud no dice el comprador (ADR 0050).
+// Three healthy months with payments from Cadena Norte; the request does not name the buyer.
 DOCS['sin-comprador.pdf'] = syntheticStatement(
   { start: '2026-07-01', months: 3, opening_balance: 400000, monthly: [{ kind: 'customer_payment', amount: 300000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 120000 }] },
   holder,
   'wf3',
 )
 DOCS['factura.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), classification: { document_type: 'invoice', confidence: 0.95, bank: null } }
-// El clasificador se equivocó pero la extracción terminó a medias, o falló por sí misma (ADR 0042, cambios).
+// The classifier got it wrong but the extraction finished halfway, or failed on its own.
 DOCS['factura-parcial.pdf'] = { ...DOCS['factura.pdf'], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'partial' } }
 DOCS['factura-fallida.pdf'] = { ...DOCS['factura.pdf'], accounts: [], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'failed', failure_reason: 'no se obtuvo el resumen del documento (pasada 1)' } }
-// Clasificado como estado de cuenta, pero el extractor puso la bandera después de extraer.
+// Classified as a bank statement, but the extractor set the flag after extracting.
 DOCS['marcado-por-el-extractor.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), flags: ['not_a_bank_statement'] }
-// Lo que devuelve la extracción del modo full cuando corta antes de extraer (ADR 0042).
+// What full-mode extraction returns when it cuts before extracting.
 DOCS['tdc.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), classification: { document_type: 'credit_card_statement', confidence: 1, bank: null }, flags: ['not_a_bank_statement'], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'failed', failure_reason: 'no es un estado de cuenta bancario (credit_card_statement); no se extrajo' } }
 
-// ADR 0049: un PDF con contraseña y uno escaneado que la visión no pudo leer.
+// A password-protected PDF and a scanned one that vision could not read.
 const CLARO = DOCS['claro.pdf'] as StatementExtraction
 DOCS['contrasena.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, accounts: [], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: PDF_PASSWORD_FAILURE } }
 DOCS['escaneado.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, accounts: [], flags: ['vision_only'], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: 'no se obtuvo el resumen del documento (pasada 1)' } }
 DOCS['escaneado-leido.pdf'] = { ...CLARO, document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, flags: ['vision_only'] }
 
-// Varios estados de cuenta en un PDF (robustez documental, sección W). En standalone la extracción se
-// hace y queda la bandera; en el modo full la extracción corta y trae el motivo.
+// Several statements in one PDF. In standalone the extraction happens and the flag stays; in full
+// mode extraction cuts and carries the reason.
 const multipleIssue = (details: Record<string, unknown>) =>
   ({ id: 'i90', code: 'multiple_statements', severity: 'error', message: 'El PDF trae más de un estado de cuenta', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details }) as StatementExtraction['issues'][number]
 DOCS['varios-estados.pdf'] = { ...CLARO, flags: ['multiple_statements'], issues: [multipleIssue({ documents: 3, restarts_at: [4, 8] })] }
 DOCS['varios-estados-sin-issue.pdf'] = { ...CLARO, flags: ['multiple_statements'] }
 DOCS['varios-estados-cortado.pdf'] = { ...CLARO, flags: ['multiple_statements'], issues: [multipleIssue({ documents: 2, restarts_at: [3] })], accounts: [], extraction: { ...CLARO.extraction, status: 'failed', failure_reason: multipleStatementsReason(2) } }
-// Una factura (cortada por el clasificador) que además trae reinicio de paginación: gana el reinicio.
+// An invoice (cut by the classifier) that also has a pagination restart: the restart wins.
 DOCS['varios-estados-y-factura.pdf'] = { ...DOCS['varios-estados-cortado.pdf'], classification: { document_type: 'invoice', confidence: 0.99, bank: null }, flags: ['not_a_bank_statement', 'multiple_statements'] }
-// Escaneado que la visión leyó en parte y cortó por sus dos CFDI: no es "escaneado ilegible".
+// Scanned, partly read by vision and cut by its two CFDI: not "illegible scan".
 DOCS['varios-estados-escaneado.pdf'] = { ...DOCS['varios-estados-cortado.pdf'], document: { ...CLARO.document, text_layer: 'absent', route: 'vision_only' }, flags: ['vision_only', 'multiple_statements'] }
 
-// Página faltante (ADR 0057 y 0058): la compuerta pregunta `missing_pages`; el PDF completo de la respuesta
-// reemplaza al incompleto. Otro sha256 para que no cuente como el mismo documento.
+// Missing page: the gate asks `missing_pages`; the complete PDF in the answer replaces the
+// incomplete one. Different sha256 so it does not count as the same document.
 DOCS['sin-pagina.pdf'] = {
   ...CLARO,
   document: { ...CLARO.document, sha256: 'b'.repeat(64) },
@@ -115,7 +115,7 @@ describe('processApplication', () => {
     expect(channel.sent).toHaveLength(1)
     expect(first.state?.decision?.next_steps.every((s) => s.message !== null)).toBe(true)
 
-    // Otro "proceso": instancia nueva sobre el mismo archivo.
+    // Another "process": a new instance over the same file.
     const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], {
       answers: [{ question_id: q?.id ?? 'q1', kind: 'deposit', category: 'customer_payment', counterparty: null }],
       base_dir: null,
@@ -127,7 +127,7 @@ describe('processApplication', () => {
     expect(second.state?.rounds).toBe(1)
     expect(d?.profile.features.operating_income_monthly.provenance).toBe('owner_answer')
     expect(second.state?.answers).toHaveLength(1)
-    // Lo enviado sobrevive a la reanudación en otro proceso.
+    // What was sent survives resuming in another process.
     expect(second.state?.asked).toEqual(first.state?.questions)
     expect(second.state?.calls).toEqual(first.state?.calls)
   })
@@ -143,7 +143,8 @@ describe('processApplication', () => {
     const second = await resumeApplication(createRuntime(deps(), file), first.runId, first.suspendedStep ?? [], { answers: [{ question_id: q?.id ?? 'q1', kind: 'documents', paths: ['/docs/claro.pdf'] }], base_dir: null })
     expect(second.error).toBeNull()
     expect(second.status).toBe('success')
-    // Solo queda el documento completo: el perfil ya no ve páginas faltantes y el periodo no se duplica.
+    // Only the complete document remains: the profile no longer sees missing pages and the period
+    // is not duplicated.
     expect(second.state?.statements.map((s) => s.document.sha256)).toEqual([CLARO.document.sha256])
     expect(second.state?.documents.map((d) => d.origin)).toEqual(['submitted', 'owner_answer'])
     expect(second.state?.notes.some((n) => n.includes('se reemplazaron por el PDF completo'))).toBe(true)
@@ -152,7 +153,7 @@ describe('processApplication', () => {
     expect(d?.status).not.toBe('needs_clarification')
   })
 
-  it('sin comprador pregunta por el cliente principal y usa la respuesta como comprador (ADR 0050)', async () => {
+  it('sin comprador pregunta por el cliente principal y usa la respuesta como comprador', async () => {
     const file = db()
     const first = await startApplication(createRuntime(deps(), file), input('sin-comprador.pdf', { request: { ...request, buyer: null } }))
     expect(first.status).toBe('suspended')
@@ -183,7 +184,7 @@ describe('processApplication', () => {
     expect(second.state?.asked[0]?.text).toBe('¿Qué fue ese abono?')
   })
 
-  it('cada llamada al modelo dentro del workflow queda atribuida a su solicitud, también al reanudar (ADR 0064)', async () => {
+  it('cada llamada al modelo dentro del workflow queda atribuida a su solicitud, también al reanudar', async () => {
     const file = db()
     const scripted: StructuredLlm = {
       call: (req) => {
@@ -200,7 +201,7 @@ describe('processApplication', () => {
     expect(seen.every((x) => x.scope.applicationId === 'dudoso' && x.scope.tenantId === 't1')).toBe(true)
   })
 
-  it('si el dueño no sabe, no se le pregunta lo mismo en otra ronda: va a revisión humana (ADR 0051)', async () => {
+  it('si el dueño no sabe, no se le pregunta lo mismo en otra ronda: va a revisión humana', async () => {
     const file = db()
     const channel = new MemoryChannel()
     const first = await startApplication(createRuntime(deps(channel), file), input('dudoso.pdf'))
@@ -211,7 +212,7 @@ describe('processApplication', () => {
     expect(channel.sent).toHaveLength(1)
   })
 
-  it('una segunda ronda real: pausa otra vez con lo nuevo, se reanuda en otra instancia y decide (ADR 0051)', async () => {
+  it('una segunda ronda real: pausa otra vez con lo nuevo, se reanuda en otra instancia y decide', async () => {
     const file = db()
     const channel = new MemoryChannel()
     const amountOf = (q: { facts: { name: string; value: unknown }[] } | undefined) => q?.facts.find((f) => f.name === 'monto')?.value
@@ -222,7 +223,7 @@ describe('processApplication', () => {
     expect(second.status).toBe('suspended')
     expect(second.suspendedStep).toEqual(['clarification-loop', 'ask-owner'])
     expect(second.state?.rounds).toBe(1)
-    // Lo nuevo, sin repetir el abono que ya contestó; el canal recibe la ronda 2.
+    // Only the new, without repeating the deposit already answered; the channel gets round 2.
     expect(second.state?.questions.map(amountOf)).toEqual([50000])
     expect(channel.sent.map((m) => m.round)).toEqual([1, 2])
     const third = await resumeApplication(createRuntime(deps(), file), second.runId, second.suspendedStep ?? [], { answers: [{ question_id: 'q1', kind: 'deposit', category: 'customer_payment', counterparty: null }], base_dir: null })
@@ -260,7 +261,7 @@ describe('processApplication', () => {
     expect(r.state?.max_line).toBeNull()
   })
 
-  it('sin monto solicitado calcula la línea máxima y decide con ella (ADR 0045)', async () => {
+  it('sin monto solicitado calcula la línea máxima y decide con ella', async () => {
     const r = await startApplication(createRuntime(deps(), db()), input('claro.pdf', { request: { ...request, amount: null } }))
     const line = r.state?.max_line?.amount ?? 0
     expect(line).toBeGreaterThan(0)
@@ -272,13 +273,13 @@ describe('processApplication', () => {
     expect(d?.explanation?.text).toMatch(/Como no se pidió un monto, se evaluó con la línea máxima/)
   })
 
-  it('una extracción terminada de un documento que el clasificador llamó factura se analiza y deja una nota (ADR 0042)', async () => {
+  it('una extracción terminada de un documento que el clasificador llamó factura se analiza y deja una nota', async () => {
     const r = await startApplication(createRuntime(deps(), db()), input('factura.pdf'))
     expect(r.status).toBe('success')
     expect(r.state?.failure_reason).toBeNull()
     expect(r.state?.decision).not.toBeNull()
     expect(r.state?.notes).toEqual(['El clasificador marcó el documento como invoice con confianza 0.95; se analizó igual'])
-    // La clasificación queda tal cual en la extracción que ve el analista.
+    // The classification stays as is in the extraction the analyst sees.
     expect(r.state?.statements[0]?.classification).toEqual({ document_type: 'invoice', confidence: 0.95, bank: null })
     const result = toApplicationResult('factura', r.state, { workflow: WORKFLOW_ID, run_id: r.runId, status: r.status, suspended_step: r.suspendedStep }, '2026-10-05T12:00:00.000Z', r.error)
     expect(result.status).not.toBe('failed')
@@ -314,7 +315,7 @@ describe('processApplication', () => {
     expect(r.state?.notes).toEqual([])
   })
 
-  it('PDF con contraseña y escaneado ilegible fallan con su motivo; un escaneado leído se analiza (ADR 0049)', async () => {
+  it('PDF con contraseña y escaneado ilegible fallan con su motivo; un escaneado leído se analiza', async () => {
     const password = await startApplication(createRuntime(deps(), db()), input('contrasena.pdf'))
     expect(describeFailure(password.state?.failure_reason ?? null).kind).toBe('password_protected')
     const scanned = await startApplication(createRuntime(deps(), db()), input('escaneado.pdf'))
@@ -332,22 +333,22 @@ describe('processApplication', () => {
     expect(standalone.state?.failure_reason).toBe('el PDF trae 3 estados de cuenta')
     expect(standalone.state?.notes).toEqual([])
     expect(describeFailure(standalone.state?.failure_reason ?? null)).toMatchObject({ kind: 'multiple_statements', documentType: null })
-    // Si el issue no está, son dos.
+    // If the issue is not there, there are two.
     expect((await startApplication(createRuntime(deps(), db()), input('varios-estados-sin-issue.pdf'))).state?.failure_reason).toBe('el PDF trae 2 estados de cuenta')
-    // La extracción del modo full que cortó trae su motivo: no se envuelve en "la extracción falló".
+    // Full-mode extraction that cut carries its reason: it is not wrapped in "extraction failed".
     for (const file of ['varios-estados-cortado.pdf', 'varios-estados-y-factura.pdf', 'varios-estados-escaneado.pdf']) {
       const full = await startApplication(createRuntime(deps(), db()), input(file))
       expect(full.state?.failure_reason, file).toBe('el PDF trae 2 estados de cuenta')
       expect(full.state?.decision, file).toBeNull()
       expect(describeFailure(full.state?.failure_reason ?? null).kind, file).toBe('multiple_statements')
     }
-    // En el reporte standalone la solicitud queda fallida con ese motivo.
+    // In the standalone report the request ends failed with that reason.
     const result = toApplicationResult('varios-estados', standalone.state, { workflow: WORKFLOW_ID, run_id: standalone.runId, status: standalone.status, suspended_step: standalone.suspendedStep }, '2026-10-05T12:00:00.000Z', standalone.error)
     expect(result.status).toBe('failed')
     expect(result.failure_reason).toBe('el PDF trae 3 estados de cuenta')
   })
 
-  it('con el ajuste del tenant, un estado viejo se analiza con advertencia; sin él, se pide uno reciente (ADR 0049)', async () => {
+  it('con el ajuste del tenant, un estado viejo se analiza con advertencia; sin él, se pide uno reciente', async () => {
     const old = { as_of: '2027-02-15' }
     const standalone = await startApplication(createRuntime(deps(), db()), input('claro.pdf', old))
     expect(standalone.status).toBe('suspended')
@@ -362,7 +363,7 @@ describe('processApplication', () => {
     expect(d?.reasons.map((r) => r.code)).toContain(DOCUMENT_AGE_WARNING)
     expect(d?.explanation?.text).toMatch(/Aviso: el estado de cuenta tiene \d+ días desde su corte/)
 
-    // Sin monto, la línea máxima tampoco queda condicionada a un estado reciente.
+    // With no amount, the maximum line is not conditioned on a recent statement either.
     const noAmount = await startApplication(createRuntime(deps(), db()), input('claro.pdf', { ...old, request: { ...request, amount: null }, statement_age: { max_months: 3 } }))
     expect(noAmount.state?.max_line?.conditional_on).toEqual([])
     expect(noAmount.state?.decision?.reasons.map((r) => r.code)).toEqual(expect.arrayContaining(['evaluated_at_max_line', DOCUMENT_AGE_WARNING]))
@@ -383,7 +384,7 @@ describe('processApplication', () => {
     const ok = await startApplication(createRuntime(deps(new MemoryChannel(), jev), db()), input('dudoso.pdf'))
     expect(ok.state?.classification).toMatchObject({ implementation: 'jev', error: null })
     expect(ok.state?.classification?.classified_by_model).toBeGreaterThan(0)
-    // Con el depósito confirmado por Jev ya no hay pregunta.
+    // With the deposit confirmed by Jev there is no question anymore.
     expect(ok.status).toBe('success')
 
     const broken: TransactionClassifier = { ...jev, classifyBatch: () => Promise.reject(new Error('sin red')) }

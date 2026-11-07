@@ -1,8 +1,8 @@
 /**
- * Redacción para el proveedor (docs/04 §4, docs/03 §6): Haiku pone en palabras las preguntas y los
- * `next_steps` a partir de hechos estructurados, y el filtro de cifras decide si el texto se usa.
- * Un texto que cite una cifra fuera de sus hechos se regenera una vez; si vuelve a fallar, o si
- * el modelo no está disponible, queda la plantilla del código, que siempre pasa el filtro.
+ * Writing for the provider: Haiku puts the questions and `next_steps` into words from structured
+ * facts, and the figures filter decides whether the text is used. A text citing a figure outside
+ * its facts is regenerated once; if it fails again, or the model is unavailable, the code's
+ * template stays, which always passes the filter.
  */
 import { FEATURE_CATALOG, type DecisionStatus, type FeatureName, type PromptName, type NextStep, type Question, type QuestionFact } from '@gow/contracts'
 import { LIGHT_MODEL, loadPrompt, type StructuredLlm, type StructuredResult } from '@gow/llm'
@@ -31,7 +31,7 @@ function round(v: number, d: number): number {
   return Math.round(v * f) / f
 }
 
-/** Valor de una feature como lo lee el proveedor, según su unidad. */
+/** A feature's value as the provider reads it, by unit. */
 export function valueText(feature: FeatureName, v: unknown): string {
   if (v === null || v === undefined) return 'sin dato'
   if (typeof v === 'boolean') return v ? 'sí' : 'no'
@@ -51,7 +51,7 @@ export function valueText(feature: FeatureName, v: unknown): string {
   }
 }
 
-/** Nombre de la feature para el proveedor: la descripción del catálogo sin aclaraciones con cifras. */
+/** Feature name for the provider: the catalog description minus clarifications that carry figures. */
 export function featureLabel(feature: FeatureName): string {
   return FEATURE_CATALOG[feature].description.replace(/;.*$/, '').replace(/\s*\([^)]*\d[^)]*\)/g, '').trim()
 }
@@ -61,7 +61,7 @@ function factValue(v: unknown): QuestionFact['value'] {
   return JSON.stringify(v)
 }
 
-/** Un valor y, si la feature es una proporción, también como porcentaje (así se escribe en el texto). */
+/** A value and, if the feature is a ratio, also as a percentage (how it is written in the text). */
 function featureFacts(feature: FeatureName, name: string, v: unknown): QuestionFact[] {
   const out: QuestionFact[] = [{ name, value: factValue(v) }]
   if (FEATURE_CATALOG[feature].unit === 'ratio' && typeof v === 'number') out.push({ name: `${name}_porcentaje`, value: round(v * 100, 1) })
@@ -73,26 +73,27 @@ export function nextStepFacts(step: NextStep): QuestionFact[] {
     ...featureFacts(step.feature, 'valor_actual', step.current_value),
     ...featureFacts(step.feature, 'valor_objetivo', step.target_value),
     ...step.related.flatMap((r) => [...featureFacts(r.feature, `${r.feature}_actual`, r.current_value), ...featureFacts(r.feature, `${r.feature}_objetivo`, r.target_value)]),
-    // El nombre de la feature es texto fijo del catálogo ("listas 69-B"): sus cifras se pueden citar.
+    // The feature name is fixed catalog text ("listas 69-B"): its figures may be cited.
     { name: 'que_cambia', value: [step.feature, ...step.related.map((r) => r.feature)].map(featureLabel).join('; ') },
     { name: 'puntaje_actual', value: step.from.score },
     { name: 'puntaje_nuevo', value: step.to.score },
-    // La línea de antes y de después (ADR 0056): las cifras de "la línea pasaría de $A a $B" salen de aquí.
+    // The line before and after: the figures in "the line would go from $A to $B" come from here.
     { name: 'linea_actual', value: step.from.limit },
     { name: 'linea_nueva', value: step.to.limit },
   ]
 }
 
 /**
- * Qué cambia en el resultado, en palabras (ADR 0056). Si cambia el estado: "el resultado pasaría de X a
- * Y". Si el estado es el mismo y solo sube la línea: "la línea pasaría de $A a $B". El motor no propone
- * un paso que deje las dos cosas iguales; los `next_steps` de aclaración de `decide` (cambios de banda
- * por una respuesta del dueño) sí pueden, y entonces se dice el puntaje, que es lo que cambia.
+ * What changes in the result, in words. If the status changes: "the result would go from X to
+ * Y". If the status is the same and only the line rises: "the line would go from $A to $B". The
+ * engine does not propose a step that leaves both unchanged; `decide`'s clarification
+ * `next_steps` (band changes from an owner answer) can, and then the score is stated, which is
+ * what changes.
  */
 function outcomeChange(step: NextStep): string {
   const { from, to } = step
   if (from.status !== to.status) return `el resultado pasaría de "${SUPPLIER_STATUS_TEXT[from.status]}" a "${SUPPLIER_STATUS_TEXT[to.status]}"`
-  // Un estado que califica siempre trae línea; sin las dos cifras en los hechos no se escribe ninguna.
+  // A status that qualifies always has a line; without both figures in the facts, neither is written.
   if (from.limit !== null && to.limit !== null && to.limit > from.limit) return `la línea pasaría de ${pesos(from.limit)} a ${pesos(to.limit)}`
   if (from.score !== null && to.score !== null && to.score > from.score) return `tu puntaje pasaría de ${String(from.score)} a ${String(to.score)}, sin cambiar el resultado ("${SUPPLIER_STATUS_TEXT[to.status]}") ni la línea`
   return `el resultado seguiría en "${SUPPLIER_STATUS_TEXT[to.status]}"`
@@ -112,7 +113,7 @@ interface Draft {
   id: string
   facts: QuestionFact[]
   template: string
-  /** Lo que el modelo ve de la pieza, además de hechos y borrador. */
+  /** What the model sees of the piece, besides facts and draft. */
   context: Record<string, unknown>
 }
 
@@ -125,7 +126,7 @@ export class Writer {
     this.#limit = limit
   }
 
-  /** Redacta un lote; devuelve por id el texto aceptado (o null → plantilla) y las llamadas hechas. */
+  /** Writes a batch; returns by id the accepted text (or null → template) and the calls made. */
   async #draft(purpose: string, promptName: PromptName, varName: string, drafts: readonly Draft[]): Promise<{ texts: Map<string, string>; calls: CallRecord[]; errors: string[] }> {
     const texts = new Map<string, string>()
     const calls: CallRecord[] = []
@@ -194,8 +195,8 @@ export class Writer {
   }
 
   /**
-   * La explicación del resultado en prosa (ADR 0045), sobre los hechos de `explanationDraft`. Si el
-   * texto no pasa el filtro de cifras dos veces, o no hay modelo, queda la plantilla.
+   * The result explanation in prose, over the `explanationDraft` facts. If the text fails the
+   * figures filter twice, or there is no model, the template stays.
    */
   async explanation(draft: { facts: QuestionFact[]; template: string; context: Record<string, unknown> }): Promise<{ text: string; source: 'template' | 'writer'; calls: CallRecord[]; errors: string[] }> {
     const { texts, calls, errors } = await this.#draft('explanation', 'explain_decision', 'decision', [{ id: 'e1', ...draft }])

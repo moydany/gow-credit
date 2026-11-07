@@ -1,18 +1,17 @@
-/* eslint-disable no-console -- CLI: la salida en consola es el resultado; solo estados, conteos y costos */
+/* eslint-disable no-console -- CLI: console output is the result; only statuses, counts and costs */
 /**
- * pnpm run evaluate <carpeta|pdf>... [--out <dir>] [--request <k=v,...|archivo.json>]
- *   [--answers <archivo.json>] [--as-of YYYY-MM-DD] [--policy <archivo.json|base>] [--interactive]
+ * pnpm run evaluate <folder|pdf>... [--out <dir>] [--request <k=v,...|file.json>]
+ *   [--answers <file.json>] [--as-of YYYY-MM-DD] [--policy <file.json|base>] [--interactive]
  *   [--cache readwrite|read|off] [--force] [--concurrency 3] [--help]
  *
- * Modo standalone (docs/07 A): por cada PDF corre el workflow `processApplication` (extracción,
- * clasificación de movimientos, perfil, política, aclaración) y escribe en la carpeta de salida
- * `<id>.extraction.json` (contrato StatementExtraction), `<id>.result.json` (ApplicationResult),
- * `<id>.md` (reporte), `summary.md`, el resumen plano de la extracción (`extraction-summary.json` y
- * `.csv`, para contrastar con una verdad de referencia) y, si alguna quedó pausada,
- * `answers.template.json`. Una
- * solicitud pausada se reanuda en otra invocación con `--answers`. La consola nunca muestra datos
- * del documento: solo estados, conteos y costos (salvo `--interactive`, que muestra las preguntas
- * para que las conteste quien corre el comando).
+ * Standalone mode: for each PDF runs the `processApplication` workflow (extraction, transaction
+ * classification, profile, policy, clarification) and writes to the output folder
+ * `<id>.extraction.json` (StatementExtraction contract), `<id>.result.json` (ApplicationResult),
+ * `<id>.md` (report), `summary.md`, the flat extraction summary (`extraction-summary.json` and
+ * `.csv`, for comparing against a reference truth) and, if any request was paused,
+ * `answers.template.json`. A paused request resumes in another invocation with `--answers`. The
+ * console never shows document data: only statuses, counts and costs (except `--interactive`,
+ * which shows the questions for whoever runs the command to answer).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -49,7 +48,7 @@ import type { AppInput } from '../state.ts'
 import { Writer } from '../writer.ts'
 
 const REPO = resolve(import.meta.dirname, '../../../..')
-/** pnpm corre el script dentro del paquete; las rutas del usuario son relativas a donde lo escribió. */
+/** pnpm runs the script inside the package; user paths are relative to where they typed it. */
 const USER_CWD = process.env.INIT_CWD ?? process.cwd()
 
 const RequestSpec = z.strictObject({
@@ -81,7 +80,7 @@ function collectPdfs(inputs: string[]): string[] {
   return out
 }
 
-/** `amount=180000,buyer=Cadena Norte` para todas, o un JSON `{ "<id>": {...}, "*": {...} }`. */
+/** `amount=180000,buyer=Cadena Norte` for all, or a JSON `{ "<id>": {...}, "*": {...} }`. */
 function loadRequests(arg: string | undefined): (id: string) => RequestSpec | null {
   if (!arg) return () => null
   const path = resolve(USER_CWD, arg)
@@ -112,9 +111,9 @@ function toSupplier(spec: RequestSpec | null): SupplierIdentity | null {
 }
 
 /**
- * Sin `--policy`, la política de ejemplo standalone (ADR 0015 y 0054): la plantilla base sin la
- * compuerta `doc_recent`, porque los documentos que se evalúan son de fecha desconocida y la
- * antigüedad del corte no debe detenerlos. `--policy base` usa la plantilla base tal cual.
+ * Without `--policy`, the standalone example policy: the base template without the `doc_recent`
+ * gate, because evaluated documents have unknown dates and the cutoff age must not stop them.
+ * `--policy base` uses the base template as is.
  */
 function loadPolicyArg(arg: string | undefined): { policy: Policy; id: string } {
   if (arg === 'base') return { policy: basePolicyTemplate(), id: BASE_POLICY_ID }
@@ -130,12 +129,12 @@ function loadAnswers(arg: string | undefined): { file: AnswersFile; baseDir: str
   const path = resolve(USER_CWD, arg)
   if (!existsSync(path)) fail(`--answers: no existe ${arg}`)
   const parsed = AnswersFile.safeParse(JSON.parse(readFileSync(path, 'utf8')))
-  // Solo ruta y mensaje: el valor que falló puede traer datos del documento.
+  // Path and message only: the failing value may carry document data.
   if (!parsed.success) fail(`--answers inválido:\n${parsed.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n')}`)
   return { file: parsed.data, baseDir: dirname(path) }
 }
 
-/** Plantilla de respuestas: la categoría lista las opciones (inválida hasta elegir una); identidad en null. */
+/** Answers template: the category lists the options (invalid until one is chosen); identity is null. */
 function templateAnswer(q: Question): Record<string, unknown> {
   switch (q.kind) {
     case 'deposit':
@@ -153,7 +152,7 @@ function templateAnswer(q: Question): Record<string, unknown> {
   }
 }
 
-/** Las extracciones de una solicitud que ya están en la carpeta de salida: `<id>.extraction.json`, `<id>.extraction-2.json`, ... */
+/** Extractions already in the output folder for a request: `<id>.extraction.json`, `<id>.extraction-2.json`, ... */
 function readExtractions(outDir: string, id: string): StatementExtraction[] {
   const out: StatementExtraction[] = []
   for (let n = 1; ; n++) {
@@ -163,13 +162,16 @@ function readExtractions(outDir: string, id: string): StatementExtraction[] {
       const parsed = StatementExtraction.safeParse(JSON.parse(readFileSync(path, 'utf8')))
       if (parsed.success) out.push(parsed.data)
     } catch {
-      // Un archivo ilegible no tumba el resumen: ese documento queda fuera de él.
+      // An unreadable file does not sink the summary: that document is left out.
     }
   }
   return out
 }
 
-/** Filas del resumen plano de una solicitud; sin extracción queda una fila con el archivo y, si falló, su estado. */
+/**
+ * Flat summary rows of a request; with no extraction, one row with the file and, if it failed,
+ * its status.
+ */
 function summaryRowsOf(statements: readonly StatementExtraction[], pdf: string, status: string): ExtractionSummaryRow[] {
   return statements.length > 0 ? statements.flatMap(extractionSummaryRows) : [missingExtractionRow(basename(pdf), status === 'failed')]
 }
@@ -184,7 +186,7 @@ async function askInteractively(questions: readonly Question[]): Promise<OwnerAn
         q.options.forEach((o, i) => { console.log(`   ${String(i + 1)}) ${o.label}`); })
         const pick = Number((await rl.question('   Opción (vacío = no sé): ')).trim())
         const value = q.options[pick - 1]?.value
-        // El esquema valida la opción: una que no corresponda al tipo de pregunta queda como "no sé".
+        // The schema validates the option: one not valid for the question type becomes "don't know".
         const parsed = value === undefined ? null : OwnerAnswer.safeParse(q.kind === 'account_use' ? { question_id: q.id, kind: q.kind, use: value } : { question_id: q.id, kind: q.kind, category: value, counterparty: null })
         answers.push(parsed?.success ? parsed.data : { question_id: q.id, kind: 'decline', note: null })
       } else if (q.kind === 'buyer') {
@@ -209,7 +211,7 @@ async function askInteractively(questions: readonly Question[]): Promise<OwnerAn
 interface Row {
   id: string
   identity_unverifiable: boolean
-  /** Sin monto solicitado: el estado con el que calificaría pidiendo la línea máxima, y la línea. */
+  /** No requested amount: the status it would get asking for the maximum line, and that line. */
   max_line: { status: string; amount: number } | null
   status: string
   questions: number
@@ -220,7 +222,7 @@ interface Row {
   note: string
 }
 
-/** Una línea por solicitud: estados, conteos y costo; nunca cifras ni textos del documento. */
+/** One line per request: statuses, counts and cost; never figures or text from the document. */
 function printRow(r: Row): void {
   console.log(`${r.id.padEnd(34)} ${r.status.padEnd(20)} preguntas ${String(r.questions).padStart(2)}  movimientos: ${r.classifier.padEnd(6)}  llamadas ${String(r.calls).padStart(3)} (${String(r.cache_hits)} de caché)  USD ${r.usd_this_run.toFixed(4)}${r.max_line ? `  · línea máxima: ${r.max_line.status}` : ''}${r.note ? `  · ${r.note}` : ''}`)
 }
@@ -236,11 +238,10 @@ datos del documento.
 Opciones:
   --out <dir>             Carpeta de salida (por defecto data/out/evaluate)
   --policy <archivo|base> Política del tenant. Por defecto ${STANDALONE_POLICY_PATH}:
-                          la plantilla base sin la compuerta de antigüedad del estado de cuenta
-                          (ADR 0054). "base" usa la plantilla base tal cual, con esa compuerta.
+                          la plantilla base sin la compuerta de antigüedad del estado de cuenta. "base" usa la plantilla base tal cual, con esa compuerta.
   --as-of <AAAA-MM-DD>    Fecha de cálculo del perfil (por defecto hoy): contra ella se mide la
                           antigüedad del estado de cuenta (document_age_days). La política por
-                          defecto no se detiene por esa antigüedad (ADR 0054); la plantilla base
+                          defecto no se detiene por esa antigüedad; la plantilla base
                           (--policy base) sí tiene la compuerta.
   --request <k=v,...|archivo.json>
                           Datos de la solicitud: amount, maturity, buyer, buyer_rfc, buyer_aliases
@@ -259,7 +260,7 @@ Opciones:
   -h, --help              Muestra esta ayuda.
 
 Llaves: ANTHROPIC_API_KEY obligatoria (salvo --cache read). Con GEMINI_API_KEY la extracción va
-con Gemini 3.8 Flash y los PDFs se mandan a Google; sin ella, con Claude Opus (ADR 0011).
+con Gemini 3.8 Flash y los PDFs se mandan a Google; sin ella, con Claude Opus.
 TYPESAFE_API_KEY activa Jev para clasificar; sin ella clasifica Haiku.`
 
 function parseCli() {
@@ -298,15 +299,15 @@ async function main(): Promise<void> {
   const policy = loadPolicyArg(values.policy)
   console.error(
     values.policy === undefined
-      ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: la antigüedad del estado de cuenta no decide; --policy base para la plantilla base, ADR 0054) · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`
+      ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: la antigüedad del estado de cuenta no decide; --policy base para la plantilla base) · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`
       : `Política: ${policy.id} · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`,
   )
   const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
   const anthropic = readAnthropicEnv()
   const googleAvailable = readGoogleEnv().apiKey !== null
-  if (!anthropic.apiKey && mode !== 'read') fail('Falta ANTHROPIC_API_KEY (entorno o .env). Con GEMINI_API_KEY además, la extracción va con Gemini (ADR 0011). Con --cache read se usan solo respuestas guardadas.', 2)
+  if (!anthropic.apiKey && mode !== 'read') fail('Falta ANTHROPIC_API_KEY (entorno o .env). Con GEMINI_API_KEY además, la extracción va con Gemini. Con --cache read se usan solo respuestas guardadas.', 2)
   const primary = googleAvailable ? EXTRACTION_MODEL : PROVIDER_FALLBACK_MODEL
-  console.error(providerOf(primary) === 'google' ? `Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia (ADR 0011).` : `Sin llave de Google: extracción con ${primary} (ADR 0011).`)
+  console.error(providerOf(primary) === 'google' ? `Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia.` : `Sin llave de Google: extracción con ${primary}.`)
 
   const requestFor = loadRequests(values.request)
   const answers = loadAnswers(values.answers)
@@ -315,14 +316,14 @@ async function main(): Promise<void> {
   const cacheDir = resolve(USER_CWD, values['cache-dir'])
 
   const limit = createLimiter(Math.max(1, Number(values.concurrency) || 3))
-  // Con --cache read no se construye cliente: un miss falla en lugar de llamar al modelo.
-  // Cada intercambio con el modelo, crudo, queda en <id>.llm.jsonl para analizar un caso (ADR 0064).
+  // With --cache read no client is built: a miss fails instead of calling the model.
+  // Every raw model exchange goes to <id>.llm.jsonl for analyzing a case.
   const exchanges = new JsonlLlmExchangeSink(outDir)
   const llm = new RecordingStructuredLlm(new CachingStructuredLlm(mode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, mode), exchanges, {
     onError: (m) => { console.error(m) },
   })
   const jevKey = process.env.TYPESAFE_API_KEY?.trim()
-  // Misma llave que la eval de clasificadores: lo que ya clasificó, se reproduce sin costo.
+  // Same key as the classifier eval: what was already classified replays at no cost.
   const docClassifier = new CachedClassifier(jevKey ? 'jev' : 'haiku', mode === 'read' ? null : createClassifier(llm), join(cacheDir, 'classifier'))
   const txClassifier = createTransactionClassifier(llm, new JsonFileCache(join(cacheDir, 'transactions'), mode))
   console.error(txClassifier.implementation === 'jev' ? 'Movimientos: reglas y Jev donde no alcanzan.' : 'Movimientos: reglas y Haiku donde no alcanzan (sin TYPESAFE_API_KEY no hay Jev; el reporte lo indica).')
@@ -356,7 +357,7 @@ async function main(): Promise<void> {
     let note = ''
 
     if (prevResult && !values.force) {
-      // Los ids q1, q2... se repiten entre rondas (ADR 0051): respuestas de otra ronda no se aplican.
+      // Ids q1, q2... repeat across rounds: answers from another round are not applied.
       const pausedRound = (prevResult.clarification?.rounds_used ?? 0) + 1
       const otherRound = given?.round !== undefined && given.round !== pausedRound
       if (prevResult.run.status === 'suspended' && given && !otherRound && prevResult.run.suspended_step) {
@@ -375,7 +376,7 @@ async function main(): Promise<void> {
     } else {
       const spec = requestFor(id)
       const input: AppInput = { application_id: id, pdf_path: pdf, as_of: asOf, request: toRequest(spec), supplier: toSupplier(spec), policy: policy.policy, policy_id: policy.id }
-      // Corrida nueva: los intercambios de una corrida anterior (--force) no se mezclan.
+      // New run: exchanges from a previous run (--force) are not mixed in.
       rmSync(exchanges.pathFor(id), { force: true })
       outcome = await inScope(() => startApplication(wf, input))
     }

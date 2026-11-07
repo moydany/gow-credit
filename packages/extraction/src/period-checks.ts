@@ -1,6 +1,6 @@
 /**
- * Revisiones que convierten lo reconciliado y lo extraído en avisos (`issues`): cuadre del periodo,
- * fechas fuera de rango y formato de CLABE y RFC.
+ * Checks that turn reconciled and extracted data into notices (`issues`): period balance, dates
+ * out of range, and CLABE and RFC format.
  */
 import type { Period, StatementExtraction, Transaction } from '@gow/contracts'
 import type { FieldOf } from './assemble.ts'
@@ -63,7 +63,7 @@ export function checkAccountFormats(acc: StatementExtraction['accounts'][number]
 
 export function checkRfcField(rfc: FieldOf<string>, issues: IssueSink): void {
   const r = checkRfc(rfc.value)
-  // Varios bancos imprimen el RFC sin homoclave: es una raíz válida, no un error de lectura (ADR 0044).
+  // Several banks print the RFC without homoclave: that is a valid root, not a misread.
   if (r.result === 'invalid' && rfcRoot(rfc.value) !== null) {
     issues.add({ code: 'invalid_rfc', severity: 'info', message: 'El RFC del titular viene sin homoclave (solo letras y fecha).', page: rfc.source?.page ?? null })
     return

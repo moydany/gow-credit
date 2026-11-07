@@ -1,6 +1,6 @@
 /**
- * Genera un PDF de una página con texto plano (Helvetica), sin dependencias. Sirve para
- * probar el cable sin tocar los PDFs reales de data/, que tienen datos personales.
+ * Builds a one-page PDF with plain text (Helvetica), no dependencies. Lets tests exercise the
+ * plumbing without touching the real PDFs in data/, which hold personal data.
  */
 import { createHash } from 'node:crypto'
 
@@ -13,15 +13,15 @@ export function syntheticStatementPdf(lines: readonly string[]): Buffer {
 }
 
 /**
- * El mismo PDF cifrado con el manejador estándar (RC4 de 40 bits, R2). Con `userPassword` vacío solo
- * restringe permisos y se abre sin contraseña; con una, pide contraseña para abrirse (ADR 0049).
+ * The same PDF encrypted with the standard handler (40-bit RC4, R2). With an empty `userPassword`
+ * it only restricts permissions and opens without a password; with one, it asks for it to open.
  */
 export function encryptedStatementPdf(lines: readonly string[], opts: { userPassword: string; ownerPassword?: string }): Buffer {
   return buildPdf(lines, { user: opts.userPassword, owner: opts.ownerPassword ?? 'propietario' })
 }
 
 const PAD = Buffer.from('28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a', 'hex')
-const PERMISSIONS = -44 // sin modificar ni copiar
+const PERMISSIONS = -44  // no modifying or copying
 
 function padded(password: string): Buffer {
   return Buffer.concat([Buffer.from(password, 'latin1'), PAD]).subarray(0, 32)
@@ -57,7 +57,7 @@ function buildPdf(lines: readonly string[], encryption: { user: string; owner: s
     p.writeInt32LE(PERMISSIONS)
     const key = md5(padded(encryption.user), o, p, id).subarray(0, 5)
     const u = rc4(key, PAD)
-    // El contenido es el objeto 4, generación 0.
+    // The content is object 4, generation 0.
     stream = rc4(md5(key, Buffer.from([4, 0, 0, 0, 0])).subarray(0, 10), plain)
     encryptObject = `<< /Filter /Standard /V 1 /R 2 /Length 40 /O <${o.toString('hex')}> /U <${u.toString('hex')}> /P ${String(PERMISSIONS)} >>`
   }
@@ -75,7 +75,7 @@ function buildPdf(lines: readonly string[], encryption: { user: string; owner: s
   return serializePdf(objects, encrypt)
 }
 
-/** Numera los objetos, arma la tabla xref y el trailer (`trailerExtra` se añade tras `/Root`). */
+/** Numbers the objects, builds the xref table and the trailer (`trailerExtra` goes after `/Root`). */
 function serializePdf(objects: readonly string[], trailerExtra = ''): Buffer {
   let out = '%PDF-1.4\n'
   const offsets: number[] = []
@@ -90,7 +90,7 @@ function serializePdf(objects: readonly string[], trailerExtra = ''): Buffer {
   return Buffer.from(out, 'latin1')
 }
 
-/** Un estado de cuenta ficticio que cuadra: 10,000 + 5,000 − 1,250.50 = 13,749.50 */
+/** A fictional statement that balances: 10,000 + 5,000 − 1,250.50 = 13,749.50 */
 export const SYNTHETIC_STATEMENT_LINES = [
   'BANCO FICTICIO S.A. - ESTADO DE CUENTA',
   'Titular: COMERCIALIZADORA DE PRUEBA SA DE CV   RFC: XAXX010101000',
@@ -104,13 +104,13 @@ export const SYNTHETIC_STATEMENT_LINES = [
 ] as const
 
 export interface SyntheticPagesOptions {
-  /** `/Rotate` de todas las páginas (múltiplo de 90): la página se muestra girada a la derecha. */
+  /** `/Rotate` on every page (multiple of 90): the page displays rotated clockwise. */
   rotate?: number
-  /** Hacia dónde corre el texto en el espacio del PDF, en grados contra las manecillas del reloj (0 es el normal). */
+  /** Direction the text runs in PDF space, in degrees counterclockwise (0 is normal). */
   textAngle?: 0 | 90 | 180 | 270
 }
 
-/** Matriz de colocación y punto de partida del texto por dirección, para que quede dentro de la hoja. */
+/** Placement matrix and text start point per direction, so the text stays inside the sheet. */
 const TEXT_PLACEMENT = {
   0: { cm: '', td: '40 760' },
   90: { cm: '0 1 -1 0 40 40 cm\n', td: '0 0' },
@@ -119,9 +119,9 @@ const TEXT_PLACEMENT = {
 } as const
 
 /**
- * Un PDF sintético de varias páginas (Helvetica, sin dependencias): cada elemento de `pages` son las
- * líneas de una página. Las páginas con las mismas líneas dan listas de operadores idénticas, que es
- * lo que hace falta para probar páginas repetidas. Con `rotate` pone `/Rotate` en todas.
+ * A multi-page synthetic PDF (Helvetica, no dependencies): each item of `pages` is the lines of
+ * one page. Pages with the same lines give identical operator lists, which is what repeated-page
+ * tests need. With `rotate` it sets `/Rotate` on every page.
  */
 export function syntheticStatementPages(pages: readonly (readonly string[])[], opts: SyntheticPagesOptions = {}): Buffer {
   const place = TEXT_PLACEMENT[opts.textAngle ?? 0]

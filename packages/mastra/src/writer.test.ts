@@ -21,7 +21,7 @@ function decision(computedAt = '2026-10-05T12:00:00.000Z', sup: SupplierIdentity
   return decide({ policy: basePolicyTemplate(), statements: [statement], request, supplier: sup, external: noCredits, computedAt }).decision
 }
 
-/** Devuelve, por llamada, los textos que se le den; registra cuántas veces la llamaron. */
+/** Returns, per call, the texts it is given; records how many times it was called. */
 class ScriptedLlm implements StructuredLlm {
   calls = 0
   constructor(readonly script: ((ids: string[]) => { id: string; text: string }[])[]) {}
@@ -43,7 +43,7 @@ describe('preguntas', () => {
     for (const q of qs) expect(checkFigures(q.text, q.facts)).toEqual({ ok: true, unsupported: [] })
   })
 
-  it('documento viejo y sin proveedor registrado: pide estado reciente, no la identidad (ADR 0052)', () => {
+  it('documento viejo y sin proveedor registrado: pide estado reciente, no la identidad', () => {
     const d = decision('2027-06-01T12:00:00.000Z', null)
     const qs = buildQuestions(d, [statement])
     expect(qs.map((q) => q.topic)).toContain('recent_statement')
@@ -108,7 +108,7 @@ describe('redacción con filtro de cifras', () => {
   })
 })
 
-describe('next_steps: cambia el estado o sube la línea (ADR 0056)', () => {
+describe('next_steps: cambia el estado o sube la línea', () => {
   const step = (from: NextStep['from'], to: NextStep['to'], code = 'improve_capacity'): NextStep => ({ code, feature: 'operating_income_monthly', current_value: 150000, target_value: 300000, related: [], from, to, message: null })
   const statusChange = step({ status: 'qualified_with_limit', score: 62.5, limit: 75000 }, { status: 'qualified', score: 80, limit: 150000 })
   const lineChange = step({ status: 'qualified', score: 66.5, limit: 30000 }, { status: 'qualified', score: 90, limit: 75000.5 })

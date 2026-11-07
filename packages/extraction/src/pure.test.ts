@@ -50,7 +50,7 @@ describe('reconcilePeriod', () => {
   })
 
   it('tolera que el banco aplique los movimientos de un día en otro orden que el impreso', () => {
-    // Fondeadora: interés e ISR impresos al final del día, aplicados antes del depósito.
+    // Fondeadora: interest and ISR printed at the end of the day, applied before the deposit.
     const day = [
       tx('d1', '2025-10-31', 48573.02, 'credit', 167203.45),
       tx('d2', '2025-10-31', 160000, 'debit', 7203.45),
@@ -166,7 +166,7 @@ describe('normalización', () => {
 })
 
 describe('capa de texto', () => {
-  /** Codifica texto ASCII en cp037 y lo lee como Latin-1, como sale del PDF de HSBC. */
+  /** Encodes ASCII text in cp037 and reads it as Latin-1, as it comes out of HSBC's PDF. */
   function asCorruptLayer(text: string): string {
     const code = (c: string): number => {
       if (c === ' ') return 0x40

@@ -1,8 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // Los tipos de @mastra/core no son compatibles con exactOptionalPropertyTypes (sub-workflows
-    // como steps). Se relaja solo aquí y en spikes; ADR 0004.
+    // @mastra/core types break under exactOptionalPropertyTypes (sub-workflows as steps).
     "exactOptionalPropertyTypes": false
   },
   "include": ["src/**/*.ts"]

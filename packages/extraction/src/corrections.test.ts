@@ -15,7 +15,7 @@ describe('applyCorrections: la corrección de un analista sobre la extracción',
 
   it('corregir un monto recalcula el cuadre del periodo y quita las alertas de cuadre resueltas', () => {
     const x = sampleStatement()
-    // El modelo leyó mal un cargo: el periodo deja de cuadrar contra el saldo final impreso.
+    // The model misread a charge: the period no longer balances against the printed final balance.
     const p1 = x.accounts[0]?.periods[0]
     if (!p1) throw new Error('fixture')
     const wrong = structuredClone(x)

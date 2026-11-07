@@ -1,9 +1,9 @@
 /**
- * `ClarificationChannel` (docs/02 §3): cómo le llega la pregunta al dueño. En standalone hay dos:
- * el buzón en archivo (el mensaje tal como se enviaría, junto a los resultados) y la consola
- * interactiva del CLI, que lee las respuestas de la terminal. Baileys y Resend son de la fase 6 y
- * cumplen la misma interfaz. La entrada (respuestas) no pasa por aquí: siempre termina en
- * `run.resume()` con respuestas validadas por Zod.
+ * `ClarificationChannel`: how the question reaches the owner. Standalone has two: the file
+ * mailbox (the message as it would be sent, next to the results) and the CLI's interactive
+ * console, which reads answers from the terminal. Baileys and Resend implement the same
+ * interface. Input (answers) does not go through here: it always ends in `run.resume()` with
+ * Zod-validated answers.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -14,7 +14,7 @@ export interface ClarificationChannel {
   send(applicationId: string, round: number, questions: readonly Question[]): Promise<void>
 }
 
-/** El mensaje en texto plano, numerado, como lo leería el dueño. */
+/** The plain-text message, numbered, as the owner would read it. */
 export function renderMessage(questions: readonly Question[]): string {
   const lines = ['Hola. Para terminar de evaluar tu solicitud necesitamos aclarar lo siguiente:', '']
   questions.forEach((q, i) => {
@@ -25,7 +25,7 @@ export function renderMessage(questions: readonly Question[]): string {
   return lines.join('\n')
 }
 
-/** Escribe el mensaje en `<dir>/<solicitud>.ronda-<n>.txt`. Contiene datos del documento: el dir es de salida, no de logs. */
+/** Writes the message to `<dir>/<solicitud>.ronda-<n>.txt`. Holds document data: output dir, not logs. */
 export class OutboxChannel implements ClarificationChannel {
   readonly name = 'outbox'
   readonly #dir: string
@@ -40,7 +40,7 @@ export class OutboxChannel implements ClarificationChannel {
   }
 }
 
-/** Para tests y para el modo interactivo: guarda lo enviado en memoria. */
+/** For tests and interactive mode: keeps what was sent in memory. */
 export class MemoryChannel implements ClarificationChannel {
   readonly name = 'memory'
   readonly sent: { applicationId: string; round: number; questions: Question[] }[] = []

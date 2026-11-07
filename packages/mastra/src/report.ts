@@ -1,7 +1,7 @@
 /**
- * Salidas por solicitud del modo standalone (docs/07 A e I): el `ApplicationResult` en JSON y un
- * reporte Markdown legible para quien evalúa, sin tener que leer JSON. Ambos llevan datos del
- * documento: van a la carpeta de salida, nunca a la consola ni a logs.
+ * Per-request outputs of standalone mode: the `ApplicationResult` as JSON and a Markdown report
+ * readable by the evaluator without reading JSON. Both carry document data: they go to the
+ * output folder, never to the console or logs.
  */
 import { APPLICATION_RESULT_VERSION, ApplicationResult, DocumentType, FEATURE_NAMES, IsoDate, StatementExtraction, type ApplicationStatus, type CostLine, type Decision, type OwnerAnswer, type Period, type Question } from '@gow/contracts'
 import { buildLedger } from '@gow/decision'
@@ -30,10 +30,10 @@ const STATUS_TEXT: Record<ApplicationStatus, string> = {
   failed: 'falló',
 }
 
-/** Política por defecto de `evaluate`: la plantilla base sin la compuerta de antigüedad del estado de cuenta (ADR 0015 y 0054). */
+/** Default policy of `evaluate`: the base template without the statement-age gate. */
 export const STANDALONE_POLICY_PATH = 'policies/examples/standalone-evaluation.v1.json'
 
-/** La compuerta de identidad bloqueó porque no había con qué comparar (no porque no coincidiera). */
+/** The identity gate blocked for lack of anything to compare with (not because of a mismatch). */
 export function identityUnverifiable(result: ApplicationResult): boolean {
   return result.decision?.reasons.some((r) => r.code === 'gate_identity_unknown') ?? false
 }
@@ -228,7 +228,7 @@ export function renderReport(result: ApplicationResult, state: AppState | null):
   return `${out.join('\n')}\n`
 }
 
-/** Una respuesta en una línea, sin datos del documento ni nombres (el cliente principal no se escribe). */
+/** An answer on one line, without document data or names (the main customer is not written). */
 function answerText(a: OwnerAnswer): string {
   switch (a.kind) {
     case 'deposit':
@@ -248,13 +248,13 @@ function answerText(a: OwnerAnswer): string {
   }
 }
 
-// ---------- Resumen plano de la extracción (extraction-summary.json y .csv)
+// ---------- Flat extraction summary (extraction-summary.json and .csv)
 
 /**
- * Una fila del resumen plano: los campos de encabezado que cualquier verdad de referencia trae, con
- * nombres en inglés y las rutas del contrato `StatementExtraction`. Una fila por documento y, si trae
- * varias cuentas, una por cuenta. Lo que el contrato no trae (o el banco no imprimió) va `null`: nunca
- * se calcula ni se completa con otra cosa. Lleva datos del documento: solo va a la carpeta de salida.
+ * A flat summary row: the header fields any reference truth carries, with English names and the
+ * paths of the `StatementExtraction` contract. One row per document and, if it has several
+ * accounts, one per account. What the contract lacks (or the bank did not print) is `null`: it is
+ * never computed or filled in from something else. Carries document data: output folder only.
  */
 export const ExtractionSummaryRow = z.strictObject({
   file: z.string().describe('document.file_name'),
@@ -280,12 +280,12 @@ export const ExtractionSummaryRow = z.strictObject({
 })
 export type ExtractionSummaryRow = z.infer<typeof ExtractionSummaryRow>
 
-/** Las columnas del CSV, en el orden de la fila. */
+/** The CSV columns, in row order. */
 export const EXTRACTION_SUMMARY_COLUMNS = Object.keys(ExtractionSummaryRow.shape) as (keyof ExtractionSummaryRow)[]
 
 const cents = (n: number) => Math.round(n * 100) / 100
 
-/** El valor de cada periodo, o null si a alguno le falta: una suma parcial no es lo que imprimió el banco. */
+/** The value of each period, or null if any is missing: a partial sum is not what the bank printed. */
 function sumOfAll(periods: readonly Period[], pick: (p: Period) => number | null): number | null {
   const values = periods.map(pick)
   return values.length > 0 && values.every((v): v is number => v !== null) ? cents(values.reduce((sum, v) => sum + v, 0)) : null
@@ -313,7 +313,7 @@ const NO_ACCOUNT = {
   reconciled: null,
 }
 
-/** Filas del resumen plano de un documento: una por cuenta, o una sola con la cuenta vacía si no se leyó ninguna. */
+/** Flat summary rows of a document: one per account, or one with an empty account if none was read. */
 export function extractionSummaryRows(s: StatementExtraction): ExtractionSummaryRow[] {
   const uuids = [...new Set(s.fiscal_documents.map((f) => f.uuid.value).filter((u): u is string => u !== null))]
   const head = {
@@ -327,7 +327,7 @@ export function extractionSummaryRows(s: StatementExtraction): ExtractionSummary
   }
   if (s.accounts.length === 0) return [ExtractionSummaryRow.parse({ ...head, ...NO_ACCOUNT })]
   return s.accounts.map((a) => {
-    // Por inicio del periodo: el primero da el saldo inicial y el último, el final.
+    // By period start: the first gives the opening balance and the last, the closing.
     const periods = [...a.periods].sort((x, y) => (x.period_start.value ?? '9999-12-31').localeCompare(y.period_start.value ?? '9999-12-31'))
     const starts = periods.flatMap((p) => (p.period_start.value === null ? [] : [p.period_start.value]))
     const ends = periods.flatMap((p) => (p.period_end.value === null ? [] : [p.period_end.value]))
@@ -350,7 +350,7 @@ export function extractionSummaryRows(s: StatementExtraction): ExtractionSummary
   })
 }
 
-/** Fila de un documento del que no hay extracción (el workflow falló antes): solo el archivo y, si falló, su estado. */
+/** Row for a document with no extraction (the workflow failed earlier): the file and, if failed, its status. */
 export function missingExtractionRow(file: string, failed: boolean): ExtractionSummaryRow {
   return ExtractionSummaryRow.parse({ file, document_type: null, bank: null, holder_name: null, holder_rfc: null, cfdi_uuid: null, extraction_status: failed ? 'failed' : null, ...NO_ACCOUNT })
 }
@@ -360,11 +360,11 @@ const MONEY_COLUMNS: ReadonlySet<keyof ExtractionSummaryRow> = new Set(['opening
 function csvField(column: keyof ExtractionSummaryRow, value: ExtractionSummaryRow[keyof ExtractionSummaryRow]): string {
   if (value === null) return ''
   const text = typeof value === 'number' && MONEY_COLUMNS.has(column) ? value.toFixed(2) : String(value)
-  // RFC 4180: comillas si el valor lleva coma, comillas, salto de línea o espacios en las orillas.
+  // RFC 4180: quote if the value has a comma, quote, newline or edge spaces.
   return /[",\r\n]|^\s|\s$/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
-/** CSV con encabezado y coma como separador; los importes con dos decimales y lo vacío sin nada entre las comas. */
+/** CSV with header and comma separator; amounts with two decimals, empty values with nothing between commas. */
 export function extractionSummaryCsv(rows: readonly ExtractionSummaryRow[]): string {
   const lines = [EXTRACTION_SUMMARY_COLUMNS.join(','), ...rows.map((row) => EXTRACTION_SUMMARY_COLUMNS.map((c) => csvField(c, row[c])).join(','))]
   return `${lines.join('\n')}\n`

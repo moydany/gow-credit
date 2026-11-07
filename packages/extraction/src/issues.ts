@@ -3,7 +3,7 @@ import type { Issue, IssueCode } from '@gow/contracts'
 type IssueInput = Omit<Issue, 'id' | 'page' | 'path' | 'account_id' | 'period_id' | 'transaction_id' | 'details'> &
   Partial<Pick<Issue, 'page' | 'path' | 'account_id' | 'period_id' | 'transaction_id' | 'details'>>
 
-/** Acumula issues con ids estables (i0001, ...). Los mensajes no llevan PII: montos y páginas sí. */
+/** Accumulates issues with stable ids (i0001, ...). Messages carry no PII (amounts and pages are fine). */
 export class IssueSink {
   readonly issues: Issue[] = []
 

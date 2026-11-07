@@ -1,8 +1,7 @@
 /**
- * Bloque fiscal (docs/09): ensamblado del CFDI impreso y sus cruces. Todos los cruces son
- * gratis: comparan el comprobante consigo mismo (encabezado contra cadena original, total
- * contra subtotal más IVA) y contra el resto del estado de cuenta (comisiones, RFC y tipo de
- * persona del titular).
+ * Fiscal block: assembly of the printed CFDI and its cross-checks. All checks are free: they
+ * compare the invoice with itself (header against original string, total against subtotal plus
+ * IVA) and with the rest of the statement (fees, holder RFC and person type).
  */
 import type { FiscalDocument, HolderType, Period } from '@gow/contracts'
 import { amountField, textField, type FieldOf } from './assemble.ts'
@@ -16,9 +15,9 @@ const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i
 const CERT = /^\d{20}$/
 
 /**
- * Fecha y hora impresa de un CFDI → "YYYY-MM-DDTHH:mm:ss" (hora local): "2025-02-01T10:12:33",
+ * Printed CFDI date and time -> "YYYY-MM-DDTHH:mm:ss" (local time): "2025-02-01T10:12:33",
  * "2025-02-01 10:12:33", "06/08/2025 03:06:55 AM", "01 de Octubre de 2025 a las 23:28:07".
- * Se separa la hora del texto y la fecha se interpreta con el mismo parser de fechas.
+ * The time is split off the text and the date goes through the shared date parser.
  */
 export function parseLocalDateTime(raw: string): string | null {
   const s = raw.trim().replace(/\s+/g, ' ')
@@ -51,9 +50,9 @@ function upperField(c: { value: string; page: number; snippet: string }, text: P
 }
 
 /**
- * Un comprobante sin folio fiscal, y sin total más RFC del emisor, no se puede identificar ni
- * cruzar: es un falso positivo del modelo (Banamex en desarrollo trajo un "withholding" con un
- * solo campo). Se descarta con un issue informativo.
+ * An invoice with no fiscal folio and no total plus issuer RFC cannot be identified or
+ * cross-checked: it is a model false positive (Banamex in dev returned a "withholding" with a
+ * single field). Dropped with an informational issue.
  */
 function identifiable(f: FiscalOut): boolean {
   const has = (n: string) => pick(f.values, n).value.trim().length > 0
@@ -115,7 +114,7 @@ function cite(c: { value: string; page: number; snippet: string }) {
   return { value, page: c.page > 0 ? c.page : null, snippet: c.snippet.trim() || null }
 }
 
-/** Régimen fiscal del SAT → tipo de persona del contrato (docs/09 §4.7). */
+/** SAT tax regime -> contract person type. */
 const REGIME_TO_HOLDER: Record<string, HolderType> = {
   '601': 'legal_entity',
   '603': 'legal_entity',
@@ -126,7 +125,7 @@ const REGIME_TO_HOLDER: Record<string, HolderType> = {
   '616': 'individual',
 }
 
-/** ¿Dos RFC son compatibles? El encabezado suele enmascarar caracteres con * o X. */
+/** Are two RFCs compatible? The header often masks characters with * or X. */
 function rfcCompatible(a: string, b: string): boolean {
   const x = a.replace(/\s/g, '').toUpperCase()
   const y = b.replace(/\s/g, '').toUpperCase()
@@ -150,15 +149,15 @@ export interface HolderRefs {
 }
 
 /**
- * Cruces de docs/09 §4. Modifica en sitio la verificación de los campos del comprobante (y
- * del tipo de persona del titular) y agrega issues.
+ * Cross-checks. Mutates in place the verification of the invoice fields (and of the holder's
+ * person type) and adds issues.
  */
 export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, periods: readonly Period[], issues: IssueSink): void {
   for (const f of docs) {
     const page = f.source.page
     const tag = `CFDI ${f.id} (página ${String(page)})`
 
-    // 1. UUID con formato válido y igual al de la cadena original.
+    // 1. UUID well-formed and equal to the original string's.
     if (f.uuid.value !== null && !UUID.test(f.uuid.value)) {
       f.uuid = unverify(f.uuid)
       issues.add({ code: 'invalid_uuid', severity: 'error', message: `${tag}: el folio fiscal no tiene el formato 8-4-4-4-12 hexadecimal.`, page })
@@ -172,7 +171,7 @@ export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, per
         issues.add({ code: 'fiscal_chain_mismatch', severity: 'error', message: `${tag}: el folio fiscal del encabezado no coincide con el de la cadena original.`, page })
       }
     }
-    // 2. Certificado del SAT igual al de la cadena; fechas solo como aviso.
+    // 2. SAT certificate equal to the string's; dates only as a warning.
     if (f.sat_certificate.value !== null && f.original_chain.sat_certificate.value !== null) {
       if (f.sat_certificate.value === f.original_chain.sat_certificate.value) f.sat_certificate = verify(f.sat_certificate)
       else {
@@ -194,20 +193,20 @@ export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, per
       } else {
         issues.add({ code: 'fiscal_totals_mismatch', severity: 'error', message: `${tag}: subtotal ${String(subtotal)} + IVA ${String(tax)} = ${String(expected)}, pero el total impreso es ${String(total)}.`, page })
       }
-      // 5. IVA cerca del 16 %: solo informativo (puede haber comisiones exentas).
+      // 5. IVA near 16%: informational only (there may be exempt fees).
       if (subtotal > 0) {
         const rate = tax / subtotal
         if (Math.abs(rate - 0.16) > 0.005) issues.add({ code: 'fiscal_totals_mismatch', severity: 'info', message: `${tag}: el IVA es ${(rate * 100).toFixed(1)} % del subtotal (no 16 %); puede haber conceptos exentos.`, page })
       }
     }
-    // 4. Subtotal contra comisiones cobradas del periodo (CFDI de ingreso).
+    // 4. Subtotal against fees charged in the period (income CFDI).
     if (f.kind === 'income' && f.subtotal.value !== null) {
       const fees = periods.map((p) => p.summary.fees_charged.value).filter((v): v is number => v !== null)
       if (fees.length > 0 && !fees.some((v) => Math.abs(v - (f.subtotal.value ?? 0)) <= 0.01) && !fees.some((v) => Math.abs(v - (f.total.value ?? -1)) <= 0.01)) {
         issues.add({ code: 'fiscal_fees_mismatch', severity: 'warning', message: `${tag}: el subtotal (${String(f.subtotal.value)}) no coincide con las comisiones cobradas del periodo (${fees.join(', ')}); puede haber comisiones exentas o cortes distintos.`, page })
       }
     }
-    // 6. RFC del receptor contra el del titular.
+    // 6. Receiver RFC against the holder's.
     if (f.receiver.rfc.value !== null && holder.rfc.value !== null) {
       if (rfcCompatible(f.receiver.rfc.value, holder.rfc.value)) {
         f.receiver.rfc = verify(f.receiver.rfc)
@@ -216,15 +215,15 @@ export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, per
         issues.add({ code: 'fiscal_receiver_mismatch', severity: 'error', message: `${tag}: el RFC del receptor del CFDI no coincide con el del titular del estado de cuenta.`, page })
       }
     }
-    // 7. Régimen fiscal del receptor contra el tipo de persona del titular.
+    // 7. Receiver tax regime against the holder's person type.
     const regime = f.receiver.tax_regime.value?.match(/\d{3}/)?.[0]
     const expectedHolder = regime ? REGIME_TO_HOLDER[regime] : undefined
     if (expectedHolder && holder.holder_type.value !== null && holder.holder_type.value !== expectedHolder) {
       holder.holder_type = unverify(holder.holder_type)
       issues.add({ code: 'fiscal_receiver_mismatch', severity: 'warning', message: `${tag}: el régimen fiscal ${regime ?? ''} corresponde a ${expectedHolder}, pero el encabezado sugiere ${holder.holder_type.value}.`, page })
     }
-    // docs/09 §9.6: la fecha de timbrado es una marca del SAT. Lejos del fin del periodo,
-    // el documento se generó mucho después o el periodo se editó.
+    // The stamp date is a SAT timestamp. Far from the period end, the document was generated much
+    // later or the period was edited.
     const stamped = f.certified_at.value?.slice(0, 10) ?? null
     const ends = periods.map((p) => p.period_end.value ?? p.statement_date.value).filter((d): d is string => d !== null)
     const lastEnd = ends.sort().at(-1) ?? null
@@ -234,7 +233,7 @@ export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, per
         issues.add({ code: 'date_out_of_period', severity: 'warning', message: `${tag}: el timbrado (${stamped}) está a ${String(gap)} días del fin del periodo (${lastEnd}); el estado de cuenta pudo generarse mucho después o el periodo pudo editarse.`, page })
       }
     }
-    // 8. Formato de certificados y RFC.
+    // 8. Certificate and RFC format.
     for (const [label, cert] of [['emisor', f.issuer_certificate], ['SAT', f.sat_certificate]] as const) {
       if (cert.value !== null && !CERT.test(cert.value)) issues.add({ code: 'fiscal_chain_mismatch', severity: 'warning', message: `${tag}: el número de certificado del ${label} no tiene 20 dígitos.`, page })
     }

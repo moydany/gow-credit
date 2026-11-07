@@ -1,7 +1,7 @@
 /**
- * Escenario de `06` en modo unitario: falla del proveedor de extracción. Google cae y el
- * documento termina extraído con Opus, con el mismo contrato. Sin red: modelo falso y PDF
- * sintético (un estado que cuadra: 10,000 + 5,000 − 1,250.50 = 13,749.50).
+ * Provider failure in unit mode: the extraction provider is down. Google falls over and the
+ * document ends up extracted with Opus, same contract. No network: fake model and synthetic PDF
+ * (a statement that balances: 10,000 + 5,000 − 1,250.50 = 13,749.50).
  */
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -62,7 +62,7 @@ const TRANSACTIONS: ExtractionChunk = {
   ],
 }
 
-/** Modelo falso: Gemini se comporta según `gemini`; Claude responde bien. */
+/** Fake model: Gemini behaves according to `gemini`; Claude answers fine. */
 function fakeLlm(gemini: (req: StructuredRequest<unknown>) => ExtractionChunk | Error): StructuredLlm & { models: string[] } {
   const models: string[] = []
   return {
@@ -81,7 +81,7 @@ const classifier: Classifier = {
 }
 const opts = { ...DEFAULT_OPTIONS, limit: createLimiter(2), googleAvailable: true }
 
-describe('router de modelos (ADR 0011)', () => {
+describe('router de modelos', () => {
   it('escenario: Google cae y el documento termina en Opus con el mismo contrato', async () => {
     const llm = fakeLlm(() => new LlmCallError('api_error', 'Google respondió 503: unavailable', { status: 503, retryable: true }))
     const doc = await extractStatement(pdfPath, { llm, classifier }, opts)
@@ -124,7 +124,7 @@ describe('router de modelos (ADR 0011)', () => {
   })
 })
 
-describe('corte temprano del modo full (ADR 0002 y 0042)', () => {
+describe('corte temprano del modo full', () => {
   const tdc = (confidence: number): Classifier => ({
     classify: async (input) => ({ ...(await classifier.classify(input)), documentType: 'credit_card_statement', confidence }),
   })
@@ -150,7 +150,7 @@ describe('corte temprano del modo full (ADR 0002 y 0042)', () => {
   })
 })
 
-describe('RFC del titular sin homoclave (ADR 0044)', () => {
+describe('RFC del titular sin homoclave', () => {
   const withRfc = (rfc: string): ExtractionChunk => ({
     ...SUMMARY,
     summary: SUMMARY.summary ? { ...SUMMARY.summary, values: [...SUMMARY.summary.values, cited('holder_rfc', rfc, `RFC: ${rfc}`)] } : null,

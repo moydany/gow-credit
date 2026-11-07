@@ -81,15 +81,15 @@ describe('placeRows', () => {
     expect(issues.count('duplicate_transaction_removed')).toBe(2)
   })
 
-  it('descarta en silencio las filas de una página repetida, antes de cuadrar (ADR 0057)', () => {
+  it('descarta en silencio las filas de una página repetida, antes de cuadrar', () => {
     const issues = new IssueSink()
     const credit = row({})
     const debit = row({ date: '12/03', amount: '1,250.50', type: 'debit', balance: '13,749.50', description: 'PAGO PROVEEDOR' })
-    // La página 3 repite la 2: el modelo devuelve las mismas filas en las dos.
+    // Page 3 repeats page 2: the model returns the same rows for both.
     const placed = placeRows([credit, debit, { ...credit, page: 3 }, { ...debit, page: 3 }], [2, 3], s, 0, issues, new Set([3]))
     expect(placed.map((p) => [p.tx.source.page, p.tx.amount])).toEqual([[2, 5000], [2, 1250.5]])
     expect(issues.issues).toEqual([])
-    // Sin la página marcada como repetida, las dos copias entran (y descuadrarían el periodo).
+    // Without the repeated-page mark both copies get in (and the period stops balancing).
     expect(placeRows([credit, { ...credit, page: 3 }], [2, 3], s, 0, new IssueSink())).toHaveLength(2)
   })
 

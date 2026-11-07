@@ -1,13 +1,13 @@
 /**
- * Extracción de un estado de cuenta (docs/02 §2, docs/04 §2-3, docs/07 I):
+ * Extraction of one bank statement:
  *
- *   PDF → texto local → clasificación → pasada 1 (resumen) → pasada 2 (bloques de páginas,
- *   en paralelo, leyendo el documento de la caché) → verificación aritmética →
- *   reintento dirigido y doble lectura de las páginas que rompen el saldo → verificación de
- *   cada valor → StatementExtraction válida.
+ *   PDF → local text → classification → pass 1 (summary) → pass 2 (page blocks, in parallel,
+ *   reading the document from cache) → arithmetic check →
+ *   targeted retry and double read of the pages that break the balance → per-value
+ *   verification → valid StatementExtraction.
  *
- * Nunca lanza: ante cualquier falla devuelve una extracción válida con `status` parcial o
- * fallida, issues y banderas (prioridad del brief: no crashear sobre documentos nuevos).
+ * Never throws: on any failure it returns a valid extraction with a partial or failed `status`,
+ * issues and flags, so new documents never crash it.
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -37,30 +37,30 @@ import { pagesWithBreaks, printedOf, reconcilePeriod, reconciliationScore, type 
 import { isProviderFailure, planModels, supportsServerFallback, type ModelPlan } from './router.ts'
 
 export interface ExtractOptions {
-  /** Fuerza el modelo principal (experimentos). Sin él decide el router (ADR 0011). */
+  /** Forces the main model (experiments). Without it the router decides. */
   extractionModel?: string
-  /** Si hay llave de Google; por defecto se lee del entorno. */
+  /** Whether a Google key is present; read from the environment by default. */
   googleAvailable?: boolean
-  /** Interno: llamadas y motivo de una corrida anterior que cayó por falla del proveedor. */
+  /** Internal: calls and reason from a previous run that fell on a provider failure. */
   providerFallback?: { calls: ModelCall[]; from: string; reason: string; classification: Classified | null }
   blockPages: number
   summaryEffort: Effort
   transactionsEffort: Effort
   retryEffort: Effort
-  /** Tope de páginas que se releen por documento (costo acotado). */
+  /** Cap on pages re-read per document (bounds cost). */
   maxRetryPages: number
   limit: Limiter
   onProgress?: (message: string) => void
   /**
-   * Solo el modo full (ADR 0002 y 0042): si el clasificador dice que no es un estado de cuenta
-   * bancario con al menos esta confianza, no se extrae. Sin él (standalone, `evaluate`), la
-   * clasificación etiqueta y no bloquea.
+   * Full mode only: if the classifier says this is not a bank statement with at least this
+   * confidence, it is not extracted. Without it (standalone, `evaluate`) classification labels
+   * and does not block.
    */
   rejectNotStatementAbove?: number
   /**
-   * Solo el modo full (ADR 0057, como el corte de ADR 0042): un PDF con más de un estado de cuenta no se
-   * extrae; falla con `multipleStatementsReason`. Sin él (standalone, `evaluate`) se extrae igual y la
-   * bandera `multiple_statements` queda.
+   * Full mode only: a PDF with more than one statement is not extracted; it fails with
+   * `multipleStatementsReason`. Without it (standalone, `evaluate`) it is extracted anyway and the
+   * `multiple_statements` flag stays.
    */
   rejectMultipleStatements?: boolean
 }
@@ -108,7 +108,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   const flags = new Set<DocumentFlag>()
   const progress = (m: string) => opts.onProgress?.(m)
   let failureReason: string | null = null
-  // Objeto mutable: se marca desde los bloques en paralelo (closures).
+  // Mutable object: set from the parallel blocks (closures).
   const outcome = { partial: false, providerDown: null as string | null }
   const plan: ModelPlan = planModels({ requested: opts.extractionModel, googleAvailable: opts.googleAvailable ?? readGoogleEnv().apiKey !== null, retryEffort: opts.retryEffort })
   if (opts.providerFallback) {
@@ -118,7 +118,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   } else if (plan.note) {
     issues.add({ code: 'block_failed', severity: 'info', message: `Router: ${plan.note}.` })
   }
-  /** Repite el documento entero con el modelo de emergencia del otro proveedor. */
+  /** Repeats the whole document with the other provider's emergency model. */
   const fallBackToOtherProvider = (reason: string) =>
     extractStatement(path, deps, {
       ...opts,
@@ -126,13 +126,13 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       providerFallback: { calls, from: plan.primary, reason, classification: classified },
     })
 
-  // ---------- PDF y texto local
+  // ---------- PDF and local text
   let pdf: LoadedPdf
   try {
     pdf = await loadPdf(path)
   } catch (err) {
     const bytes = await readFile(path).catch(() => Buffer.alloc(0))
-    // Un PDF con contraseña de apertura falla con su motivo propio (ADR 0049).
+    // A PDF with an open password fails with its own reason.
     return finalizeFailed(path, bytes, started, isPdfPasswordError(err) ? PDF_PASSWORD_FAILURE : `${PDF_UNREADABLE_PREFIX}: ${errorText(err)}`)
   }
   const text = new PageText(pdf)
@@ -143,7 +143,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   }
   const pdfInput = { base64: pdf.base64, sha256: pdf.sha256, cache: true }
 
-  // ---------- Paginación, páginas repetidas y giradas (ADR 0057). Gratis: sin modelos.
+  // ---------- Pagination, repeated and rotated pages. Free: no models.
   const pageChecks = reportPageChecks(pdf, issues, flags)
   const duplicatePages = new Set(pdf.duplicatePages)
   if (opts.rejectMultipleStatements && pageChecks.statements.documents > 1) {
@@ -154,7 +154,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     calls.push({ purpose, model: r.model, prompt, effort, pages, usage: r.usage, cost_usd: r.costUsd, latency_ms: r.latencyMs, response_cache_hit: r.responseCacheHit })
   }
 
-  // ---------- Clasificación (etiqueta, no bloquea: ADR 0002)
+  // ---------- Classification (a label, does not block)
   let documentType: DocumentType = 'other'
   let classConfidence = 0
   let classifierBank: string | null = null
@@ -162,7 +162,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   let classified: Classified | null = null
   const inherited = opts.providerFallback?.classification ?? null
   if (inherited) {
-    // Repetición por falla del proveedor: la clasificación ya se hizo y se pagó.
+    // Retry after a provider failure: classification was already done and paid for.
     ;({ documentType, classConfidence, classifierBank, classifier } = inherited)
     for (const f of inherited.flags) flags.add(f)
     classified = inherited
@@ -181,15 +181,15 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     issues.add({ code: 'block_failed', severity: 'warning', message: `Falló la clasificación (${errorText(err)}); se continúa con la extracción.` })
   }
 
-  // ---------- Corte temprano del modo full (ADR 0002 y 0042): un documento que con seguridad no es
-  // estado de cuenta no se extrae. Sin clasificación (falló) siempre se extrae.
+  // ---------- Early cut in full mode: a document that is surely not a bank statement is not
+  // extracted. If classification failed, it is always extracted.
   if (classified && opts.rejectNotStatementAbove !== undefined && documentType !== 'bank_statement' && classConfidence >= opts.rejectNotStatementAbove) {
     flags.add('not_a_bank_statement')
     issues.add({ code: 'block_failed', severity: 'info', message: `El clasificador lo marcó como ${documentType} con confianza ${classConfidence.toFixed(2)}; no se extrajo.` })
     return build({ extractionModel: plan.primary, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason: `no es un estado de cuenta bancario (${documentType}); no se extrajo`, status: 'failed' })
   }
 
-  // ---------- Pasada 1
+  // ---------- Pass 1
   const system = loadPrompt('extract_system').text
   const extractionModel = plan.primary
   const visionNote = route === 'vision_only' ? '\n\nLa capa de texto de este PDF está corrupta: lee las imágenes de las páginas.' : ''
@@ -244,7 +244,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     }
   }
   const summary = assembleSummary(summaryOut, text)
-  // Sin texto local no hay contra qué verificar el encabezado: lo relee la otra familia (docs/04 §3.6, ADR 0011).
+  // No local text means nothing to verify the header against: the other model family re-reads it.
   if (route === 'vision_only') {
     const read = await headerDoubleRead(deps, summaryOut, pdfInput, { text, model: plan.doubleRead, firstModel: extractionModel, system, instruction: summaryPrompt.text + visionNote, promptVersion: summaryPrompt.id, limit: opts.limit, record })
     if (applyHeaderDoubleRead(read, summary, issues)) flags.add('header_double_read')
@@ -253,16 +253,16 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   if (fiscal.length > 0) flags.add('fiscal_document_present')
   if (summary.accounts.length > 1) flags.add('multi_account')
   if (summary.accounts.some((a) => a.periods.length > 1)) flags.add('multi_period')
-  // Sin numeración impresa que lo diga, los CFDI de ingreso timbrados en días distintos son varios estados (ADR 0057).
+  // With no printed numbering, income CFDIs stamped on different days mean several statements.
   const byCfdi = pageChecks.paginated ? null : reportFiscalStatements(fiscal, issues, flags)
   if (byCfdi && opts.rejectMultipleStatements) {
     return build({ extractionModel, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason: multipleStatementsReason(byCfdi.documents), status: 'failed' })
   }
 
-  // ---------- Pasada 2 por bloques (después de la pasada 1: la caché ya está escrita)
+  // ---------- Pass 2 by blocks (after pass 1: the cache is already written)
   const allPages = Array.from({ length: pdf.pageCount }, (_, i) => i + 1)
   const movementPages = [...new Set(summary.periods.flatMap((p) => p.movementPages))].sort((a, b) => a - b)
-  // Una página repetida no se extrae otra vez (sus filas se descartan de todos modos en `placeRows`).
+  // A repeated page is not extracted again (its rows are dropped anyway in `placeRows`).
   const pages = (movementPages.length > 0 ? movementPages : allPages).filter((p) => !duplicatePages.has(p))
   const listing = accountsListing(summary)
 
@@ -276,7 +276,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       return placeRows(chunk.transactions, blockPages, summary, orderBase, issues, duplicatePages)
     } catch (caught) {
       let err = caught
-      // Si se cortó por longitud, se parte el bloque; si no, un reintento y luego salida parcial.
+      // If cut off by length, split the block; otherwise one retry, then a partial result.
       if (err instanceof LlmCallError && err.code === 'max_tokens' && blockPages.length > 1) {
         const mid = Math.ceil(blockPages.length / 2)
         const [a, b] = await Promise.all([runBlock(blockPages.slice(0, mid), orderBase, depth + 1), runBlock(blockPages.slice(mid), orderBase + 50_000, depth + 1)])
@@ -284,7 +284,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       }
       if (outcome.providerDown !== null) return []
       if (depth === 0 && !(err instanceof LlmCallError && err.code === 'missing_api_key')) return runBlock(blockPages, orderBase, depth + 1)
-      // Dos salidas inválidas seguidas: falla de calidad, el bloque se repite con el modelo de emergencia.
+      // Two invalid outputs in a row: quality failure, the block is repeated with the emergency model.
       if (depth === 1 && err instanceof LlmCallError && err.code === 'invalid_output' && plan.qualityFallback !== extractionModel) {
         try {
           progress(`bloque páginas ${String(first)}-${String(last)} con ${plan.qualityFallback}`)
@@ -305,7 +305,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   if (outcome.providerDown !== null) return fallBackToOtherProvider(outcome.providerDown)
   let placed = blockResults.flat()
 
-  // ---------- Verificación aritmética y reintento dirigido
+  // ---------- Arithmetic check and targeted retry
   const reconcileAll = (rows: PlacedRow[]) => {
     const tx = materialize(rows)
     const recs = new Map<string, PeriodReconciliation>()
@@ -322,7 +322,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       if (!rec || rec.status !== 'not_reconciled') continue
       const broken = pagesWithBreaks(rec)
       const meta = summary.periods.find((m) => m.id === p.id)
-      // Sin saldo por fila no se puede localizar: se relee solo si el periodo es corto.
+      // Without a balance per row the break cannot be located: re-read only if the period is short.
       const candidates = (broken.length > 0 ? broken : (meta?.movementPages.length ?? 99) <= 2 ? (meta?.movementPages ?? []) : []).filter((page) => !duplicatePages.has(page))
       for (const page of candidates) {
         const b = rec.running_balance?.breaks.filter((x) => x.page === page) ?? []
@@ -337,7 +337,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     const prompt = loadPrompt('extract_retry_page', { page, accounts: listing, problem })
     try {
       progress(`relectura página ${String(page)}`)
-      // Doble lectura con otra familia de modelos (ADR 0011): menos sesgos compartidos.
+      // Double read with another model family: fewer shared biases.
       const chunk = await callChunk('retry_page', prompt.id, prompt.text, opts.retryEffort, [page], 32_000, plan.doubleRead)
       const firstOrder = placed.find((r) => r.tx.source.page === page)?.order ?? page * 1000
       const fresh = placeRows(chunk.transactions, [page], summary, firstOrder, issues, duplicatePages)
@@ -353,7 +353,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
         state = next
         issues.add({ code: 'double_read_conflict', severity: 'info', message: `La relectura de la página ${String(page)} mejoró el cuadre; se usó la segunda lectura.`, page })
       }
-      // Doble lectura: si las dos lecturas difieren y la página sigue sin cuadrar, sus filas quedan en conflicto.
+      // Double read: if the two reads differ and the page still does not balance, its rows stay in conflict.
       const stillBroken = [...affected].some((id) => (state.recs.get(id)?.reconciliation.running_balance?.breaks ?? []).some((b) => b.page === page))
       if (disagree && stillBroken) {
         for (const [, list] of state.tx) for (const t of list) if (t.source.page === page) conflictIds.add(t.id)
@@ -367,7 +367,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     issues.add({ code: 'running_balance_break', severity: 'warning', message: `Hay ${String(problems.size)} páginas con problemas aritméticos; solo se releyeron ${String(opts.maxRetryPages)} para acotar el costo.` })
   }
 
-  // ---------- Verificación final de cada valor
+  // ---------- Final per-value verification
   const periodsTx = new Map<string, Transaction[]>()
   for (const acc of summary.accounts) {
     for (const p of acc.periods) {
@@ -471,11 +471,11 @@ function build(b: BuildInput): StatementExtraction {
   }
   const parsed = StatementExtraction.safeParse(doc)
   if (parsed.success) return parsed.data
-  // Degradación elegante: un campo que viola el contrato se vuelve desconocido y una fila que
-  // lo viola se quita, cada uno con su issue; el resto de la extracción se conserva.
+  // Graceful degradation: a field that breaks the contract becomes unknown and a row that breaks
+  // it is removed, each with its issue; the rest of the extraction is kept.
   const repaired = repairAgainstContract(doc, parsed.error.issues, b.issues)
   if (repaired) return repaired
-  // Solo si la reparación no alcanza se entrega lo mínimo válido, con la ruta del error (sin datos).
+  // Only if repair falls short, return the minimal valid result with the error path (no data).
   const where = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
   return { ...doc, accounts: [], issues: [...b.issues.issues, { id: `i${String(b.issues.issues.length + 1).padStart(4, '0')}`, code: 'block_failed', severity: 'error', message: `La extracción no validó contra el contrato y se descartó: ${where}`, page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: {} }], extraction: { ...doc.extraction, status: 'failed', failure_reason: `contrato inválido: ${where}` } }
 }

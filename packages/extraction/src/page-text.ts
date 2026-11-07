@@ -1,7 +1,7 @@
 /**
- * Búsquedas en la capa de texto local para verificar lo que dijo el modelo (docs/04 §3.5).
- * Solo aplican si la capa es usable (ok, parcial o reparada); en visión pura no hay contra
- * qué comparar y la verificación queda en la aritmética.
+ * Lookups in the local text layer to verify what the model said. Only apply if the layer is
+ * usable (ok, partial or repaired); with pure vision there is nothing to compare and
+ * verification falls back to arithmetic.
  */
 import { amountForms, normalizeText } from './normalize.ts'
 import type { LoadedPdf } from './pdf.ts'
@@ -31,13 +31,13 @@ export class PageText {
     return page !== null && Number.isInteger(page) && page >= 1 && page <= this.#raw.length
   }
 
-  /** ¿Aparece el monto impreso en la página? Respeta bordes para no confundir 5,000.00 con 15,000.00. */
+  /** Does the printed amount appear on the page? Respects boundaries so 5,000.00 is not 15,000.00. */
   amountOnPage(page: number, amount: number): boolean {
     const text = this.#raw[page - 1] ?? ''
     return amountForms(amount).some((form) => new RegExp(`(?<![\\d,.])${escape(form)}(?!\\d)`).test(text))
   }
 
-  /** ¿La mayoría de las palabras del snippet están en la página? Tolera columnas partidas. */
+  /** Are most of the snippet's words on the page? Tolerates split columns. */
   snippetOnPage(page: number, snippet: string): boolean {
     const page_ = this.#norm[page - 1] ?? ''
     const tokens = normalizeText(snippet)
@@ -48,7 +48,7 @@ export class PageText {
     return found / tokens.length >= 0.6
   }
 
-  /** Primera página y línea donde aparece el texto (normalizado). */
+  /** First page and line where the (normalized) text appears. */
   locateText(value: string): { page: number; line: string } | null {
     const needle = normalizeText(value)
     if (needle.length < 4) return null

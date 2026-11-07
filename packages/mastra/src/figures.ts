@@ -1,11 +1,11 @@
 /**
- * Filtro de cifras (docs/04 §4): todo número y toda fecha de un texto generado para el proveedor
- * tiene que estar en la lista de hechos de donde se redactó. Si no, el texto se descarta y se
- * regenera, y si vuelve a fallar se usa la plantilla del código. Nunca se envía sin pasar aquí.
+ * Figures filter: every number and date in text generated for the provider must be in the list
+ * of facts it was written from. Otherwise the text is discarded and regenerated, and if it
+ * fails again the code's template is used. Nothing is sent without passing through here.
  *
- * Qué cuenta como cifra: números con dígitos (montos, días, meses, porcentajes, referencias),
- * fechas en palabras o en ISO, y los números escritos con palabras de dos en adelante. Las
- * palabras "mil" y "millón" no se aceptan: los montos se escriben con dígitos.
+ * What counts as a figure: numbers with digits (amounts, days, months, percentages, references),
+ * dates in words or ISO, and numbers written in words from two up. The words "mil" and
+ * "millón" are not accepted: amounts are written in digits.
  */
 import type { QuestionFact } from '@gow/contracts'
 
@@ -44,7 +44,7 @@ interface DateRef {
 
 export interface FigureCheck {
   ok: boolean
-  /** Las cifras del texto que no están en los hechos, tal como aparecen. */
+  /** Figures in the text that are not in the facts, as they appear. */
   unsupported: string[]
 }
 
@@ -59,7 +59,7 @@ function numericVariants(v: number): number[] {
   return out
 }
 
-/** "150,000.50" → 150000.5; "1.234,5" no es formato mexicano y se lee como venga. */
+/** "150,000.50" → 150000.5; "1.234,5" is not Mexican format and is read as it comes. */
 function parseNumber(token: string): number | null {
   const clean = token.replace(/[,\s]/g, '')
   const n = Number(clean)
@@ -70,14 +70,14 @@ const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g
 const SLASH_DATE = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g
 const WORD_DATE = new RegExp(`\\b(\\d{1,2}) de (${MONTH_RE})(?: (?:de|del) (\\d{4}))?\\b`, 'gi')
 const MONTH_YEAR = new RegExp(`\\b(${MONTH_RE}) (?:de|del) (\\d{4})\\b`, 'gi')
-/** Un número que no va pegado a letras (q1, T20 o A649 son identificadores, no cifras). */
+/** A number not attached to letters (q1, T20 or A649 are identifiers, not figures). */
 const NUMBER = /(?<![\p{L}\d.,])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\p{L}\d])|(?<![\p{L}\d.,])\d+(?:\.\d+)?(?![\p{L}\d])/gu
 
 function monthIndex(name: string): number {
   return MONTHS.indexOf(name.toLowerCase() as (typeof MONTHS)[number]) + 1
 }
 
-/** Quita las fechas del texto y las devuelve aparte, para no contar sus partes como números sueltos. */
+/** Strips dates from the text and returns them apart, so their parts do not count as loose numbers. */
 function takeDates(text: string): { rest: string; dates: { raw: string; ref: DateRef }[] } {
   const dates: { raw: string; ref: DateRef }[] = []
   let rest = text.replace(ISO_DATE, (raw, y: string, m: string, d: string) => {
@@ -146,7 +146,7 @@ export function checkFigures(text: string, facts: readonly QuestionFact[]): Figu
   return { ok: unsupported.length === 0, unsupported }
 }
 
-/** Fecha ISO → "15 de junio de 2025", como la escriben las plantillas. */
+/** ISO date → "15 de junio de 2025", as the templates write it. */
 export function spanishDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   return `${String(d)} de ${MONTHS[(m ?? 1) - 1] ?? ''} de ${String(y)}`

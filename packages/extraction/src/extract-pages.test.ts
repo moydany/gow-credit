@@ -1,6 +1,6 @@
 /**
- * `extractStatement` con PDFs sintéticos de varias páginas (ADR 0057): varios estados de cuenta, páginas
- * que faltan, repetidas y giradas. Los modelos son falsos y sin red.
+ * `extractStatement` with multi-page synthetic PDFs: several statements, missing, repeated and
+ * rotated pages. Fake models, no network.
  */
 import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -32,7 +32,7 @@ const MOVEMENTS = [
   ['31/03   COMISION MANEJO DE CUENTA              250.50                13,749.50'],
 ] as const
 const HEADER = ['BANCO FICTICIO S.A. - ESTADO DE CUENTA', 'Titular: COMERCIALIZADORA DE PRUEBA SA DE CV   RFC: XAXX010101000', 'Periodo: del 01/03/2026 al 31/03/2026', 'Saldo inicial: 10,000.00   Depositos: 5,000.00   Retiros: 1,250.50   Saldo final: 13,749.50']
-/** Un estado de cuenta de tres páginas: encabezado, dos movimientos, un movimiento. Cada página imprime "Pág n de total". */
+/** A three-page statement (header, two transactions, one transaction); each page prints "Pág n de total". */
 const statementPages = (total = 3): string[][] => [
   [...HEADER, `Pág ${String(1)} de ${String(total)}`],
   ['FECHA   DESCRIPCION                          CARGO       ABONO      SALDO', ...MOVEMENTS[0], `Pág ${String(2)} de ${String(total)}`],
@@ -109,7 +109,7 @@ function fakeModels(summary: ExtractionChunk, rows: ExtractionChunk['transaction
 }
 const opts = { ...DEFAULT_OPTIONS, limit: createLimiter(2), googleAvailable: true }
 
-describe('extractStatement: varios estados de cuenta (ADR 0057)', () => {
+describe('extractStatement: varios estados de cuenta', () => {
   const second = statementPages(3).map((lines) => lines.map((l) => l.replace('01/03/2026', '01/04/2026').replace('31/03/2026', '30/04/2026').replace('05/03', '05/04').replace('12/03', '12/04').replace('31/03', '30/04')))
   const twoStatements = () => write(syntheticStatementPages([...statementPages(3), ...second]))
 
@@ -179,7 +179,7 @@ describe('extractStatement: varios estados de cuenta (ADR 0057)', () => {
   })
 })
 
-describe('extractStatement: páginas que faltan, repetidas y giradas (ADR 0057)', () => {
+describe('extractStatement: páginas que faltan, repetidas y giradas', () => {
   it('1/3 y 3/3: bandera pages_missing y un issue con la página que falta', async () => {
     const [p1, , p3] = statementPages()
     const { deps } = fakeModels(summaryChunk([2]), [txRow(2, '2026-03-31', '250.50', 'debit', '13,749.50', 'COMISION MANEJO DE CUENTA')])
@@ -203,7 +203,7 @@ describe('extractStatement: páginas que faltan, repetidas y giradas (ADR 0057)'
     expect(doc.flags).not.toContain('reconciliation_failed')
     expect(doc.issues.find((i) => i.code === 'duplicate_page_removed')).toMatchObject({ severity: 'warning', page: 3, details: { same_as: 2 } })
     expect(doc.issues.some((i) => i.code === 'count_mismatch')).toBe(false)
-    // La repetida no se pide al modelo: el bloque lleva solo las páginas distintas.
+    // The repeated page is not sent to the model: the block carries only the distinct pages.
     expect(seen.filter((s) => s.purpose === 'transactions')).toHaveLength(1)
     expect(doc.extraction.calls.find((c) => c.purpose === 'transactions')?.pages).toEqual([2, 4])
   })

@@ -1,7 +1,7 @@
 /**
- * Estado que viaja entre los pasos del workflow. Vive en el snapshot de Mastra (libSQL en
- * standalone), así que una solicitud pausada se reanuda en otro proceso con todo lo necesario:
- * extracciones ya clasificadas, veredicto, preguntas y respuestas.
+ * State carried between workflow steps. It lives in the Mastra snapshot (libSQL in standalone),
+ * so a paused request resumes in another process with everything needed: already-classified
+ * extractions, verdict, questions and answers.
  */
 import { ApplicationRequest, ClassificationSummary, Decision, IsoDate, MaxLine, NO_DECLARATIONS, OwnerAnswer, OwnerDeclarations, Policy, Question, Sha256, StatementAgeSetting, StatementExtraction, SupplierIdentity } from '@gow/contracts'
 import { z } from 'zod'
@@ -15,8 +15,8 @@ export const AppInput = z.object({
   policy: Policy,
   policy_id: z.string().nullable(),
   /**
-   * Ajuste de antigüedad del tenant (ADR 0049), fijado al abrir la corrida: el modo full lo pasa y la
-   * antigüedad del documento solo advierte. Ausente (standalone), aplica la compuerta de la política.
+   * Tenant's age adjustment, fixed when the run opens: full mode passes it and document age only
+   * warns. Absent (standalone), the policy's gate applies.
    */
   statement_age: StatementAgeSetting.optional(),
 })
@@ -31,13 +31,13 @@ export const AppState = z.object({
   statements: z.array(StatementExtraction),
   documents: z.array(z.object({ file_name: z.string(), sha256: Sha256, extraction_status: z.enum(['complete', 'partial', 'failed']), origin: z.enum(['submitted', 'owner_answer']) })),
   supplier: SupplierIdentity.nullable(),
-  declarations: OwnerDeclarations.default(NO_DECLARATIONS).describe('Cliente principal y uso de la cuenta que dijo el dueño (ADR 0050)'),
+  declarations: OwnerDeclarations.default(NO_DECLARATIONS).describe('Cliente principal y uso de la cuenta que dijo el dueño'),
   classification: ClassificationSummary.nullable(),
   decision: Decision.nullable(),
   max_line: MaxLine.nullable(),
   questions: z.array(Question).describe('Preguntas pendientes que arma el veredicto actual'),
   asked: z.array(Question).describe('Las preguntas que se enviaron en la última ronda, ya redactadas'),
-  asked_keys: z.array(z.string()).default([]).describe('Tema y movimiento de todo lo que ya se preguntó en alguna ronda: no se vuelve a preguntar (ADR 0051)'),
+  asked_keys: z.array(z.string()).default([]).describe('Tema y movimiento de todo lo que ya se preguntó en alguna ronda: no se vuelve a preguntar'),
   answers: z.array(OwnerAnswer),
   rejected_answers: z.array(Issue),
   contradictions: z.array(Issue),
@@ -52,7 +52,7 @@ export const AskSuspend = z.object({ application_id: z.string(), round: z.int(),
 export type AskSuspend = z.infer<typeof AskSuspend>
 export const AskResume = z.object({
   answers: z.array(OwnerAnswer),
-  /** Rutas absolutas de los PDFs nuevos que traen las respuestas `documents` (el CLI las resuelve). */
+  /** Absolute paths of the new PDFs carried by `documents` answers (the CLI resolves them). */
   base_dir: z.string().nullable(),
 })
 export type AskResume = z.infer<typeof AskResume>

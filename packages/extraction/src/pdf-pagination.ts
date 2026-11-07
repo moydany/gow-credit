@@ -1,24 +1,24 @@
 /**
- * Paginación que imprime el banco en cada página (ADR 0057): qué páginas faltan, si el PDF trae varios
- * estados de cuenta pegados y cuántos hay según los CFDI. Trabaja sobre el texto ya leído, sin tocar el PDF.
+ * Pagination the bank prints on each page: which pages are missing, whether the PDF holds several
+ * statements glued together and how many there are by CFDI. Works on already-read text only.
  */
 import type { FiscalDocument, TextLayer } from '@gow/contracts'
 
-/** Numeración que imprime el banco en una página: "Pág. 3 de 17" es `{ printed: 3, total: 17 }`. */
+/** Numbering the bank prints on a page: "Pág. 3 de 17" is `{ printed: 3, total: 17 }`. */
 export interface PageNumbering {
-  /** Página del PDF (1 = primera). */
+  /** PDF page (1 = first). */
   page: number
-  /** Número de página impreso, o null si no se encontró. */
+  /** Printed page number, or null if none found. */
   printed: number | null
-  /** Total de páginas impreso ("de 17"), o null. */
+  /** Printed total pages ("de 17"), or null. */
   total: number | null
 }
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 
-// "Pág. 3 de 17", "Página 3/17", "Pag 3/3", "Hoja 3 de 17", "Page 3 of 17" (ya sin acentos ni mayúsculas).
+// "Pág. 3 de 17", "Página 3/17", "Pag 3/3", "Hoja 3 de 17", "Page 3 of 17" (accents and case already stripped).
 const KEYWORD_PAGE = /\b(?:pagina|pag|pg|hoja|page)\b\.?\s*(?:no\.?|num\.?|numero|#|:)?\s*(\d{1,4})(?:\s*(?:de|of|\/)\s*(\d{1,4}))?(?!\d)/g
-// "3 de 17" o "3/17" solos en su línea (al pie o al encabezado).
+// "3 de 17" or "3/17" alone on their line (footer or header).
 const BARE_PAGE = /^-?\s*(\d{1,4})\s*(?:de|of|\/)\s*(\d{1,4})\s*-?$/
 const EDGE_LINES = 3
 
@@ -44,7 +44,8 @@ function pageCandidates(text: string): PageCandidate[] {
       const printed = Number(m[1])
       const total = m[2] === undefined ? null : Number(m[2])
       if (!validNumbering(printed, total)) continue
-      // "Página 3" sin total solo cuenta como remate de una línea de encabezado o pie: en el cuerpo es una referencia.
+      // "Página 3" with no total only counts at the end of a header or footer line: in the body it
+      // is a reference.
       if (total === null && (edge === 'body' || line.slice(m.index + m[0].length).trim().length > 0)) continue
       out.push({ printed, total, kind: 'keyword', edge, line: i })
     }
@@ -60,19 +61,19 @@ function pageCandidates(text: string): PageCandidate[] {
 
 const EDGE_RANK = { tail: 0, head: 1, body: 2 } as const
 
-/** La numeración de la página: con palabra clave antes que sola, al pie antes que al encabezado. */
+/** A page's numbering: keyword form before bare, footer before header. */
 function bestCandidate(candidates: readonly PageCandidate[]): PageCandidate | null {
   const rank = (c: PageCandidate) => (c.kind === 'keyword' ? 0 : 10) + EDGE_RANK[c.edge]
   return [...candidates].sort((a, b) => rank(a) - rank(b) || a.line - b.line)[0] ?? null
 }
 
 /**
- * Lo que imprimen los bancos mexicanos: `Pág. 3 de 17`, `Página 3/17`, `Pag 3/3`, `Hoja 3 de 17`,
- * `3 de 17` o `3/17` solos al pie o al encabezado, con y sin acento. Solo con capa de texto `ok` o
- * `partial`: en `vision_only` no hay texto contra qué leerla y todo queda en `null`.
+ * What Mexican banks print: `Pág. 3 de 17`, `Página 3/17`, `Pag 3/3`, `Hoja 3 de 17`, `3 de 17` or
+ * `3/17` alone in the footer or header, with and without accent. Only with an `ok` or `partial`
+ * text layer: in `vision_only` there is no text to read it from and everything is `null`.
  *
- * El `3/17` suelto se confunde con una fecha (`03/05`), así que solo se acepta si todos los que hay
- * en el documento comparten el total y los números cambian de página a página.
+ * A bare `3/17` is easily confused with a date (`03/05`), so it is only accepted if all of them in
+ * the document share the total and the numbers change from page to page.
  */
 export function printedPagination(pageTexts: readonly string[], textLayer: TextLayer = 'ok'): PageNumbering[] {
   if (textLayer !== 'ok' && textLayer !== 'partial') return pageTexts.map((_, i) => ({ page: i + 1, printed: null, total: null }))
@@ -83,9 +84,9 @@ export function printedPagination(pageTexts: readonly string[], textLayer: TextL
 }
 
 interface PaginationScope {
-  /** Páginas repetidas: no son páginas del documento y no cuentan. */
+  /** Repeated pages: not pages of the document, they do not count. */
   exclude?: ReadonlySet<number>
-  /** Texto por página, para no confundir el comprobante fiscal con otro estado de cuenta. */
+  /** Text per page, to avoid mistaking the fiscal invoice for another statement. */
   pageTexts?: readonly string[]
 }
 
@@ -94,8 +95,8 @@ function realPages(pagination: readonly PageNumbering[], scope: PaginationScope)
 }
 
 /**
- * La numeración sirve si la mitad de las páginas la trae: un `3 de 5` suelto en una página de un
- * PDF de diez no prueba nada.
+ * Numbering is usable if half the pages carry it: a lone `3 de 5` on a page of a ten-page PDF
+ * proves nothing.
  */
 export function paginationReliable(pagination: readonly PageNumbering[], scope: PaginationScope = {}): boolean {
   const real = realPages(pagination, scope)
@@ -103,14 +104,14 @@ export function paginationReliable(pagination: readonly PageNumbering[], scope: 
   return numbered > 0 && numbered * 2 >= real.length
 }
 
-/** Un comprobante fiscal impreso (folio fiscal, sellos, cadena original) puede traer su propia numeración. */
+/** A printed fiscal invoice (folio fiscal, seals, original string) may carry its own numbering. */
 const FISCAL_MARKERS = ['sello digital', 'cadena original', 'folio fiscal', 'comprobante fiscal', 'certificado del sat', 'regimen fiscal']
 function looksFiscal(text: string | undefined): boolean {
   const t = fold(text ?? '')
   return FISCAL_MARKERS.filter((m) => t.includes(m)).length >= 2
 }
 
-/** Corta las páginas en documentos: un `1` después de una página con número mayor es un reinicio. */
+/** Splits pages into documents: a `1` after a page with a higher number is a restart. */
 function splitRuns(real: readonly PageNumbering[], pageTexts: readonly string[] | undefined): PageNumbering[][] {
   const runs: PageNumbering[][] = []
   let current: PageNumbering[] = []
@@ -118,7 +119,7 @@ function splitRuns(real: readonly PageNumbering[], pageTexts: readonly string[] 
   for (const p of real) {
     const isRestart = p.printed === 1 && last !== null && last > 1
     if (isRestart && looksFiscal(pageTexts?.[p.page - 1])) {
-      // Ocupa su lugar en el documento, pero su numeración propia no cuenta.
+      // It takes its place in the document, but its own numbering does not count.
       current.push({ page: p.page, printed: null, total: null })
       continue
     }
@@ -134,16 +135,16 @@ function splitRuns(real: readonly PageNumbering[], pageTexts: readonly string[] 
 }
 
 export interface MultipleStatements {
-  /** Cuántos estados de cuenta trae el PDF (1 si ninguno reinicia). */
+  /** How many statements the PDF holds (1 if none restarts). */
   documents: number
-  /** Páginas del PDF donde empieza cada documento después del primero. */
+  /** PDF pages where each document after the first starts. */
   restartsAt: number[]
 }
 
 /**
- * ¿Trae el PDF más de un estado de cuenta? Un `printed === 1` que aparece **después** de una página con
- * `printed > 1` es un reinicio de la numeración: hay otro documento. Sin numeración confiable (visión sola,
- * o casi ninguna página la imprime) no se puede decir y devuelve uno.
+ * Does the PDF hold more than one statement? A `printed === 1` **after** a page with
+ * `printed > 1` is a numbering restart: another document. Without reliable numbering (vision
+ * only, or almost no page prints it) it cannot tell and returns one.
  */
 export function multipleStatements(pagination: readonly PageNumbering[], scope: PaginationScope = {}): MultipleStatements {
   if (!paginationReliable(pagination, scope)) return { documents: 1, restartsAt: [] }
@@ -151,7 +152,7 @@ export function multipleStatements(pagination: readonly PageNumbering[], scope: 
   return { documents: Math.max(1, runs.length), restartsAt: runs.slice(1).flatMap((r) => (r[0] ? [r[0].page] : [])) }
 }
 
-/** El total que imprime un documento: el más repetido, y en empate el mayor. */
+/** The total a document prints: the most repeated, the larger on a tie. */
 function runTotal(run: readonly PageNumbering[]): number | null {
   const counts = new Map<number, number>()
   for (const p of run) if (p.total !== null) counts.set(p.total, (counts.get(p.total) ?? 0) + 1)
@@ -164,9 +165,9 @@ function runTotal(run: readonly PageNumbering[]): number | null {
 }
 
 /**
- * Números impresos que faltan en un documento: antes de la primera página numerada, entre dos
- * consecutivas y, con total conocido, al final. Una página sin número impreso entre dos numeradas
- * ocupa un lugar: no se reporta como faltante algo que el PDF sí trae.
+ * Printed numbers missing from a document: before the first numbered page, between two
+ * consecutive ones and, with a known total, at the end. An unnumbered page between two numbered
+ * ones takes a slot: something the PDF does carry is not reported missing.
  */
 function missingInRun(run: readonly PageNumbering[], total: number | null, pagesAfterLast: number): number[] {
   const detected = run.flatMap((p, idx) => (p.printed === null ? [] : [{ idx, printed: p.printed }]))
@@ -186,8 +187,8 @@ function missingInRun(run: readonly PageNumbering[], total: number | null, pages
     const actual = b.idx - a.idx - 1
     if (expected > actual) push(a.printed + actual + 1, b.printed - 1)
   })
-  // Al final cuentan las hojas físicas que siguen a la última numerada, repetidas incluidas: Banamex cierra
-  // con siete hojas sin número (publicidad, cinco iguales) y no le falta ninguna.
+  // At the end, physical sheets after the last numbered one count, repeated included: Banamex
+  // closes with seven unnumbered sheets (ads, five identical) and misses none.
   if (total !== null && last.printed <= total) {
     const expected = total - last.printed
     if (expected > pagesAfterLast) push(last.printed + pagesAfterLast + 1, total)
@@ -196,15 +197,15 @@ function missingInRun(run: readonly PageNumbering[], total: number | null, pages
 }
 
 export interface MissingPages {
-  /** Números de página impresos que no están en el PDF. */
+  /** Printed page numbers absent from the PDF. */
   missing: number[]
   total: number | null
 }
 
 /**
- * Páginas que faltan según la numeración impresa. Con `total` conocido, los números entre 1 y `total`
- * que no están (y los huecos entre consecutivos); también las últimas, si el PDF trae menos páginas
- * que el total. Vacío si la numeración no es confiable.
+ * Pages missing according to the printed numbering. With a known `total`, the numbers between 1
+ * and `total` that are absent (and gaps between consecutive ones), including trailing ones if the
+ * PDF has fewer pages than the total. Empty if the numbering is not reliable.
  */
 export function missingPrintedPages(pagination: readonly PageNumbering[], scope: PaginationScope = {}): MissingPages {
   if (!paginationReliable(pagination, scope)) return { missing: [], total: null }
@@ -214,8 +215,8 @@ export function missingPrintedPages(pagination: readonly PageNumbering[], scope:
   runs.forEach((run, ri) => {
     const printedTotal = runTotal(run)
     total ??= printedTotal
-    // Hojas físicas sin número impreso después de la última numerada (repetidas incluidas): ocupan un lugar.
-    // Una repetida que sí trae número es otra copia de una página que ya está, no la que falta.
+    // Unnumbered physical sheets after the last numbered one (repeated included) take a slot.
+    // A repeated page that does carry a number copies a page already there; it is not the missing one.
     const lastNumbered = [...run].reverse().find((p) => p.printed !== null)
     const nextStart = runs[ri + 1]?.[0]?.page ?? pagination.length + 1
     const pagesAfterLast = lastNumbered === undefined ? 0 : pagination.filter((p) => p.page > lastNumbered.page && p.page < nextStart && p.printed === null).length
@@ -224,15 +225,15 @@ export function missingPrintedPages(pagination: readonly PageNumbering[], scope:
   return { missing: [...missing].sort((a, b) => a - b), total }
 }
 
-// ---------------------------------------------------------------- varios estados por sus CFDI (ADR 0057)
+// ---------------------------------------------------------------- several statements by their CFDI
 
 const UUID_FORMAT = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i
 
 /**
- * Los bancos imprimen un CFDI de ingreso por estado de cuenta: dos o más con UUID distinto y timbrados
- * en días distintos son varios estados de cuenta (uno por día de timbrado). Santander con dos productos
- * imprime uno solo, y un periodo de tres meses (Mercado Pago) no trae ninguno: `multi_account` y
- * `multi_period` no cuentan. Devuelve 1 si no hay prueba de más de uno.
+ * Banks print one income CFDI per statement: two or more with different UUIDs stamped on
+ * different days are several statements (one per stamp day). Santander with two products prints
+ * only one, and a three-month period (Mercado Pago) has none: `multi_account` and `multi_period`
+ * do not count. Returns 1 if there is no proof of more than one.
  */
 export function fiscalStatementCount(fiscal: readonly Pick<FiscalDocument, 'kind' | 'uuid' | 'certified_at'>[]): number {
   const dayOf = new Map<string, string>()
@@ -247,9 +248,8 @@ export function fiscalStatementCount(fiscal: readonly Pick<FiscalDocument, 'kind
 }
 
 /**
- * Motivo de falla de un PDF con varios estados de cuenta. Es el mismo texto que `multipleStatementsReason`
- * de `@gow/contracts` (agente `channels`); se deja aquí mientras esa función no exista, para que quien
- * integra solo cambie el import.
+ * Failure reason for a PDF with several statements; same text as `multipleStatementsReason` in
+ * `@gow/contracts`.
  */
 export function multipleStatementsReason(count: number): string {
   return `el PDF trae ${String(count)} estados de cuenta`

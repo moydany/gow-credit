@@ -1,7 +1,7 @@
 /**
- * De la salida del modelo al contrato canónico: ids estables, fechas y montos normalizados,
- * filas fuera del bloque descartadas, y cada valor con su fuente y su verificación contra la
- * capa de texto. No llama al modelo.
+ * Model output to the canonical contract: stable ids, normalized dates and amounts, rows outside
+ * the block dropped, each value with its source and its check against the text layer. Does not
+ * call the model.
  */
 import type { Account, AccountType, HolderType, Period, Provenance, Transaction, Verification } from '@gow/contracts'
 import type { IssueSink } from './issues.ts'
@@ -17,7 +17,7 @@ export interface FieldOf<T> {
   provenance: Provenance
 }
 
-/** Cita normalizada: en el esquema del modelo lo ausente es "" o página 0 (límite de uniones). */
+/** Normalized quote: in the model schema, absent means "" or page 0 (union limit). */
 interface Cited<T> {
   value: T | null
   page: number | null
@@ -31,7 +31,7 @@ function cite<T>(c: { value: string; page: number; snippet: string }, parse: (ra
 type RawCited = Parameters<typeof cite>[0]
 const asText = (c: RawCited) => cite(c, (s) => s)
 const asAmount = (c: RawCited) => cite(c, parseAmount)
-/** Totales, comisiones, intereses e ISR son magnitudes: algunos bancos (Mercado Pago) imprimen los cargos con signo. */
+/** Totals, fees, interest and ISR are magnitudes: some banks (Mercado Pago) print charges signed. */
 const asMagnitude = (c: RawCited) => cite(c, (raw) => {
   const n = parseAmount(raw)
   return n === null ? null : Math.abs(n)
@@ -46,7 +46,7 @@ function cleanSnippet(s: string | null): string | null {
   return t.length > 0 ? t.slice(0, 600) : null
 }
 
-/** Construye un Field verificando el valor contra la página citada; si no hay cita, lo busca. */
+/** Builds a Field checking the value against the cited page; with no quote, searches for it. */
 export function textField(c: Cited<string>, text: PageText): FieldOf<string> {
   const value = c.value?.trim() ? c.value.trim() : null
   if (value === null) return EMPTY
@@ -97,7 +97,7 @@ export function dateField(c: Cited<string>, text: PageText, periodEnd: string | 
 
 function enumField<T extends string>(value: T | 'unknown', base: FieldOf<string>): FieldOf<T> {
   if (value === 'unknown') return EMPTY
-  // El tipo de cuenta o de persona es una lectura del modelo, sin texto literal que lo pruebe: no verificado.
+  // Account/person type is a model inference with no literal text to prove it: unverified.
   return { value, source: base.source, verification: 'unverified', confidence: 0.7, provenance: 'extracted' }
 }
 
@@ -120,7 +120,7 @@ export interface AssembledSummary {
   holder: { name: FieldOf<string>; rfc: FieldOf<string>; holder_type: FieldOf<HolderType>; address: FieldOf<string> }
   accounts: Account[]
   periods: PeriodMeta[]
-  /** account_ref → period_ref → id del periodo. */
+  /** account_ref -> period_ref -> period id. */
   refs: Map<string, Map<string, string>>
 }
 
@@ -197,10 +197,10 @@ export function assembleSummary(s: SummaryOut, text: PageText): AssembledSummary
   }
 }
 
-/** Fila asignada a un periodo, todavía sin id definitivo. */
+/** Row assigned to a period, still without its final id. */
 export interface PlacedRow {
   periodId: string
-  /** Orden de lectura dentro del documento (bloque, posición): conserva el orden impreso. */
+  /** Reading order within the document (block, position); keeps the printed order. */
   order: number
   tx: Omit<Transaction, 'id'>
 }
@@ -209,7 +209,7 @@ function resolvePeriod(row: TransactionOut, summary: AssembledSummary, date: str
   const byAccount = summary.refs.get(row.account_ref.trim())
   const direct = byAccount?.get(row.period_ref.trim())
   if (direct) return direct
-  // Refs inventadas o mal copiadas: si solo hay un periodo posible, va ahí; si no, por fecha y página.
+  // Invented or miscopied refs: with one possible period use it, otherwise go by date and page.
   const candidates = summary.periods.filter((p) => (byAccount ? p.accountRef === row.account_ref.trim() : true))
   if (candidates.length === 1) return candidates[0]?.id ?? null
   const byPage = candidates.filter((p) => p.movementPages.includes(row.page))
@@ -222,10 +222,9 @@ function resolvePeriod(row: TransactionOut, summary: AssembledSummary, date: str
 }
 
 /**
- * Convierte las filas de un bloque. Descarta las que caen fuera de las páginas del bloque
- * (las extrae otro bloque), las de una página repetida (`skipPages`, ADR 0057: ya se avisó una vez
- * de la repetida y sus filas no deben contar dos veces antes de cuadrar) y los duplicados exactos
- * con saldo, que no pueden ser legítimos.
+ * Converts a block's rows. Drops rows outside the block's pages (another block extracts them),
+ * rows on a repeated page (`skipPages`: already flagged once, must not count twice before the
+ * balance check) and exact duplicates with a balance, which cannot be legitimate.
  */
 export function placeRows(rows: readonly TransactionOut[], blockPages: readonly number[], summary: AssembledSummary, orderBase: number, issues: IssueSink, skipPages: ReadonlySet<number> = new Set()): PlacedRow[] {
   const allowed = new Set(blockPages)
@@ -293,7 +292,7 @@ export function placeRows(rows: readonly TransactionOut[], blockPages: readonly 
   return placed
 }
 
-/** Ids definitivos por periodo en orden de lectura: a1.p1.t0001, ... */
+/** Final ids per period in reading order: a1.p1.t0001, ... */
 export function materialize(rows: readonly PlacedRow[]): Map<string, Transaction[]> {
   const byPeriod = new Map<string, PlacedRow[]>()
   for (const r of rows) byPeriod.set(r.periodId, [...(byPeriod.get(r.periodId) ?? []), r])
