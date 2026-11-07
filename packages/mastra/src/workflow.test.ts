@@ -12,7 +12,8 @@ import { syntheticStatement } from '@gow/decision/testing'
 import { ZERO_USAGE, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
 import { describe, expect, it } from 'vitest'
 import { MemoryChannel } from './channels.ts'
-import { createRuntime, resumeApplication, startApplication } from './runtime.ts'
+import { renderReport, toApplicationResult } from './report.ts'
+import { createRuntime, resumeApplication, startApplication, WORKFLOW_ID } from './runtime.ts'
 import type { AppInput } from './state.ts'
 import type { WorkflowDeps } from './workflow.ts'
 import { Writer } from './writer.ts'
@@ -46,6 +47,11 @@ DOCS['sin-comprador.pdf'] = syntheticStatement(
   'wf3',
 )
 DOCS['factura.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), classification: { document_type: 'invoice', confidence: 0.95, bank: null } }
+// El clasificador se equivocó pero la extracción terminó a medias, o falló por sí misma (ADR 0042, cambios).
+DOCS['factura-parcial.pdf'] = { ...DOCS['factura.pdf'], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'partial' } }
+DOCS['factura-fallida.pdf'] = { ...DOCS['factura.pdf'], accounts: [], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'failed', failure_reason: 'no se obtuvo el resumen del documento (pasada 1)' } }
+// Clasificado como estado de cuenta, pero el extractor puso la bandera después de extraer.
+DOCS['marcado-por-el-extractor.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), flags: ['not_a_bank_statement'] }
 // Lo que devuelve la extracción del modo full cuando corta antes de extraer (ADR 0042).
 DOCS['tdc.pdf'] = { ...(DOCS['claro.pdf'] as StatementExtraction), classification: { document_type: 'credit_card_statement', confidence: 1, bank: null }, flags: ['not_a_bank_statement'], extraction: { ...(DOCS['claro.pdf'] as StatementExtraction).extraction, status: 'failed', failure_reason: 'no es un estado de cuenta bancario (credit_card_statement); no se extrajo' } }
 
@@ -208,17 +214,46 @@ describe('processApplication', () => {
     expect(d?.explanation?.text).toMatch(/Como no se pidió un monto, se evaluó con la línea máxima/)
   })
 
-  it('un documento que no es estado de cuenta termina sin veredicto y con razón', async () => {
+  it('una extracción terminada de un documento que el clasificador llamó factura se analiza y deja una nota (ADR 0042)', async () => {
     const r = await startApplication(createRuntime(deps(), db()), input('factura.pdf'))
     expect(r.status).toBe('success')
+    expect(r.state?.failure_reason).toBeNull()
+    expect(r.state?.decision).not.toBeNull()
+    expect(r.state?.notes).toEqual(['El clasificador marcó el documento como invoice con confianza 0.95; se analizó igual'])
+    // La clasificación queda tal cual en la extracción que ve el analista.
+    expect(r.state?.statements[0]?.classification).toEqual({ document_type: 'invoice', confidence: 0.95, bank: null })
+    const result = toApplicationResult('factura', r.state, { workflow: WORKFLOW_ID, run_id: r.runId, status: r.status, suspended_step: r.suspendedStep }, '2026-10-05T12:00:00.000Z', r.error)
+    expect(result.status).not.toBe('failed')
+    expect(renderReport(result, r.state)).toMatch(/## Avisos del proceso\n\n- El clasificador marcó el documento como invoice con confianza 0.95; se analizó igual/)
+  })
+
+  it('una extracción parcial se analiza aunque el clasificador no la llame estado de cuenta', async () => {
+    const r = await startApplication(createRuntime(deps(), db()), input('factura-parcial.pdf'))
+    expect(r.state?.failure_reason).toBeNull()
+    expect(r.state?.decision).not.toBeNull()
+    expect(r.state?.notes).toHaveLength(1)
+  })
+
+  it('si la extracción misma falló, la solicitud falla por la extracción aunque el clasificador diga otra cosa', async () => {
+    const r = await startApplication(createRuntime(deps(), db()), input('factura-fallida.pdf'))
     expect(r.state?.decision).toBeNull()
-    expect(r.state?.failure_reason).toContain('no es un estado de cuenta')
+    expect(r.state?.notes).toEqual([])
+    expect(describeFailure(r.state?.failure_reason ?? null).kind).toBe('extraction_failed')
+  })
+
+  it('la bandera del extractor con la extracción terminada no falla la solicitud: la analiza y avisa', async () => {
+    const r = await startApplication(createRuntime(deps(), db()), input('marcado-por-el-extractor.pdf'))
+    expect(r.state?.failure_reason).toBeNull()
+    expect(r.state?.decision?.status).toBe('qualified_with_limit')
+    expect(r.state?.notes).toEqual(['El extractor marcó el documento como posible no estado de cuenta (bandera not_a_bank_statement); se analizó igual'])
   })
 
   it('un documento que el modo full no extrajo falla por no ser estado de cuenta, no por la extracción', async () => {
     const r = await startApplication(createRuntime(deps(), db()), input('tdc.pdf'))
     expect(r.state?.decision).toBeNull()
+    expect(r.state?.failure_reason).toBe('el documento no es un estado de cuenta bancario (credit_card_statement)')
     expect(describeFailure(r.state?.failure_reason ?? null)).toMatchObject({ kind: 'not_bank_statement', documentType: 'credit_card_statement' })
+    expect(r.state?.notes).toEqual([])
   })
 
   it('PDF con contraseña y escaneado ilegible fallan con su motivo; un escaneado leído se analiza (ADR 0049)', async () => {

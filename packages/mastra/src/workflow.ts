@@ -43,6 +43,17 @@ function extractionCalls(s: StatementExtraction): CallRecord[] {
   return s.extraction.calls.map((c) => ({ purpose: `extraction.${c.purpose}`, model: c.model, cost_usd: c.cost_usd, cache_hit: c.response_cache_hit }))
 }
 
+/**
+ * Aviso de que se analizó un documento que el clasificador (o el extractor) no llamó estado de cuenta
+ * (ADR 0042, cambios). La clasificación queda tal cual en la extracción. Sin datos del documento.
+ */
+function classificationNotes(s: StatementExtraction): string[] {
+  const { document_type: type, confidence } = s.classification
+  if (type !== 'bank_statement') return [`El clasificador marcó el documento como ${type} con confianza ${confidence.toFixed(2)}; se analizó igual`]
+  if (s.flags.includes('not_a_bank_statement')) return ['El extractor marcó el documento como posible no estado de cuenta (bandera not_a_bank_statement); se analizó igual']
+  return []
+}
+
 function documentOf(s: StatementExtraction, origin: 'submitted' | 'owner_answer'): AppState['documents'][number] {
   return { file_name: s.document.file_name, sha256: s.document.sha256, extraction_status: s.extraction.status, origin }
 }
@@ -193,10 +204,13 @@ export function createProcessApplication(deps: WorkflowDeps) {
     outputSchema: AppState,
     execute: async ({ inputData }) => {
       const s = await deps.extract(inputData.pdf_path)
-      const notStatement = s.classification.document_type !== 'bank_statement' || s.flags.includes('not_a_bank_statement')
-      // Un documento que no se extrajo por no ser estado de cuenta (corte del modo full, ADR 0042)
-      // falla por eso, no por la extracción. Un PDF con contraseña o escaneado e ilegible lo dice (ADR 0049).
-      const failure = notStatement && (s.extraction.status !== 'failed' || s.flags.includes('not_a_bank_statement')) ? notBankStatementReason(s.classification.document_type) : extractionFailure(s)
+      // La clasificación solo falla la solicitud cuando la extracción no se hizo: el corte temprano del
+      // modo full (ADR 0042) vuelve `failed` con la bandera y falla por no ser estado de cuenta, no por
+      // la extracción. Cualquier otra falla es de la extracción (un PDF con contraseña o escaneado e
+      // ilegible lo dice, ADR 0049). Una extracción terminada (`complete` o `partial`) sigue con perfil y
+      // veredicto aunque el clasificador no la llamara estado de cuenta: solo deja una nota.
+      const cutBeforeExtracting = s.extraction.status === 'failed' && s.flags.includes('not_a_bank_statement')
+      const failure = cutBeforeExtracting ? notBankStatementReason(s.classification.document_type) : extractionFailure(s)
       return {
         input: inputData,
         statements: [s],
@@ -215,7 +229,7 @@ export function createProcessApplication(deps: WorkflowDeps) {
         rounds: 0,
         failure_reason: failure,
         calls: extractionCalls(s),
-        notes: [],
+        notes: failure === null ? classificationNotes(s) : [],
       }
     },
   })
