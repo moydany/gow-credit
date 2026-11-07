@@ -345,6 +345,12 @@ describe('robustez documental (ADR 0058)', () => {
 
   const tamper = (s: StatementExtraction) => f(profileOf([s]), 'document_tamper_signals')
 
+  it('un estado sintético lleva las banderas que se le piden (escenario 28), sin repetirlas', () => {
+    expect(stmt({ monthly: BASIC, flags: ['pages_missing', 'pages_missing'] }).flags).toEqual(['pages_missing'])
+    expect(stmt({ monthly: BASIC }).flags).toEqual([])
+    expect(f(profileOf([stmt({ monthly: BASIC, flags: ['pages_missing'] })]), 'document_pages_missing').value).toBe(true)
+  })
+
   it('un documento sin señales: páginas completas y ninguna señal, verificadas y con confianza 1', () => {
     const p = profileOf([stmt({ monthly: BASIC })])
     expect(Profile.safeParse(p).success).toBe(true)

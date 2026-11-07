@@ -1,0 +1,31 @@
+# docs/specs/2026-11-07-robustez-documental.md (M) y ADR 0058. El documento imprime "Pág 1/3" y
+# "Pág 3/3": le falta la 2. La extracción deja la bandera `pages_missing` y, sin esa página, el periodo
+# no cuadra (`reconciled: false`). Con la plantilla base el motor no manda el caso a revisión humana por
+# el descuadre: pide el PDF completo (`missing_pages`). Si con el documento completo siguiera sin
+# cuadrar, la compuerta `integrity` volvería a fallar.
+id: pagina-faltante
+catalog: 28
+title: PDF al que le falta una página, se pide el documento completo
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Luna SA de CV
+    rfc: DLU150304AB1
+    statements:
+      - start: 2026-09-01
+        opening_balance: 80000
+        reconciled: false
+        flags: [pages_missing]
+        monthly:
+          - { kind: customer_payment, amount: 150000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: customer_payment, amount: 150000, count: 6 }
+          - { kind: supplier_payment, amount: 120000, count: 4 }
+    request: { amount: 100000, buyer: Cadena Norte SA de CV }
+expect:
+  status: needs_clarification
+  clarification_topics: [missing_pages]
+  reasons_include: [gate_pages_complete, gate_integrity_deferred]
+  next_steps_include: [document_pages_missing]
+  features: { document_pages_missing: true, integrity_ok: false }

@@ -271,7 +271,7 @@ export function syntheticStatement(input: z.input<typeof SyntheticStatement>, ho
     ],
     fiscal_documents: fiscal,
     issues: [],
-    flags: [...(periods.length > 1 ? (['multi_period'] as const) : []), ...(fiscal.length > 0 ? (['fiscal_document_present'] as const) : [])],
+    flags: [...new Set([...(periods.length > 1 ? (['multi_period'] as const) : []), ...(fiscal.length > 0 ? (['fiscal_document_present'] as const) : []), ...(spec.flags ?? [])])],
     extraction: {
       status: 'complete',
       started_at: '2026-11-04T12:00:00.000Z',

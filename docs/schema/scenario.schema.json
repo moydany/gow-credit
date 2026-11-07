@@ -301,6 +301,31 @@
                     "reconciled": {
                       "default": true,
                       "type": "boolean"
+                    },
+                    "flags": {
+                      "description": "Banderas de documento que dejaría la extracción (por ejemplo pages_missing); se agregan a las que genera el estado de cuenta (ADR 0058)",
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "not_a_bank_statement",
+                          "classifier_fallback",
+                          "vision_only",
+                          "multi_account",
+                          "multi_period",
+                          "partial_extraction",
+                          "reconciliation_failed",
+                          "possible_prompt_injection",
+                          "fiscal_document_present",
+                          "provider_fallback",
+                          "quality_fallback",
+                          "multiple_statements",
+                          "pages_missing",
+                          "pages_duplicated",
+                          "rotated_pages",
+                          "header_double_read"
+                        ]
+                      }
                     }
                   },
                   "required": [

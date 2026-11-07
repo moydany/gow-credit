@@ -17,6 +17,7 @@ import { CFDI_SAT_STATUS, FeatureName, PriorApplication, SAT_LIST_STATUS } from 
 import { AskTopic } from './policy.ts'
 import { IsoDate, LocalId, Money, SignedMoney } from './primitives.ts'
 import { ApplicationRequest } from './request.ts'
+import { DocumentFlag } from './statement.ts'
 
 /** Tipos de flujo sintético. Cada uno se convierte en movimientos con la descripción típica de un banco mexicano. */
 export const SyntheticFlowKind = z.enum([
@@ -72,6 +73,7 @@ export const SyntheticStatement = z.strictObject({
   holder_redacted: z.boolean().default(false).describe('true: nombre, RFC y CLABE en null, como los PDFs de desarrollo'),
   fiscal: SyntheticFiscal.nullable().default(null),
   reconciled: z.boolean().default(true),
+  flags: z.array(DocumentFlag).optional().describe('Banderas de documento que dejaría la extracción (por ejemplo pages_missing); se agregan a las que genera el estado de cuenta (ADR 0058)'),
 })
 export type SyntheticStatement = z.infer<typeof SyntheticStatement>
 
