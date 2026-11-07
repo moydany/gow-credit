@@ -286,7 +286,7 @@ sequenceDiagram
 | Revisión | Correcciones del analista sobre la extracción, guardadas como pares inmutables y reevaluadas |
 | Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo. En su detalle se sube un estado de cuenta con el monto a solicitar y se ve la evaluación avanzar hasta el resultado |
 | Outcomes | Si cada crédito se pagó o cayó en mora, para medir la política |
-| Bitácora | Quién hizo qué, y cada llamada a un modelo con su costo |
+| Bitácora | Quién hizo qué, cada llamada a un modelo con su costo, y los trabajos de la cola con su estado y error |
 | Configuración | General (antigüedad del estado de cuenta, WhatsApp, usuarios), políticas y prompts |
 
 <table>

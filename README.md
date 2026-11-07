@@ -286,7 +286,7 @@ sequenceDiagram
 | Revisión | Analyst corrections to the extraction, stored as immutable pairs and re-evaluated |
 | Proveedores | Add, search and remove suppliers with everything that belongs to them. On a supplier's page you can upload a statement with the amount to request and watch the evaluation run to its result |
 | Outcomes | Whether each credit was repaid or defaulted, to measure the policy |
-| Bitácora | Who did what, and every model call with its cost |
+| Bitácora | Who did what, every model call with its cost, and the queue jobs with their state and error |
 | Configuración | General (statement age, WhatsApp, users), policies and prompts |
 
 <table>

@@ -285,3 +285,12 @@ muestra personalización y el loop de aprendizaje.
   (el resto sigue en 5 MB).
 - El detalle del proveedor ya no muestra la tarjeta "Contactos": los contactos verificados siguen en la base,
   entran por la API de integración o el registro por WhatsApp, y se borran con el proveedor.
+- **Trabajos (2026-11-07).** Configuración → Bitácora tiene una tercera pestaña, "Trabajos": los trabajos de la
+  cola (pg-boss) del prestamista, del más reciente al más antiguo, con su estado (en cola, en curso, por
+  reintentar, terminó, falló, cancelado), intentos, duración, la solicitud o el proveedor y el mensaje del error
+  del último intento (recortado a 300 caracteres, sin la pila). Filtros "En curso" y "Con error"; se actualiza
+  cada 5 s mientras algo corre. `GET /bo/v1/jobs` lee con `findJobs` de pg-boss y la conexión de la cola que
+  ya tiene la API, filtrando por el `tenant_id` del contenido del trabajo, así que no hace falta permiso sobre
+  el esquema `pgboss`. Del contenido solo salen los ids (una limpieza lleva rutas de archivos). Los trabajos
+  terminados se borran de la cola tras su retención. Los registros de los procesos no se muestran: mezclan
+  prestamistas y siguen en Railway (`railway logs`) o en `pnpm stack:logs`.
