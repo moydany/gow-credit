@@ -283,3 +283,55 @@ Dos de los tres se cerraron al integrar el pipeline; el tercero sigue en "Falta 
 
 Son precios de lista a la fecha del documento. Se verifican antes de comprometer un
 presupuesto.
+
+## Demo en Railway (ADR 0068)
+
+Para que una persona pruebe el backoffice con su correo, sin el pipeline de Cloud Run: base y Auth en
+Supabase (`gow-demo`, `us-west-2`) y los procesos en Railway (`gow-credit`, `us-west2`). Todo lo de
+Railway está en `infra/railway/`.
+
+| Servicio | Qué corre | Volumen | Dominio |
+|---|---|---|---|
+| `app` | API y worker juntos (`app-start.sh`): comparten el disco de los documentos | `/data` | público: API, subidas firmadas |
+| `web` | backoffice estático con nginx (`web.Dockerfile`), `/bo/` va a `app.railway.internal:3000` | — | público: lo que abre la persona |
+| `whatsapp` | `APP=whatsapp`, una instancia | `/data/whatsapp` | ninguno |
+
+`app` y `whatsapp` salen por IPv6 a la conexión directa de Supabase (`db.<ref>.supabase.co:5432`).
+
+### Pasos
+
+1. `railway link` al proyecto y `sh infra/railway/configure.sh`: construcción, arranque, pre-deploy,
+   healthcheck, IPv6 de salida y volúmenes. Es idempotente.
+2. Variables sin secretos (ya puestas en `gow-credit`): en `app`, `HOST=::`, `PORT=3000`,
+   `RAILWAY_RUN_UID=0` (el volumen se monta como root), `STORAGE_DIR=/data/storage`,
+   `LLM_CACHE_DIR=/data/llm-cache`, `LLM_CACHE_MODE=off`, `API_PUBLIC_URL`, `BACKOFFICE_URL`,
+   `SUPABASE_URL` y las seis `DATABASE_URL_*` con la contraseña por referencia
+   (`postgresql://gow_api:${{GOW_DB_PASSWORD_API}}@db.<ref>.supabase.co:5432/postgres?sslmode=no-verify`);
+   en `web`, `PORT=8080` y `API_UPSTREAM=app.railway.internal:3000`; en `whatsapp`, `APP=whatsapp`,
+   `PORT=3000`, `RAILWAY_RUN_UID=0`, `WHATSAPP_AUTH_DIR=/data/whatsapp` y `DATABASE_URL_WHATSAPP` con
+   `${{app.GOW_DB_PASSWORD_WHATSAPP}}`.
+3. Contraseñas de los roles: `sh infra/railway/set-db-passwords.sh`. Las genera y las guarda sin
+   imprimirlas; el pre-deploy de `app` se las pone a los roles (`pnpm -F @gow/db db:roles`).
+4. Secretos en `app`, a mano desde el panel de Railway:
+   - `DATABASE_ADMIN_URL`: Supabase → Connect → Direct connection, con la contraseña de la base y
+     `?sslmode=no-verify` al final.
+   - `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY`: Supabase → Settings → API Keys (las heredadas).
+   - `BACKOFFICE_JWT_SECRET`: Supabase → Settings → JWT Keys, el secreto heredado (HS256).
+   - `STORAGE_SIGNING_SECRET`: una cadena aleatoria larga (`openssl rand -hex 32`).
+   - `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `RESEND_API_KEY` y `RESEND_FROM` (`Nombre <correo@dominio>`).
+5. `sh infra/railway/deploy.sh`: sube el commit (`git archive`, nada sin versionar) a `app`, `web` y
+   `whatsapp`. El pre-deploy de `app` corre `db:roles` y `db:migrate`.
+6. Auth en el panel de Supabase:
+   - Authentication → Hooks → Customize Access Token (JWT) Claims: Postgres, `app.custom_access_token_hook`.
+   - Authentication → Sign In / Providers: apagar "Allow new users to sign up".
+   - Authentication → URL Configuration: Site URL = `BACKOFFICE_URL`; Redirect URLs =
+     `<BACKOFFICE_URL>/entrar`.
+   - Authentication → SMTP: `smtp.resend.com`, puerto 465, usuario `resend`, contraseña = la llave de
+     Resend, remitente del dominio verificado.
+   - Authentication → Emails → Magic Link: texto en español.
+7. Tenant y usuario, con `railway ssh --service app`: `pnpm tenant create --name "..."` (imprime una
+   sola vez la llave de API del tenant) y `pnpm tenant user add --tenant <id> --email <correo>`.
+8. Probar el acceso con un correo propio antes de dar de alta a la persona.
+
+Huecos de la demo: TLS hacia Supabase sin verificar el certificado, API y worker escalan juntos y
+`WHATSAPP_SELF_REGISTRATION` queda con su valor por defecto (encendido, ADR 0062).
