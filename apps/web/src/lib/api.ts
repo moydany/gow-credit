@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApplicationDetail, ApplicationRow, ApplicationTimeline, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -54,6 +54,8 @@ export const api = {
   me: () => request<BackofficeMe>('GET', '/me'),
   applications: () => request<ApplicationRow[]>('GET', '/applications'),
   application: (id: string) => request<ApplicationDetail>('GET', `/applications/${id}`),
+  /** Recorrido de la solicitud (ADR 0067): se reconstruye en cada petición. */
+  applicationTimeline: (id: string) => request<ApplicationTimeline>('GET', `/applications/${id}/timeline`),
   correct: (id: string, corrections: CorrectionInput[]) => request<{ batch: string; corrections: number }>('POST', `/applications/${id}/corrections`, { corrections }),
   discard: (id: string, reason: DiscardReason) => request<{ id: string; status: 'not_qualified' }>('POST', `/applications/${id}/discard`, { reason }),
   clarifications: () => request<ClarificationItem[]>('GET', '/clarifications'),

@@ -8,6 +8,15 @@ const LIVE = { refetchInterval: 6000, refetchIntervalInBackground: false } as co
 export const useMe = () => useQuery({ queryKey: ['me'], queryFn: api.me, retry: false, staleTime: 5 * 60_000 })
 export const useApplications = () => useQuery({ queryKey: ['applications'], queryFn: api.applications, ...LIVE })
 export const useApplication = (id: string) => useQuery({ queryKey: ['application', id], queryFn: () => api.application(id), refetchInterval: 6000 })
+/** Se refresca cada 6 s solo mientras la solicitud no haya llegado a un estado final. */
+const FINAL: readonly string[] = ['qualified', 'qualified_with_limit', 'not_qualified', 'failed']
+export const useApplicationTimeline = (id: string) =>
+  useQuery({
+    queryKey: ['timeline', id],
+    queryFn: () => api.applicationTimeline(id),
+    refetchInterval: (q) => (q.state.data && FINAL.includes(q.state.data.status) ? false : 6000),
+    refetchIntervalInBackground: false,
+  })
 export const useClarifications = () => useQuery({ queryKey: ['clarifications'], queryFn: api.clarifications, ...LIVE })
 export const usePolicyVersions = () => useQuery({ queryKey: ['policies'], queryFn: api.policyVersions })
 export const usePrompts = () => useQuery({ queryKey: ['prompts'], queryFn: api.prompts })

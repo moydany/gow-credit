@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, Navigate, Outlet, useSearch } from '@tanstack/react-router'
+import { createRootRoute, createRoute, lazyRouteComponent, createRouter, Navigate, Outlet, useSearch } from '@tanstack/react-router'
 import { AuditPage } from './features/audit/AuditPage'
 import { Enter } from './features/auth/Enter'
 import { Setup } from './features/auth/Setup'
@@ -33,6 +33,12 @@ const detail = createRoute({
   path: '/solicitudes/$id',
   component: ApplicationDetailPage,
   validateSearch: (s: Record<string, unknown>): { tab?: string; pag?: number } => ({ tab: str(s.tab), pag: typeof s.pag === 'number' ? s.pag : Number(str(s.pag)) || undefined }),
+})
+// three.js pesa más que el resto de la app: el recorrido se descarga solo al abrirlo.
+const timeline = createRoute({
+  getParentRoute: () => shell,
+  path: '/solicitudes/$id/recorrido',
+  component: lazyRouteComponent(() => import('./features/timeline/TimelinePage'), 'TimelinePage'),
 })
 const clarifications = createRoute({
   getParentRoute: () => shell,
@@ -71,7 +77,7 @@ const legacy = (from: '/politicas' | '/prompts' | '/bitacora', to: '/configuraci
     },
   })
 
-const tree = root.addChildren([enter, setup, shell.addChildren([applications, detail, clarifications, review, suppliers, supplier, outcomes, settingsSection.addChildren([settings, policies, prompts, audit]), legacy('/politicas', '/configuracion/politicas'), legacy('/prompts', '/configuracion/prompts'), legacy('/bitacora', '/configuracion/bitacora')])])
+const tree = root.addChildren([enter, setup, shell.addChildren([applications, detail, timeline, clarifications, review, suppliers, supplier, outcomes, settingsSection.addChildren([settings, policies, prompts, audit]), legacy('/politicas', '/configuracion/politicas'), legacy('/prompts', '/configuracion/prompts'), legacy('/bitacora', '/configuracion/bitacora')])])
 export const router = createRouter({ routeTree: tree, defaultPreload: 'intent' })
 
 declare module '@tanstack/react-router' {

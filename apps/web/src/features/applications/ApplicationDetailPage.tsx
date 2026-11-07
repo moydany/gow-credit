@@ -137,6 +137,9 @@ export function ApplicationDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link to="/solicitudes/$id/recorrido" params={{ id: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
+              <Icon name="clock" size={14} /> Ver recorrido
+            </Link>
             {/* Prompts y respuestas tal cual de esta solicitud (ADR 0064). */}
             <Link to="/configuracion/bitacora" search={{ tab: 'modelo', solicitud: data.id }} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-[13.5px] font-medium hover:bg-sunken">
               <Icon name="bolt" size={14} /> Llamadas al modelo
