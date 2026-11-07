@@ -203,11 +203,27 @@ export const DecisionRules = z
   })
   .meta({ id: 'DecisionRules' })
 
+/** Months of statements evaluated: the most recent one, or the three most recent in a row (ADR 0072). */
+export const HISTORY_MONTHS = [1, 3] as const
+export type HistoryMonths = (typeof HISTORY_MONTHS)[number]
+/** Id of the gate the engine adds when the policy evaluates more than one month. */
+export const HISTORY_GATE_ID = 'history_months'
+
+export const History = z
+  .strictObject({
+    months: z
+      .literal(HISTORY_MONTHS)
+      .describe('1: se evalúa solo el mes más reciente. 3: los tres meses más recientes, seguidos; si faltan o hay un hueco, se le piden al proveedor y por WhatsApp los manda juntos en un solo envío'),
+  })
+  .meta({ id: 'History' })
+export type History = z.infer<typeof History>
+
 export const Policy = z
   .strictObject({
     version: z.int().min(1),
     name: z.string().optional(),
     description: z.string().optional(),
+    history: History.default({ months: 1 }).describe('Cuántos meses de estados de cuenta se evalúan'),
     gates: z.array(Gate),
     score: z.strictObject({
       dimensions: z.array(Dimension).min(1),
@@ -228,6 +244,7 @@ export const Policy = z
     }
     p.gates.forEach((g, i) => {
       claim(g.id, ['gates', i, 'id'])
+      if (g.id === HISTORY_GATE_ID) ctx.addIssue({ code: 'custom', path: ['gates', i, 'id'], message: `"${HISTORY_GATE_ID}" es la compuerta que agrega el motor con history.months; usa otro id` })
     })
     p.score.dimensions.forEach((d, i) => {
       claim(d.id, ['score', 'dimensions', i, 'id'])

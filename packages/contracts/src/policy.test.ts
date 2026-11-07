@@ -73,7 +73,7 @@ describe('definición de terminado de la fase 1: operador incompatible con el ti
 
   it('aplica la misma regla de tipos a los topes', () => {
     const errors = errorsOf(withChange((p) => p.decision.caps?.push({ when: { feature: 'sat_status', op: '>', value: 0 }, maxStatus: 'not_qualified' })))
-    expect(errors[0]?.path).toBe('decision.caps[2].when.op')
+    expect(errors[0]?.path).toBe('decision.caps[1].when.op')
   })
 })
 

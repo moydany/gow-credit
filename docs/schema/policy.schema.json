@@ -17,6 +17,13 @@
         "description": {
           "type": "string"
         },
+        "history": {
+          "default": {
+            "months": 1
+          },
+          "description": "Cuántos meses de estados de cuenta se evalúan",
+          "$ref": "#/$defs/History"
+        },
         "gates": {
           "type": "array",
           "items": {
@@ -82,6 +89,23 @@
       "additionalProperties": false,
       "title": "Política de crédito del tenant",
       "description": "DSL cerrado validado contra el catálogo de features (docs/03 §4)"
+    },
+    "History": {
+      "type": "object",
+      "properties": {
+        "months": {
+          "type": "number",
+          "enum": [
+            1,
+            3
+          ],
+          "description": "1: se evalúa solo el mes más reciente. 3: los tres meses más recientes, seguidos; si faltan o hay un hueco, se le piden al proveedor y por WhatsApp los manda juntos en un solo envío"
+        }
+      },
+      "required": [
+        "months"
+      ],
+      "additionalProperties": false
     },
     "Gate": {
       "type": "object",

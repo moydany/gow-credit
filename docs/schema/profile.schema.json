@@ -246,6 +246,13 @@
           "minimum": 1,
           "maximum": 36,
           "description": "Meses de flujo libre que soporta la línea: debt_capacity = flujo libre mensual × este número"
+        },
+        "evaluation_months": {
+          "default": 1,
+          "description": "Meses que se evalúan, contados hacia atrás desde el corte más reciente (history.months de la política, ADR 0072); lo anterior no entra al perfil",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
         }
       },
       "required": [
