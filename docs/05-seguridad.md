@@ -385,7 +385,7 @@ estado de cuenta en PDF desde un **vínculo verificado**, que abre una solicitud
 
 ### Fase 8 (2026-11-06): registro de proveedores por WhatsApp en la demo (ADR 0038)
 
-Con `WHATSAPP_SELF_REGISTRATION=true` (apagado por defecto), un número sin vínculo verificado no
+Con `WHATSAPP_SELF_REGISTRATION=true` (encendido por defecto desde la ADR 0062; `false` lo apaga), un número sin vínculo verificado no
 recibe la respuesta fija: el bot le pide razón social y RFC y crea el proveedor con su contacto
 verificado **por posesión del número** (`whatsapp_self_registration`), que no equivale a un KYC.
 Solo es para demos: cualquiera puede registrar cualquier razón social y disparar extracciones.

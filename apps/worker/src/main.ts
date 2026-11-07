@@ -4,7 +4,6 @@
  * (gow_worker), cola (gow_queue) y Mastra (gow_mastra); las URL salen del entorno o, sin él, del
  * Postgres local de docker compose.
  */
-import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { ResendEmailTransport } from '@gow/channels'
 import { BUSINESS_TIME_ZONE, calendarToday } from '@gow/contracts'
@@ -12,6 +11,7 @@ import { connect, databaseUrl } from '@gow/db'
 import { CachedClassifier, CachingStructuredLlm, createClassifier, createLimiter, createTransactionClassifier, JsonFileCache, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, readGoogleEnv, RecordingStructuredLlm, type CacheMode } from '@gow/llm'
 import { Writer } from '@gow/mastra'
 import { LocalDocumentStorage, startQueue } from '@gow/platform'
+import { startHealthListener } from '@gow/platform/health'
 import { PostgresStore } from '@mastra/pg'
 import { HaikuInterpreter } from './interpret.ts'
 import { DbLlmExchangeSink } from './llm-exchanges.ts'
@@ -21,21 +21,6 @@ const REPO = resolve(import.meta.dirname, '../../..')
 
 function log(level: 'info' | 'error', message: string): void {
   console.log(JSON.stringify({ at: new Date().toISOString(), level, message }))
-}
-
-/**
- * Cloud Run exige que un servicio escuche en PORT aunque no reciba tráfico: con la variable, un
- * listener mínimo de salud en todas las interfaces; sin ella (local), nada.
- */
-function startHealthListener(log: (message: string) => void): void {
-  const port = process.env.PORT
-  if (!port) return
-  createServer((_req, res) => {
-    res.statusCode = 200
-    res.end('ok')
-  }).listen(Number(port), '0.0.0.0', () => {
-    log(`listener de salud en el puerto ${port}`)
-  })
 }
 
 loadRootEnv()
@@ -62,8 +47,10 @@ const llm = new RecordingStructuredLlm(
 const mastraStore = new PostgresStore({ id: 'gow-full', connectionString: databaseUrl('mastra'), schemaName: 'mastra' })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } })
 const email = env.RESEND_API_KEY && env.RESEND_FROM ? new ResendEmailTransport({ apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM }) : undefined
-// Solo para demos (ADR 0038): cualquier número de WhatsApp puede registrarse como proveedor.
-const selfRegistration = env.WHATSAPP_SELF_REGISTRATION === 'true'
+// Por defecto, cualquier número de WhatsApp puede registrarse como proveedor mandando su estado de
+// cuenta (ADR 0038 y 0062): el sistema es una demo y el número vinculado por QR es el único canal.
+// `WHATSAPP_SELF_REGISTRATION=false` lo apaga.
+const selfRegistration = env.WHATSAPP_SELF_REGISTRATION?.trim().toLowerCase() !== 'false'
 
 const worker = await startWorker(
   {
