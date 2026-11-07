@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sampleStatement } from '@gow/contracts/testing'
 import { connect, tenantUsers, type Database } from '@gow/db'
+import { syntheticStatement } from '@gow/decision/testing'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import { LocalDocumentStorage, QUEUES, startQueue, type PgBoss } from '@gow/platform'
 import pg from 'pg'
@@ -76,6 +77,15 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     const r = await call('POST', '/session', { body: { token } })
     expect(r.status).toBe(200)
     return (r.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+  }
+  /** One session per user for tests that only need to be signed in: sign-ins are capped at 20 a minute per IP. */
+  const sessions = new Map<string, string>()
+  async function sessionOf(user: string, tenant: string, email: string): Promise<string> {
+    const known = sessions.get(user)
+    if (known) return known
+    const cookie = await login(tokenFor(user, tenant, email))
+    sessions.set(user, cookie)
+    return cookie
   }
 
   beforeAll(async () => {
@@ -182,7 +192,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     await q('INSERT INTO app.application_documents (tenant_id, application_id, document_id) VALUES ($1, $2, $3)', [tenantA, app, doc])
     await q("INSERT INTO app.extractions (tenant_id, document_id, schema_version, status, payload) VALUES ($1, $2, '1.2.0', 'complete', $3)", [tenantA, doc, JSON.stringify(statement)])
 
-    const a = await login(tokenFor(userA, tenantA, 'a@prestamista.test'))
+    const a = await sessionOf(userA, tenantA, 'a@prestamista.test')
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
     const fix = { target: { kind: 'transaction', transaction_id: 'a1.p1.t2', field: 'amount' }, value: 1300, page: 1 }
 
@@ -208,6 +218,44 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
 
     // No longer in review: it cannot be corrected again until the worker finishes.
     expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })).status).toBe(409)
+  })
+
+  it('ADR 0072: el detalle trae cada estado de cuenta con sus periodos frente a los meses evaluados, y se corrige el que se indica', async () => {
+    const q = (t: string, v: unknown[]) => admin.query(t, v)
+    const sup = randomUUID()
+    const app = randomUUID()
+    const holder = { name: 'Proveedor de dos meses', rfc: 'PDM150304AB1', clabe: null }
+    const month = (start: string) => syntheticStatement({ start, opening_balance: 10000, monthly: [{ kind: 'customer_payment', amount: 50000, count: 2 }, { kind: 'supplier_payment', amount: 20000 }] }, holder, `dos-${start}`)
+    const sep = month('2026-09-01')
+    const oct = month('2026-10-01')
+    const ids = { sep: randomUUID(), oct: randomUUID() }
+    await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3)', [sup, tenantA, holder.name])
+    await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'human_review')", [app, tenantA, sup])
+    // October is stored first: the detail orders by cutoff, not by arrival.
+    for (const [id, s] of [[ids.oct, oct], [ids.sep, sep]] as const) {
+      await q("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, 'x', $4, 10, 'application/pdf')", [id, tenantA, sup, s.document.sha256])
+      await q('INSERT INTO app.application_documents (tenant_id, application_id, document_id) VALUES ($1, $2, $3)', [tenantA, app, id])
+      await q("INSERT INTO app.extractions (tenant_id, document_id, schema_version, status, payload) VALUES ($1, $2, '1.2.0', 'complete', $3)", [tenantA, id, JSON.stringify(s)])
+    }
+    const a = await sessionOf(userA, tenantA, 'a@prestamista.test')
+    type Detail = { extraction: { document: { sha256: string } }; statements: { document_id: string; extraction: { accounts: { periods: { transactions: { id: string; amount: number }[] }[] }[] }; periods: { status: string }[] }[] }
+    const detail = async () => (await call('GET', `/applications/${app}`, { cookie: a })).json as unknown as Detail
+    const before = await detail()
+    expect(before.statements.map((s) => s.document_id)).toEqual([ids.sep, ids.oct])
+    // Without a verdict the window is one month: September is left out, October is evaluated.
+    expect(before.statements.map((s) => s.periods.map((p) => p.status))).toEqual([['outside'], ['evaluated']])
+    expect(before.extraction.document.sha256).toBe(oct.document.sha256)
+
+    const tx = sep.accounts[0]?.periods[0]?.transactions[0]
+    const fix = { target: { kind: 'transaction', transaction_id: tx?.id, field: 'amount' }, value: 12345, page: 1 }
+    // A document that is not in the request is rejected.
+    expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix], document_id: randomUUID() } })).status).toBe(404)
+    expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix], document_id: ids.sep } })).status).toBe(202)
+    expect((await q('SELECT document_id FROM app.corrections WHERE application_id = $1', [app])).rows).toEqual([{ document_id: ids.sep }])
+    const after = await detail()
+    const amountOf = (i: number) => after.statements[i]?.extraction.accounts[0]?.periods[0]?.transactions.find((t) => t.id === tx?.id)?.amount
+    expect(amountOf(0)).toBe(12345)
+    expect(amountOf(1)).toBe(oct.accounts[0]?.periods[0]?.transactions.find((t) => t.id === tx?.id)?.amount)
   })
 
   it('descartar el documento en revisión humana cierra en not_qualified con motivo cerrado y entra a la bitácora', async () => {

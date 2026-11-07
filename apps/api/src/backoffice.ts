@@ -6,8 +6,7 @@
  */
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { applicationDocuments, applications, decisions, documents, extractions, outcomes, policyVersions, suppliers, tenants, tenantUsers, withTenant, type Db } from '@gow/db'
-import { applyCorrections } from '@gow/extraction/corrections'
-import { ClarificationStatus, CorrectionTarget, EmailLinkBody, MagicLinkBody, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, SetupBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
+import { ClarificationStatus, CorrectionTarget, type Decision, EmailLinkBody, MagicLinkBody, type ApplicationDetail, type Correction, type MagicLinkAccepted, type SessionConfig, SessionCreateBody, SetupBody, type ApplicationRow, type AuditEntry, type BackofficeMe, type ClarificationItem, type PolicyVersionItem, ApplicationStatus } from '@gow/contracts'
 import { basePolicyTemplate } from '@gow/decision'
 import { pathBelongsTo } from '@gow/platform'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
@@ -24,6 +23,7 @@ import { statementsRouter } from './bo/statements.ts'
 import { suppliersRouter } from './bo/suppliers.ts'
 import { teamRouter } from './bo/team.ts'
 import { timelineRouter } from './bo/timeline.ts'
+import { detailStatements } from './bo/detail-statements.ts'
 import type { AuthDirectory } from './supabase-auth.ts'
 
 export type { BackofficeDeps }
@@ -454,22 +454,24 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       if (!s) throw new HttpError(404, SUPPLIER_NOT_FOUND)
       const links = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, id))
       const docs = links.length ? await tx.select().from(documents).where(inArray(documents.id, links.map((l) => l.documentId))) : []
-      const [ex] = docs.length ? await tx.select().from(extractions).where(inArray(extractions.documentId, docs.map((d) => d.id))).orderBy(extractions.createdAt).limit(1) : []
+      // The first extraction of each document: the stored one is immutable, corrections go on top.
+      const exs = docs.length ? await tx.select().from(extractions).where(inArray(extractions.documentId, docs.map((d) => d.id))).orderBy(extractions.createdAt) : []
       const [dec] = await tx.select().from(decisions).where(and(eq(decisions.applicationId, id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
       const [shadow] = await tx.select().from(decisions).where(and(eq(decisions.applicationId, id), eq(decisions.kind, 'shadow'))).orderBy(desc(decisions.createdAt)).limit(1)
       const versionIds = [dec?.policyVersionId, shadow?.policyVersionId].filter((v): v is string => !!v)
       const versions = versionIds.length ? await tx.select({ id: policyVersions.id, version: policyVersions.version }).from(policyVersions).where(inArray(policyVersions.id, versionIds)) : []
       const clar = await clarificationItems(tx, sql`c.application_id = ${id}::uuid`)
       const outs = await tx.select().from(outcomes).where(eq(outcomes.applicationId, id)).orderBy(desc(outcomes.observedAt))
-      const fixes = await tx.execute<{ id: string; target: unknown; read_value: string | number | null; value: string | number; page: number | null; created_by: string | null; created_at: Date }>(sql`
-        select c.id, c.target, c.read_value, c.value, c.page, u.email as created_by, c.created_at
+      const fixes = await tx.execute<{ id: string; document_id: string; target: unknown; read_value: string | number | null; value: string | number; page: number | null; created_by: string | null; created_at: Date }>(sql`
+        select c.id, c.document_id, c.target, c.read_value, c.value, c.page, u.email as created_by, c.created_at
           from app.corrections c left join app.tenant_users u on u.user_id = c.created_by
          where c.application_id = ${id}::uuid order by c.created_at`)
       await audit(tx, w.tenantId, actorOf(w), 'application.viewed', id)
-      return { a, s, docs, ex, dec, shadow, versions, clar, outs, fixes: fixes.rows }
+      return { a, s, docs, links, exs, dec, shadow, versions, clar, outs, fixes: fixes.rows }
     })
-    const fixes: Correction[] = out.fixes.map((c) => ({ id: c.id, target: CorrectionTarget.parse(c.target), read_value: c.read_value, value: c.value, page: c.page, created_by: c.created_by, created_at: new Date(c.created_at).toISOString() }))
+    const fixes: Correction[] = out.fixes.map((c) => ({ id: c.id, document_id: c.document_id, target: CorrectionTarget.parse(c.target), read_value: c.read_value, value: c.value, page: c.page, created_by: c.created_by, created_at: new Date(c.created_at).toISOString() }))
     const version = (vid: string | null | undefined) => out.versions.find((v) => v.id === vid)?.version ?? null
+    const statements = detailStatements(out.docs, out.links, out.exs, fixes, out.dec?.payload as Decision | undefined)
     const detail: ApplicationDetail = {
       id: out.a.id,
       status: out.a.status,
@@ -480,8 +482,9 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       updated_at: out.a.updatedAt.toISOString(),
       supplier: { id: out.s.id, legal_name: out.s.legalName ?? PENDING_SUPPLIER_NAME, rfc: out.s.rfc, external_ref: out.s.externalRef, clabes: out.s.clabes },
       documents: out.docs.map((d) => ({ id: d.id, sha256: d.sha256, size_bytes: d.sizeBytes, media_type: d.mediaType })),
-      // The stored extraction is immutable: shown with the analyst's corrections on top.
-      extraction: (out.ex ? applyCorrections(out.ex.payload as NonNullable<ApplicationDetail['extraction']>, fixes) : null),
+      extraction: statements.list.at(-1)?.extraction ?? null,
+      statements: statements.list,
+      evaluation: statements.evaluation,
       decision: out.dec ? { id: out.dec.id, policy_version: version(out.dec.policyVersionId), created_at: out.dec.createdAt.toISOString(), payload: out.dec.payload as NonNullable<ApplicationDetail['decision']>['payload'] } : null,
       shadow: out.shadow ? { policy_version: version(out.shadow.policyVersionId), status: out.shadow.status, limit: out.shadow.limitAmount === null ? null : Number(out.shadow.limitAmount), score: out.shadow.score === null ? null : Number(out.shadow.score) } : null,
       clarifications: out.clar,

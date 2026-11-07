@@ -31,11 +31,16 @@ export const CorrectionInput = z.strictObject({
 })
 export type CorrectionInput = z.infer<typeof CorrectionInput>
 
-export const CorrectionsBody = z.strictObject({ corrections: z.array(CorrectionInput).min(1).max(50) })
+export const CorrectionsBody = z.strictObject({
+  corrections: z.array(CorrectionInput).min(1).max(50),
+  /** The document being corrected; without it, the first one the request was opened with (ADR 0072). */
+  document_id: z.uuid().optional(),
+})
 
 /** The stored correction; includes what was read, for the eval dataset. */
 export const Correction = z.strictObject({
   id: z.uuid(),
+  document_id: z.uuid(),
   target: CorrectionTarget,
   read_value: z.union([z.string(), z.number(), z.null()]),
   value: CorrectionValue,

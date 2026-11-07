@@ -46,6 +46,8 @@ export interface LedgerPeriod {
    * month: added to the printed opening balance gives the balance at the new start. 0 if not cut.
    */
   openingShift: number
+  /** true if the period starts before the evaluated months and was cut to them. */
+  clipped: boolean
 }
 
 export interface LedgerRow {
@@ -203,6 +205,7 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
           boundsVerified: b.verified,
           excludesInternal: p.reconciliation?.global?.excludes_internal_transfers ?? false,
           openingShift: 0,
+          clipped: false,
         }
         periods.push(lp)
         for (const t of p.transactions) {
@@ -302,6 +305,7 @@ export function keepLatestMonths(ledger: Ledger, months: number): Ledger {
       // Mutated in place: the rows point to this same object.
       p.start = start
       p.openingShift = Math.round(openingShift * 100) / 100
+      p.clipped = true
     }
     periods.push(p)
   }
@@ -310,4 +314,45 @@ export function keepLatestMonths(ledger: Ledger, months: number): Ledger {
   const docs = new Set(periods.map((p) => p.doc))
   for (const d of ledger.documents) if (!docs.has(d)) skipped.push(`documento ${d.tag} fuera ${ofWindow}: no entra al perfil`)
   return { documents: ledger.documents.filter((d) => docs.has(d)), submitted: ledger.submitted, periods, rows, submittedRows: ledger.submittedRows, skipped }
+}
+
+/** What became of a period of a submitted statement (ADR 0072), for the backoffice. */
+export type PeriodWindowStatus = 'evaluated' | 'cut' | 'outside' | 'excluded'
+
+export interface PeriodWindow {
+  document_sha256: string
+  account_id: string
+  period_id: string
+  /** The evaluated part (the cut start for a `cut` one); the printed or movement dates otherwise. */
+  start: string | null
+  end: string | null
+  status: PeriodWindowStatus
+}
+
+/**
+ * Each period of the statements against the evaluated months, with the same rules as the profile:
+ * `evaluated` whole, `cut` to its last months, `outside` the window, `excluded` from the profile
+ * (credit card, foreign currency, repeated or failed document). `start` and `end` of the window
+ * are those of what was evaluated.
+ */
+export function periodWindows(statements: readonly StatementExtraction[], months: number): { start: string | null; end: string | null; periods: PeriodWindow[] } {
+  const ledger = buildLedger(statements, { request: null, minConfidence: 0, months })
+  const kept = new Map(ledger.periods.map((p) => [`${p.doc.sha256}|${p.accountId}|${p.period.id}`, p]))
+  const iso = (d: number | null) => (d === null ? null : fromDay(d))
+  const periods: PeriodWindow[] = []
+  for (const s of statements) {
+    for (const a of s.accounts) {
+      for (const p of a.periods) {
+        const k = kept.get(`${s.document.sha256}|${a.id}|${p.id}`)
+        const b = periodBounds(p)
+        // Same exclusions as buildLedger: a document that did not enter, a credit card, another currency.
+        const inLedger = ledger.submitted.some((d) => d.statement === s) && a.account_type.value !== 'credit_card' && (a.currency.value === null || a.currency.value === 'MXN')
+        const status: PeriodWindowStatus = k ? (k.clipped ? 'cut' : 'evaluated') : inLedger ? 'outside' : 'excluded'
+        periods.push({ document_sha256: s.document.sha256, account_id: a.id, period_id: p.id, start: iso(k ? k.start : b.start), end: iso(k ? k.end : b.end), status })
+      }
+    }
+  }
+  const starts = ledger.periods.flatMap((p) => (p.start === null ? [] : [p.start]))
+  const ends = ledger.periods.flatMap((p) => (p.end === null ? [] : [p.end]))
+  return { start: starts.length > 0 ? iso(Math.min(...starts)) : null, end: ends.length > 0 ? iso(Math.max(...ends)) : null, periods }
 }

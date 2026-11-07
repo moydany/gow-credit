@@ -1,6 +1,7 @@
 import { emptyExternalSnapshot, Profile, type ApplicationRequest, type DocumentFlag, type ExternalSnapshot, type Issue, type StatementExtraction, type SupplierIdentity, type SyntheticStatement } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
+import { periodWindows } from './ledger.ts'
 import { buildProfile, buildProfileWithLedger } from './profile.ts'
 import { syntheticStatement } from './testing/synthetic.ts'
 
@@ -79,6 +80,16 @@ describe('perfil desde un estado de cuenta', () => {
     const growing = profileOf([stmt({ months: 3, growth: 0.1, monthly: [{ kind: 'customer_payment', amount: 100000, count: 2 }] })], { at: '2026-12-05T12:00:00.000Z' })
     expect(f(growing, 'income_trend').value).toBeNull()
     expect(f(growing, 'months_of_history').value).toBe(1)
+  })
+
+  it('ADR 0072: periodWindows dice qué se evaluó, qué se recortó y qué quedó fuera', () => {
+    const single = stmt({ months: 3, periods: 'single', monthly: BASIC }, 'pw1')
+    const one = periodWindows([single], 1)
+    expect(one.periods).toMatchObject([{ status: 'cut', start: '2026-11-01', end: '2026-11-30' }])
+    expect([one.start, one.end]).toEqual(['2026-11-01', '2026-11-30'])
+    expect(periodWindows([single], 3).periods.map((p) => p.status)).toEqual(['evaluated'])
+    const monthly = periodWindows([stmt({ months: 3, monthly: BASIC }, 'pw2')], 1)
+    expect(monthly.periods.map((p) => p.status)).toEqual(['outside', 'outside', 'evaluated'])
   })
 
   it('ADR 0072: de varios documentos entra el del mes más reciente; los anteriores quedan en la nota', () => {

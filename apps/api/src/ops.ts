@@ -5,11 +5,11 @@
  */
 import { isComplete } from '@gow/channels'
 import { CorrectionsBody, DiscardBody, DISCARDED_PREFIX, OwnerAnswer, parsePolicy, Profile, Question, StatementExtraction, type SimulationCase } from '@gow/contracts'
-import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, extractions, outcomes, policies, policyVersions, tenants, withTenant, type Db, type Tx } from '@gow/db'
+import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, documents, extractions, outcomes, policies, policyVersions, tenants, withTenant, type Db, type Tx } from '@gow/db'
 import { simulatePolicy } from '@gow/decision'
 import { applyCorrections, CorrectionError, readValue } from '@gow/extraction/corrections'
 import { enqueueDiscardNotice, enqueueRedecide, enqueueResume, type PgBoss } from '@gow/platform'
-import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
@@ -121,6 +121,14 @@ export async function recordOutcome(db: Db, tenantId: string, who: string, input
   })
 }
 
+/** The oldest document the request was opened with. */
+async function firstSubmitted<T extends { documentId: string; origin: string }>(tx: Tx, links: readonly T[]): Promise<T | undefined> {
+  const submitted = links.filter((l) => l.origin === 'submitted')
+  if (submitted.length <= 1) return submitted[0] ?? links[0]
+  const rows = await tx.select({ id: documents.id }).from(documents).where(inArray(documents.id, submitted.map((l) => l.documentId))).orderBy(documents.createdAt, documents.id).limit(1)
+  return submitted.find((l) => l.documentId === rows[0]?.id)
+}
+
 /**
  * An analyst corrects extracted values on a request in human review. Every correction is
  * validated by applying it to the extraction (nothing saved if any fails), the (read value,
@@ -133,11 +141,14 @@ export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId
     const [a] = await tx.select().from(applications).where(eq(applications.id, applicationId))
     if (!a) throw new HttpError(404, 'solicitud no encontrada')
     if (a.status !== 'human_review') throw new HttpError(409, `la solicitud está ${a.status}; solo se corrige en revisión humana`)
-    const [link] = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, applicationId))
+    // The document being corrected (ADR 0072): the one given, which must be in the request, or the first one submitted.
+    const links = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, applicationId))
+    const link = body.document_id ? links.find((l) => l.documentId === body.document_id) : await firstSubmitted(tx, links)
+    if (body.document_id && !link) throw new HttpError(404, 'el documento no es de esta solicitud')
     const [ex] = link ? await tx.select().from(extractions).where(eq(extractions.documentId, link.documentId)).orderBy(extractions.createdAt).limit(1) : []
     if (!link || !ex) throw new HttpError(409, 'la solicitud no tiene una extracción que corregir')
-    // Start from what is already corrected: a second correction on the same value reads the corrected one.
-    const prior = await tx.select().from(corrections).where(eq(corrections.applicationId, applicationId)).orderBy(corrections.createdAt)
+    // Start from what is already corrected on this document: a second correction on the same value reads the corrected one.
+    const prior = await tx.select().from(corrections).where(and(eq(corrections.applicationId, applicationId), eq(corrections.documentId, link.documentId))).orderBy(corrections.createdAt)
     let current = applyCorrections(StatementExtraction.parse(ex.payload), prior.map((c) => ({ target: c.target as never, value: c.value as string | number })))
     for (const c of body.corrections) {
       try {
