@@ -21,6 +21,7 @@ import { settingsRouter } from './bo/settings.ts'
 import { actorOf, backofficeBase, ENTER_PATH, iso, PENDING_SUPPLIER_NAME, SESSION_SECONDS, SUPPLIER_NOT_FOUND, type BackofficeDeps, type Who, who, whatsappSession } from './bo/shared.ts'
 import { suppliersRouter } from './bo/suppliers.ts'
 import { teamRouter } from './bo/team.ts'
+import { timelineRouter } from './bo/timeline.ts'
 import type { AuthDirectory } from './supabase-auth.ts'
 
 export type { BackofficeDeps }
@@ -531,6 +532,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   r.use(settingsRouter(deps))
   r.use(teamRouter(deps))
   r.use(llmRouter(deps))
+  r.use(timelineRouter(deps))
   r.use(promptsRouter(deps))
 
   return r
