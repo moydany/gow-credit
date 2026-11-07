@@ -21,9 +21,11 @@ export interface FeatureChange {
   value: unknown
 }
 
-/** Features que se mueven juntas: quedar al corriente es cero días de atraso y cero monto vencido. */
+/** Features que se mueven juntas: quedar al corriente es cero días de atraso y cero monto vencido; el PDF completo cuadra. */
 const COMPANIONS: Readonly<Partial<Record<FeatureName, readonly FeatureChange[]>>> = {
   existing_exposure_days_past_due: [{ feature: 'existing_exposure_past_due_amount', value: 0 }],
+  // Con el PDF completo el cuadre deja de fallar por las páginas que faltaban (ADR 0058).
+  document_pages_missing: [{ feature: 'integrity_ok', value: true }],
 }
 
 /** Copia del perfil con features cambiadas, verificadas y con confianza 1. No muta el original. */

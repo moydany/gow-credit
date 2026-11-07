@@ -230,7 +230,7 @@ describe('plantilla y políticas versionadas', () => {
   it('clonar la plantilla no la modifica', () => {
     const tenant = clonePolicy(basePolicyTemplate(), { version: 2, name: 'Fintech Demo v2' })
     tenant.gates.pop()
-    expect(basePolicyTemplate().gates).toHaveLength(4)
+    expect(basePolicyTemplate().gates).toHaveLength(tenant.gates.length + 1)
     expect(tenant.version).toBe(2)
   })
 
@@ -242,5 +242,96 @@ describe('plantilla y políticas versionadas', () => {
       const res = parsePolicy(JSON.parse(readFileSync(new URL(f, root), 'utf8')))
       expect(res.ok, `${f}: ${res.ok ? '' : res.message}`).toBe(true)
     }
+  })
+})
+
+describe('robustez documental (ADR 0058)', () => {
+  const TAMPER = ['prompt_injection', 'fiscal_chain_mismatch', 'fiscal_stamp_far_from_period', 'pages_duplicated', 'header_read_conflict'] as const
+  const gate = (d: ReturnType<typeof evaluate>, id: string) => d.evaluation.gates.find((g) => g.id === id)
+
+  it('páginas faltantes → aclaración: pedir el documento completo', () => {
+    const d = evaluate(policy, profile({ document_pages_missing: true }))
+    expect(d.status).toBe('needs_clarification')
+    expect(d.limit).toBeNull()
+    expect(d.clarification).toEqual({ topics: ['missing_pages'], issue_ids: [], transactions: [] })
+    expect(gate(d, 'pages_complete')).toMatchObject({ outcome: 'fail', effect: 'needs_clarification', ask: 'missing_pages', value: true })
+    expect(codes(d)).toContain('gate_pages_complete')
+  })
+
+  it('sin páginas faltantes, o sin dato, la compuerta pasa (onUnknown: pass)', () => {
+    expect(evaluate(policy, profile({ document_pages_missing: false })).status).toBe('qualified')
+    const unknown = evaluate(policy, profile())
+    expect(unknown.status).toBe('qualified')
+    expect(gate(unknown, 'pages_complete')).toMatchObject({ outcome: 'unknown', effect: 'none' })
+  })
+
+  it.each(TAMPER)('la señal de manipulación %s → revisión humana', (signal) => {
+    const d = evaluate(policy, profile({ document_tamper_signals: [signal] }))
+    expect(d.status).toBe('human_review')
+    expect(d.clarification).toBeNull()
+    expect(gate(d, 'no_tamper_signals')).toMatchObject({ outcome: 'fail', effect: 'human_review' })
+    expect(codes(d)).toContain('gate_no_tamper_signals')
+    // Lo que haría pasar la compuerta: ninguna señal.
+    expect(d.next_steps[0]).toMatchObject({ code: 'pass_gates', feature: 'document_tamper_signals', target_value: [], to: { status: 'qualified' } })
+  })
+
+  it('sin señales, o sin dato, la compuerta pasa (onUnknown: pass)', () => {
+    expect(evaluate(policy, profile({ document_tamper_signals: [] })).status).toBe('qualified')
+    expect(gate(evaluate(policy, profile()), 'no_tamper_signals')).toMatchObject({ outcome: 'unknown', effect: 'none' })
+  })
+
+  it('una señal de manipulación gana a las páginas faltantes: nadie pide un documento que se sospecha alterado', () => {
+    const d = evaluate(policy, profile({ document_pages_missing: true, document_tamper_signals: ['pages_duplicated'] }))
+    expect(d.status).toBe('human_review')
+    expect(d.clarification).toBeNull()
+  })
+
+  describe('el descuadre por páginas faltantes espera al documento completo', () => {
+    it('se pide el PDF completo en lugar de mandar a revisión humana', () => {
+      const d = evaluate(policy, profile({ document_pages_missing: true, integrity_ok: false }))
+      expect(d.status).toBe('needs_clarification')
+      expect(d.clarification?.topics).toEqual(['missing_pages'])
+      expect(gate(d, 'integrity')).toMatchObject({ outcome: 'fail', effect: 'none' })
+      expect(codes(d)).toContain('gate_integrity_deferred')
+      expect(d.reasons.find((r) => r.code === 'gate_integrity_deferred')?.message).toContain('faltan páginas')
+      // Con el documento completo cuadraría: es el paso para el proveedor.
+      expect(d.next_steps[0]).toMatchObject({
+        code: 'pass_gates',
+        feature: 'document_pages_missing',
+        current_value: true,
+        target_value: false,
+        related: [{ feature: 'integrity_ok', current_value: false, target_value: true }],
+        to: { status: 'qualified' },
+      })
+    })
+
+    it('un cuadre que no se pudo comprobar también espera', () => {
+      const d = evaluate(policy, profile({ document_pages_missing: true, integrity_ok: null }))
+      expect(d.status).toBe('needs_clarification')
+      expect(gate(d, 'integrity')).toMatchObject({ outcome: 'unknown', effect: 'none' })
+      expect(d.reasons.find((r) => r.code === 'gate_integrity_deferred')?.message).toContain('sin dato')
+    })
+
+    it('si el descuadre persiste con el documento completo, vuelve a ser revisión humana', () => {
+      expect(evaluate(policy, profile({ document_pages_missing: false, integrity_ok: false })).status).toBe('human_review')
+    })
+
+    it('sin rondas de aclaración disponibles, el documento incompleto pasa a revisión humana', () => {
+      const d = evaluate(policy, profile({ document_pages_missing: true, integrity_ok: false }), { clarificationRoundsUsed: 2 })
+      expect(d.status).toBe('human_review')
+      expect(codes(d)).toContain('clarification_rounds_exhausted')
+    })
+
+    it('una bandera roja no espera: sigue mandando a revisión humana', () => {
+      expect(evaluate(policy, profile({ document_pages_missing: true, integrity_ok: false, red_flags: ['garnishment'] })).status).toBe('human_review')
+    })
+
+    it('sin la compuerta que pide las páginas (una política anterior), el descuadre sigue yendo a revisión humana', () => {
+      const old = { ...policy, gates: policy.gates.filter((g) => g.id !== 'pages_complete') }
+      const d = evaluate(old, profile({ document_pages_missing: true, integrity_ok: false }))
+      expect(d.status).toBe('human_review')
+      expect(gate(d, 'integrity')).toMatchObject({ outcome: 'fail', effect: 'human_review' })
+      expect(codes(d)).not.toContain('gate_integrity_deferred')
+    })
   })
 })

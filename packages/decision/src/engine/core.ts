@@ -4,7 +4,8 @@
  * contrafactuales (counterfactuals.ts) lo llaman sobre perfiles modificados.
  *
  * Orden de precedencia del estado:
- *   1. Compuertas: not_qualified > human_review > needs_clarification.
+ *   1. Compuertas: not_qualified > human_review > needs_clarification. Excepción (ADR 0058): mientras
+ *      una compuerta pide las páginas faltantes, la de integridad espera a que llegue el documento completo.
  *   2. Regla de docs/04 §5: si una feature excluida por no verificada, en conflicto o con
  *      confianza baja puede cambiar la banda, no se decide con ella: se pregunta al proveedor si
  *      puede aclararla, o va a revisión humana si no.
@@ -130,7 +131,22 @@ export interface CoreOptions {
   clarificationRoundsUsed: number
 }
 
-function evaluateGates(policy: Policy, profile: Profile): { evals: GateEval[]; effects: GateEffect[] } {
+/**
+ * Con páginas faltantes el cuadre se rompe por la misma causa: el documento está incompleto (ADR 0058).
+ * Mientras una compuerta pide las páginas (`missing_pages`), una compuerta de `integrity_ok` que mandaría
+ * a revisión humana espera: se le pide el PDF completo al proveedor y, si con él sigue sin cuadrar, la
+ * compuerta vuelve a fallar. Sin una compuerta que pida las páginas (una política anterior) no cambia nada.
+ */
+function deferIntegrityToMissingPages(evals: GateEval[], effects: GateEffect[]): string[] {
+  if (!evals.some((e) => e.effect === 'needs_clarification' && e.ask === 'missing_pages')) return []
+  const deferred = evals.filter((e) => e.feature === 'integrity_ok' && e.effect === 'human_review')
+  for (const e of deferred) e.effect = 'none'
+  const ids = new Set(deferred.map((e) => e.id))
+  effects.splice(0, effects.length, ...effects.filter((e) => !ids.has(e.id)))
+  return [...ids]
+}
+
+function evaluateGates(policy: Policy, profile: Profile): { evals: GateEval[]; effects: GateEffect[]; deferred: string[] } {
   const evals: GateEval[] = []
   const effects: GateEffect[] = []
   for (const g of policy.gates) {
@@ -170,7 +186,7 @@ function evaluateGates(policy: Policy, profile: Profile): { evals: GateEval[]; e
     evals.push({ id: g.id, feature: g.when.feature, op: g.when.op, threshold: (g.when.value ?? null), value: f.value as GateEval['value'], outcome, effect, ask })
     if (effect !== 'none') effects.push({ id: g.id, feature: g.when.feature, status: effect, ask })
   }
-  return { evals, effects }
+  return { evals, effects, deferred: deferIntegrityToMissingPages(evals, effects) }
 }
 
 function minStatus(a: FinalDecisionStatus, b: FinalDecisionStatus): FinalDecisionStatus {
@@ -327,6 +343,14 @@ export function evaluateCore(policy: Policy, profile: Profile, opts: CoreOptions
       code: g?.outcome === 'fail' ? codeOf('gate', e.id) : codeOf('gate', e.id, 'unknown'),
       message: `Compuerta "${e.id}": ${how} → ${STATUS_TEXT[e.status]}${e.ask ? ` (pedir ${ASK_TEXT[e.ask]})` : ''}.`,
       features: [e.feature],
+    })
+  }
+  for (const g of gates.evals.filter((x) => gates.deferred.includes(x.id))) {
+    const how = g.outcome === 'fail' ? `${g.feature} = ${fmt(g.value)} no cumple ${g.op} ${fmt(g.threshold)}` : `${g.feature}: ${EXCLUSION_TEXT[readFeature(profile, g.feature).exclusion ?? 'unknown']}`
+    reasons.push({
+      code: codeOf('gate', g.id, 'deferred'),
+      message: `Compuerta "${g.id}": ${how}, pero al documento le faltan páginas: primero se pide ${ASK_TEXT.missing_pages} y, si con el documento completo sigue sin cuadrar, pasa a revisión humana.`,
+      features: [g.feature],
     })
   }
   for (const d of scored.dimensions) {
