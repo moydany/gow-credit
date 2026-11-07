@@ -107,10 +107,9 @@ function toSupplier(spec: RequestSpec | null): SupplierIdentity | null {
 }
 
 /**
- * Sin `--policy`, la política de ejemplo standalone (ADR 0015 §20 y "Cambios"): en standalone no hay
- * registro de proveedores y la identidad casi nunca se puede comparar. Solo difiere de la base en que
- * una identidad no comparable no bloquea; si se registra al proveedor con `--request`, se comporta
- * igual que la base. `--policy base` usa la plantilla base tal cual.
+ * Sin `--policy`, la política de ejemplo standalone (ADR 0015 y 0054): la plantilla base sin la
+ * compuerta `doc_recent`, porque los documentos que se evalúan son de fecha desconocida y la
+ * antigüedad del corte no debe detenerlos. `--policy base` usa la plantilla base tal cual.
  */
 function loadPolicyArg(arg: string | undefined): { policy: Policy; id: string } {
   if (arg === 'base') return { policy: basePolicyTemplate(), id: BASE_POLICY_ID }
@@ -149,10 +148,6 @@ function templateAnswer(q: Question): Record<string, unknown> {
   }
 }
 
-function docStale(result: ApplicationResult): boolean {
-  return result.decision?.reasons.some((r) => r.code === 'gate_doc_recent') ?? false
-}
-
 async function askInteractively(questions: readonly Question[]): Promise<OwnerAnswer[]> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const answers: OwnerAnswer[] = []
@@ -188,8 +183,6 @@ async function askInteractively(questions: readonly Question[]): Promise<OwnerAn
 interface Row {
   id: string
   identity_unverifiable: boolean
-  /** La compuerta doc_recent falló: el estado tiene más de 90 días a la fecha de cálculo. */
-  stale: boolean
   /** Sin monto solicitado: el estado con el que calificaría pidiendo la línea máxima, y la línea. */
   max_line: { status: string; amount: number } | null
   status: string
@@ -215,11 +208,12 @@ quedó pausada, answers.template.json. La consola nunca muestra datos del docume
 Opciones:
   --out <dir>             Carpeta de salida (por defecto data/out/evaluate)
   --policy <archivo|base> Política del tenant. Por defecto ${STANDALONE_POLICY_PATH}:
-                          la plantilla base, salvo que una identidad que no se puede comparar
-                          (documento redactado, sin proveedor registrado) no bloquea. "base" usa
-                          la plantilla base tal cual (ADR 0015).
-  --as-of <AAAA-MM-DD>    Fecha de cálculo (por defecto hoy). La compuerta doc_recent pide un
-                          estado de cuenta de 90 días o menos respecto a esta fecha.
+                          la plantilla base sin la compuerta de antigüedad del estado de cuenta
+                          (ADR 0054). "base" usa la plantilla base tal cual, con esa compuerta.
+  --as-of <AAAA-MM-DD>    Fecha de cálculo del perfil (por defecto hoy): contra ella se mide la
+                          antigüedad del estado de cuenta (document_age_days). La política por
+                          defecto no se detiene por esa antigüedad (ADR 0054); la plantilla base
+                          (--policy base) sí tiene la compuerta.
   --request <k=v,...|archivo.json>
                           Datos de la solicitud: amount, maturity, buyer, buyer_rfc, buyer_aliases
                           (separados por |), supplier_name, supplier_rfc, supplier_clabe. Un JSON
@@ -276,7 +270,7 @@ async function main(): Promise<void> {
   const policy = loadPolicyArg(values.policy)
   console.error(
     values.policy === undefined
-      ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: una identidad que no se puede comparar no bloquea; --policy base para la plantilla base, ADR 0015) · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`
+      ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: la antigüedad del estado de cuenta no decide; --policy base para la plantilla base, ADR 0054) · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`
       : `Política: ${policy.id} · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`,
   )
   const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
@@ -336,7 +330,7 @@ async function main(): Promise<void> {
         outcome = await resumeApplication(wf, prevResult.run.run_id, prevResult.run.suspended_step, { answers: given.answers, base_dir: answers.baseDir })
         note = 'reanudada con respuestas'
       } else {
-        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), stale: docStale(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status !== 'suspended' ? 'ya evaluada (--force para repetir)' : otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(given.round)}` : 'pausada; sin respuestas para ella' })
+        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status !== 'suspended' ? 'ya evaluada (--force para repetir)' : otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(given.round)}` : 'pausada; sin respuestas para ella' })
         if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { round: pausedRound, answers: prevResult.clarification.questions.map(templateAnswer) }
         printRow(rows.at(-1) as Row)
         continue
@@ -368,7 +362,6 @@ async function main(): Promise<void> {
     rows.push({
       id,
       identity_unverifiable: identityUnverifiable(result),
-      stale: docStale(result),
       max_line: result.max_line && { status: result.max_line.status, amount: result.max_line.amount },
       status: result.status,
       questions: result.clarification?.status === 'open' ? result.clarification.questions.length : 0,
@@ -407,11 +400,6 @@ async function main(): Promise<void> {
   if (unverifiable > 0 && values.policy === 'base') {
     console.log(`\n${String(unverifiable)} solicitud(es) sin identidad comparable (documento redactado o sin proveedor registrado): la política base lo pregunta.`)
     console.log(`Para ver la decisión sin ese bloqueo, en otra carpeta de salida, quita --policy base (usa ${STANDALONE_POLICY_PATH}) y agrega --out <dir>`)
-  }
-  const stale = rows.filter((r) => r.stale).length
-  if (stale > 0) {
-    console.log(`\n${String(stale)} solicitud(es) con un estado de cuenta de más de 90 días a la fecha de cálculo ${asOf}: la política pide uno reciente.`)
-    console.log('Para evaluarlas como si se hubieran recibido al corte, repite con --as-of <fecha poco posterior al corte> --force (en otra carpeta con --out si quieres conservar esta).')
   }
   console.log(`\n${String(rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)} · salida en ${outDir}`)
   if (failures > 0) process.exit(1)

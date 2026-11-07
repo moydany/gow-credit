@@ -29,7 +29,7 @@ const STATUS_TEXT: Record<ApplicationStatus, string> = {
   failed: 'falló',
 }
 
-/** Política de ejemplo para evaluar documentos redactados sin registro de proveedores (ADR 0015). */
+/** Política por defecto de `evaluate`: la plantilla base sin la compuerta de antigüedad del estado de cuenta (ADR 0015 y 0054). */
 export const STANDALONE_POLICY_PATH = 'policies/examples/standalone-evaluation.v1.json'
 
 /** La compuerta de identidad bloqueó porque no había con qué comparar (no porque no coincidiera). */

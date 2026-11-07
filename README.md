@@ -68,26 +68,28 @@ estado, sus preguntas, sus llamadas y su costo; **nunca muestra datos del docume
 
 **Dos opciones que conviene conocer:**
 
-- **`--as-of AAAA-MM-DD`**, la fecha de cálculo, que por defecto es hoy. La política pide un
-  estado de cuenta de 90 días o menos a esa fecha; si el documento es más viejo, la solicitud se
-  pausa y pide uno reciente. Para evaluar un documento como si se hubiera recibido al corte, usa
-  una fecha unos días posterior a su corte:
+- **`--as-of AAAA-MM-DD`**, la fecha de cálculo del perfil, que por defecto es hoy. Contra ella
+  se mide la antigüedad del estado de cuenta (`document_age_days`). La política por defecto no
+  se detiene por esa antigüedad (ADR 0054): un documento viejo se analiza igual y la antigüedad
+  queda en el perfil y en el reporte. Para fijar otra fecha, por ejemplo unos días posterior al
+  corte del documento:
 
   ```bash
   pnpm run evaluate /ruta/a/los/pdfs --as-of 2026-04-15
   ```
 
-  La consola lo sugiere cuando hace falta, y el reporte de cada documento dice qué fecha se usó.
+  El reporte de cada documento dice qué fecha de cálculo se usó.
 - **`--force`**. Un documento ya evaluado en la carpeta de salida no se repite: aparece como "ya
   evaluada". Con `--force` se vuelve a evaluar. Las llamadas a modelos que ya se hicieron salen de
   la caché de respuestas (`data/llm-cache/`), sin costo.
 
 **Política.** Por defecto se usa `policies/examples/standalone-evaluation.v1.json`, y la primera
-línea de la salida lo dice. Es la plantilla base con un solo cambio: una identidad que no se
-puede comparar no bloquea. Esto importa porque los documentos vienen redactados y en standalone
-no hay registro de proveedores (ADR 0015). Las opciones relacionadas:
+línea de la salida lo dice. Es la plantilla base sin la compuerta de antigüedad del estado de
+cuenta: los documentos que se evalúan son de fecha desconocida y un corte de hace más de 90 días
+no debe detenerlos (ADR 0054). Las opciones relacionadas:
 
-- `--policy base` usa la plantilla base tal cual.
+- `--policy base` usa la plantilla base tal cual, con la compuerta de 90 días de un prestamista
+  real.
 - `--policy <archivo.json>` usa cualquier otra política.
 
 **Datos de la solicitud.** Sin monto ni comprador, la salida da el perfil, el estado y la
@@ -406,7 +408,8 @@ GOW Credit takes a supplier's Mexican bank statement (PDF) and:
 1. Use Node 24+ and run `corepack enable`, then `pnpm install --frozen-lockfile`.
 2. Put `ANTHROPIC_API_KEY` in `.env`. `GEMINI_API_KEY` is optional but recommended.
 3. Run `pnpm run evaluate <folder>`.
-4. Add `--as-of YYYY-MM-DD` so that old statements are not flagged as stale.
+4. Optionally add `--as-of YYYY-MM-DD` to set the calculation date. Statement age does not
+   block a decision by default (ADR 0054).
 
 Output goes to `data/out/evaluate/` as an extraction JSON, a result JSON and a Markdown report
 per document. `--help` lists every option.

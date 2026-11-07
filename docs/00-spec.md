@@ -34,7 +34,7 @@ Estados: `qualified`, `qualified_with_limit`, `not_qualified`, `needs_clarificat
 | Los documentos son estados de cuenta, no facturas: el "CFDI" del enunciado es el que trae el propio estado de cuenta | El bloque fiscal se extrae siempre y sirve de ancla, pero los sellos nunca se transcriben | `09`, ADR 0008 |
 | Los documentos de evaluación vienen redactados como los de desarrollo (titular, RFC, CLABE) | En standalone, la identidad que no se puede comparar no bloquea; un desajuste real sí | ADR 0015 |
 | Los PDFs no traen datos de la solicitud (monto, plazo, comprador) | Sin ellos la salida es perfil, estado y **línea máxima**; con `--request`, veredicto completo | ADR 0015 |
-| La fecha de cálculo importa: la política pide un estado de cuenta de 90 días o menos | `--as-of` fija la fecha; por defecto es hoy | README |
+| Los documentos de evaluación son de fecha desconocida: la antigüedad del estado de cuenta no decide | La política por defecto de standalone no tiene la compuerta de 90 días (`--policy base` la conserva) y `document_age_days` queda en el perfil y en el reporte; `--as-of` fija la fecha de cálculo, por defecto hoy | ADR 0054, README |
 | Los periodos se extraen como los imprime el banco (Mercado Pago: uno de tres meses) | Los meses los cuenta el perfil, no la extracción | ADR 0006 |
 | Los traspasos internos (apartados, cajitas de Nu) no son ingreso | Se marcan `internal_transfer` y se excluyen del cuadre consolidado | ADR 0009 |
 | Una respuesta del dueño no se adivina: lo que no se entiende se declina | Las categorías se eligen de una lista; nunca hay texto libre en standalone | ADR 0015 y 0017 |
