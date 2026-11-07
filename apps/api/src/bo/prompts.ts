@@ -74,8 +74,9 @@ async function canEdit(deps: BackofficeDeps, w: Who): Promise<boolean> {
   const editors = deps.promptEditors ?? null
   if (editors === '*') return true
   if (editors !== null) return editors.includes(w.email.toLowerCase())
-  const r = await deps.db.execute<{ sole: string | null }>(sql`select app.sole_tenant()::text as sole`)
-  return r.rows[0]?.sole === w.tenantId
+  // Con una sola institución crediticia, es la del usuario (la sesión ya verificó su pertenencia).
+  const r = await deps.db.execute<{ single: boolean }>(sql`select app.single_tenant_installation() as single`)
+  return r.rows[0]?.single === true
 }
 
 async function requireEditor(deps: BackofficeDeps, w: Who): Promise<void> {
