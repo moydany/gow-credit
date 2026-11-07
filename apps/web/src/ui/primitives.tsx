@@ -24,7 +24,7 @@ export function CardHeader({ title, subtitle, action }: { title: ReactNode; subt
   )
 }
 
-type Tone = 'accent' | 'indigo' | 'amber' | 'coral' | 'ink' | 'hatch' | 'plain'
+export type Tone = 'accent' | 'indigo' | 'amber' | 'coral' | 'ink' | 'hatch' | 'plain'
 const TONE: Record<Tone, string> = {
   accent: 'bg-accent text-white',
   indigo: 'bg-indigo-soft text-indigo-ink',

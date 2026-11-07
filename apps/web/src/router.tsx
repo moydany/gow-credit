@@ -32,7 +32,7 @@ const detail = createRoute({
   getParentRoute: () => shell,
   path: '/solicitudes/$id',
   component: ApplicationDetailPage,
-  validateSearch: (s: Record<string, unknown>): { tab?: string; pag?: number } => ({ tab: str(s.tab), pag: typeof s.pag === 'number' ? s.pag : Number(str(s.pag)) || undefined }),
+  validateSearch: (s: Record<string, unknown>): { tab?: string; pag?: number; doc?: string } => ({ tab: str(s.tab), pag: typeof s.pag === 'number' ? s.pag : Number(str(s.pag)) || undefined, doc: str(s.doc) }),
 })
 // three.js outweighs the rest of the app: the journey is downloaded only when opened.
 const timeline = createRoute({

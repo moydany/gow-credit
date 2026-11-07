@@ -15,6 +15,7 @@ import { balanceBreaks } from './breaks'
 import { CorrectionModal } from './CorrectionModal'
 import { DecisionPanel } from './DecisionPanel'
 import { alertPages, ExtractionPanel, type ExtractionTab } from './Extraction'
+import { evaluationSummary, hasSeveralMonths, StatementPicker } from './Statements'
 import { FocusCtx, ReviewCtx, targetKey, type EditSpec, type FocusFn, type PendingFix, type ReviewApi } from './focus'
 import type { PdfFocus } from './PdfViewer'
 
@@ -30,7 +31,7 @@ const PANELS: { key: Panel; label: string }[] = [
 
 export function ApplicationDetailPage() {
   const { id } = useParams({ from: '/shell/solicitudes/$id' })
-  const { tab = 'resumen', pag } = useSearch({ from: '/shell/solicitudes/$id' })
+  const { tab = 'resumen', pag, doc: docParam } = useSearch({ from: '/shell/solicitudes/$id' })
   const navigate = useNavigate({ from: '/solicitudes/$id' })
   const { data, isPending, isError, error, refetch } = useApplication(id)
   const [panel, setPanel] = useState<Panel>('extraccion')
@@ -50,7 +51,8 @@ export function ApplicationDetailPage() {
   const toast = useToast()
   const qc = useQueryClient()
   const save = useMutation({
-    mutationFn: () => api.correct(id, pending.map((p) => ({ target: p.target, value: p.value, page: p.page }))),
+    // The corrections go to the document on screen (ADR 0072).
+    mutationFn: () => api.correct(id, pending.map((p) => ({ target: p.target, value: p.value, page: p.page })), statement?.document_id),
     onSuccess: () => {
       toast.ok('Correcciones guardadas. Se reevalúa la solicitud.')
       setPending([])
@@ -79,9 +81,20 @@ export function ApplicationDetailPage() {
     }),
     [data?.status, pending, goTo],
   )
-  const pages = useMemo(() => (data?.extraction ? alertPages(data.extraction) : new Set<number>()), [data?.extraction])
-  const breaks = useMemo(() => (data?.extraction ? balanceBreaks(data.extraction) : []), [data?.extraction])
-  const doc = data?.documents[0]
+  // Several statements (ADR 0072): the one in the URL, or the most recent; the viewer, the extraction
+  // and "Abrir PDF" follow it.
+  const statement = data?.statements.find((s) => s.document_id === docParam) ?? data?.statements.at(-1)
+  const shown = statement?.extraction ?? data?.extraction ?? null
+  const pages = useMemo(() => (shown ? alertPages(shown) : new Set<number>()), [shown])
+  const breaks = useMemo(() => (shown ? balanceBreaks(shown) : []), [shown])
+  const doc = (statement ? data?.documents.find((d) => d.id === statement.document_id) : undefined) ?? data?.documents[0]
+  const selectStatement = useCallback(
+    (documentId: string) => {
+      setFocus((f) => ({ page: 1, snippet: null, tone: 'verified', nonce: f.nonce + 1 }))
+      void navigate({ search: (s: { tab?: string; pag?: number; doc?: string }) => ({ ...s, doc: documentId, pag: undefined }), replace: true })
+    },
+    [navigate],
+  )
   const open = data?.clarifications.filter((c) => c.status === 'open') ?? []
 
   if (isError) {
@@ -104,8 +117,10 @@ export function ApplicationDetailPage() {
     )
   }
 
-  const x = data.extraction
-  const h = 'xl:h-[calc(100dvh-215px)] xl:min-h-[520px]'
+  const x = shown
+  const several = hasSeveralMonths(data)
+  const summary = evaluationSummary(data)
+  const h = several ? 'xl:h-[calc(100dvh-270px)] xl:min-h-[520px]' : 'xl:h-[calc(100dvh-215px)] xl:min-h-[520px]'
 
   return (
     <div>
@@ -122,7 +137,7 @@ export function ApplicationDetailPage() {
             </h1>
             <p className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13.5px] text-muted">
               <StatusChip status={data.status} />
-              <span>{x?.bank_name.value ?? 'Banco sin identificar'}</span>
+              {summary ? <span className="font-medium text-ink-2">{summary}</span> : <span>{x?.bank_name.value ?? 'Banco sin identificar'}</span>}
               <span aria-hidden="true">·</span>
               <span>Solicitado {money(data.request?.amount)}</span>
               {data.request?.maturity ? (
@@ -164,6 +179,8 @@ export function ApplicationDetailPage() {
         ))}
       </div>
 
+      {several && statement ? <StatementPicker statements={data.statements} selected={statement.document_id} onSelect={selectStatement} locked={pending.length > 0} /> : null}
+
       <FocusCtx.Provider value={goTo}>
         <ReviewCtx.Provider value={review}>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.95fr)]">
@@ -189,7 +206,8 @@ export function ApplicationDetailPage() {
             {x ? (
               <ExtractionPanel
                 x={x}
-                tab={(['resumen', 'movimientos', 'fiscal', 'alertas'] as const).includes(tab as ExtractionTab) ? (tab as ExtractionTab) : 'resumen'}
+                tab={(['resumen', 'meses', 'movimientos', 'fiscal', 'alertas'] as const).includes(tab as ExtractionTab) ? (tab as ExtractionTab) : 'resumen'}
+                months={several && statement ? { statements: data.statements, selected: statement.document_id, onSelect: selectStatement } : undefined}
                 onTab={(t) => { void navigate({ search: (s: { tab?: string; pag?: number }) => ({ ...s, tab: t }), replace: true }) }}
               />
             ) : (

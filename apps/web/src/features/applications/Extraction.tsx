@@ -1,4 +1,4 @@
-import type { Account, Issue, Period, StatementExtraction, Transaction } from '@gow/contracts'
+import type { Account, DetailStatement, Issue, Period, StatementExtraction, Transaction } from '@gow/contracts'
 import clsx from 'clsx'
 import { useMemo, useState } from 'react'
 import { CATEGORY_LABEL, date, ISSUE_SEVERITY_LABEL, money, number } from '../../lib/format'
@@ -7,8 +7,9 @@ import { Chip, EmptyState } from '../../ui/primitives'
 import { BalanceBreaks } from './BalanceBreaks'
 import { balanceBreaks, periodBreaks } from './breaks'
 import { useFocus, useReview, Val } from './focus'
+import { MonthsTable, WINDOW_STATUS } from './Statements'
 
-export type ExtractionTab = 'resumen' | 'movimientos' | 'fiscal' | 'alertas'
+export type ExtractionTab = 'resumen' | 'meses' | 'movimientos' | 'fiscal' | 'alertas'
 
 export interface FlatTx {
   tx: Transaction
@@ -71,15 +72,30 @@ export function alertPages(x: StatementExtraction): Set<number> {
 
 const TABS: { key: ExtractionTab; label: string }[] = [
   { key: 'resumen', label: 'Resumen' },
+  { key: 'meses', label: 'Meses' },
   { key: 'movimientos', label: 'Movimientos' },
   { key: 'fiscal', label: 'Fiscal' },
   { key: 'alertas', label: 'Alertas' },
 ]
 
-export function ExtractionPanel({ x, tab, onTab }: { x: StatementExtraction; tab: ExtractionTab; onTab: (t: ExtractionTab) => void }) {
+/** Several statements (ADR 0072): the months tab and what the profile did with each period of this one. */
+export interface MonthsView {
+  statements: readonly DetailStatement[]
+  selected: string
+  onSelect: (documentId: string) => void
+}
+
+/** The tabs to show and the months view's part: without several months there is no "Meses". */
+function monthsInfo(months: MonthsView | undefined, tab: ExtractionTab) {
+  if (!months) return { tabs: TABS.filter((t) => t.key !== 'meses'), shown: tab === 'meses' ? ('resumen' as const) : tab, periodCount: null, status: undefined }
+  return { tabs: TABS, shown: tab, periodCount: months.statements.reduce((n, s) => n + s.periods.length, 0), status: months.statements.find((s) => s.document_id === months.selected)?.periods }
+}
+
+export function ExtractionPanel({ x, tab, onTab, months }: { x: StatementExtraction; tab: ExtractionTab; onTab: (t: ExtractionTab) => void; months?: MonthsView }) {
   const txs = useMemo(() => flattenTransactions(x), [x])
   const bad = txs.filter((t) => t.tx.verification !== 'verified').length
-  const counts: Record<ExtractionTab, number | null> = { resumen: null, movimientos: txs.length, fiscal: x.fiscal_documents.length, alertas: x.issues.length }
+  const { tabs, shown, periodCount, status } = monthsInfo(months, tab)
+  const counts: Record<ExtractionTab, number | null> = { resumen: null, meses: periodCount, movimientos: txs.length, fiscal: x.fiscal_documents.length, alertas: x.issues.length }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="px-6 pt-5">
@@ -101,23 +117,23 @@ export function ExtractionPanel({ x, tab, onTab }: { x: StatementExtraction; tab
           )}
         </div>
         <div role="tablist" aria-label="Secciones de la extracción" className="scroll-thin mt-4 flex gap-1.5 overflow-x-auto pb-1">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.key}
               role="tab"
               type="button"
-              aria-selected={tab === t.key}
+              aria-selected={shown === t.key}
               onClick={() => { onTab(t.key) }}
-              className={clsx('inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-4 text-[13.5px] font-medium transition-colors', tab === t.key ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}
+              className={clsx('inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-4 text-[13.5px] font-medium transition-colors', shown === t.key ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}
             >
               {t.label}
-              {counts[t.key] !== null ? <span className={clsx('tnum text-[12px]', tab === t.key ? 'text-white/70' : 'text-muted')}>{counts[t.key]}</span> : null}
+              {counts[t.key] !== null ? <span className={clsx('tnum text-[12px]', shown === t.key ? 'text-white/70' : 'text-muted')}>{counts[t.key]}</span> : null}
             </button>
           ))}
         </div>
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-4" role="tabpanel">
-        {tab === 'resumen' ? <Summary x={x} /> : tab === 'movimientos' ? <Transactions txs={txs} bad={bad} /> : tab === 'fiscal' ? <Fiscal x={x} /> : <Alerts issues={x.issues} />}
+        {shown === 'resumen' ? <Summary x={x} status={status} /> : shown === 'meses' && months ? <MonthsTable statements={months.statements} selected={months.selected} onSelect={months.onSelect} /> : shown === 'movimientos' ? <Transactions txs={txs} bad={bad} /> : tab === 'fiscal' ? <Fiscal x={x} /> : <Alerts issues={x.issues} />}
       </div>
     </div>
   )
@@ -135,7 +151,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 const HOLDER_TYPE: Record<string, string> = { individual: 'Persona física', individual_with_business_activity: 'Persona física con actividad empresarial', legal_entity: 'Persona moral' }
 const ACCOUNT_TYPE: Record<string, string> = { checking: 'Cheques', savings: 'Ahorro', investment: 'Inversión', credit_card: 'Tarjeta de crédito', other: 'Otro' }
 
-function Summary({ x }: { x: StatementExtraction }) {
+type PeriodStatuses = DetailStatement['periods'] | undefined
+
+function Summary({ x, status }: { x: StatementExtraction; status: PeriodStatuses }) {
   return (
     <div className="space-y-5">
       <section className="inner px-5 py-3">
@@ -159,13 +177,13 @@ function Summary({ x }: { x: StatementExtraction }) {
         </dl>
       </section>
       {x.accounts.map((a) => (
-        <AccountBlock key={a.id} a={a} />
+        <AccountBlock key={a.id} a={a} status={status} />
       ))}
     </div>
   )
 }
 
-function AccountBlock({ a }: { a: Account }) {
+function AccountBlock({ a, status }: { a: Account; status: PeriodStatuses }) {
   return (
     <div className="space-y-4">
       <section className="inner px-5 py-3">
@@ -189,19 +207,29 @@ function AccountBlock({ a }: { a: Account }) {
         </dl>
       </section>
       {a.periods.map((p) => (
-        <PeriodBlock key={p.id} p={p} />
+        <PeriodBlock key={p.id} p={p} window={status?.find((w) => w.account_id === a.id && w.period_id === p.id)} />
       ))}
     </div>
   )
 }
 
-function PeriodBlock({ p }: { p: Period }) {
+function PeriodBlock({ p, window }: { p: Period; window: DetailStatement['periods'][number] | undefined }) {
   const s = p.summary
+  const w = window ? WINDOW_STATUS[window.status] : null
   return (
     <section className="rounded-[22px] border border-line px-5 py-3">
-      <h3 className="pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted">
-        Periodo <Val field={p.period_start} format={date} /> – <Val field={p.period_end} format={date} />
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-1 pt-2">
+        <h3 className="text-[12px] font-medium uppercase tracking-wide text-muted">
+          Periodo <Val field={p.period_start} format={date} /> – <Val field={p.period_end} format={date} />
+        </h3>
+        {w && window ? (
+          <span title={window.status === 'cut' ? `${w.hint}: ${date(window.start)} a ${date(window.end)}` : w.hint}>
+            <Chip tone={w.tone} dot>
+              {window.status === 'cut' ? `Evaluado desde ${date(window.start)}` : w.label}
+            </Chip>
+          </span>
+        ) : null}
+      </div>
       <dl>
         <Row label="Saldo inicial">
           <Val field={s.opening_balance} format={(v) => money(v)} className="tnum" target={{ kind: 'period', period_id: p.id, field: 'opening_balance' }} label="el saldo inicial" />

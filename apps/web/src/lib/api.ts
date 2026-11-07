@@ -68,7 +68,7 @@ export const api = {
   application: (id: string) => request<ApplicationDetail>('GET', `/applications/${id}`),
   /** The request's journey: rebuilt on every request. */
   applicationTimeline: (id: string) => request<ApplicationTimeline>('GET', `/applications/${id}/timeline`),
-  correct: (id: string, corrections: CorrectionInput[]) => request<{ batch: string; corrections: number }>('POST', `/applications/${id}/corrections`, { corrections }),
+  correct: (id: string, corrections: CorrectionInput[], documentId?: string) => request<{ batch: string; corrections: number }>('POST', `/applications/${id}/corrections`, { corrections, ...(documentId ? { document_id: documentId } : {}) }),
   discard: (id: string, reason: DiscardReason) => request<{ id: string; status: 'not_qualified' }>('POST', `/applications/${id}/discard`, { reason }),
   clarifications: () => request<ClarificationItem[]>('GET', '/clarifications'),
   answer: (id: string, answers: OwnerAnswer[]) => request<{ id: string; complete: boolean }>('POST', `/clarifications/${id}/answers`, { answers }),
