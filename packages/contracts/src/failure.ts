@@ -35,22 +35,12 @@ export function scannedUnreadableReason(detail: string | null): string {
 }
 
 /**
- * One PDF holding several statements: rejected, each is requested in its own file. Built by
- * extraction when it splits (full mode) and by the workflow when the `multiple_statements` flag
- * stayed on an extraction that did run (standalone).
+ * One PDF holding several statements, when extraction is told to reject it
+ * (`rejectMultipleStatements`). By default it is not rejected: the profile evaluates only the most
+ * recent month (ADR 0072). The text stays so requests that failed this way still read well.
  */
 export function multipleStatementsReason(count: number): string {
   return `el PDF trae ${String(count)} estados de cuenta`
-}
-
-/**
- * Failure reason if the extraction carries the `multiple_statements` flag, split or not; null
- * otherwise. The document count comes from the issue of the same name (`details.documents`), else two.
- */
-export function multipleStatementsFailure(s: StatementExtraction): string | null {
-  if (!s.flags.includes('multiple_statements')) return null
-  const documents = s.issues.find((i) => i.code === 'multiple_statements')?.details['documents']
-  return multipleStatementsReason(typeof documents === 'number' && Number.isInteger(documents) && documents >= 2 ? documents : 2)
 }
 
 /** No period has transactions: nothing to analyze was read from a scanned document. */

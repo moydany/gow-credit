@@ -122,7 +122,7 @@ describe('extractStatement: varios estados de cuenta', () => {
     expect(doc.extraction.failure_reason).toBe(multipleStatementsReason(2))
     expect(doc.extraction.failure_reason).toBe('el PDF trae 2 estados de cuenta')
     expect(doc.flags).toContain('multiple_statements')
-    expect(doc.issues.find((i) => i.code === 'multiple_statements')).toMatchObject({ severity: 'error', details: { documents: 2, restarts_at: [4] } })
+    expect(doc.issues.find((i) => i.code === 'multiple_statements')).toMatchObject({ severity: 'warning', details: { documents: 2, restarts_at: [4] } })
     expect(doc.extraction.calls).toEqual([])
     expect(doc.accounts).toEqual([])
   })

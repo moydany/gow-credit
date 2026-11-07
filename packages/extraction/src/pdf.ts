@@ -310,8 +310,8 @@ export function reportPageChecks(pdf: PageCheckInput, issues: IssueSink, flags: 
     flags.add('multiple_statements')
     issues.add({
       code: 'multiple_statements',
-      severity: 'error',
-      message: `La numeración de las páginas vuelve a empezar: el PDF trae ${String(statements.documents)} estados de cuenta.`,
+      severity: 'warning',
+      message: `La numeración de las páginas vuelve a empezar: el PDF trae ${String(statements.documents)} estados de cuenta. Se evalúa solo el mes más reciente.`,
       page: statements.restartsAt[0] ?? null,
       details: { documents: statements.documents, restarts_at: statements.restartsAt, basis: 'pagination' },
     })
@@ -336,8 +336,8 @@ export function reportFiscalStatements(fiscal: readonly Pick<FiscalDocument, 'ki
   flags.add('multiple_statements')
   issues.add({
     code: 'multiple_statements',
-    severity: 'error',
-    message: `El PDF trae ${String(documents)} comprobantes fiscales de ingreso timbrados en días distintos: son ${String(documents)} estados de cuenta.`,
+    severity: 'warning',
+    message: `El PDF trae ${String(documents)} comprobantes fiscales de ingreso timbrados en días distintos: son ${String(documents)} estados de cuenta. Se evalúa solo el mes más reciente.`,
     details: { documents, restarts_at: [], basis: 'cfdi' },
   })
   return { documents, restartsAt: [] }

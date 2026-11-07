@@ -58,9 +58,9 @@ export interface ExtractOptions {
    */
   rejectNotStatementAbove?: number
   /**
-   * Full mode only: a PDF with more than one statement is not extracted; it fails with
-   * `multipleStatementsReason`. Without it (standalone, `evaluate`) it is extracted anyway and the
-   * `multiple_statements` flag stays.
+   * A PDF with more than one statement is not extracted; it fails with `multipleStatementsReason`.
+   * Off in both modes (ADR 0072): it is extracted, the `multiple_statements` flag stays as a
+   * warning and the profile evaluates only the most recent month.
    */
   rejectMultipleStatements?: boolean
 }

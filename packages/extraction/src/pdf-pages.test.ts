@@ -331,7 +331,7 @@ describe('loadPdf sobre PDFs de varias páginas', () => {
     const checks = reportPageChecks(two, issues, flags as never)
     expect(checks.statements).toEqual({ documents: 2, restartsAt: [4] })
     expect([...flags]).toEqual(['multiple_statements'])
-    expect(issues.issues[0]).toMatchObject({ code: 'multiple_statements', severity: 'error', details: { documents: 2, restarts_at: [4] } })
+    expect(issues.issues[0]).toMatchObject({ code: 'multiple_statements', severity: 'warning', details: { documents: 2, restarts_at: [4] } })
   })
 
   it('/Rotate 90: se detecta la rotación y al modelo va una copia enderezada con el mismo texto', async () => {

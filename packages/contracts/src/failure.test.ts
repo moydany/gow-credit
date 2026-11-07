@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DISCARDED_PREFIX } from './corrections.ts'
-import { describeFailure, extractionFailedReason, extractionFailure, multipleStatementsFailure, multipleStatementsReason, notBankStatementReason, PDF_PASSWORD_FAILURE, PDF_UNREADABLE_PREFIX, scannedUnreadableReason } from './failure.ts'
+import { describeFailure, extractionFailedReason, extractionFailure, multipleStatementsReason, notBankStatementReason, PDF_PASSWORD_FAILURE, PDF_UNREADABLE_PREFIX, scannedUnreadableReason } from './failure.ts'
 import type { StatementExtraction } from './statement.ts'
 import { sampleStatement } from './testing/fixtures.ts'
 
@@ -55,8 +55,6 @@ describe('PDF con contraseña y escaneado ilegible', () => {
 })
 
 describe('varios estados de cuenta en un PDF (robustez documental, sección W)', () => {
-  const issue = (details: Record<string, unknown>) =>
-    ({ id: 'i1', code: 'multiple_statements', severity: 'error', message: 'El PDF trae más de un estado de cuenta', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details }) as StatementExtraction['issues'][number]
   const flagged = (o: { issues?: StatementExtraction['issues']; flag?: boolean; textLayer?: StatementExtraction['document']['text_layer']; status?: StatementExtraction['extraction']['status']; reason?: string | null } = {}): StatementExtraction => {
     const s = statement({ textLayer: o.textLayer ?? 'ok', status: o.status ?? 'complete', reason: o.reason ?? null })
     return { ...s, flags: o.flag === false ? s.flags : [...s.flags, 'multiple_statements'], issues: [...s.issues, ...(o.issues ?? [])] }
@@ -67,14 +65,6 @@ describe('varios estados de cuenta en un PDF (robustez documental, sección W)',
     expect(describeFailure(multipleStatementsReason(2))).toEqual({ kind: 'multiple_statements', documentType: null, label: 'El PDF trae más de un estado de cuenta; se necesita cada uno en un archivo aparte.' })
     // Must not look like the other reasons or charge for something that isn't there.
     expect(describeFailure('el PDF trae un estado de cuenta').kind).toBe('internal')
-  })
-
-  it('la bandera falla la solicitud con el número de documentos del issue, o dos si no está', () => {
-    expect(multipleStatementsFailure(flagged({ issues: [issue({ documents: 3, restarts_at: [4, 8] })] }))).toBe('el PDF trae 3 estados de cuenta')
-    expect(multipleStatementsFailure(flagged())).toBe('el PDF trae 2 estados de cuenta')
-    expect(multipleStatementsFailure(flagged({ issues: [issue({ documents: 'tres' })] }))).toBe('el PDF trae 2 estados de cuenta')
-    expect(multipleStatementsFailure(flagged({ issues: [issue({ documents: 1 })] }))).toBe('el PDF trae 2 estados de cuenta')
-    expect(multipleStatementsFailure(flagged({ flag: false, issues: [issue({ documents: 3 })] }))).toBeNull()
   })
 
   it('un corte de la extracción no se envuelve en "la extracción falló" ni en "escaneado", escaneado o no', () => {
