@@ -6,7 +6,7 @@
  * (`decideState`). The result is stored as a new verdict; the previous one is kept.
  */
 import { calendarToday, CorrectionTarget, Decision, emptyExternalSnapshot, NO_DECLARATIONS, OwnerAnswer, Question, StatementExtraction, type OwnerDeclarations, type SupplierIdentity } from '@gow/contracts'
-import { auditLog, applications, clarifications, corrections, decisions, extractions, withTenant } from '@gow/db'
+import { auditLog, applications, clarifications, corrections, decisions, extractions, withTenant, type Tx } from '@gow/db'
 import { applyOwnerAnswers } from '@gow/decision'
 import { applyCorrections } from '@gow/extraction/corrections'
 import { decideState, questionKey, type AppState } from '@gow/mastra'
@@ -16,12 +16,22 @@ import { z } from 'zod'
 import { insertDecisions, loadContext, queueVerdict, requestOf, supplierIdentity } from './store.ts'
 import type { WorkerServices } from './worker.ts'
 
+/** The other months sent together (ADR 0072): their first extraction as stored; corrections go to the first document. */
+async function storedExtractions(tx: Tx, documentIds: readonly string[]): Promise<unknown[]> {
+  const out: unknown[] = []
+  for (const id of documentIds) {
+    const [o] = await tx.select({ payload: extractions.payload }).from(extractions).where(eq(extractions.documentId, id)).orderBy(asc(extractions.createdAt)).limit(1)
+    if (o) out.push(o.payload)
+  }
+  return out
+}
+
 export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promise<string> {
   const ctx = await loadContext(s.db, job.tenant_id, job.application_id)
   // The API puts the request in `deciding` when saving corrections; if it no longer is, this job already ran.
   if (ctx.application.status !== 'deciding') return ctx.application.status
   if (!ctx.active) throw new Error('el tenant no tiene una política activa')
-  const doc = ctx.documents[0]
+  const [doc, ...extra] = ctx.submitted.length > 0 ? ctx.submitted : ctx.documents
   if (!doc) throw new Error('la solicitud no tiene documento')
 
   const loaded = await withTenant(s.db, job.tenant_id, async (tx) => {
@@ -29,7 +39,7 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
     const fixes = await tx.select().from(corrections).where(eq(corrections.applicationId, ctx.application.id)).orderBy(asc(corrections.createdAt))
     const rounds = await tx.select().from(clarifications).where(and(eq(clarifications.applicationId, ctx.application.id), eq(clarifications.status, 'answered'))).orderBy(asc(clarifications.round))
     const [last] = await tx.select({ payload: decisions.payload }).from(decisions).where(and(eq(decisions.applicationId, ctx.application.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
-    return { ex, fixes, rounds, last }
+    return { ex, fixes, rounds, last, others: await storedExtractions(tx, extra.map((d) => d.id)) }
   })
   if (!loaded.ex) throw new Error('la solicitud no tiene extracción')
 
@@ -37,6 +47,7 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
     StatementExtraction.parse(loaded.ex.payload),
     loaded.fixes.map((c) => ({ target: CorrectionTarget.parse(c.target), value: z.union([z.string(), z.number()]).parse(c.value) })),
   )
+  const others = loaded.others.map((o) => StatementExtraction.parse(o)).filter((x) => x.extraction.status !== 'failed')
   // What the supplier already answered still holds: re-applied in round order.
   let supplier: SupplierIdentity | null = supplierIdentity(ctx.supplier)
   let declarations: OwnerDeclarations = NO_DECLARATIONS
@@ -53,9 +64,9 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
   const previous = loaded.last ? Decision.safeParse(loaded.last.payload) : null
   const asOf = ctx.application.asOf ?? (previous?.success ? previous.data.profile.computed_at.slice(0, 10) : (s.today ? s.today() : calendarToday()))
   const state: AppState = {
-    input: { application_id: ctx.application.id, pdf_path: doc.storagePath, as_of: asOf, request: requestOf(ctx), supplier: supplierIdentity(ctx.supplier), policy: ctx.active.policy, policy_id: ctx.active.id, statement_age: ctx.statementAge },
-    statements: [statement],
-    documents: [{ file_name: statement.document.file_name, sha256: statement.document.sha256, extraction_status: statement.extraction.status, origin: 'submitted' }],
+    input: { application_id: ctx.application.id, pdf_path: doc.storagePath, extra_pdf_paths: extra.map((d) => d.storagePath), as_of: asOf, request: requestOf(ctx), supplier: supplierIdentity(ctx.supplier), policy: ctx.active.policy, policy_id: ctx.active.id, statement_age: ctx.statementAge },
+    statements: [statement, ...others],
+    documents: [statement, ...others].map((x) => ({ file_name: x.document.file_name, sha256: x.document.sha256, extraction_status: x.extraction.status, origin: 'submitted' as const })),
     supplier,
     declarations,
     classification: null,

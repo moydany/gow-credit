@@ -35,7 +35,7 @@ const OPTION_LABEL: Record<string, string> = { personal_expense: 'Gasto personal
 
 /** The chosen option in an options draft, or null. */
 /** Document questions the supplier answers by sending the PDF over WhatsApp (`isDocumentRequest`). */
-const PDF_BY_CHAT: ReadonlySet<string> = new Set(['missing_pages', 'statement_with_address'])
+const PDF_BY_CHAT: ReadonlySet<string> = new Set(['missing_pages', 'statement_with_address', 'additional_months'])
 
 function selected(d: Draft | undefined): string | null {
   if (!d) return null

@@ -39,6 +39,19 @@ export const DOCUMENT_REPLIES = {
   address_for_review: 'Recibimos tu estado de cuenta. Un analista revisará tu solicitud y te avisaremos el resultado por este chat.',
   /** Same file sent again, still without the address. */
   address_same_file: 'Este es el mismo archivo que ya recibimos y no trae tu domicilio. Descarga un estado de cuenta que sí lo traiga y mándalo por aquí.',
+  /**
+   * The tenant's policy evaluates three months (ADR 0072): added wherever the statement is asked
+   * for. WhatsApp has no message with several files: the PDFs picked together arrive one after the
+   * other and are joined into one request.
+   */
+  three_months: 'Para esta evaluación necesito tus estados de cuenta de los 3 meses más recientes, de meses seguidos. Selecciona los 3 PDF y mándalos juntos, en un solo envío. También sirve un solo PDF que traiga los 3 meses.',
+  /** Another PDF of the same send: it joins the request opened by the first one. */
+  batch_joined: 'Recibí otro estado de cuenta y lo reviso junto con los que ya mandaste.',
+  /** The missing months arrived (`additional_months`): the other PDFs of the same send join them. */
+  months_received: 'Recibimos tus estados de cuenta. Los reviso junto con los que ya teníamos y en unos minutos te aviso el resultado por aquí.',
+  months_for_review: 'Recibimos tus estados de cuenta. Un analista revisará tu solicitud y te avisaremos el resultado por este chat.',
+  months_same_file: 'Este estado de cuenta ya lo teníamos. Necesito los de los meses que faltan, seguidos: mándalos juntos, en un solo envío.',
+  months_send_pdf: 'Para continuar necesito los estados de cuenta de los meses que faltan, de meses seguidos. Selecciona los PDF y mándalos juntos por este chat, en un solo envío.',
   /** Text sent while the PDF with address is expected. */
   address_send_pdf: 'Para continuar necesito un estado de cuenta en PDF que traiga tu domicilio. Mándalo por este chat, tal como lo descargaste de tu banco.',
 } as const
@@ -46,6 +59,7 @@ export const DOCUMENT_REPLIES = {
 /** `DOCUMENT_REPLIES` for the PDF that was requested: the complete one or one with an address. */
 export function documentRequestReplies(q: Question): { received: string; forReview: string; sameFile: string; sendPdf: string } {
   const r = DOCUMENT_REPLIES
+  if (q.topic === 'additional_months') return { received: r.months_received, forReview: r.months_for_review, sameFile: r.months_same_file, sendPdf: r.months_send_pdf }
   return q.topic === 'statement_with_address'
     ? { received: r.address_received, forReview: r.address_for_review, sameFile: r.address_same_file, sendPdf: r.address_send_pdf }
     : { received: r.answer_received, forReview: r.answer_for_review, sameFile: r.answer_same_file, sendPdf: r.send_pdf }
@@ -177,11 +191,13 @@ export function isConversational(q: Question): boolean {
  * conversational: text does not answer it, the PDF does.
  */
 export function isDocumentRequest(q: Question): boolean {
-  return q.kind === 'documents' && (q.topic === 'missing_pages' || q.topic === 'statement_with_address')
+  return q.kind === 'documents' && (q.topic === 'missing_pages' || q.topic === 'statement_with_address' || q.topic === 'additional_months')
 }
 
 /** The `isDocumentRequest` question as sent over chat: the text and how to answer it. */
 export function renderDocumentRequest(q: Question): string {
+  // The missing months (ADR 0072): several PDFs, picked together and sent at once.
+  if (q.topic === 'additional_months') return `${q.text}\n\nSelecciona los PDF y mándalos juntos por este chat, en un solo envío, tal como los descargaste de tu banco.`
   return `${q.text}\n\nMándalo por este chat como PDF, tal como lo descargaste de tu banco.`
 }
 

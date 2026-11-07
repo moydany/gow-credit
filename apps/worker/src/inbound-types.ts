@@ -13,6 +13,8 @@ export type Resolution =
   | 'document_duplicate'
   | 'document_rejected'
   | 'document_ambiguous'
+  // Another PDF of the same send joined the request or the answer of the first (ADR 0072).
+  | 'document_batched'
   // The complete PDF requested because of missing pages (document robustness).
   | 'document_answer'
   | 'awaiting_document'
@@ -64,8 +66,11 @@ export interface InboundOptions {
 export interface InboundResult {
   resolution: Resolution
   resume: ResumeJob | null
+  /** The resume waits this long so the other PDFs of the same send can join the answer (ADR 0072). */
+  resumeDelaySeconds?: number
   /** Only if the message carried a document that opened a request: the job to enqueue. */
-  process?: { job: ProcessJob; sha256: string }
+  /** `delaySeconds`: the analysis waits so the other PDFs of the same send can join (ADR 0072). */
+  process?: { job: ProcessJob; sha256: string; delaySeconds?: number }
   /** Whether the Haiku interpreter stepped in on this message. */
   interpreted?: boolean
   /** The supplier said how much they want to advance: re-evaluate with that amount. */

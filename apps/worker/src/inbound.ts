@@ -22,6 +22,10 @@
  * its processing is enqueued. The bytes move from the inbound row to the tenant's storage and the
  * column is emptied. The sender only gets a fixed text reply.
  *
+ * With a policy that evaluates three months (ADR 0072), the PDFs picked together arrive one by one:
+ * the first one's analysis (or resume, when it answers the missing months) waits a short window and
+ * the others from the same supplier join it (send-batch.ts).
+ *
  * With `selfRegistration` (demo only), an unlinked WhatsApp number does not get the fixed reply:
  * it is asked its name and the amount it wants, then its bank statement, which is analyzed
  * immediately with that amount; once read, it confirms or
@@ -73,6 +77,7 @@ import type { InboundOptions, InboundResult, Resolution } from './inbound-types.
 import { OFFER_STEP } from './offer.ts'
 import { documentRequestOf, duplicateReply, pendingChatPrompt } from './inbound-replies.ts'
 import { completeRegistration, completeRfc, pendingStatement, registrationPrompt, registrationSupplier, rfcAskReason } from './registration.ts'
+import { historyMonthsOf, joinSend, openSendOf, SEND_WINDOW_SECONDS } from './send-batch.ts'
 
 /** What came out of reading a value: the value, that they will not give it, or why it was not understood. */
 type FieldRead<T> = { value: T } | { skip: true } | { invalid: 'not_understood' | 'off_topic' | null }
@@ -209,6 +214,28 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       return { resolution: 'media_unsupported', resume: null }
     }
 
+    // PDFs sent together (ADR 0072): with a multi-month policy, one inside the window joins the send.
+    const months = msg.attachment !== null ? await historyMonthsOf(tx) : 1
+    const sendDelay = months > 1 ? { delaySeconds: SEND_WINDOW_SECONDS } : {}
+    if (msg.attachment !== null && months > 1) {
+      const owners = [...new Set([...links.map((l) => l.supplierId), ...(reg?.supplierId ? [reg.supplierId] : [])])]
+      const [owner] = owners
+      const target = owners.length === 1 && owner ? await openSendOf(tx, owner, { channel: msg.channel, address: msg.fromAddress }) : null
+      if (target && owner) {
+        const stored = await storeDocument(owner, msg.attachment)
+        if ('rejected' in stored) {
+          await finish('document_rejected', null, { body: stored.rejected === 'password' ? DOCUMENT_REPLIES.password_protected : DOCUMENT_REPLIES.rejected, kind: 'document' }, { reason: stored.rejected })
+          return done({ resolution: 'document_rejected', resume: null })
+        }
+        const joined = await joinSend(tx, tenantId, target, stored)
+        const resolution = joined === 'joined' ? 'document_batched' : 'document_duplicate'
+        await finish(resolution, target.kind === 'answer' ? target.clarificationId : null, { body: joined === 'joined' ? DOCUMENT_REPLIES.batch_joined : DOCUMENT_REPLIES.duplicate, kind: 'document' }, { application_id: target.applicationId })
+        return done({ resolution, resume: null })
+      }
+    }
+    /** The request for the statement; with a three-month policy, it says to send them together. */
+    const askStatement = async (text: string) => ((await historyMonthsOf(tx)) > 1 ? `${text}\n\n${DOCUMENT_REPLIES.three_months}` : text)
+
     if (selfRegistration && msg.channel === 'whatsapp' && (links.length === 0 || (reg && reg.step !== 'done'))) {
       const say = (body: string) => ({ body, kind: 'registration' })
       const reply = async (resolution: Resolution, body: string) => {
@@ -255,7 +282,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         const opened = await openWithDocument(supplierId, doc, requestOf(amount), inboundId)
         await save({ step: 'reading', supplierId, applicationId: opened.applicationId, pendingDocumentId: null })
         await finish('document_received', null, say(REGISTRATION_REPLIES.reading), { application_id: opened.applicationId })
-        return done({ resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: opened.applicationId }, sha256: opened.sha256 } })
+        return done({ resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: opened.applicationId }, sha256: opened.sha256, ...sendDelay } })
       }
 
       // What follows with the name and RFC we have; with everything, registration ends and the result goes out.
@@ -306,10 +333,10 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
           return startReading(reg.supplierId, kept, amount, kept.inboundId)
         }
         await save({ step: 'statement', requestedAmount: amount, pendingDocumentId: null })
-        return reply('registration_step', REGISTRATION_REPLIES.ask_statement_for(amount))
+        return reply('registration_step', await askStatement(REGISTRATION_REPLIES.ask_statement_for(amount)))
       }
       if (step === 'statement') {
-        if (msg.attachment === null) return reply('registration_waiting', REGISTRATION_REPLIES.ask_statement)
+        if (msg.attachment === null) return reply('registration_waiting', await askStatement(REGISTRATION_REPLIES.ask_statement))
         const stored = await storeDocument(supplierFor(reg), msg.attachment)
         if ('rejected' in stored) {
           await finish('document_rejected', null, { body: rejectedText(stored.rejected), kind: 'document' }, { reason: stored.rejected })
@@ -480,7 +507,9 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         await tx.update(clarifications).set(complete ? { answers, step: 'confirmed', status: 'answered', answeredAt: sql`now()` } : { answers, step: 'confirmed' }).where(eq(clarifications.id, requesting.id))
         const texts = documentRequestReplies(request)
         await finish('document_answer', requesting.id, { body: complete ? texts.received : texts.forReview, kind: 'document' }, { application_id: requesting.applicationId })
-        return { resolution: 'document_answer', resume: complete ? { tenant_id: tenantId, application_id: requesting.applicationId, clarification_id: requesting.id } : null }
+        // The missing months (ADR 0072): the resume waits for the other PDFs of the same send.
+        const wait = complete && request.topic === 'additional_months' ? { resumeDelaySeconds: SEND_WINDOW_SECONDS } : {}
+        return { resolution: 'document_answer', resume: complete ? { tenant_id: tenantId, application_id: requesting.applicationId, clarification_id: requesting.id } : null, ...wait }
       }
       const sha256 = createHash('sha256').update(bytes).digest('hex')
       const [existing] = await tx.select({ id: documents.id }).from(documents).where(eq(documents.sha256, sha256))
@@ -515,7 +544,7 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
       }
       // No questions (the demo): analyzed right away and the result is the maximum line.
       await finish('document_received', null, reply('received'), { application_id: created.id })
-      return { resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: created.id }, sha256 } }
+      return { resolution: 'document_received', resume: null, process: { job: { tenant_id: tenantId, application_id: created.id }, sha256, ...sendDelay } }
     }
 
     if (links.length === 0) {

@@ -467,7 +467,8 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const r = await resolveInbound(worker.db, tenant, await inbound(phone, '', Buffer.from(`%PDF-1.7\n% ${seed}\n%%EOF\n`)), opts)
     expect(r.resolution).toBe('document_received')
     const appId = r.process?.job.application_id ?? ''
-    const doc: SyntheticDocument = { input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 80000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed }
+    // The client carries its RFC: without the history cap (ADR 0072), a deposit of unknown origin near a band would be asked about.
+    const doc: SyntheticDocument = { input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 80000, counterparty: 'Cadena Norte SA de CV', counterparty_rfc: 'CNO850101AB1' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed }
     const path = `${tenant}/${randomUUID()}${SYNTHETIC_SUFFIX}`
     await services.storage.put(path, Buffer.from(JSON.stringify(doc)))
     const sha = syntheticStatement(doc.input, doc.holder, doc.seed).document.sha256
@@ -914,6 +915,106 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const r = await say('otro mes', Buffer.from('%PDF-1.7\n% otro mes\n%%EOF\n'))
       expect(r.resolution).toBe('document_received')
       expect(r.process?.job.application_id).not.toBe(APPLICATION)
+    })
+  })
+
+  describe('ADR 0072: política de tres meses por WhatsApp, los PDF juntos en un solo envío', () => {
+    const TENANT = randomUUID()
+    const SUPPLIER = randomUUID()
+    const PHONE = '+5215512340072'
+    const holder = { name: 'Abarrotes Tres Meses SA de CV', rfc: 'ATM150304AB1', clabe: null }
+    const opts = () => ({ storage: services.storage })
+    const say = async (body: string, attachment: Buffer | null = null) => {
+      await whatsapp.query('BEGIN')
+      await whatsapp.query("SELECT set_config('app.tenant_id', $1, true)", [TENANT])
+      const r = await whatsapp.query<{ id: string }>("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, attachment) VALUES ($1, 'whatsapp', $2, $3, $4) RETURNING id", [TENANT, PHONE, body, attachment])
+      await whatsapp.query('COMMIT')
+      return resolveInbound(worker.db, TENANT, r.rows[0]?.id ?? '', opts())
+    }
+    const lastBody = async () => (await admin.query<{ body: string; kind: string }>('SELECT body, kind FROM app.outbound_messages WHERE destination = $1 ORDER BY created_at DESC, id DESC LIMIT 1', [PHONE])).rows[0]
+    const pdf = (tag: string) => Buffer.from(`%PDF-1.7\n% ${tag}\n%%EOF\n`)
+    let seeds = 0
+    const month = (start: string): SyntheticDocument => ({ input: { start, opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV', counterparty_rfc: 'CNO850101AB1' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed: `tm-${start}-${String(++seeds)}` })
+    /** Swaps a stored PDF of the test for a synthetic month: the worker extracts it without models. */
+    const asMonth = async (documentId: string, d: SyntheticDocument) => {
+      const path = `${TENANT}/${randomUUID()}${SYNTHETIC_SUFFIX}`
+      await services.storage.put(path, Buffer.from(JSON.stringify(d)))
+      await admin.query('UPDATE app.documents SET storage_path = $2, sha256 = $3 WHERE id = $1', [documentId, path, syntheticStatement(d.input, d.holder, d.seed).document.sha256])
+      return path
+    }
+    const docsOf = async (applicationId: string) => (await admin.query<{ id: string; origin: string }>('SELECT d.id::text, ad.origin FROM app.application_documents ad JOIN app.documents d ON d.id = ad.document_id WHERE ad.application_id = $1 ORDER BY d.created_at, d.id', [applicationId])).rows
+    const setMonths = (months: number) => admin.query("UPDATE app.policy_versions SET document = jsonb_set(document, '{history}', $2::jsonb) WHERE tenant_id = $1 AND status = 'active'", [TENANT, JSON.stringify({ months })])
+
+    beforeAll(async () => {
+      const policyId = randomUUID()
+      await admin.query("INSERT INTO app.tenants (id, name, whatsapp_number) VALUES ($1, 'Fintech Tres Meses', '+5215500000072')", [TENANT])
+      await admin.query("INSERT INTO app.policies (id, tenant_id, name) VALUES ($1, $2, 'base')", [policyId, TENANT])
+      await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 1, 'active', $3)", [TENANT, policyId, JSON.stringify({ ...basePolicyTemplate(), history: { months: 3 } })])
+      await admin.query('INSERT INTO app.suppliers (id, tenant_id, legal_name, rfc) VALUES ($1, $2, $3, $4)', [SUPPLIER, TENANT, holder.name, holder.rfc])
+      await admin.query("INSERT INTO app.supplier_contacts (tenant_id, supplier_id, channel, address, verified_at, verification_method) VALUES ($1, $2, 'whatsapp', $3, now(), 'kyc')", [TENANT, SUPPLIER, PHONE])
+    }, 60_000)
+
+    let sent = ''
+
+    it('tres PDF seguidos son una sola solicitud: el primero la abre y espera la ventana, los otros se suman', async () => {
+      const first = await say('', pdf('septiembre'))
+      expect(first.resolution).toBe('document_received')
+      expect(first.process?.delaySeconds).toBe(60)
+      sent = first.process?.job.application_id ?? ''
+      for (const tag of ['octubre', 'noviembre']) {
+        expect((await say('', pdf(tag))).resolution).toBe('document_batched')
+        expect(await lastBody()).toEqual({ kind: 'document', body: DOCUMENT_REPLIES.batch_joined })
+      }
+      expect((await docsOf(sent)).map((d) => d.origin)).toEqual(['submitted', 'submitted', 'submitted'])
+      expect((await admin.query('SELECT 1 FROM app.applications WHERE tenant_id = $1', [TENANT])).rowCount).toBe(1)
+      // The same file again within the send is not added twice.
+      expect((await say('', pdf('octubre'))).resolution).toBe('document_duplicate')
+    })
+
+    it('al cerrar la ventana se analizan los tres meses juntos', async () => {
+      const docs = await docsOf(sent)
+      for (const [i, start] of ['2026-08-01', '2026-09-01', '2026-10-01'].entries()) await asMonth(docs[i]?.id ?? '', month(start))
+      // No buyer in the request: the buyer cap leaves it at qualified_with_limit; what matters is the months.
+      expect(await handleProcess(services, { tenant_id: TENANT, application_id: sent })).toBe('qualified_with_limit')
+      const d = await admin.query<{ months: number; evaluated: number }>("SELECT (payload->'profile'->'features'->'months_of_history'->>'value')::int AS months, (payload->'profile'->'parameters'->>'evaluation_months')::int AS evaluated FROM app.decisions WHERE application_id = $1 AND kind = 'active'", [sent])
+      expect(d.rows).toEqual([{ months: 3, evaluated: 3 }])
+    })
+
+    it('un solo mes pide los que faltan por el chat, y los PDF del mismo envío contestan juntos', async () => {
+      const opened = await say('', pdf('solo-octubre'))
+      const appId = opened.process?.job.application_id ?? ''
+      const [doc] = await docsOf(appId)
+      await asMonth(doc?.id ?? '', month('2026-10-01'))
+      expect(await handleProcess(services, { tenant_id: TENANT, application_id: appId })).toBe('needs_clarification')
+      const asked = await lastBody()
+      expect(asked?.kind).toBe('question')
+      expect(asked?.body).toMatch(/^Recibimos 1 mes seguido de estados de cuenta\. Para evaluarte necesitamos los 3 meses más recientes, seguidos y sin saltarte ninguno\. ¿Nos mandas los 3 PDF juntos, en un solo envío\?\n\nSelecciona los PDF y mándalos juntos por este chat/)
+
+      const answer = await say('', pdf('agosto'))
+      expect(answer.resolution).toBe('document_answer')
+      expect(answer.resumeDelaySeconds).toBe(60)
+      expect((await say('', pdf('septiembre-2'))).resolution).toBe('document_batched')
+      const clar = await admin.query<{ id: string; answers: { kind: string; paths: string[] }[] }>('SELECT id, answers FROM app.clarifications WHERE application_id = $1', [appId])
+      expect(clar.rows[0]?.answers[0]?.paths).toHaveLength(2)
+      expect((await docsOf(appId)).map((d) => d.origin)).toEqual(['submitted', 'owner_answer', 'owner_answer'])
+
+      // The resume extracts both answers: the three months together.
+      const added = (await docsOf(appId)).slice(1)
+      const paths = [await asMonth(added[0]?.id ?? '', month('2026-08-01')), await asMonth(added[1]?.id ?? '', month('2026-09-01'))]
+      await admin.query("UPDATE app.clarifications SET answers = jsonb_set(answers, '{0,paths}', $2::jsonb) WHERE id = $1", [clar.rows[0]?.id, JSON.stringify(paths)])
+      expect(await handleResume(services, { tenant_id: TENANT, application_id: appId, clarification_id: clar.rows[0]?.id ?? '' })).toBe('qualified_with_limit')
+      const months = await admin.query<{ months: number }>("SELECT (payload->'profile'->'features'->'months_of_history'->>'value')::int AS months FROM app.decisions WHERE application_id = $1 AND kind = 'active' ORDER BY created_at DESC LIMIT 1", [appId])
+      expect(months.rows[0]?.months).toBe(3)
+    })
+
+    it('con la política de un mes, otro PDF abre otra solicitud y se analiza sin esperar', async () => {
+      await setMonths(1)
+      const a = await say('', pdf('uno'))
+      const b = await say('', pdf('dos'))
+      expect([a.resolution, b.resolution]).toEqual(['document_received', 'document_received'])
+      expect(a.process?.delaySeconds).toBeUndefined()
+      expect(a.process?.job.application_id).not.toBe(b.process?.job.application_id)
+      await setMonths(3)
     })
   })
 })

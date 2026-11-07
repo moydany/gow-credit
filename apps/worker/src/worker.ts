@@ -78,7 +78,7 @@ function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
       const file = join(dir, basename(path))
       await writeFile(file, bytes)
       // Full mode: a document that is surely not a bank statement, or that holds more than one, is not extracted.
-      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE, rejectMultipleStatements: true })
+      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE })
     },
     transactionClassifier: s.transactionClassifier,
     writer: s.writer,
@@ -99,7 +99,8 @@ export async function handleProcess(s: WorkerServices, job: ProcessJob): Promise
     await setStatus(s.db, job.tenant_id, job.application_id, 'failed', 'el tenant no tiene una política activa')
     return 'failed'
   }
-  const doc = ctx.documents[0]
+  // Sent together (ADR 0072): the first one opened the request, the rest are the other months.
+  const [doc, ...extra] = ctx.submitted.length > 0 ? ctx.submitted : ctx.documents
   if (!doc) {
     await setStatus(s.db, job.tenant_id, job.application_id, 'failed', 'la solicitud no tiene documento')
     return 'failed'
@@ -109,6 +110,7 @@ export async function handleProcess(s: WorkerServices, job: ProcessJob): Promise
   const input: AppInput = {
     application_id: ctx.application.id,
     pdf_path: doc.storagePath,
+    extra_pdf_paths: extra.map((d) => d.storagePath),
     as_of: ctx.application.asOf ?? (s.today ? s.today() : calendarToday()),
     request: requestOf(ctx),
     supplier: supplierIdentity(ctx.supplier),
@@ -152,11 +154,11 @@ export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<num
       resolveInbound(s.db, m.tenant_id, m.id, { storage: s.storage, selfRegistration: s.selfRegistration === true, ...(s.today ? { today: s.today } : {}), ...(s.interpreter ? { interpreter: s.interpreter } : {}) }),
     )
     s.logger.info(`entrante ${m.id} → ${r.resolution}${r.interpreted ? ' (Haiku)' : ''}`)
-    if (r.resume) await enqueueResume(boss, r.resume)
+    if (r.resume) await enqueueResume(boss, r.resume, r.resumeDelaySeconds ?? 0)
     // Amount requested after the offer: decide again with it, without models.
     if (r.redecide) await enqueueRedecide(boss, r.redecide)
     if (r.process) {
-      await enqueueProcess(boss, r.process.job, r.process.sha256)
+      await enqueueProcess(boss, r.process.job, r.process.sha256, undefined, r.process.delaySeconds ?? 0)
       s.logger.info(`application ${r.process.job.application_id} recibida por un mensaje entrante`)
     }
   }

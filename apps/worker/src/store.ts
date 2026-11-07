@@ -22,6 +22,8 @@ export interface AppContext {
   application: typeof applications.$inferSelect
   supplier: typeof suppliers.$inferSelect
   documents: (typeof documents.$inferSelect)[]
+  /** The documents the request was opened with (not the ones that answered), oldest first. */
+  submitted: (typeof documents.$inferSelect)[]
   active: PolicyRef | null
   shadow: PolicyRef | null
   /** Tenant statement-age setting: the document's age warns, it does not ask for another. */
@@ -51,6 +53,7 @@ export async function loadContext(db: Db, tenantId: string, applicationId: strin
       application,
       supplier,
       documents: docs,
+      submitted: docs.filter((d) => links.some((l) => l.documentId === d.id && l.origin === 'submitted')).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)),
       active: toPolicyRef(versions.find((v) => v.status === 'active')),
       shadow: toPolicyRef(versions.find((v) => v.status === 'shadow')),
       statementAge: { max_months: tenant.months },
