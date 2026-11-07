@@ -3,7 +3,7 @@
  * origen) y el encabezado anti-CSRF. Los errores conservan lo que la API dice (ruta y mensaje del
  * campo, nunca el valor).
  */
-import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApplicationDetail, ApplicationRow, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -63,6 +63,11 @@ export const api = {
   simulate: (id: string) => request<SimulationReport>('POST', `/policies/versions/${id}/simulate`),
   shadow: (id: string) => request<{ id: string; status: string }>('POST', `/policies/versions/${id}/shadow`),
   activate: (id: string) => request<{ id: string; status: string }>('POST', `/policies/versions/${id}/activate`),
+  prompts: () => request<PromptCatalogResponse>('GET', '/prompts'),
+  prompt: (name: string) => request<PromptDetail>('GET', `/prompts/${name}`),
+  promptDiff: (name: string, from: string, to: string) => request<PromptDiff>('GET', `/prompts/${name}/diff${queryString({ from, to })}`),
+  createPromptVersion: (name: string, body: PromptVersionCreateBody) => request<PromptVersionItem>('POST', `/prompts/${name}/versions`, body),
+  activatePromptVersion: (name: string, id: string) => request<PromptActivated>('POST', `/prompts/${name}/versions/${id}/activate`),
   recordOutcome: (body: { application_id: string; outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }) => request<{ ok: true }>('POST', '/outcomes', body),
   audit: () => request<AuditEntry[]>('GET', '/audit'),
   llmExchanges: (q: LlmExchangeListQuery) => request<LlmExchangeRow[]>('GET', `/llm-exchanges${queryString(q)}`),

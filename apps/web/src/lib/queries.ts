@@ -10,6 +10,10 @@ export const useApplications = () => useQuery({ queryKey: ['applications'], quer
 export const useApplication = (id: string) => useQuery({ queryKey: ['application', id], queryFn: () => api.application(id), refetchInterval: 6000 })
 export const useClarifications = () => useQuery({ queryKey: ['clarifications'], queryFn: api.clarifications, ...LIVE })
 export const usePolicyVersions = () => useQuery({ queryKey: ['policies'], queryFn: api.policyVersions })
+export const usePrompts = () => useQuery({ queryKey: ['prompts'], queryFn: api.prompts })
+export const usePrompt = (name: string | undefined) => useQuery({ queryKey: ['prompt', name], queryFn: () => api.prompt(name ?? ''), enabled: Boolean(name) })
+export const usePromptDiff = (name: string, from: string | undefined, to: string | undefined) =>
+  useQuery({ queryKey: ['prompt-diff', name, from, to], queryFn: () => api.promptDiff(name, from ?? '', to ?? ''), enabled: Boolean(from && to), staleTime: Infinity })
 export const useAudit = () => useQuery({ queryKey: ['audit'], queryFn: api.audit })
 export const useLlmExchanges = (q: LlmExchangeListQuery) => useQuery({ queryKey: ['llm-exchanges', q], queryFn: () => api.llmExchanges(q) })
 /** Ver el detalle se audita: solo al abrirlo, sin refrescos en segundo plano. */

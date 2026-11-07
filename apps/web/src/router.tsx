@@ -7,6 +7,7 @@ import { ApplicationDetailPage } from './features/applications/ApplicationDetail
 import { ClarificationsPage } from './features/clarifications/ClarificationsPage'
 import { OutcomesPage } from './features/outcomes/OutcomesPage'
 import { PoliciesPage } from './features/policies/PoliciesPage'
+import { PromptsPage } from './features/prompts/PromptsPage'
 import { ReviewPage } from './features/review/ReviewPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { SupplierDetailPage } from './features/suppliers/SupplierDetailPage'
@@ -40,6 +41,12 @@ const clarifications = createRoute({
 })
 const review = createRoute({ getParentRoute: () => shell, path: '/revision', component: ReviewPage })
 const policies = createRoute({ getParentRoute: () => shell, path: '/politicas', component: PoliciesPage, validateSearch: (s: Record<string, unknown>): { v?: string } => ({ v: str(s.v) }) })
+const prompts = createRoute({
+  getParentRoute: () => shell,
+  path: '/prompts',
+  component: PromptsPage,
+  validateSearch: (s: Record<string, unknown>): { p?: string; v?: string; cmp?: string } => ({ p: str(s.p), v: str(s.v), cmp: str(s.cmp) }),
+})
 const outcomes = createRoute({ getParentRoute: () => shell, path: '/outcomes', component: OutcomesPage })
 const audit = createRoute({
   getParentRoute: () => shell,
@@ -51,7 +58,7 @@ const suppliers = createRoute({ getParentRoute: () => shell, path: '/proveedores
 const supplier = createRoute({ getParentRoute: () => shell, path: '/proveedores/$id', component: SupplierDetailPage })
 const settings = createRoute({ getParentRoute: () => shell, path: '/configuracion', component: SettingsPage })
 
-const tree = root.addChildren([enter, setup, shell.addChildren([applications, detail, clarifications, review, suppliers, supplier, policies, outcomes, audit, settings])])
+const tree = root.addChildren([enter, setup, shell.addChildren([applications, detail, clarifications, review, suppliers, supplier, policies, prompts, outcomes, audit, settings])])
 export const router = createRouter({ routeTree: tree, defaultPreload: 'intent' })
 
 declare module '@tanstack/react-router' {

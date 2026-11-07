@@ -18,6 +18,8 @@ const ACTION: Record<string, string> = {
   'policy.simulated': 'Simuló una política',
   'policy.shadowed': 'Puso una política en sombra',
   'policy.activated': 'Activó una política',
+  'prompt.version_created': 'Creó una versión de un prompt',
+  'prompt.activated': 'Activó una versión de un prompt',
   'outcome.recorded': 'Registró un outcome',
   'supplier.created': 'Dio de alta un proveedor',
   'supplier.viewed': 'Abrió un proveedor',
