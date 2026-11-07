@@ -14,7 +14,8 @@ import { BalanceBreaks } from './BalanceBreaks'
 import { balanceBreaks } from './breaks'
 import { CorrectionModal } from './CorrectionModal'
 import { DecisionPanel } from './DecisionPanel'
-import { alertPages, ExtractionPanel, type ExtractionTab } from './Extraction'
+import { ExtractionPanel, type ExtractionTab } from './Extraction'
+import { pageAlerts, type PageAlert } from './pageAlerts'
 import { evaluationSummary, hasSeveralMonths, StatementPicker } from './Statements'
 import { FocusCtx, ReviewCtx, targetKey, type EditSpec, type FocusFn, type PendingFix, type ReviewApi } from './focus'
 import type { PdfFocus } from './PdfViewer'
@@ -85,7 +86,7 @@ export function ApplicationDetailPage() {
   // and "Abrir PDF" follow it.
   const statement = data?.statements.find((s) => s.document_id === docParam) ?? data?.statements.at(-1)
   const shown = statement?.extraction ?? data?.extraction ?? null
-  const pages = useMemo(() => (shown ? alertPages(shown) : new Set<number>()), [shown])
+  const alerts = useMemo(() => (shown ? pageAlerts(shown) : new Map<number, PageAlert[]>()), [shown])
   const breaks = useMemo(() => (shown ? balanceBreaks(shown) : []), [shown])
   const doc = (statement ? data?.documents.find((d) => d.id === statement.document_id) : undefined) ?? data?.documents[0]
   const selectStatement = useCallback(
@@ -190,7 +191,8 @@ export function ApplicationDetailPage() {
               <PdfViewer
                 documentId={doc.id}
                 focus={focus}
-                alertPages={pages}
+                alerts={alerts}
+                onAlert={(page, a) => { goTo({ page, snippet: a.snippet }, a.tone) }}
                 onPage={(p) => {
                   setFocus((f) => ({ ...f, page: p, snippet: null, nonce: f.nonce + 1 }))
                   void navigate({ search: (s: { tab?: string; pag?: number }) => ({ ...s, pag: p }), replace: true })

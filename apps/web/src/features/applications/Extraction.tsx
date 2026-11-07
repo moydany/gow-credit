@@ -5,7 +5,7 @@ import { CATEGORY_LABEL, date, ISSUE_SEVERITY_LABEL, money, number } from '../..
 import { Icon } from '../../ui/icons'
 import { Chip, EmptyState } from '../../ui/primitives'
 import { BalanceBreaks } from './BalanceBreaks'
-import { balanceBreaks, periodBreaks } from './breaks'
+import { periodBreaks } from './breaks'
 import { useFocus, useReview, Val } from './focus'
 import { MonthsTable, WINDOW_STATUS } from './Statements'
 
@@ -51,23 +51,6 @@ export function unverifiedCount(x: StatementExtraction): number {
     },
   )
   return n
-}
-
-/** Pages with something to review: unverified values, doubtful movements or alerts. */
-export function alertPages(x: StatementExtraction): Set<number> {
-  const pages = new Set<number>()
-  walkExtraction(
-    x,
-    (f) => {
-      if (f.verification !== 'verified' && f.source) pages.add(f.source.page)
-    },
-    (t) => {
-      if (t.verification !== 'verified') pages.add(t.source.page)
-    },
-  )
-  for (const i of x.issues) if (i.page && i.severity !== 'info') pages.add(i.page)
-  for (const b of balanceBreaks(x)) pages.add(b.tx.source.page)
-  return pages
 }
 
 const TABS: { key: ExtractionTab; label: string }[] = [

@@ -12,6 +12,7 @@ import { documentUrl } from '../../lib/api'
 import { Icon } from '../../ui/icons'
 import { IconButton, Skeleton } from '../../ui/primitives'
 import { locate, norm } from './locate'
+import type { PageAlert } from './pageAlerts'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -31,7 +32,7 @@ interface Box {
   height: number
 }
 
-export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentId: string; focus: PdfFocus; onPage: (page: number) => void; alertPages: ReadonlySet<number> }) {
+export function PdfViewer({ documentId, focus, onPage, alerts, onAlert }: { documentId: string; focus: PdfFocus; onPage: (page: number) => void; alerts: ReadonlyMap<number, readonly PageAlert[]>; onAlert: (page: number, alert: PageAlert) => void }) {
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
@@ -168,14 +169,17 @@ export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentI
               type="button"
               onClick={() => { onPage(n) }}
               aria-current={n === current ? 'page' : undefined}
-              title={alertPages.has(n) ? `Página ${String(n)}: tiene valores por revisar` : `Página ${String(n)}`}
-              className={clsx('tnum relative h-8 min-w-8 shrink-0 rounded-full px-2 text-[12px] font-medium transition-colors', n === current ? 'bg-ink text-white' : alertPages.has(n) ? 'hatch-amber text-amber-ink hover:brightness-95' : 'bg-sunken text-ink-2 hover:bg-line')}
+              title={alerts.has(n) ? `Página ${String(n)}: tiene valores por revisar` : `Página ${String(n)}`}
+              className={clsx('tnum relative h-8 min-w-8 shrink-0 rounded-full px-2 text-[12px] font-medium transition-colors', n === current ? 'bg-ink text-white' : alerts.has(n) ? 'hatch-amber text-amber-ink hover:brightness-95' : 'bg-sunken text-ink-2 hover:bg-line')}
             >
               {n}
+              {/* The page on screen keeps its mark. */}
+              {n === current && alerts.has(n) ? <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-card bg-amber" aria-hidden="true" /> : null}
             </button>
           ))}
         </div>
       ) : null}
+      <PageReview page={current} items={alerts.get(current) ?? []} onAlert={onAlert} />
 
       <div ref={scrollRef} className="scroll-thin relative min-h-0 flex-1 overflow-auto rounded-b-[27px] bg-sunken px-1 pb-4 pt-1">
         {error ? (
@@ -204,6 +208,33 @@ export function PdfViewer({ documentId, focus, onPage, alertPages }: { documentI
           </p>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+/** What is marked on the page on screen, and why; a click shows it on the page. */
+function PageReview({ page, items, onAlert }: { page: number; items: readonly PageAlert[]; onAlert: (page: number, alert: PageAlert) => void }) {
+  const [open, setOpen] = useState(false)
+  if (items.length === 0) return null
+  return (
+    <div className="mx-4 mb-3 rounded-2xl bg-amber-soft px-3.5 py-2.5 text-[12.5px] text-amber-ink">
+      <button type="button" className="flex w-full items-center gap-2 text-left font-medium" aria-expanded={open} onClick={() => { setOpen((o) => !o) }}>
+        <Icon name="help" size={14} className="shrink-0" />
+        <span className="flex-1">{items.length === 1 ? 'Esta página tiene 1 cosa por revisar' : `Esta página tiene ${String(items.length)} cosas por revisar`}</span>
+        <Icon name="down" size={14} className={clsx('shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open ? (
+        <ul className="scroll-thin mt-2 max-h-48 space-y-1.5 overflow-y-auto">
+          {items.map((a, i) => (
+            <li key={`${a.label}-${String(i)}`}>
+              <button type="button" className="w-full rounded-xl bg-white/70 px-3 py-2 text-left hover:bg-white" onClick={() => { onAlert(page, a) }}>
+                <span className="block font-medium text-ink">{a.label}</span>
+                <span className="block text-ink-2">{a.reason}{a.snippet ? '' : '. No hay un fragmento que resaltar: búscalo a ojo en la página.'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
