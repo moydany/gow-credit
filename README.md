@@ -270,9 +270,13 @@ sequenceDiagram
 - **Registration.** It reads the holder and RFC from the statement and asks the supplier to
   confirm. If they're wrong, it asks for name and RFC; for a company RFC it also asks for the legal
   representative. A typed RFC must start like the one printed on the statement.
-- **Documents that won't work.** A password-protected PDF, an unreadable scan, something that isn't
-  a bank statement, or several statements in one PDF each get a specific reply, and the bot waits
-  for a new PDF.
+- **Documents that won't work.** A password-protected PDF, an unreadable scan or something that isn't
+  a bank statement each get a specific reply, and the bot waits for a new PDF. A PDF that holds
+  several statements is accepted: the months the policy asks for are taken from it.
+- **Several months.** When the policy evaluates three, the bot asks for them consecutive and together,
+  in a single send. If one is missing it doesn't ask for all three again: it says how many are missing
+  and which cutoff month each one is ("we're missing 1, the statement with its cutoff in August 2026"),
+  and a repeated PDF doesn't count as a new month.
 - **Questions.** One at a time, with numbered options. It accepts several answers in one message
   (`1, 3`), free corrections ("my bad, number 2 was a loan") and "I don't know". Before evaluating it
   shows a summary to confirm. What rules can't parse, Claude Haiku reads, but only by picking one of
@@ -281,6 +285,10 @@ sequenceDiagram
   it, it decides with the maximum line and, if they qualify, asks how much to advance (anything above
   the line gets asked again). With an amount and no buyer, if knowing their main client could improve
   the result, it asks before deciding.
+- **One line at a time.** Once a supplier has an approved line, the bot won't open another request,
+  even if they send a new statement. Any message gets a summary of their line instead: what was
+  approved, how far the line goes and when it was decided, plus a nudge to talk to their account
+  manager if they need more. The lender can still re-evaluate them from the backoffice or the API.
 - **Never in the chat:** balances, CLABE, or the engine's internal reasons.
 
 **In the backoffice**
@@ -288,7 +296,7 @@ sequenceDiagram
 | Screen | What it's for |
 |---|---|
 | Solicitudes | Every request with its state, line and flags |
-| Detalle | The PDF next to the extraction: click a value to jump to its page and snippet. Profile, verdict with the full diagnosis and counterfactuals |
+| Detalle | The PDF next to the extraction: click a value to jump to its page and snippet. Profile, verdict with the full diagnosis and counterfactuals. With several statements, a picker on top switches months (viewer, extraction and corrections follow it), each period says whether it was evaluated, cut or left out, and the **Meses** tab lays them side by side |
 | Recorrido | The request step by step in 3D: messages, reads, model calls and decisions |
 | Aclaraciones | Pending questions, answered by hand when the supplier has no WhatsApp |
 | Revisión | Analyst corrections to the extraction, stored as immutable pairs and re-evaluated |
@@ -447,8 +455,8 @@ missing-months question; answer it with `--answers`, putting the PDF paths in `p
 active version), save it as a draft, simulate it and activate it. To go back, activate the one-month
 version again. Then, from the supplier's phone:
 
-1. Send a single PDF: the bot says it got it and, a minute later, asks for the missing months, consecutive
-   and together.
+1. Send a single PDF: the bot says it got it and, a minute later, asks for the two missing months, with
+   their cutoff month, to be sent together.
 2. Select the other two PDFs and send them at once: the first answers the question, the second gets "I'll
    review it together with the ones you already sent", and a minute later the result arrives with the three
    months.
@@ -589,7 +597,9 @@ flowchart LR
 
 1. You push to `main`. The `ci` workflow runs: typecheck, lint, tests, scenarios, evals, builds.
 2. If CI is green, the [`railway`](.github/workflows/railway.yml) workflow checks out **that same
-   commit** and runs `infra/railway/deploy.sh`. A red CI deploys nothing.
+   commit** and runs `infra/railway/deploy.sh`. A red CI deploys nothing. Because the repository is
+   public, only a CI run that came from a push or a manual run on this repository deploys: a pull
+   request from a fork never gets near the token, even if its branch is also called `main`.
 3. `deploy.sh` ships the commit with `git archive`, never the working folder, so `data/`, `.env` and
    anything uncommitted stay out. It calls `railway up` once per service, `app` first.
 4. Railway builds each image from the repository's `Dockerfile` (`web` from

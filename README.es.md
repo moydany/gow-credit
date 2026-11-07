@@ -270,9 +270,12 @@ sequenceDiagram
 - **Registro.** Lee el titular y el RFC del estado de cuenta y pide confirmarlos. Si no son
   correctos, pide nombre y RFC; con un RFC de persona moral, también al representante legal. El RFC
   que escribe tiene que empezar como el impreso en el estado de cuenta.
-- **Documentos que no sirven.** Un PDF con contraseña, un escaneo ilegible, algo que no es estado de
-  cuenta o varios estados de cuenta en un PDF reciben cada uno una respuesta concreta, y el bot
-  espera otro PDF.
+- **Documentos que no sirven.** Un PDF con contraseña, un escaneo ilegible o algo que no es estado de
+  cuenta reciben cada uno una respuesta concreta, y el bot espera otro PDF. Un PDF que trae varios
+  estados de cuenta sí se acepta: se toman los meses que pide la política.
+- **Varios meses.** Si la política evalúa tres, el bot los pide seguidos y juntos, en un solo envío.
+  Cuando falta alguno, no vuelve a pedir los tres: dice cuántos faltan y de qué mes es cada uno ("Nos
+  falta 1, el estado de cuenta con corte en agosto de 2026"), y un PDF repetido no cuenta como mes nuevo.
 - **Preguntas.** Una a la vez, con opciones numeradas. Acepta varias respuestas en un mensaje
   (`1, 3`), correcciones libres ("me equivoqué, la 2 era préstamo") y "no sé". Antes de evaluar
   muestra un resumen para confirmar. Lo que las reglas no entienden lo lee Claude Haiku, pero solo
@@ -281,6 +284,10 @@ sequenceDiagram
   línea máxima y, si califica, pregunta cuánto quiere adelantar (más que la línea se vuelve a
   preguntar). Con monto y sin comprador, si saber quién es su cliente principal puede mejorar el
   resultado, lo pregunta antes de decidir.
+- **Una línea a la vez.** Si el proveedor ya tiene una línea aprobada, el bot no abre otra solicitud
+  aunque mande otro estado de cuenta. A cualquier mensaje le responde con el resumen de su línea:
+  cuánto se le aprobó, hasta cuánto llega y cuándo se resolvió, y le sugiere hablar con su ejecutivo si
+  necesita ampliarla. El prestamista sí puede volver a evaluarlo desde el backoffice o la API.
 - **Lo que nunca sale por el chat:** saldos, CLABE, ni los motivos internos del motor.
 
 **En el backoffice**
@@ -288,7 +295,7 @@ sequenceDiagram
 | Pantalla | Para qué |
 |---|---|
 | Solicitudes | Cada solicitud con su estado, línea y alertas |
-| Detalle | El PDF junto a la extracción: un clic en un valor salta a su página y fragmento. Perfil, veredicto con el diagnóstico completo y contrafactuales |
+| Detalle | El PDF junto a la extracción: un clic en un valor salta a su página y fragmento. Perfil, veredicto con el diagnóstico completo y contrafactuales. Con varios estados de cuenta, un selector arriba cambia de mes (visor, extracción y correcciones van con él), cada periodo dice si se evaluó, se recortó o quedó fuera, y la pestaña **Meses** los pone lado a lado |
 | Recorrido | La solicitud paso a paso en 3D: mensajes, lecturas, llamadas a modelos y decisiones |
 | Aclaraciones | Preguntas pendientes; se responden a mano cuando el proveedor no tiene WhatsApp |
 | Revisión | Correcciones del analista sobre la extracción, guardadas como pares inmutables y reevaluadas |
@@ -447,8 +454,8 @@ pregunta de los meses que faltan; se contesta con `--answers` poniendo las rutas
 versión activa), guárdalo como borrador, simúlalo y actívalo. Para volver, activa otra vez la versión de
 un mes. Luego, desde el teléfono del proveedor:
 
-1. Manda un solo PDF: el bot contesta que lo recibió y, al minuto, pide los meses que faltan, seguidos y
-   juntos.
+1. Manda un solo PDF: el bot contesta que lo recibió y, al minuto, pide los dos meses que faltan,
+   con su mes de corte, para mandarlos juntos.
 2. Selecciona los otros dos PDF y mándalos en un solo envío: el primero contesta la pregunta, el segundo
    responde "lo reviso junto con los que ya mandaste" y un minuto después llega el resultado con los tres
    meses.
@@ -590,7 +597,9 @@ flowchart LR
 
 1. Haces push a `main`. Corre el workflow `ci`: typecheck, lint, pruebas, escenarios, evals, builds.
 2. Si CI queda en verde, el workflow [`railway`](.github/workflows/railway.yml) descarga **ese mismo
-   commit** y corre `infra/railway/deploy.sh`. Con CI en rojo no se despliega nada.
+   commit** y corre `infra/railway/deploy.sh`. Con CI en rojo no se despliega nada. Como el
+   repositorio es público, solo despliega un CI que vino de un push o de un disparo manual en este
+   mismo repositorio: el PR de un fork, aunque su rama se llame `main`, nunca llega a usar el token.
 3. `deploy.sh` manda el commit con `git archive`, nunca la carpeta de trabajo, así que `data/`,
    `.env` y cualquier cambio sin commit se quedan fuera. Llama a `railway up` una vez por servicio,
    `app` primero.
