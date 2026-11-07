@@ -17,6 +17,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { z } from 'zod'
 import { hashSecret, type ApiKeyScope } from './admin.ts'
 import { backofficeRouter } from './backoffice.ts'
+import type { PromptEditors } from './bo/prompts.ts'
 import { answerClarification, audit, createPolicyDraft, HttpError, parse, PolicyBody, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 import type { AuthDirectory } from './supabase-auth.ts'
 
@@ -42,6 +43,8 @@ export interface ApiDeps {
   /** Límites de la sesión renovable con Supabase Auth (ADR 0036), en horas: absoluto e inactividad. */
   sessionMaxHours?: number
   sessionIdleHours?: number
+  /** Quién crea y activa versiones de prompts (ADR 0065); null: solo con una sola institución crediticia. */
+  promptEditors?: PromptEditors
 }
 
 interface Auth {

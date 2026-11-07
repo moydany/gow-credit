@@ -8,6 +8,7 @@ import type { DocumentStorage, PgBoss } from '@gow/platform'
 import { eq, sql } from 'drizzle-orm'
 import type { Response } from 'express'
 import type { AuthDirectory } from '../supabase-auth.ts'
+import type { PromptEditors } from './prompts.ts'
 
 export interface BackofficeDeps {
   db: Db
@@ -29,6 +30,8 @@ export interface BackofficeDeps {
    */
   sessionMaxHours?: number
   sessionIdleHours?: number
+  /** Quién crea y activa versiones de prompts (`BACKOFFICE_PROMPT_EDITORS`, ADR 0065). */
+  promptEditors?: PromptEditors
   logger?: { error(message: string): void }
 }
 

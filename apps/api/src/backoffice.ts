@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { answerClarification, audit, createPolicyDraft, discardDocument, HttpError, parse, PolicyBody, recordCorrections, recordOutcome, simulateVersion, transitionVersion } from './ops.ts'
 import { clearedCookies, CSRF_HEADER, issueToken, openRefresh, readCookie, REFRESH_COOKIE, refreshCookie, refreshRemaining, sealRefresh, SESSION_COOKIE, sessionCookie, verifyToken, type RefreshPayload, type SessionClaims, type SessionLimits } from './session.ts'
 import { llmRouter } from './bo/llm.ts'
+import { promptsRouter } from './bo/prompts.ts'
 import { settingsRouter } from './bo/settings.ts'
 import { actorOf, backofficeBase, ENTER_PATH, iso, PENDING_SUPPLIER_NAME, SESSION_SECONDS, SUPPLIER_NOT_FOUND, type BackofficeDeps, type Who, who, whatsappSession } from './bo/shared.ts'
 import { suppliersRouter } from './bo/suppliers.ts'
@@ -530,6 +531,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   r.use(settingsRouter(deps))
   r.use(teamRouter(deps))
   r.use(llmRouter(deps))
+  r.use(promptsRouter(deps))
 
   return r
 }
