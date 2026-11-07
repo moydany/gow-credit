@@ -8,6 +8,7 @@ import { useSupplier } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
 import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, SegmentBar, Skeleton, StatusChip } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
+import { StatementUpload } from './StatementUpload'
 import { SupplierFormModal } from './SupplierForm'
 
 const OUTCOME_TONE = { paid: 'accent', late: 'amber', default: 'coral', fraud: 'coral' } as const
@@ -64,6 +65,10 @@ export function SupplierDetailPage() {
             </Button>
           </div>
         </div>
+      </div>
+
+      <div className="mb-4">
+        <StatementUpload supplier={data} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
@@ -124,7 +129,7 @@ export function SupplierDetailPage() {
         <Card rise={1} className="self-start pb-3">
           <CardHeader title="Solicitudes" subtitle="De la más reciente a la más antigua" />
           {apps.length === 0 ? (
-            <EmptyState title="Aún no ha pedido nada">Cuando llegue un estado de cuenta de este proveedor aparecerá aquí con su decisión.</EmptyState>
+            <EmptyState title="Aún no ha pedido nada">Sube su estado de cuenta arriba, o cuando llegue por WhatsApp o la API aparecerá aquí con su decisión.</EmptyState>
           ) : (
             <ul className="mt-3 px-3" aria-label="Solicitudes del proveedor">
               {apps.map((a) => (

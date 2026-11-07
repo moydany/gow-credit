@@ -2,7 +2,7 @@
  * Backoffice API client (`/bo/v1`). Every request carries the session cookie (same origin) and
  * the anti-CSRF header. Errors keep what the API says (field path and message, never the value).
  */
-import type { ApplicationDetail, ApplicationRow, ApplicationTimeline, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { ApplicationDetail, ApplicationRow, ApplicationTimeline, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierStatementStatus, SupplierStatementUploaded, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -22,6 +22,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   if (res.status === 204) return undefined as T
+  return readResponse<T>(res)
+}
+
+/** The JSON body or, on error, an `ApiError` with what the API said. `fallback`: message when it says nothing. */
+async function readResponse<T>(res: Response, fallback = `error ${String(res.status)}`): Promise<T> {
   const text = await res.text()
   const json = ((): unknown => {
     try {
@@ -32,9 +37,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   })()
   if (!res.ok) {
     const e = (json ?? {}) as { error?: string; issues?: { path: string; message: string }[] }
-    throw new ApiError(res.status, e.error ?? `error ${String(res.status)}`, e.issues ?? [])
+    throw new ApiError(res.status, e.error ?? fallback, e.issues ?? [])
   }
   return json as T
+}
+
+/** Sends the PDF as is (`application/pdf`), not as JSON: up to 40 MB. */
+async function uploadPdf<T>(path: string, file: File): Promise<T> {
+  const res = await fetch(`/bo/v1${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'x-gow-backoffice': '1', 'content-type': 'application/pdf' }, body: file })
+  return readResponse<T>(res, res.status === 413 ? 'el PDF pasa del tamaño máximo (40 MB)' : `error ${String(res.status)}`)
 }
 
 function queryString(q: Record<string, string | undefined>): string {
@@ -75,6 +86,9 @@ export const api = {
   llmExchange: (id: string) => request<LlmExchangeDetail>('GET', `/llm-exchanges/${id}`),
   suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),
   supplier: (id: string) => request<SupplierDetail>('GET', `/suppliers/${id}`),
+  /** Opens a request with the statement and, if given, the amount; processing starts right away. */
+  uploadStatement: (supplierId: string, file: File, amount: number | null) => uploadPdf<SupplierStatementUploaded>(`/suppliers/${supplierId}/statements${queryString({ amount: amount === null ? undefined : String(amount) })}`, file),
+  statementStatus: (supplierId: string, applicationId: string) => request<SupplierStatementStatus>('GET', `/suppliers/${supplierId}/statements/${applicationId}`),
   createSupplier: (body: SupplierCreateBody) => request<{ id: string }>('POST', '/suppliers', body),
   updateSupplier: (id: string, body: SupplierUpdateBody) => request<{ id: string; fields: string[] }>('PATCH', `/suppliers/${id}`, body),
   deleteSupplier: (id: string) => request<SupplierDeleted>('DELETE', `/suppliers/${id}`),
