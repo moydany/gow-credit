@@ -8,6 +8,14 @@ Un proveedor manda su estado de cuenta en PDF. Unos minutos después sabe cuánt
 del pago de sus facturas, y por qué. Si algo del estado de cuenta no está claro y puede cambiar la
 respuesta, el sistema le pregunta antes.
 
+<br/>
+
+<img src="docs/screenshots/00-whatsapp-demo.gif" width="340" alt="Un proveedor conversa por WhatsApp con el bot de GOW Credit: da su nombre y el monto, manda un estado de cuenta de BBVA, confirma el titular y el RFC, y le aprueban el adelanto" />
+
+<sub>Una conversación real con la demo: de <i>Hola</i> a un adelanto aprobado en cuatro minutos. El RFC va difuminado.</sub>
+
+<br/><br/>
+
 [![ci](https://github.com/moydany/gow-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/ci.yml)
 [![railway](https://github.com/moydany/gow-credit/actions/workflows/railway.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/railway.yml)
 

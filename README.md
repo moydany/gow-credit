@@ -8,6 +8,14 @@ A supplier sends their bank statement as a PDF. A few minutes later they know ho
 invoices they can get paid early, and why. If something in the statement is unclear and could
 change the answer, the system asks them first.
 
+<br/>
+
+<img src="docs/screenshots/00-whatsapp-demo.gif" width="340" alt="A supplier chats with the GOW Credit bot on WhatsApp: gives their name and the amount, sends a BBVA statement, confirms the holder and RFC, and gets the advance approved" />
+
+<sub>A real conversation with the demo: from <i>Hola</i> to an approved advance in four minutes. The RFC is blurred.</sub>
+
+<br/><br/>
+
 [![ci](https://github.com/moydany/gow-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/ci.yml)
 [![railway](https://github.com/moydany/gow-credit/actions/workflows/railway.yml/badge.svg)](https://github.com/moydany/gow-credit/actions/workflows/railway.yml)
 
