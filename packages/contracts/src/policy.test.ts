@@ -96,7 +96,8 @@ describe('compuertas', () => {
 
   it('rechaza ids repetidos entre compuertas y dimensiones', () => {
     const errors = errorsOf(withChange((p) => p.score.dimensions[0] && (p.score.dimensions[0].id = 'integrity')))
-    expect(errors[0]).toEqual({ path: 'score.dimensions[0].id', message: 'id repetido "integrity" (ya se usa en gates.1.id)' })
+    const at = basePolicy().gates.findIndex((g) => g.id === 'integrity')
+    expect(errors[0]).toEqual({ path: 'score.dimensions[0].id', message: `id repetido "integrity" (ya se usa en gates.${String(at)}.id)` })
   })
 })
 

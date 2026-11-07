@@ -3,7 +3,7 @@
  * cambia lo que dice: identidad que no se puede comparar no bloquea; una que no coincide, sí.
  */
 import { readdirSync, readFileSync } from 'node:fs'
-import { emptyExternalSnapshot, parsePolicy, type ApplicationRequest, type ExternalSnapshot, type Policy } from '@gow/contracts'
+import { emptyExternalSnapshot, parsePolicy, type ApplicationRequest, type DocumentFlag, type ExternalSnapshot, type Issue, type Policy, type StatementExtraction } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
 import { decide } from './decide.ts'
 import { basePolicyTemplate } from './template.ts'
@@ -50,5 +50,64 @@ describe('políticas de ejemplo', () => {
     expect(d.profile.features.identity_match.value).toBe('mismatch')
     expect(d.status).toBe('qualified_with_limit')
     expect(d.clarification?.topics ?? []).not.toContain('identity_fields')
+  })
+})
+
+describe('robustez documental en las políticas (ADR 0058)', () => {
+  const policies: [string, Policy][] = [
+    ['plantilla base', basePolicyTemplate()],
+    ['evaluación standalone', load('standalone-evaluation.v1.json')],
+    ['anclas fiscales', load('fiscal-anchors.v1.json')],
+  ]
+
+  const spec = { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 40000 }] }
+  const issue = (code: Issue['code'], extra: Partial<Issue> = {}): Issue => ({ id: 'i1', code, severity: 'warning', message: 'problema de prueba', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: {}, ...extra })
+
+  /** Un estado de cuenta con lo que dejaría la extracción: banderas y problemas puestos a mano. */
+  function withSignals(flags: DocumentFlag[], issues: Issue[], reconciled = true): StatementExtraction {
+    const s = syntheticStatement({ ...spec, reconciled }, holder, `sig-${flags.join('-')}-${String(reconciled)}`)
+    return { ...s, flags: [...s.flags, ...flags], issues }
+  }
+
+  const run = (policy: Policy, s: StatementExtraction) => decide({ policy, statements: [s], request, supplier: null, external: noCredits, computedAt: AT }).decision
+
+  it.each(policies)('%s tiene las dos compuertas: páginas completas y sin señales de manipulación', (_, policy) => {
+    expect(policy.gates.find((g) => g.id === 'pages_complete')).toMatchObject({
+      when: { feature: 'document_pages_missing', op: '==', value: false },
+      onFail: { status: 'needs_clarification', ask: 'missing_pages' },
+      onUnknown: 'pass',
+    })
+    expect(policy.gates.find((g) => g.id === 'no_tamper_signals')).toMatchObject({
+      when: { feature: 'document_tamper_signals', op: 'empty' },
+      onFail: { status: 'human_review' },
+      onUnknown: 'pass',
+    })
+  })
+
+  it.each(policies)('%s: un documento sin señales sigue calificando', (_, policy) => {
+    const d = run(policy, withSignals([], []))
+    expect(d.status).toBe('qualified_with_limit')
+    expect(d.profile.features.document_pages_missing.value).toBe(false)
+    expect(d.profile.features.document_tamper_signals.value).toEqual([])
+  })
+
+  it.each(policies)('%s: páginas faltantes con el descuadre que causan → pide el PDF completo, no revisión humana', (_, policy) => {
+    const d = run(policy, withSignals(['pages_missing'], [issue('page_missing', { severity: 'warning', details: { missing: [2], total: 3 } })], false))
+    expect(d.profile.features.integrity_ok.value).toBe(false)
+    expect(d.status).toBe('needs_clarification')
+    expect(d.clarification?.topics).toEqual(['missing_pages'])
+  })
+
+  it.each(policies)('%s: texto dirigido al sistema → revisión humana', (_, policy) => {
+    const d = run(policy, withSignals(['possible_prompt_injection'], [issue('possible_prompt_injection')]))
+    expect(d.profile.features.document_tamper_signals.value).toEqual(['prompt_injection'])
+    expect(d.status).toBe('human_review')
+    expect(d.reasons.map((r) => r.code)).toContain('gate_no_tamper_signals')
+  })
+
+  it.each(policies)('%s: una página repetida → revisión humana aunque ya cuadre', (_, policy) => {
+    const d = run(policy, withSignals(['pages_duplicated'], [issue('duplicate_page_removed', { page: 2, details: { same_as: 1 } })]))
+    expect(d.profile.features.integrity_ok.value).toBe(true)
+    expect(d.status).toBe('human_review')
   })
 })

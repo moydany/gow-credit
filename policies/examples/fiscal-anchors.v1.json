@@ -17,6 +17,20 @@
       }
     },
     {
+      "id": "pages_complete",
+      "description": "El estado de cuenta trae todas las páginas que imprime su paginación",
+      "when": {
+        "feature": "document_pages_missing",
+        "op": "==",
+        "value": false
+      },
+      "onFail": {
+        "status": "needs_clarification",
+        "ask": "missing_pages"
+      },
+      "onUnknown": "pass"
+    },
+    {
       "id": "integrity",
       "description": "El estado de cuenta cuadra",
       "when": {
@@ -37,6 +51,18 @@
       "onFail": {
         "status": "human_review"
       }
+    },
+    {
+      "id": "no_tamper_signals",
+      "description": "Sin señales de que el documento se alteró: texto dirigido al sistema, cadena fiscal que no coincide, timbrado lejos del periodo, páginas repetidas o lecturas del encabezado que no coinciden",
+      "when": {
+        "feature": "document_tamper_signals",
+        "op": "empty"
+      },
+      "onFail": {
+        "status": "human_review"
+      },
+      "onUnknown": "pass"
     },
     {
       "id": "no_arrears",
