@@ -90,8 +90,12 @@ export const api = {
   llmExchange: (id: string) => request<LlmExchangeDetail>('GET', `/llm-exchanges/${id}`),
   suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),
   supplier: (id: string) => request<SupplierDetail>('GET', `/suppliers/${id}`),
-  /** Opens a request with the statement and, if given, the amount; processing starts right away. */
-  uploadStatement: (supplierId: string, file: File, amount: number | null) => uploadPdf<SupplierStatementUploaded>(`/suppliers/${supplierId}/statements${queryString({ amount: amount === null ? undefined : String(amount) })}`, file),
+  /** Opens a request with the statement and, if given, the amount; processing starts right away unless `hold` (more statements follow). */
+  uploadStatement: (supplierId: string, file: File, amount: number | null, hold = false) => uploadPdf<SupplierStatementUploaded>(`/suppliers/${supplierId}/statements${queryString({ amount: amount === null ? undefined : String(amount), hold: hold ? '1' : undefined })}`, file),
+  /** Another statement for a request opened with `hold`. */
+  addStatement: (supplierId: string, applicationId: string, file: File) => uploadPdf<SupplierStatementUploaded>(`/suppliers/${supplierId}/statements/${applicationId}/documents`, file),
+  /** Starts a request opened with `hold`. */
+  startStatements: (supplierId: string, applicationId: string) => request<SupplierStatementUploaded>('POST', `/suppliers/${supplierId}/statements/${applicationId}/start`),
   statementStatus: (supplierId: string, applicationId: string) => request<SupplierStatementStatus>('GET', `/suppliers/${supplierId}/statements/${applicationId}`),
   createSupplier: (body: SupplierCreateBody) => request<{ id: string }>('POST', '/suppliers', body),
   updateSupplier: (id: string, body: SupplierUpdateBody) => request<{ id: string; fields: string[] }>('PATCH', `/suppliers/${id}`, body),

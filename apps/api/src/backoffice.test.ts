@@ -385,6 +385,39 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(docs.rowCount).toBe(1)
   })
 
+  it('ADR 0072: varios estados de cuenta en una solicitud: se abre en espera, se agregan y se arranca una vez', async () => {
+    const a = tokenFor(userA, tenantA, 'a@prestamista.test')
+    const sup = (await call('POST', '/suppliers', { bearer: a, body: { legal_name: 'Proveedor De Tres Meses' } })).json.id as string
+    const month = (m: string) => Buffer.from(`%PDF-1.7\n% estado de cuenta ${m}\n%%EOF\n`)
+    const post = (path: string, bytes?: Buffer) =>
+      fetch(`${base}/bo/v1/suppliers/${sup}/statements${path}`, { method: 'POST', headers: { authorization: `Bearer ${a}`, ...(bytes ? { 'content-type': 'application/pdf' } : {}) }, ...(bytes ? { body: bytes } : {}) }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
+    const jobsFor = async (id: string) => (await admin.query<{ data: { application_id: string } }>('SELECT data FROM pgboss.job WHERE name = $1', [QUEUES.process])).rows.filter((j) => j.data.application_id === id).length
+
+    const opened = await post('?amount=90000&hold=1', month('agosto'))
+    expect(opened.status).toBe(201)
+    const id = opened.json.id as string
+    // On hold: nothing enqueued until it starts.
+    expect(await jobsFor(id)).toBe(0)
+    expect((await post(`/${id}/documents`, month('septiembre'))).status).toBe(201)
+    expect((await post(`/${id}/documents`, month('octubre'))).status).toBe(201)
+    // The same PDF twice in one request, or something that is not a PDF, is refused.
+    expect((await post(`/${id}/documents`, month('octubre'))).status).toBe(409)
+    expect((await post(`/${id}/documents`, Buffer.from('\x89PNG\r\n'))).status).toBe(415)
+    const docs = await admin.query("SELECT origin FROM app.application_documents WHERE application_id = $1 AND origin = 'submitted'", [id])
+    expect(docs.rowCount).toBe(3)
+
+    expect((await post(`/${id}/start`)).status).toBe(202)
+    expect(await jobsFor(id)).toBe(1)
+    // Once it runs it takes no more documents and does not start twice.
+    await admin.query("UPDATE app.applications SET status = 'extracting', run_id = 'run-tres' WHERE id = $1", [id])
+    expect((await post(`/${id}/documents`, month('noviembre'))).status).toBe(409)
+    expect((await post(`/${id}/start`)).status).toBe(409)
+    // Another supplier's request is not found.
+    const other = (await call('POST', '/suppliers', { bearer: a, body: { legal_name: 'Otro De Tres Meses' } })).json.id as string
+    const foreign = await fetch(`${base}/bo/v1/suppliers/${other}/statements/${id}/start`, { method: 'POST', headers: { authorization: `Bearer ${a}` } })
+    expect(foreign.status).toBe(404)
+  })
+
   it('borrar un proveedor se lleva todo lo suyo, deja lo de otros, no deja con una solicitud en proceso y encola la limpieza', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const count = async (sql: string, v: unknown[]) => ((await q(sql, v)).rows[0] as { n: number }).n

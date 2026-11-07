@@ -1,7 +1,9 @@
 /**
  * Evaluate a supplier from their page: upload the bank statement, optionally the amount to request,
  * and follow the request here until it has a result. The PDF goes to `POST /suppliers/:id/statements`
- * and progress is polled from a status endpoint that does not touch the audit log.
+ * and progress is polled from a status endpoint that does not touch the audit log. When the active
+ * policy evaluates three months, several PDFs go into one request (ADR 0072): the first opens it on
+ * hold, the rest are added and then it starts. One PDF with several months is enough too.
  */
 import type { ApplicationStatus, SupplierDetail, SupplierStatementStatus } from '@gow/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,6 +11,7 @@ import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { money } from '../../lib/format'
+import { usePolicyVersions } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
 import { Button, Card, CardHeader, StatusChip } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
@@ -35,61 +38,120 @@ function stepOf(status: ApplicationStatus): number {
   return 3
 }
 
+/** `history.months` of the active policy; 1 while loading or without the field. */
+function useHistoryMonths(): number {
+  const { data } = usePolicyVersions()
+  const doc = data?.find((v) => v.status === 'active')?.document as { history?: { months?: unknown } } | undefined
+  return typeof doc?.history?.months === 'number' ? doc.history.months : 1
+}
+
+/**
+ * Uploads the statements as one request: a single one starts right away; several open it on hold,
+ * are added one by one and then start. If one of the extra ones fails, it starts with the ones that
+ * arrived and the engine asks for what is missing; `skipped` says which.
+ */
+async function sendStatements(supplierId: string, files: readonly File[], amount: number | null, onStep: (n: number) => void): Promise<{ id: string; skipped: string[] }> {
+  const [first, ...rest] = files
+  if (!first) throw new Error('sin archivos')
+  onStep(1)
+  const opened = await api.uploadStatement(supplierId, first, amount, rest.length > 0)
+  if (rest.length === 0) return { id: opened.id, skipped: [] }
+  const skipped: string[] = []
+  for (const [i, f] of rest.entries()) {
+    onStep(i + 2)
+    try {
+      await api.addStatement(supplierId, opened.id, f)
+    } catch (e) {
+      skipped.push(`${f.name}: ${e instanceof ApiError ? e.message : 'no se pudo subir'}`)
+    }
+  }
+  await api.startStatements(supplierId, opened.id)
+  return { id: opened.id, skipped }
+}
+
+/** The card's words: one statement, or the months the policy evaluates; and the upload's progress. */
+function uploadTexts(months: number, count: number, step: number, pending: boolean) {
+  const several = months > 1
+  const progress = count > 1 ? `Subiendo ${String(step)} de ${String(count)}…` : 'Subiendo…'
+  const files = !several || count === 0 ? null : count === 1 ? '1 archivo: si trae los meses seguidos, basta.' : `${String(count)} archivos: se evalúan juntos, como una sola solicitud.`
+  return {
+    title: several ? 'Evaluar estados de cuenta' : 'Evaluar un estado de cuenta',
+    subtitle: several
+      ? `Esta política evalúa ${String(months)} meses seguidos: sube los ${String(months)} PDF juntos, o uno que los traiga todos. El monto es opcional; sin él se decide con la línea máxima.`
+      : 'Sube el PDF y, si quieres, el monto a solicitar. Sin monto se decide con la línea máxima.',
+    label: several ? 'Estados de cuenta (PDF)' : 'Estado de cuenta (PDF)',
+    files,
+    button: pending ? progress : 'Evaluar',
+  }
+}
+
 /** Upload card plus the progress of the request it opened (or of one still running). */
 export function StatementUpload({ supplier }: { supplier: SupplierDetail }) {
   const toast = useToast()
   const qc = useQueryClient()
   const input = useRef<HTMLInputElement>(null)
-  const [file, setFile] = useState<File | null>(null)
+  const months = useHistoryMonths()
+  const several = months > 1
+  const [files, setFiles] = useState<File[]>([])
+  const [step, setStep] = useState(0)
   const [amountText, setAmountText] = useState('')
   const [tried, setTried] = useState(false)
   const [tracked, setTracked] = useState<string | null>(null)
   const amount = amountText.trim() ? parsePesos(amountText) : null
   const amountError = amountText.trim() && amount === null ? 'Escribe el monto en pesos, por ejemplo 150000 o 150 mil' : undefined
-  const fileError = !file ? (tried ? 'Elige el estado de cuenta en PDF' : undefined) : file.size > MAX_BYTES ? 'El PDF pasa de 40 MB' : undefined
+  const tooBig = files.find((f) => f.size > MAX_BYTES)
+  const fileError = files.length === 0 ? (tried ? 'Elige el estado de cuenta en PDF' : undefined) : tooBig ? `${tooBig.name} pasa de 40 MB` : undefined
 
   // After a reload, keep following the most recent request that is still running.
   const running = supplier.applications.find((a) => RUNNING.has(a.status))?.id ?? null
   const following = tracked ?? running
 
   const upload = useMutation({
-    mutationFn: () => api.uploadStatement(supplier.id, file as File, amount),
+    mutationFn: () => sendStatements(supplier.id, files, amount, setStep),
     onSuccess: (r) => {
       setTracked(r.id)
-      setFile(null)
+      setFiles([])
+      setStep(0)
       setAmountText('')
       setTried(false)
       if (input.current) input.current.value = ''
-      toast.ok('Estado de cuenta recibido; ya se está evaluando')
+      if (r.skipped.length > 0) toast.error(`Se evalúa sin ${r.skipped.length === 1 ? 'un archivo' : `${String(r.skipped.length)} archivos`}. ${r.skipped.join('. ')}`)
+      else toast.ok(files.length > 1 ? 'Estados de cuenta recibidos; ya se están evaluando juntos' : 'Estado de cuenta recibido; ya se está evaluando')
       void qc.invalidateQueries({ queryKey: ['supplier', supplier.id] })
       void qc.invalidateQueries({ queryKey: ['applications'] })
     },
-    onError: (e: unknown) => { toast.error(e instanceof ApiError ? e.message : 'No se pudo subir el estado de cuenta') },
+    onError: (e: unknown) => {
+      setStep(0)
+      toast.error(e instanceof ApiError ? e.message : 'No se pudo subir el estado de cuenta')
+    },
   })
+  const texts = uploadTexts(months, files.length, step, upload.isPending)
 
   return (
     <Card rise={0} className="pb-5">
-      <CardHeader title="Evaluar un estado de cuenta" subtitle="Sube el PDF y, si quieres, el monto a solicitar. Sin monto se decide con la línea máxima." />
+      <CardHeader title={texts.title} subtitle={texts.subtitle} />
       <form
         noValidate
         className="mt-4 grid gap-3 px-6 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-start"
         onSubmit={(e) => {
           e.preventDefault()
           setTried(true)
-          if (file && !fileError && !amountError) upload.mutate()
+          if (files.length > 0 && !fileError && !amountError) upload.mutate()
         }}
       >
         <label className="block min-w-0">
-          <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Estado de cuenta (PDF)</span>
+          <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">{texts.label}</span>
           <input
             ref={input}
             type="file"
             accept="application/pdf,.pdf"
+            multiple={several}
             className="input py-2 file:mr-3 file:rounded-full file:border-0 file:bg-sunken file:px-3 file:py-1 file:text-[12.5px] file:text-ink-2"
             aria-invalid={fileError !== undefined}
-            onChange={(e) => { setFile(e.target.files?.[0] ?? null) }}
+            onChange={(e) => { setFiles(Array.from(e.target.files ?? []).slice(0, several ? 12 : 1)) }}
           />
           {fileError ? <FieldError text={fileError} /> : null}
+          {texts.files ? <span className="mt-1.5 block text-[12px] text-muted">{texts.files}</span> : null}
         </label>
         <label className="block min-w-0">
           <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Monto a solicitar</span>
@@ -98,7 +160,7 @@ export function StatementUpload({ supplier }: { supplier: SupplierDetail }) {
         </label>
         <div className="sm:pt-[26px]">
           <Button type="submit" variant="accent" disabled={upload.isPending} className="w-full sm:w-auto">
-            <Icon name="bolt" size={15} /> {upload.isPending ? 'Subiendo…' : 'Evaluar'}
+            <Icon name="bolt" size={15} /> {texts.button}
           </Button>
         </div>
       </form>
