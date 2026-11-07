@@ -6,11 +6,13 @@
  */
 import { join, resolve } from 'node:path'
 import { ResendEmailTransport } from '@gow/channels'
+import { BUSINESS_TIME_ZONE, calendarToday } from '@gow/contracts'
 import { connect, databaseUrl } from '@gow/db'
 import { CachedClassifier, CachingStructuredLlm, createClassifier, createLimiter, createTransactionClassifier, JsonFileCache, loadRootEnv, MastraStructuredLlm, readAnthropicEnv, readGoogleEnv, type CacheMode } from '@gow/llm'
 import { Writer } from '@gow/mastra'
 import { LocalDocumentStorage, startQueue } from '@gow/platform'
 import { PostgresStore } from '@mastra/pg'
+import { HaikuInterpreter } from './interpret.ts'
 import { startWorker } from './worker.ts'
 
 const REPO = resolve(import.meta.dirname, '../../..')
@@ -36,6 +38,8 @@ const business = connect(databaseUrl('worker'), { max: 5 })
 const mastraStore = new PostgresStore({ id: 'gow-full', connectionString: databaseUrl('mastra'), schemaName: 'mastra' })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } })
 const email = env.RESEND_API_KEY && env.RESEND_FROM ? new ResendEmailTransport({ apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM }) : undefined
+// Solo para demos (ADR 0038): cualquier número de WhatsApp puede registrarse como proveedor.
+const selfRegistration = env.WHATSAPP_SELF_REGISTRATION === 'true'
 
 const worker = await startWorker(
   {
@@ -48,12 +52,18 @@ const worker = await startWorker(
     writer: new Writer(llm, limit),
     limit,
     googleAvailable,
+    selfRegistration,
+    // "Hoy" del negocio para la fecha de cálculo y los vencimientos (ADR 0046).
+    today: () => calendarToday(env.GOW_TIME_ZONE ?? BUSINESS_TIME_ZONE),
+    // Solo con llamadas reales: en modo caché no hay respuestas guardadas de conversaciones y la
+    // conversación sigue con reglas (ADR 0040).
+    ...(cacheMode !== 'read' && anthropic.apiKey ? { interpreter: new HaikuInterpreter(llm, { onError: (m) => { log('error', m) } }) } : {}),
     transports: email ? { email } : {},
     logger: { info: (m) => { log('info', m) }, error: (m) => { log('error', m) } },
   },
   boss,
 )
-log('info', 'worker listo')
+log('info', `worker listo${selfRegistration ? ' · registro de proveedores por WhatsApp activo (demo, ADR 0038)' : ''}${cacheMode !== 'read' && anthropic.apiKey ? ' · intérprete de mensajes con Haiku' : ''}`)
 
 const shutdown = async () => {
   await worker.stop()

@@ -1,16 +1,17 @@
 /**
  * `ClarificationChannel` del modo full (docs/02 §3, docs/05 §2b): abrir una aclaración es una fila
- * con el destino copiado del vínculo verificado y, si hay preguntas de abono, el primer mensaje en
- * el buzón de salida. Quién lo entrega depende del canal: correo desde aquí (Resend), WhatsApp
+ * con el destino copiado del vínculo verificado y, si hay preguntas por el chat, el primer mensaje en
+ * el buzón de salida; si solo hay preguntas para el analista, el aviso de que un analista lo revisará
+ * (ADR 0051). Quién lo entrega depende del canal: correo desde aquí (Resend), WhatsApp
  * desde apps/whatsapp, y en los escenarios el transporte simulado. Ningún código ni modelo pasa un
  * destinatario.
  */
-import { isConversational, nextConversational, renderQuestion, type Transport } from '@gow/channels'
+import { ANALYST_NOTICE, isConversational, nextConversational, renderQuestion, type Transport } from '@gow/channels'
 import type { Question } from '@gow/contracts'
 import { auditLog, clarifications, outboundMessages, withTenant, type Db } from '@gow/db'
 import type { ClarificationChannel } from '@gow/mastra'
 import { and, eq } from 'drizzle-orm'
-import { verifiedContacts, type AppContext } from './store.ts'
+import { identityPending, verifiedContacts, type AppContext } from './store.ts'
 
 export class DbClarificationChannel implements ClarificationChannel {
   readonly name = 'database'
@@ -40,7 +41,15 @@ export class DbClarificationChannel implements ClarificationChannel {
         .returning({ id: clarifications.id })
       if (!row) return null
       await tx.insert(auditLog).values({ tenantId, actor: 'worker', action: 'clarification.opened', subject: row.id, details: { application_id: applicationId, round, channel, questions: questions.length } })
-      if (channel === 'manual' || !contact || first < 0) return null
+      // Registro en curso (ADR 0047): la pregunta sale cuando el proveedor confirma sus datos.
+      if (identityPending(this.#ctx)) return null
+      if (channel === 'manual' || !contact || first < 0) {
+        // Solo preguntas para el analista (ADR 0051): el proveedor con WhatsApp verificado sabe que su
+        // caso sigue. Sale una vez por ronda: un reintento no llega aquí (la fila ya existía).
+        const whatsapp = contacts.find((c) => c.channel === 'whatsapp')
+        if (first < 0 && whatsapp) await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'analyst', channel: 'whatsapp', destination: whatsapp.address, body: ANALYST_NOTICE })
+        return null
+      }
       const q = questions[first] as Question
       const [msg] = await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'question', channel, destination: contact.address, body: renderQuestion(q, 1, conversational) }).returning()
       return msg ?? null

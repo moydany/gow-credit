@@ -11,12 +11,12 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Transport } from '@gow/channels'
-import { emptyExternalSnapshot, type ExternalSnapshot, type StatementExtraction, type SyntheticStatement } from '@gow/contracts'
+import { calendarToday, describeFailure, emptyExternalSnapshot, type ExternalSnapshot, type StatementExtraction, type SyntheticStatement } from '@gow/contracts'
 import type { Db } from '@gow/db'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import type { Classifier, Limiter, StructuredLlm, TransactionClassifier } from '@gow/llm'
 import { createRuntime, resumeApplication, startApplication, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
-import { enqueueResume, ProcessJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
+import { enqueueProcess, enqueueRedecide, enqueueResume, ProcessJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
 import type { MastraCompositeStore } from '@mastra/core/storage'
 import { OwnerAnswer } from '@gow/contracts'
 import { clarifications, withTenant } from '@gow/db'
@@ -24,8 +24,12 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { DbClarificationChannel } from './channel.ts'
 import { pendingInbound, resolveInbound } from './inbound.ts'
+import type { MessageInterpreter } from './interpret.ts'
 import { handleRedecide } from './redecide.ts'
 import { loadContext, persistOutcome, requestOf, setStatus, supplierIdentity, type AppContext } from './store.ts'
+
+/** Confianza del clasificador desde la que el modo full no extrae un documento que no es estado de cuenta (ADR 0002). */
+export const REJECT_NOT_STATEMENT_ABOVE = 0.9
 
 /** Estado de cuenta sintético guardado como documento (solo escenarios y desarrollo). */
 export const SYNTHETIC_SUFFIX = '.synthetic.json'
@@ -51,6 +55,10 @@ export interface WorkerServices {
   external?: (ctx: AppContext, state: AppState) => Promise<ExternalSnapshot>
   /** Construye un estado de cuenta sintético; solo los escenarios lo pasan. */
   synthetic?: (doc: SyntheticDocument) => StatementExtraction
+  /** Demo (ADR 0038): un número de WhatsApp sin vínculo se registra conversando. Apagado por defecto. */
+  selfRegistration?: boolean
+  /** Haiku para respuestas que las reglas no leen (ADR 0040); sin él, solo reglas. */
+  interpreter?: MessageInterpreter
   /** "Hoy" para la antigüedad del documento cuando la solicitud no fija `as_of`. */
   today?: () => string
   logger: { info(message: string): void; error(message: string): void }
@@ -68,7 +76,8 @@ function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
       const dir = await mkdtemp(join(tmpdir(), 'gow-doc-'))
       const file = join(dir, basename(path))
       await writeFile(file, bytes)
-      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit })
+      // Modo full: un documento que con seguridad no es estado de cuenta no se extrae (ADR 0002 y 0042).
+      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE })
     },
     transactionClassifier: s.transactionClassifier,
     writer: s.writer,
@@ -95,19 +104,28 @@ export async function handleProcess(s: WorkerServices, job: ProcessJob): Promise
     return 'failed'
   }
   await setStatus(s.db, job.tenant_id, job.application_id, 'extracting')
+  s.logger.info(`application ${ctx.application.id} → extracting (extracción, perfil y política)`)
   const input: AppInput = {
     application_id: ctx.application.id,
     pdf_path: doc.storagePath,
-    as_of: ctx.application.asOf ?? (s.today ? s.today() : new Date().toISOString().slice(0, 10)),
+    as_of: ctx.application.asOf ?? (s.today ? s.today() : calendarToday()),
     request: requestOf(ctx),
     supplier: supplierIdentity(ctx.supplier),
     policy: ctx.active.policy,
     policy_id: ctx.active.id,
+    statement_age: ctx.statementAge,
   }
   const outcome = await startApplication(createRuntime(deps(s, ctx), s.mastraStore), input)
   const status = await persistOutcome(s.db, ctx, outcome)
-  s.logger.info(`application ${ctx.application.id} → ${status}`)
+  s.logger.info(`application ${ctx.application.id} → ${status}${failureSuffix(status, outcome.state?.failure_reason ?? outcome.error ?? null)}`)
   return status
+}
+
+/** ` (no es estado de cuenta: credit_card_statement)`: el tipo de motivo, nunca datos del documento (ADR 0041). */
+function failureSuffix(status: string, reason: string | null): string {
+  if (status !== 'failed') return ''
+  const f = describeFailure(reason)
+  return `: ${f.kind}${f.documentType ? ` (${f.documentType})` : ''}`
 }
 
 export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<string> {
@@ -120,7 +138,7 @@ export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<s
   const answers = z.array(OwnerAnswer).parse(clar.answers)
   const outcome = await resumeApplication(createRuntime(deps(s, ctx), s.mastraStore), runId, z.array(z.string()).parse(suspendedStep), { answers, base_dir: null })
   const status = await persistOutcome(s.db, ctx, outcome)
-  s.logger.info(`application ${ctx.application.id} reanudada → ${status}`)
+  s.logger.info(`application ${ctx.application.id} reanudada → ${status}${failureSuffix(status, outcome.state?.failure_reason ?? outcome.error ?? null)}`)
   return status
 }
 
@@ -128,8 +146,15 @@ export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<s
 export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<number> {
   const pending = await pendingInbound(s.db)
   for (const m of pending) {
-    const r = await resolveInbound(s.db, m.tenant_id, m.id)
+    const r = await resolveInbound(s.db, m.tenant_id, m.id, { storage: s.storage, selfRegistration: s.selfRegistration === true, ...(s.today ? { today: s.today } : {}), ...(s.interpreter ? { interpreter: s.interpreter } : {}) })
+    s.logger.info(`entrante ${m.id} → ${r.resolution}${r.interpreted ? ' (Haiku)' : ''}`)
     if (r.resume) await enqueueResume(boss, r.resume)
+    // Monto pedido después de la oferta (ADR 0053): se decide de nuevo con él, sin modelos.
+    if (r.redecide) await enqueueRedecide(boss, r.redecide)
+    if (r.process) {
+      await enqueueProcess(boss, r.process.job, r.process.sha256)
+      s.logger.info(`application ${r.process.job.application_id} recibida por un mensaje entrante`)
+    }
   }
   return pending.length
 }
