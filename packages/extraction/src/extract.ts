@@ -142,7 +142,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   const route = pdf.textLayer === 'corrupt' || pdf.textLayer === 'absent' ? 'vision_only' : 'text_and_vision'
   if (route === 'vision_only') flags.add('vision_only')
   if (pdf.textLayer === 'corrupt') {
-    issues.add({ code: 'page_unreadable', severity: 'info', message: pdf.textRepaired ? 'La capa de texto venía en EBCDIC; se decodificó para verificar montos. El modelo lee las imágenes.' : 'La capa de texto está corrupta; la extracción va por visión y la verificación queda en la aritmética.' })
+    issues.add({ code: 'page_unreadable', severity: 'info', message: pdf.textRepaired ? 'La capa de texto venía en EBCDIC; se decodificó para verificar montos. El modelo lee las imágenes.' : 'La capa de texto está corrupta; la extracción va por visión y la verificación queda en la aritmética. Sin texto no se puede saber si las páginas vienen giradas ni leer su numeración impresa.' })
   }
   const pdfInput = { base64: pdf.base64, sha256: pdf.sha256, cache: true }
 
