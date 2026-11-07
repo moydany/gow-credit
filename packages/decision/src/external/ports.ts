@@ -1,11 +1,10 @@
 /**
- * Puertos de las fuentes externas del perfil (docs/06 §2). El cálculo del perfil es puro y
- * recibe un `ExternalSnapshot`; esta capa asíncrona lo arma preguntando a cada puerto. Los
- * adaptadores reales llegan en la fase 6 (`packages/channels`); hoy existen los dobles
- * simulados de `simulated.ts`, que es lo que usan los escenarios.
+ * Ports for the profile's external sources. Profile computation is pure and takes an
+ * `ExternalSnapshot`; this async layer builds it by asking each port. Real adapters are not
+ * implemented yet; the simulated doubles in `simulated.ts` are what scenarios use.
  *
- * Un puerto que falla o no existe deja su fuente como no disponible: la solicitud sigue y las
- * features de esa fuente quedan en null (la política decide qué hacer con lo desconocido).
+ * A port that fails or is missing leaves its source unavailable: the request goes on and that
+ * source's features stay null (the policy decides what to do with unknowns).
  */
 import type { ApplicationRequest, BureauReport, CfdiCheck, ExistingCredit, ExternalSnapshot, ListedRfc, PriorApplication, StatementExtraction, SupplierIdentity, TaxpayerStatus } from '@gow/contracts'
 import { emptyExternalSnapshot } from '@gow/contracts'
@@ -33,9 +32,9 @@ export interface CreditBureauPort {
 export interface TaxAuthorityPort {
   readonly simulated: boolean
   taxpayer(supplierId: string, rfc: string | null): Promise<TaxpayerStatus | null>
-  /** "Verifica CFDI" del SAT. Solo se llama con los datos completos (docs/09 §6). */
+  /** SAT "Verifica CFDI". Only called with complete data. */
   cfdiStatus(query: CfdiQuery): Promise<CfdiCheck['status'] | null>
-  /** RFC de contrapartes que aparecen en 69-B o no localizados. */
+  /** RFCs of counterparties that appear on the 69-B list or are not located. */
   listedAmong(rfcs: readonly string[]): Promise<ListedRfc[]>
 }
 
@@ -70,7 +69,7 @@ async function attempt<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } 
   try {
     return { ok: true, value: await fn() }
   } catch {
-    // La razón de la falla va a los logs del adaptador real; aquí solo importa que no hay dato.
+    // The failure reason goes to the real adapter's logs; here only the missing data matters.
     return { ok: false }
   }
 }
@@ -82,7 +81,7 @@ function fullRfc(raw: string | null | undefined): string | null {
   return s !== null && RFC_SHAPE.test(s) ? s : null
 }
 
-/** RFC completo del titular: el registrado, o el del receptor del CFDI (el encabezado suele enmascararlo). */
+/** Holder's full RFC: the registered one, or the CFDI receiver's (the header is often masked). */
 function holderRfc(q: ExternalQuery): string | null {
   const registered = fullRfc(q.supplier?.rfc)
   if (registered) return registered
@@ -96,7 +95,7 @@ function cfdiQueries(statements: readonly StatementExtraction[]): CfdiQuery[] {
     for (const f of s.fiscal_documents) {
       const issuer = fullRfc(f.issuer.rfc.value)
       const receiver = fullRfc(f.receiver.rfc.value)
-      // Faltan datos → no se consulta y el estado queda null, nunca not_found (docs/09 §6).
+      // Missing data: no lookup, and the status stays null, never not_found.
       if (f.uuid.value && issuer && receiver && f.total.value !== null) out.push({ uuid: f.uuid.value.toUpperCase(), issuer_rfc: issuer, receiver_rfc: receiver, total: f.total.value })
     }
   }
@@ -114,9 +113,8 @@ function uuidsOf(statements: readonly StatementExtraction[]): string[] {
 }
 
 /**
- * Arma el snapshot de fuentes externas. `counterpartyRfcs` permite pasar los RFC que la
- * clasificación encontró (las reglas los leen de la descripción), además de los que traiga la
- * extracción.
+ * Builds the external sources snapshot. `counterpartyRfcs` lets the caller pass the RFCs that
+ * classification found (rules read them from the description), besides those in the extraction.
  */
 export async function gatherExternal(ports: ExternalPorts, q: ExternalQuery, extraCounterpartyRfcs: readonly string[] = []): Promise<ExternalSnapshot> {
   const snap = emptyExternalSnapshot()

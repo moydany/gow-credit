@@ -9,7 +9,7 @@ function rule(description: string, type: 'credit' | 'debit', c: Partial<RuleCont
 }
 
 describe('clasificación por reglas (rules-v1)', () => {
-  // Frases genéricas con la forma en que las imprimen los bancos del dataset; ningún dato real.
+  // Generic phrases shaped like the dataset banks print them; no real data.
   it.each([
     ['COMISION MANEJO DE CUENTA', 'debit', 'fee_commission', 'fee'],
     ['IVA COMISION MANEJO DE CUENTA TASA IVA 16', 'debit', 'fee_vat', 'fee'],
@@ -71,7 +71,7 @@ describe('clasificación por reglas (rules-v1)', () => {
     expect(rule('SPEI RECIBIDO CADENA NORTE SA DE CV REF 9', 'credit', { buyer })[0]).toBe('buyer_name')
     expect(rule('ABONO TRANSFERENCIA TIENDAS NORTE', 'credit', { buyer })[0]).toBe('buyer_name')
     expect(rule('ABONO TRANSFERENCIA SPEI RFC CNO850101AB1 REF 7', 'credit', { buyer })).toEqual(['buyer_rfc', 'customer_payment', 0.98])
-    // Un cargo nunca es pago del comprador, aunque lo mencione.
+    // A charge is never a buyer payment, even if it mentions them.
     expect(rule('PAGO A PROVEEDOR CADENA NORTE', 'debit', { buyer })[0]).toBe('supplier_named')
   })
 
@@ -85,7 +85,7 @@ describe('clasificación por reglas (rules-v1)', () => {
     expect(m.classification.counterparty_rfc).toBe('CNO850101AB1')
   })
 
-  it('un traspaso interno marcado en la extracción es propio (ADR 0009)', () => {
+  it('un traspaso interno marcado en la extracción es propio', () => {
     const m = classifyByRules({ description: 'DEPÓSITO EN CAJITA', reference: null, type: 'debit', internal_transfer: true }, ctx)
     expect([m.rule, m.classification.category]).toEqual(['internal_transfer', 'own_transfer'])
   })

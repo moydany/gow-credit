@@ -1,30 +1,29 @@
 /**
- * Jev (o Haiku) encima de las reglas (docs/02 §4c, ADR 0015). Las reglas resuelven lo que tiene
- * palabra clave clara o identidad (comisiones, impuestos, traspasos internos, pagos del
- * comprador, traspasos propios); al modelo solo van los movimientos que las reglas dejan con
- * confianza baja (transferencias genéricas, efectivo, lo irreconocible). Así el modelo nunca
- * contradice un dato determinístico y se le mandan menos filas.
+ * Jev (or Haiku) on top of the rules. Rules settle what has a clear keyword or identity
+ * (fees, taxes, internal transfers, buyer payments, own transfers); only movements the rules
+ * leave at low confidence (generic transfers, cash, unrecognizable) go to the model. So the model
+ * never contradicts deterministic data and fewer rows are sent.
  *
- * Cómo se combinan:
- * - **Jev** (probabilidades calibradas): si coincide con la regla, la mayor confianza de las dos;
- *   si no, la etiqueta y la confianza de Jev.
- * - **Haiku** (confianza autoreportada, mal calibrada: spike 3): su confianza no se usa. Si
- *   coincide con una regla con palabra clave, max(regla, 0.8); si no, su etiqueta con 0.6,
- *   bajo el umbral: se ve en el reporte y puede motivar una pregunta, pero no suma ingresos.
+ * Combining:
+ * - **Jev** (calibrated probabilities): if it agrees with the rule, the higher of the two
+ *   confidences; otherwise Jev's label and confidence.
+ * - **Haiku** (self-reported confidence, poorly calibrated): its confidence is ignored. If it
+ *   agrees with a keyword rule, max(rule, 0.8); otherwise its label at 0.6, below the threshold:
+ *   it shows in the report and can prompt a question, but adds no income.
  */
 import type { ApplicationRequest, StatementExtraction, Transaction, TransactionCategory, TransactionClassification, TransactionRef } from '@gow/contracts'
 import { ruleContext } from '../ledger.ts'
 import { classifyByRules, type RuleMatch } from './rules.ts'
 
-/** Una regla con esta confianza o más no se manda al modelo. */
+/** A rule at or above this confidence is not sent to the model. */
 export const RULE_CONFIDENCE_SKIPS_MODEL = 0.85
-/** Reglas de identidad o de la extracción: deterministas aunque su confianza sea menor. */
+/** Identity or extraction rules: deterministic even if their confidence is lower. */
 const DETERMINISTIC_RULES = new Set(['internal_transfer', 'buyer_rfc', 'buyer_name', 'own_rfc', 'own_name'])
-/** Confianza de Haiku cuando coincide con una regla con palabra clave. */
+/** Haiku confidence when it agrees with a keyword rule. */
 export const UNCALIBRATED_AGREEMENT_CONFIDENCE = 0.8
-/** Confianza de Haiku sin respaldo de una regla: bajo el umbral de 0.7. */
+/** Haiku confidence with no rule backing: below the 0.7 threshold. */
 export const UNCALIBRATED_ALONE_CONFIDENCE = 0.6
-/** Una regla con menos confianza es el respaldo genérico (`unrecognized`), no una señal. */
+/** A rule below this confidence is the generic fallback (`unrecognized`), not a signal. */
 const RULE_SIGNAL_MIN = 0.6
 
 export interface ModelLabel {
@@ -35,7 +34,7 @@ export interface ModelLabel {
 
 export interface ModelInfo {
   model: string
-  /** true para Jev; false para Haiku. */
+  /** true for Jev; false for Haiku. */
   calibrated: boolean
 }
 
@@ -49,7 +48,7 @@ export function needsModel(rule: RuleMatch): boolean {
   return !DETERMINISTIC_RULES.has(rule.rule) && rule.classification.confidence < RULE_CONFIDENCE_SKIPS_MODEL
 }
 
-/** Movimientos que las reglas no resuelven con confianza. Los ya clasificados (dueño, analista, modelo) no se repiten. */
+/** Movements the rules do not settle with confidence. Already-classified ones (owner, analyst, model) are not repeated. */
 export function transactionsForModel(statement: StatementExtraction, request: ApplicationRequest | null): ModelCandidate[] {
   const ctx = ruleContext(statement, request)
   const out: ModelCandidate[] = []
@@ -74,7 +73,7 @@ export function combineClassification(rule: RuleMatch, label: ModelLabel, info: 
   return { category: label.category, confidence: Math.round(confidence * 1e4) / 1e4, counterparty: null, counterparty_rfc: r.counterparty_rfc, classifier: info.model }
 }
 
-/** Copia del estado de cuenta con las etiquetas del modelo combinadas con las reglas. No muta el original. */
+/** Copy of the statement with model labels combined with the rules. Does not mutate the original. */
 export function withModelLabels(statement: StatementExtraction, request: ApplicationRequest | null, labels: readonly ModelLabel[], info: ModelInfo): StatementExtraction {
   const byId = new Map(labels.map((l) => [l.transaction_id, l]))
   const ctx = ruleContext(statement, request)

@@ -1,24 +1,23 @@
 /**
- * Respuestas del dueño sobre la extracción (docs/02 §3: "se mergean sobre la extracción como
- * campos aportados por el proveedor, con origen marcado"; docs/04 §4; ADR 0015). Puro: las rutas
- * de documentos nuevos se devuelven para que el workflow los extraiga.
+ * Owner answers merged onto the extraction as supplier-provided fields, with their origin marked.
+ * Pure: paths to new documents are returned so the workflow can extract them.
  *
- * - **Abono**: la clasificación queda con `classifier: owner_answer` y confianza 1; el perfil
- *   la marca con esa procedencia. Si contradice una clasificación confiable del documento (una
- *   regla o el modelo con 0.8 o más en otra categoría), no se mergea y la solicitud va a revisión
- *   humana: es el caso "dice que es pago de cliente, pero el emisor es una financiera".
- * - **Identidad**: es la identidad declarada contra la que se compara el documento. Si ya había
- *   una registrada (la del tenant), manda la registrada y la respuesta solo queda en el registro:
- *   el documento sigue siendo lo que se verifica.
- * - **Cargo** (ADR 0050): igual que un abono. "Gasto personal" se guarda como `other` (sigue siendo
- *   salida de dinero, no pago de crédito). Solo contradice al documento si cambia el grupo que pesa
- *   en el flujo (deuda, traspaso propio o gasto) contra una clasificación confiable.
- * - **Cliente principal** (ADR 0050): si la solicitud no traía comprador, el nombre que da el dueño
- *   es el comprador del análisis; sus pagos se buscan por nombre en el estado de cuenta.
- * - **Uso de la cuenta** (ADR 0050): queda declarado en el perfil y cambia cómo se leen los abonos
- *   que solo se presumen pago de cliente (ledger.ts).
- * - **Documentos**: rutas a PDFs nuevos (estado reciente, meses anteriores, páginas faltantes).
- * - **No sé / no tengo**: se registra; la pregunta sigue sin resolver.
+ * - **Deposit**: classification becomes `classifier: owner_answer`, confidence 1; the profile
+ *   keeps that provenance. If it contradicts a confident document classification (a rule, or the
+ *   model at 0.8+ on another category) it is not merged and the request goes to human review,
+ *   e.g. "says client payment, but the sender is a lender".
+ * - **Identity**: the declared identity the document is compared against. If one is already
+ *   registered (the tenant's), the registered one wins and the answer is only recorded; the
+ *   document is still what gets verified.
+ * - **Charge**: same as a deposit. "Gasto personal" is stored as `other` (still money out, not a
+ *   credit payment). It only contradicts the document when it changes the group that weighs in
+ *   the flow (debt, own transfer or expense) against a confident classification.
+ * - **Main client**: if the request had no buyer, the owner's name becomes the analysis buyer;
+ *   its payments are searched by name in the statement.
+ * - **Account use**: declared in the profile; changes how deposits that are only presumed client
+ *   payments are read (ledger.ts).
+ * - **Documents**: paths to new PDFs (recent statement, earlier months, missing pages).
+ * - **No sé / no tengo**: recorded; the question stays unresolved.
  */
 import {
   Decision,
@@ -38,7 +37,7 @@ import { classifyByRules } from './classify/rules.ts'
 import { ruleContext } from './ledger.ts'
 import { effectiveRequest } from './profile.ts'
 
-/** Una clasificación existente con esta confianza o más en otra categoría hace que la respuesta la contradiga. */
+/** An existing classification with at least this confidence on another category makes the answer contradict it. */
 export const CONTRADICTION_CONFIDENCE = 0.8
 
 export interface AnswerIssue {
@@ -52,9 +51,9 @@ export interface AppliedAnswers {
   applied: OwnerAnswer[]
   rejected: AnswerIssue[]
   contradictions: AnswerIssue[]
-  /** Rutas de PDFs nuevos, tal como vienen en la respuesta. */
+  /** Paths of new PDFs, as they came in the answer. */
   documents: string[]
-  /** Cliente principal y uso de la cuenta, acumulados con lo que ya se había declarado. */
+  /** Main client and account use, accumulated with what was already declared. */
   declarations: OwnerDeclarations
 }
 
@@ -64,11 +63,11 @@ export interface ApplyAnswersInput {
   request: ApplicationRequest | null
   questions: readonly Question[]
   answers: readonly OwnerAnswer[]
-  /** Lo declarado en rondas anteriores. */
+  /** Declared in earlier rounds. */
   declarations?: OwnerDeclarations
 }
 
-/** Categoría con la que se guarda la respuesta sobre un cargo. */
+/** Category a charge answer is stored under. */
 export const CHARGE_CATEGORY: Readonly<Record<ChargeAnswerCategory, TransactionCategory>> = {
   loan_payment: 'loan_payment',
   supplier_payment: 'supplier_payment',
@@ -77,7 +76,7 @@ export const CHARGE_CATEGORY: Readonly<Record<ChargeAnswerCategory, TransactionC
   other: 'other',
 }
 
-/** Cómo pesa un cargo en el flujo (features/statement.ts): deuda, traspaso propio o gasto. */
+/** How a charge weighs in the flow (features/statement.ts): debt, own transfer or expense. */
 function chargeGroup(c: TransactionCategory): 'debt' | 'own' | 'expense' {
   if (c === 'loan_payment' || c === 'interest') return 'debt'
   return c === 'own_transfer' ? 'own' : 'expense'
@@ -131,7 +130,7 @@ export function applyOwnerAnswers(input: ApplyAnswersInput): AppliedAnswers {
       continue
     }
     seen.add(q.id)
-    // El cliente principal y el uso de la cuenta no se vuelven a preguntar, ni tras un "no sé".
+    // Main client and account use are not asked again, even after a "no sé".
     if (q.kind === 'buyer' || q.kind === 'account_use') {
       const topic = q.kind === 'buyer' ? 'main_buyer' : 'account_use'
       if (!declarations.answered.includes(topic)) declarations = { ...declarations, answered: [...declarations.answered, topic] }
@@ -179,7 +178,7 @@ export function applyOwnerAnswers(input: ApplyAnswersInput): AppliedAnswers {
         break
       }
       case 'buyer':
-        // Un comprador que ya traía la solicitud manda: la respuesta solo queda en el registro.
+        // A buyer already on the request wins: the answer is only recorded.
         if (!input.request?.buyer) declarations = { ...declarations, buyer: answer.name }
         applied.push(answer)
         break
@@ -210,8 +209,8 @@ export function applyOwnerAnswers(input: ApplyAnswersInput): AppliedAnswers {
 }
 
 /**
- * Una respuesta que contradice el documento con alta probabilidad va a revisión humana, no se
- * mergea (docs/04 §4). Un rechazo por compuerta se respeta: la revisión no lo mejora.
+ * An answer that very likely contradicts the document goes to human review instead of being
+ * merged. A gate rejection is respected: review would not improve it.
  */
 export function withContradictions(decision: Decision, contradictions: readonly AnswerIssue[]): Decision {
   if (contradictions.length === 0 || decision.status === 'not_qualified') return decision

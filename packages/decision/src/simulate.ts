@@ -1,7 +1,7 @@
 /**
- * Simulación de una política sobre un conjunto de perfiles (docs/03 §5): replay offline de
- * solicitudes pasadas con una versión borrador, comparada contra la vigente. Puro: los perfiles
- * ya guardados entran tal cual, así que el diff solo refleja el cambio de política.
+ * Policy simulation over a set of profiles: offline replay of past requests with a draft
+ * version, compared against the current one. Pure: stored profiles go in as they are, so the
+ * diff only reflects the policy change.
  */
 import { SimulationReport, type DecisionStatus, type Policy, type SimulationCase, type StatementAgeSetting } from '@gow/contracts'
 import { DECISION_STATUS_RANK } from './engine/core.ts'
@@ -15,7 +15,7 @@ export interface PolicyRef {
 const BAD = new Set(['late', 'default', 'fraud'])
 const STATUSES: readonly DecisionStatus[] = ['qualified', 'qualified_with_limit', 'not_qualified', 'needs_clarification', 'human_review']
 
-/** `statementAge`: el ajuste de antigüedad del tenant (ADR 0049), para simular como decide el modo full. */
+/** `statementAge`: the tenant's age setting, to simulate how full mode decides. */
 export function simulatePolicy(draft: PolicyRef, cases: readonly SimulationCase[], baseline: PolicyRef | null = null, opts: { statementAge?: StatementAgeSetting } = {}): SimulationReport {
   const age = opts.statementAge ? { statementAge: opts.statementAge } : {}
   const rows = cases.map((c) => {

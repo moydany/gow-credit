@@ -1,7 +1,7 @@
 /**
- * Perfil crediticio (docs/03 §3): las features del catálogo calculadas desde los estados de
- * cuenta, la solicitud y las fuentes externas. Puro y determinístico: la fecha de cálculo
- * entra como parámetro y es el reloj de `document_age_days`.
+ * Credit profile: the catalog features computed from the statements, the request and the
+ * external sources. Pure and deterministic: the computation date is a parameter and is the clock
+ * for `document_age_days`.
  */
 import {
   emptyExternalSnapshot,
@@ -34,15 +34,15 @@ export interface ProfileInput {
   supplier: SupplierIdentity | null
   external?: ExternalSnapshot
   parameters?: Partial<ProfileParameters>
-  /** Fecha y hora de cálculo (ISO con zona); su fecha es el "hoy" del perfil. */
+  /** Computation date and time (ISO with zone); its date is the profile's "today". */
   computedAt: string
-  /** Lo que el dueño declaró al aclarar: cliente principal y uso de la cuenta (ADR 0050). */
+  /** What the owner declared when clarifying: main client and account use. */
   declarations?: OwnerDeclarations
 }
 
 /**
- * La solicitud con la que se calcula: si no trae comprador y el dueño dijo su cliente principal,
- * ese es el comprador del análisis (sin RFC ni alias: se reconoce por nombre en el estado de cuenta).
+ * The request used for computing: if it has no buyer and the owner named their main client,
+ * that is the analysis buyer (no RFC or alias: recognized by name in the statement).
  */
 export function effectiveRequest(request: ApplicationRequest | null, declarations: OwnerDeclarations | undefined): ApplicationRequest | null {
   const buyer = declarations?.buyer ?? null

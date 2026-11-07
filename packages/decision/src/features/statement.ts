@@ -1,13 +1,13 @@
 /**
- * Features que salen de los estados de cuenta (docs/03 §3, docs/09 §5 y §9). Reglas comunes:
+ * Features from the statements. Common rules:
  *
- * - Los meses salen de los días cubiertos (unión de periodos), no del número de periodos
- *   (ADR 0006): Mercado Pago imprime un periodo de 91 días y cuenta como 3 meses.
- * - Los traspasos internos (ADR 0009) no son ingreso ni gasto.
- * - Un movimiento `unverified` o `conflict` no suma (docs/04 §5); si lo que se dejó fuera es
- *   material, la feature queda `unverified` y el motor decide si eso cambia la banda.
- * - La confianza de una feature que depende de la clasificación es la confianza media de los
- *   movimientos que la alimentan, ponderada por monto.
+ * - Months come from the days covered (union of periods), not the number of periods: Mercado
+ *   Pago prints a 91-day period and it counts as 3 months.
+ * - Internal transfers are neither income nor expense.
+ * - An `unverified` or `conflict` movement does not add up; if what was left out is material,
+ *   the feature is `unverified` and the engine decides whether that changes the band.
+ * - The confidence of a feature that depends on classification is the amount-weighted mean
+ *   confidence of the movements feeding it.
  */
 import { checkRfc, rfcRoot, type DOCUMENT_TAMPER_SIGNALS, type Issue, type StatementExtraction, type Verification } from '@gow/contracts'
 import { evidenceRef, type Ledger, type LedgerRow } from '../ledger.ts'
@@ -18,11 +18,11 @@ import { fiscalAnchor, fiscalRegime, regimeIncomePlausible } from './fiscal.ts'
 import type { StatementContext } from './statement-context.ts'
 import { combinedProvenance, known, unknown, worst, type Entries, type Entry } from './entry.ts'
 
-/** Un mes con tolerancia de unos 3 días: febrero o un corte a mitad de mes cuentan como mes completo. */
+/** One month with about 3 days of tolerance: February or a mid-month cutoff counts as a full month. */
 const MONTH_TOLERANCE = 0.1
-/** Menos de una semana cubierta no alcanza para promedios mensuales. */
+/** Under a week covered is not enough for monthly averages. */
 const MIN_DAYS_FOR_MONTHLY = 7
-/** Debajo de esta parte de ingresos con pagador identificado, concentración y recurrencia son desconocidas. */
+/** Below this share of income with an identified payer, concentration and recurrence are unknown. */
 const MIN_IDENTIFIED_SHARE = 0.5
 
 export type { StatementContext }
@@ -30,7 +30,7 @@ export type { StatementContext }
 export interface Coverage {
   segments: Interval[]
   days: number
-  /** Meses fraccionarios: días / 30.4375. */
+  /** Fractional months: days / 30.4375. */
   months: number
   verified: boolean
 }
@@ -48,7 +48,7 @@ export function coverageOf(ledger: Ledger): Coverage {
   return { segments, days, months: days / AVG_MONTH_DAYS, verified }
 }
 
-/** Movimientos que pesan en una feature: los 25 de mayor monto, como evidencia. */
+/** Movements that weigh in a feature: the 25 largest by amount, as evidence. */
 function topRefs(rows: readonly LedgerRow[]): string[] {
   return [...rows].sort((a, b) => b.amount - a.amount || a.day - b.day || evidenceRef(a).localeCompare(evidenceRef(b))).map(evidenceRef)
 }
@@ -70,7 +70,7 @@ function rulesNote(rows: readonly LedgerRow[]): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Historia, antigüedad, identidad, integridad, banderas
+// History, age, identity, integrity, flags
 // ---------------------------------------------------------------------------------------------
 
 function monthsOfHistory(ledger: Ledger, cov: Coverage): Entry {
@@ -100,8 +100,8 @@ function documentAgeDays(ctx: StatementContext): Entry {
       corte = corte === null ? day : Math.max(corte, day)
     }
     if (corte === null) continue
-    // La fecha de timbrado del CFDI es una marca del SAT (docs/09 §9.6): si es anterior al corte
-    // impreso, manda ella. Así un corte editado hacia adelante no rejuvenece el documento.
+    // The CFDI stamp date is a SAT mark: if it is earlier than the printed cutoff, it wins. So a
+    // cutoff edited forward does not make the document look newer.
     const certified = doc.statement.fiscal_documents
       .filter((f) => f.kind === 'income' && f.certified_at.value !== null && f.certified_at.verification === 'verified')
       .map((f) => toDay(f.certified_at.value ?? ''))
@@ -118,7 +118,7 @@ function documentAgeDays(ctx: StatementContext): Entry {
   return known(age, { verification: latestVerification, evidence, note: null })
 }
 
-/** `root`: el RFC del documento viene sin homoclave y su raíz coincide con la del registrado (ADR 0043). */
+/** `root`: the document's RFC has no homoclave and its root matches the registered one. */
 type FieldResult = 'match' | 'partial' | 'root' | 'mismatch' | null
 
 const MASK_CHARS = /[*•#]/
@@ -127,7 +127,7 @@ function cleanId(s: string): string {
   return s.replace(/[\s-]/g, '').toUpperCase()
 }
 
-/** Compara posición por posición, saltando las enmascaradas. */
+/** Compares position by position, skipping masked ones. */
 function compareMasked(doc: string, registered: string): FieldResult {
   if (doc.length !== registered.length) return 'mismatch'
   let visible = 0
@@ -143,7 +143,7 @@ function compareMasked(doc: string, registered: string): FieldResult {
 export function compareRfc(docRfc: string, registered: string): FieldResult {
   const a = cleanId(docRfc)
   const b = cleanId(registered)
-  // Sin homoclave: se compara la raíz (letras y fecha) contra el inicio del RFC registrado.
+  // No homoclave: the root (letters and date) is compared against the start of the registered RFC.
   const root = rfcRoot(a)
   if (root !== null) return checkRfc(b).result === 'valid' && b.length === root.length + 3 ? (b.startsWith(root) ? 'root' : 'mismatch') : null
   const check = checkRfc(a)
@@ -161,14 +161,14 @@ export function compareName(docName: string, registered: string): FieldResult {
 function identityMatch(ctx: StatementContext): Entry {
   const supplier = ctx.supplier
   if (supplier === null) return unknown('sin proveedor registrado contra el cual comparar')
-  // Solo nombre y RFC (ADR 0044). La CLABE se extrae, pero no sirve para saber de quién es la cuenta:
-  // quien manda el documento puede dar la misma CLABE que trae impresa.
+  // Only name and RFC. The CLABE is extracted but does not tell whose account it is: whoever
+  // sends the document can supply the same CLABE it prints.
   const results: { field: 'rfc' | 'name'; result: FieldResult; verification: Verification; where: string }[] = []
   for (const doc of ctx.ledger.documents) {
     const s = doc.statement
     if (supplier.rfc !== null) {
       if (s.holder.rfc.value !== null) results.push({ field: 'rfc', result: compareRfc(s.holder.rfc.value, supplier.rfc), verification: s.holder.rfc.verification, where: `${doc.tag}:holder.rfc` })
-      // El encabezado suele enmascarar el RFC; el CFDI lo imprime completo (docs/09 §4.6).
+      // The header often masks the RFC; the CFDI prints it in full.
       for (const f of s.fiscal_documents) {
         if (f.receiver.rfc.value !== null) results.push({ field: 'rfc', result: compareRfc(f.receiver.rfc.value, supplier.rfc), verification: f.receiver.rfc.verification, where: `${doc.tag}:${f.id}.receiver.rfc` })
       }
@@ -182,7 +182,7 @@ function identityMatch(ctx: StatementContext): Entry {
   const has = (field: string, result: FieldResult) => compared.some((r) => r.field === field && r.result === result)
   let value: 'match' | 'partial' | 'mismatch'
   if (compared.some((r) => r.result === 'mismatch')) value = 'mismatch'
-  // El RFC completo, o el nombre más la raíz del RFC (sin homoclave, ADR 0043 y 0044).
+  // The full RFC, or the name plus the RFC root (no homoclave).
   else if (has('rfc', 'match') || (has('name', 'match') && has('rfc', 'root'))) value = 'match'
   else value = 'partial'
   return known(value, { verification, evidence, note: `campos comparados: ${[...new Set(compared.map((r) => r.field))].join(', ')}` })
@@ -212,14 +212,15 @@ const FLAG_RULES: readonly (readonly ['returned_check' | 'garnishment' | 'judici
   ['overdraft', /\bSOBREGIRO\b/],
 ]
 
-/** Lo que se dice cuando el saldo diario calculado da negativo y no se toma como sobregiro (ADR 0058). */
+/** What is said when the computed daily balance goes negative and is not taken as an overdraft. */
 const UNRELIABLE_BALANCE_NOTE = 'saldo calculado no confiable: el periodo no cuadra'
 
 /**
- * `balancesTrusted`: todos los periodos cuadran, así que el saldo diario calculado sobre los movimientos
- * es el del banco. Si no cuadran (una página repetida o faltante, una fila alterada), ese saldo no dice
- * nada de la cuenta y un mínimo negativo sería un sobregiro inventado (ADR 0058). El sobregiro por saldo
- * impreso negativo o por `SOBREGIRO` en la descripción no depende del cuadre y sigue igual.
+ * `balancesTrusted`: every period balances, so the daily balance computed from the movements is
+ * the bank's. If they do not (a repeated or missing page, an altered row), that balance says
+ * nothing about the account and a negative minimum would be an invented overdraft. Overdraft
+ * from a negative printed balance or `SOBREGIRO` in the description does not depend on the
+ * balance check and stays the same.
  */
 function redFlags(ledger: Ledger, minDailyBalance: number | null, balancesTrusted: boolean): Entry {
   const found = new Map<string, { verified: boolean; refs: string[] }>()
@@ -245,45 +246,46 @@ function redFlags(ledger: Ledger, minDailyBalance: number | null, balancesTruste
   return known(flags, { verification, evidence, note })
 }
 
-/** ¿Cuadran todos los periodos? Solo entonces el saldo diario calculado a partir de los movimientos es confiable. */
+/** Do all periods balance? Only then is the daily balance computed from movements reliable. */
 function allPeriodsReconciled(ledger: Ledger): boolean {
   return ledger.periods.length > 0 && ledger.periods.every((p) => p.period.reconciliation?.status === 'reconciled')
 }
 
 // ---------------------------------------------------------------------------------------------
-// Robustez documental: las señales de la extracción llegan al perfil (ADR 0058)
+// Document robustness: extraction signals reach the profile
 // ---------------------------------------------------------------------------------------------
 
 type TamperSignal = (typeof DOCUMENT_TAMPER_SIGNALS)[number]
 
 /**
- * El timbrado del CFDI lejos del periodo (`fiscal.ts`) comparte código con un movimiento fuera de las
- * fechas del periodo (`extract.ts`). El de movimientos siempre lleva `period_id`; el del CFDI no lleva
- * periodo ni movimiento y solo existe si el documento trae un comprobante.
+ * A CFDI stamp far from the period (`fiscal.ts`) shares a code with a movement outside the period
+ * dates (`extract.ts`). The movement one always carries `period_id`; the CFDI one carries neither
+ * period nor movement and only exists if the document has a voucher.
  */
 function isFiscalStampIssue(issue: Issue, statement: StatementExtraction): boolean {
   return issue.code === 'date_out_of_period' && issue.period_id === null && issue.transaction_id === null && statement.fiscal_documents.length > 0
 }
 
 /**
- * `holder_address_present` (ADR 0066): algún estado de cuenta trae el domicilio del titular. La evidencia
- * es `sha:holder.address` de los que lo traen; el domicilio no entra al perfil (es dato personal).
+ * `holder_address_present`: some statement carries the holder's address. Evidence is
+ * `sha:holder.address` of those that do; the address itself stays out of the profile (personal
+ * data).
  */
 function holderAddressPresent(ledger: Ledger): Entry {
   if (ledger.documents.length === 0) return unknown('sin estados de cuenta')
   const read = ledger.documents.filter((d) => (d.statement.holder.address.value ?? '').trim().length > 0)
   if (read.length === 0) return known(false, { note: 'ningún estado de cuenta trae el domicilio del titular' })
-  // Uno ubicado en el texto basta; si ninguno se pudo ubicar (por ejemplo, un escaneado leído por visión), el dato
-  // queda sin verificar y no decide nada por sí solo (docs/04 §5).
+  // One located in the text is enough; if none could be located (e.g. a scan read by vision), the
+  // value stays unverified and decides nothing on its own.
   const verified = read.filter((d) => d.statement.holder.address.verification === 'verified')
   const evidence = (verified.length > 0 ? verified : read).map((d) => `${d.tag}:holder.address`)
   return known(true, { evidence, verification: verified.length > 0 ? 'verified' : 'unverified', note: verified.length > 0 ? null : 'el domicilio leído no se pudo ubicar en el texto del documento' })
 }
 
 /**
- * `document_pages_missing` y `document_tamper_signals`, de las banderas y los problemas que dejó la
- * extracción en cada documento del libro. La evidencia es `sha:id del problema`; si la señal es solo una
- * bandera, `sha:bandera`.
+ * `document_pages_missing` and `document_tamper_signals`, from the flags and issues extraction
+ * left on each document in the ledger. Evidence is `sha:issue id`; if the signal is only a flag,
+ * `sha:flag`.
  */
 function documentSignals(ledger: Ledger): { pagesMissing: Entry; tamper: Entry } {
   if (ledger.documents.length === 0) {
@@ -296,7 +298,7 @@ function documentSignals(ledger: Ledger): { pagesMissing: Entry; tamper: Entry }
   for (const doc of ledger.documents) {
     const s = doc.statement
     const ids = (match: (i: Issue) => boolean): string[] => s.issues.filter(match).map((i) => `${doc.tag}:${i.id}`)
-    // Una bandera sin problema que la explique igual cuenta; su evidencia es la bandera.
+    // A flag with no issue explaining it still counts; its evidence is the flag.
     const flagged = (flag: StatementExtraction['flags'][number], issueCode: Issue['code']): string[] => {
       if (!s.flags.includes(flag)) return []
       const found = ids((i) => i.code === issueCode)
@@ -322,7 +324,7 @@ function documentSignals(ledger: Ledger): { pagesMissing: Entry; tamper: Entry }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Flujo: ingresos, gastos, deuda, capacidad
+// Flow: income, expenses, debt, capacity
 // ---------------------------------------------------------------------------------------------
 
 interface Flow {
@@ -350,7 +352,7 @@ function flowOf(ledger: Ledger, minConfidence: number): Flow {
   const incomeTotal = sumMoney(incomeRows.map((r) => r.amount))
   const incomeUnverified = sumMoney(credits.filter((r) => !r.verified && isIncomeRow(r, minConfidence)).map((r) => r.amount))
 
-  // Un traspaso propio o un pago de crédito solo dejan de ser gasto operativo con confianza suficiente.
+  // An own transfer or a loan payment stop being operating expense only with enough confidence.
   const isOwn = (r: LedgerRow) => r.classification.category === 'own_transfer' && r.classification.confidence >= minConfidence
   const isDebt = (r: LedgerRow) => r.classification.category === 'loan_payment' || r.classification.category === 'interest'
   const opexRows = vDebits.filter((r) => !isOwn(r) && !isDebt(r))
@@ -361,8 +363,8 @@ function flowOf(ledger: Ledger, minConfidence: number): Flow {
   return {
     incomeRows,
     incomeTotal,
-    // Solo cuentan los abonos con confianza suficiente: la duda es si alguno de ellos no es pago
-    // de cliente. Los abonos inciertos que se dejaron fuera los pregunta `decide` (docs/03 §7).
+    // Only deposits with enough confidence count: the doubt is whether any of them is not a
+    // customer payment. Uncertain deposits left out are asked about by `decide`.
     incomeEntryMeta: {
       confidence: confidenceOf(incomeRows),
       verification: isMaterial(incomeUnverified, incomeTotal) ? 'unverified' : 'verified',
@@ -370,9 +372,9 @@ function flowOf(ledger: Ledger, minConfidence: number): Flow {
     },
     opexRows,
     debtRows,
-    // Todo cargo cuenta como gasto salvo un traspaso propio o un pago de crédito: equivocarse entre
-    // proveedor, servicio u otro no cambia el total. La duda real es un cargo excluido como traspaso
-    // propio que no lo era; por eso solo esos pesan con su confianza.
+    // Every charge counts as expense except an own transfer or a loan payment: mixing up supplier,
+    // service or other does not change the total. The real doubt is a charge excluded as an own
+    // transfer that was not one; only those weigh with their confidence.
     expenseMeta: {
       confidence: weightedMean(
         vDebits.map((r) => ({ value: isOwn(r) ? r.classification.confidence : 1, weight: r.amount })),
@@ -451,7 +453,7 @@ function flowFeatures(ctx: StatementContext, cov: Coverage, flow: Flow): FlowFea
 }
 
 // ---------------------------------------------------------------------------------------------
-// Saldos diarios y tendencia
+// Daily balances and trend
 // ---------------------------------------------------------------------------------------------
 
 interface DailyBalances {
@@ -462,8 +464,8 @@ interface DailyBalances {
 }
 
 /**
- * Saldo al cierre de cada día, sumando las cuentas que cubren ese día. Se camina desde el saldo
- * inicial impreso; en un resumen consolidado (ADR 0009) los traspasos internos no mueven el saldo.
+ * End-of-day balance, summing the accounts that cover that day. Walks from the printed opening
+ * balance; in a consolidated summary internal transfers do not move the balance.
  */
 function dailyBalances(ledger: Ledger, threshold: number): DailyBalances | string {
   const perDay = new Map<number, number>()
@@ -493,9 +495,9 @@ function dailyBalances(ledger: Ledger, threshold: number): DailyBalances | strin
 }
 
 /**
- * Pendiente de ingresos mes a mes: la línea de tiempo cubierta (sin huecos entre documentos)
- * se parte en tantas ventanas iguales como meses de historia; pendiente de mínimos cuadrados
- * sobre el ingreso de cada ventana, dividida entre el promedio.
+ * Month-over-month income slope: the covered timeline (no gaps between documents) is split into
+ * as many equal windows as months of history; least-squares slope over each window's income,
+ * divided by the mean.
  */
 function incomeTrend(cov: Coverage, monthsOfHistory: number, incomeRows: readonly LedgerRow[]): number | string {
   if (monthsOfHistory < 3) return `requiere 3 meses o más; hay ${String(monthsOfHistory)}`
@@ -527,7 +529,7 @@ function incomeTrend(cov: Coverage, monthsOfHistory: number, incomeRows: readonl
 }
 
 // ---------------------------------------------------------------------------------------------
-// Comprador, pagadores, bloque fiscal
+// Buyer, payers, fiscal block
 // ---------------------------------------------------------------------------------------------
 
 function buyerFeatures(ctx: StatementContext): Entries {
@@ -542,7 +544,7 @@ function buyerFeatures(ctx: StatementContext): Entries {
   const meta = {
     confidence: byRfc ? 1 : 0.9,
     evidence: topRefs(rows),
-    // El nombre lo dio el dueño; los pagos salen del documento (ADR 0050).
+    // The name came from the owner; payments come from the document.
     provenance: declared ? ('owner_answer' as const) : ('extracted' as const),
     note: `${rows.length > 0 ? `reconocidos por ${byRfc ? 'RFC' : 'nombre o alias'}` : `ningún abono menciona a ${buyer.name}${buyer.rfc ? ' ni su RFC' : ''}`}${declared ? '; comprador declarado por el dueño como su cliente principal' : ''}`,
   }
@@ -552,7 +554,7 @@ function buyerFeatures(ctx: StatementContext): Entries {
   }
 }
 
-/** Llave del pagador: RFC impreso, el comprador reconocido o el nombre que dio el clasificador. */
+/** Payer key: printed RFC, the recognized buyer or the name the classifier gave. */
 function payerKey(r: LedgerRow): string | null {
   if (r.classification.counterparty_rfc) return `rfc:${r.classification.counterparty_rfc}`
   if (r.buyerMatch !== null) return 'buyer'

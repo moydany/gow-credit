@@ -1,19 +1,19 @@
 /**
- * Clasificación de movimientos por reglas (ADR 0013). Es el respaldo determinístico y gratis
- * del paso `classifyTransactions` de docs/02 4c (Jev, con Haiku de respaldo), que corre en el
- * workflow de la fase 5: aquí solo se clasifica lo que llegue sin clasificar.
+ * Rule-based transaction classification: the free, deterministic fallback for the
+ * `classifyTransactions` step (Jev, with Haiku as backup). Only what arrives unclassified is
+ * classified here.
  *
- * Las reglas leen la descripción como la imprime el banco. La confianza no es una
- * probabilidad calibrada: es el grado de certeza de la regla, fijado a mano:
+ * Rules read the description as the bank prints it. Confidence is not a calibrated probability;
+ * it is the rule's hand-set certainty:
  *
- * - 0.95: palabra técnica inequívoca (COMISION, IVA de comisión, ISR retenido, intereses).
- * - 0.85 a 0.9: concepto típico (ABONO VENTAS, PAGO DE NOMINA, PAGO DE TARJETA, SAT).
- * - 0.75: transferencia recibida de un tercero: se presume pago de cliente.
- * - 0.6: efectivo y cargos genéricos: bajo el umbral de 0.7, así que un abono así no cuenta
- *   como ingreso y, si es grande, se pregunta al dueño (docs/03 §7).
- * - 0.5: nada reconocible.
+ * - 0.95: unambiguous technical word (COMISION, IVA on a fee, ISR retenido, intereses).
+ * - 0.85 to 0.9: typical concept (ABONO VENTAS, PAGO DE NOMINA, PAGO DE TARJETA, SAT).
+ * - 0.75: transfer received from a third party: presumed client payment.
+ * - 0.6: cash and generic charges: below the 0.7 threshold, so such a deposit does not count as
+ *   income and, if large, the owner is asked.
+ * - 0.5: nothing recognizable.
  *
- * Toda regla nueva o cambiada sube `RULES_VERSION` y va con su caso en `rules.test.ts`.
+ * Every new or changed rule bumps `RULES_VERSION` and comes with a case in `rules.test.ts`.
  */
 import { findCounterpartyRfc, type TransactionCategory, type TransactionClassification } from '@gow/contracts'
 import { mentionsName, nameTokens, normalizeText } from '../util/text.ts'
@@ -21,10 +21,10 @@ import { mentionsName, nameTokens, normalizeText } from '../util/text.ts'
 export const RULES_VERSION = 'rules-v1'
 
 export interface RuleContext {
-  /** Nombre del titular (encabezado); null si viene redactado. */
+  /** Holder name (header); null if redacted. */
   holderName: string | null
   holderRfc: string | null
-  /** Palabras del nombre del banco, para reconocer su propia mensualidad ("MENSUALIDAD DE FONDEADORA"). */
+  /** Words of the bank's name, to recognize its own monthly fee ("MENSUALIDAD DE FONDEADORA"). */
   bankTokens: readonly string[]
   buyer: { name: string; rfc: string | null; aliases: readonly string[] } | null
 }
@@ -39,7 +39,7 @@ export interface RuleInput {
 export interface RuleMatch {
   rule: string
   classification: TransactionClassification
-  /** Cómo se reconoció al comprador de la solicitud, si es un pago suyo. */
+  /** How the request's buyer was recognized, if this is a payment from them. */
   buyerMatch: 'rfc' | 'name' | null
 }
 
@@ -54,11 +54,11 @@ interface Rule {
 }
 
 /**
- * Orden = prioridad: gana la primera que aplica. Las descripciones llegan normalizadas
- * (mayúsculas, sin acentos, sin puntuación), así que "Comisión" es COMISION e "I.V.A." es I V A.
+ * Order is priority: the first match wins. Descriptions arrive normalized (uppercase, no accents,
+ * no punctuation), so "Comisión" is COMISION and "I.V.A." is I V A.
  */
 const RULES: readonly Rule[] = [
-  // CFE se llama "Comisión Federal de Electricidad" (a veces cortado: "COMISION FEDERA"): no es comisión bancaria.
+  // CFE is "Comisión Federal de Electricidad" (sometimes cut: "COMISION FEDERA"): not a bank fee.
   { id: 'utility_cfe', side: 'debit', test: /\bCOMISION FEDERA|\bCFE\b/, category: 'supplier_payment', confidence: 0.85 },
   { id: 'fee_vat', side: 'debit', test: /^(I V A|IVA)( \d+)*$|\bIVA\b.*\bCOM|\bI V A\b.*\bCOMISION|\bCOBRO IVA\b/, category: 'fee', confidence: 0.95 },
   { id: 'fee_commission', side: 'debit', test: /\bCOMISION(ES)?\b|\bCOM (OPER|MEMBRES|MANEJO|ADMIN|ANUAL|SERV|TRANSF|SPEI|DISP|RETIRO|CHEQ|SALDO|POR)\w*/, category: 'fee', confidence: 0.95 },
@@ -78,7 +78,7 @@ const RULES: readonly Rule[] = [
     category: 'tax',
     confidence: 0.9,
   },
-  // Sin \b al final: algunos bancos pegan la palabra siguiente ("SPEI DEVUELTOBANCO...").
+  // No trailing \b: some banks glue the next word on ("SPEI DEVUELTOBANCO...").
   { id: 'reversal', side: 'credit', test: /\bDEVUELT[OA]|\bDEVOLUCION|\bREEMBOLSO|\bREVERSO|\bCANCELACION|\bBONIFICACION|\bCONTRACARGO/, category: 'other', confidence: 0.9 },
   { id: 'own_account', side: 'both', test: /\bCUENTAS? PROPIAS?\b|\bENTRE CUENTAS\b|\bMIS CUENTAS\b|\bCAJITA\b|\bAPARTADO\b|\bDINERO RESERVADO\b/, category: 'own_transfer', confidence: 0.9 },
   { id: 'own_investment', side: 'both', test: /\bINVERSION(ES)?\b/, category: 'own_transfer', confidence: 0.85 },
@@ -97,7 +97,7 @@ const RULES: readonly Rule[] = [
     confidence: 0.85,
   },
   { id: 'payroll', side: 'debit', test: /\bNOMINA\b|\bDISPERSION\b|\bSUELDOS?\b|\bSALARIOS?\b/, category: 'payroll', confidence: 0.9 },
-  // Nómina recibida: ingreso de una persona, no pago de un cliente del negocio.
+  // Payroll received: a person's income, not a payment from a business client.
   { id: 'salary_received', side: 'credit', test: /\bNOMINA\b|\bSUELDOS?\b/, category: 'other', confidence: 0.8 },
   { id: 'sales_settlement', side: 'credit', test: /\bVENTAS?\b|\bLIBERACION DE DINERO\b|\bTPV\b|\bAFILIACION\b|\bFACT(URAS?)?\b|\bF\d{3,}\b|\bANTICIPO\b/, category: 'customer_payment', confidence: 0.85 },
   { id: 'check_deposit', side: 'credit', test: /\bSALVO BUEN COBRO\b|\bCHEQUE\b/, category: 'customer_payment', confidence: 0.75 },
@@ -133,7 +133,7 @@ function normalizeRfc(rfc: string | null): string | null {
   return rfc === null ? null : rfc.replace(/[\s-]/g, '').toUpperCase()
 }
 
-/** ¿Este abono es del comprador de la solicitud? Primero por RFC impreso, luego por nombre o alias. */
+/** Is this deposit from the request's buyer? First by printed RFC, then by name or alias. */
 export function buyerMatch(text: string, counterpartyRfc: string | null, buyer: RuleContext['buyer']): 'rfc' | 'name' | null {
   if (buyer === null) return null
   const buyerRfc = normalizeRfc(buyer.rfc)
@@ -142,7 +142,7 @@ export function buyerMatch(text: string, counterpartyRfc: string | null, buyer: 
   return null
 }
 
-/** Clasifica un movimiento con las reglas. Nunca falla: lo irreconocible queda con confianza 0.5. */
+/** Classifies a movement with the rules. Never fails: unrecognizable gets confidence 0.5. */
 export function classifyByRules(t: RuleInput, ctx: RuleContext): RuleMatch {
   const raw = [t.description, t.reference ?? ''].join(' ')
   const text = normalizeText(raw)
@@ -150,7 +150,7 @@ export function classifyByRules(t: RuleInput, ctx: RuleContext): RuleMatch {
 
   if (t.internal_transfer) return { rule: 'internal_transfer', classification: classification('own_transfer', 0.95, null, null), buyerMatch: null }
 
-  // Rendimientos e intereses de abono no los paga un comprador; todo lo demás puede ser suyo.
+  // Yield and interest deposits are not paid by a buyer; anything else may be.
   const buyer = t.type === 'credit' ? buyerMatch(text, counterpartyRfc, ctx.buyer) : null
   if (buyer !== null && ctx.buyer !== null) {
     return { rule: `buyer_${buyer}`, classification: classification('customer_payment', buyer === 'rfc' ? 0.98 : 0.95, ctx.buyer.name, counterpartyRfc), buyerMatch: buyer }
@@ -164,7 +164,7 @@ export function classifyByRules(t: RuleInput, ctx: RuleContext): RuleMatch {
     return { rule: 'own_name', classification: classification('own_transfer', 0.8, null, null), buyerMatch: null }
   }
 
-  // La mensualidad del propio banco es comisión; la de un crédito es pago de deuda.
+  // The bank's own monthly fee is a commission; a loan's is debt payment.
   if (t.type === 'debit' && /\bMENSUALIDAD\b/.test(text) && !/\bCREDITOS?\b/.test(text) && ctx.bankTokens.some((b) => new RegExp(`\\b${b}\\b`).test(text))) {
     return { rule: 'fee_bank_plan', classification: classification('fee', 0.85, null, counterpartyRfc), buyerMatch: null }
   }
@@ -181,7 +181,7 @@ export function classifyByRules(t: RuleInput, ctx: RuleContext): RuleMatch {
   }
 }
 
-/** Palabras distintivas del nombre del banco ("Fondeadora" → FONDEADORA; "BANCO" o "PAGO" no distinguen). */
+/** Distinctive words of the bank name ("Fondeadora" -> FONDEADORA; "BANCO" or "PAGO" do not distinguish). */
 export function bankTokens(...names: (string | null | undefined)[]): string[] {
   const generic = new Set(['BANCO', 'BANK', 'GRUPO', 'FINANCIERO', 'INSTITUCION', 'BANCA', 'MULTIPLE', 'MEXICO', 'NEGOCIOS', 'SOCIEDAD', 'ANONIMA', 'PAGO', 'PAGOS', 'CUENTA'])
   const out = new Set<string>()

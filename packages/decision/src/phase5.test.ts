@@ -1,6 +1,6 @@
 /**
- * Piezas puras de la fase 5 (ADR 0015): etiquetas del modelo encima de las reglas, línea máxima
- * sin monto solicitado y respuestas del dueño. Datos sintéticos.
+ * Pure pieces: model labels on top of the rules, maximum line with no requested amount, and
+ * owner answers. Synthetic data.
  */
 import { emptyExternalSnapshot, type ApplicationRequest, type ExternalSnapshot, type Question, type StatementExtraction, type SupplierIdentity } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'

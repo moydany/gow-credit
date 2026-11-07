@@ -1,19 +1,19 @@
 /**
- * Features fiscales de un estado de cuenta (docs/09 §9): régimen impreso en el CFDI, ancla fiscal de las
- * comisiones y si los ingresos caben en el tope del régimen.
+ * Fiscal features of a statement: regime printed on the CFDI, fiscal anchor of the fees, and
+ * whether income fits under the regime's cap.
  */
 import { checkRfc, FISCAL_REGIMES, type Verification } from '@gow/contracts'
 import { round2, sumMoney } from '../util/num.ts'
 import { known, unknown, worst, type Entry } from './entry.ts'
 import type { StatementContext } from './statement-context.ts'
 
-/** Tope de ingresos anuales de RESICO persona física (régimen 626), docs/09 §9.5. */
+/** Annual income cap for RESICO persona física (regime 626). */
 export const RESICO_ANNUAL_CAP = 3_500_000
 
-/** Tolerancia del ancla fiscal: comisiones del CFDI contra filas de comisión. */
+/** Fiscal anchor tolerance: CFDI fees against fee rows. */
 const FISCAL_ANCHOR_TOLERANCE = 1
 
-/** "601 General de Ley Personas Morales" → 601; una clave fuera del catálogo → other. */
+/** "601 General de Ley Personas Morales" -> 601; a key outside the catalog -> other. */
 export function regimeCode(raw: string): (typeof FISCAL_REGIMES)[number] | null {
   const m = /^\s*(\d{3})\b/.exec(raw)
   if (!m) return null
@@ -21,13 +21,13 @@ export function regimeCode(raw: string): (typeof FISCAL_REGIMES)[number] | null 
   return (FISCAL_REGIMES as readonly string[]).includes(code) ? (code as (typeof FISCAL_REGIMES)[number]) : 'other'
 }
 
-/** El RFC receptor genérico (público en general o extranjero): el CFDI no es del titular (ADR 0056). */
+/** The generic receiver RFC (público en general or foreign): the CFDI is not the holder's. */
 const GENERIC_RECEIVER_NOTE = 'el CFDI va al RFC genérico; el régimen impreso no es del titular'
-/** Sin RFC receptor impreso, el régimen no se puede atribuir al titular (el BBVA imprime 616 sin RFC). */
+/** With no printed receiver RFC the regime cannot be attributed to the holder (BBVA prints 616 with no RFC). */
 const NO_RECEIVER_NOTE = 'el CFDI no trae RFC receptor; el régimen impreso no se puede atribuir al titular'
 
 export function fiscalRegime(ctx: StatementContext): Entry {
-  // El documento más reciente manda; si dos documentos dicen regímenes distintos, es conflicto.
+  // The most recent document wins; if two documents give different regimes, it is a conflict.
   const found: { code: string; verification: Verification; where: string; end: number }[] = []
   let skippedNote: string | null = null
   for (const doc of ctx.ledger.documents) {
@@ -37,8 +37,8 @@ export function fiscalRegime(ctx: StatementContext): Entry {
       const raw = f.receiver.tax_regime.value
       const code = raw === null ? null : regimeCode(raw)
       if (code === null) continue
-      // Un CFDI a XAXX010101000 / XEXX010101000 imprime el régimen que se le pone a "público en general"
-      // (616 en el BBVA), no el del titular: no sirve para el perfil.
+      // A CFDI to XAXX010101000 / XEXX010101000 prints the regime given to "público en general"
+      // (616 at BBVA), not the holder's: useless for the profile.
       const rfc = f.receiver.rfc.value
       if (rfc === null || rfc.trim() === '') {
         skippedNote ??= NO_RECEIVER_NOTE
@@ -65,9 +65,9 @@ export function fiscalRegime(ctx: StatementContext): Entry {
 }
 
 /**
- * Ancla fiscal (docs/09 §9.1): el CFDI de comisiones lo firma el SAT, fuera del PDF editable.
- * Las filas de comisión del documento deben sumar su total (si el banco detalla el IVA) o su
- * subtotal (si no). Un documento sin importes en el CFDI no cuenta.
+ * Fiscal anchor: the fee CFDI is signed by the SAT, outside the editable PDF. The document's fee
+ * rows must add up to its total (if the bank itemizes IVA) or its subtotal (if not). A document
+ * with no CFDI amounts does not count.
  */
 export function fiscalAnchor(ctx: StatementContext): Entry {
   const checks: { ok: boolean; where: string; verification: Verification }[] = []

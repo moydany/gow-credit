@@ -9,7 +9,7 @@ import { documentAgeWarning, evaluate, withoutDocumentAgeGates } from './evaluat
 
 const policy = basePolicyTemplate()
 
-/** Perfil sano para la política base (puntaje 100, sin topes), con la antigüedad que se pida. */
+/** Healthy profile for the base policy (score 100, no caps), with the requested age. */
 function profile(age: number | null): Profile {
   return sampleProfile({
     document_age_days: age,
@@ -31,7 +31,7 @@ function profile(age: number | null): Profile {
 
 const warningOf = (d: ReturnType<typeof evaluate>) => d.reasons.filter((r) => r.code === DOCUMENT_AGE_WARNING)
 
-describe('antigüedad del estado de cuenta como ajuste del tenant (ADR 0049)', () => {
+describe('antigüedad del estado de cuenta como ajuste del tenant', () => {
   it('sin ajuste (standalone) la compuerta de la política sigue pidiendo un estado reciente', () => {
     const d = evaluate(policy, profile(120))
     expect(d.status).toBe('needs_clarification')

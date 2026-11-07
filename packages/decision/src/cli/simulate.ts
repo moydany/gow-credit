@@ -1,12 +1,12 @@
-/* eslint-disable no-console -- CLI; el portafolio es sintético y de los perfiles reales solo se imprimen conteos */
+/* eslint-disable no-console -- CLI; the portfolio is synthetic and real profiles only print counts */
 /**
- * Simula una política borrador contra la vigente (docs/03 §5).
+ * Simulates a draft policy against the current one.
  *
- *   pnpm simulate --policy <borrador.json> [--baseline <vigente.json>|base]
- *                                  [--portfolio 200] [--profiles <carpeta con perfiles .json>]
+ *   pnpm simulate --policy <draft.json> [--baseline <current.json>|base]
+ *                                  [--portfolio 200] [--profiles <folder with profile .json files>]
  *
- * Sin --profiles usa un portafolio sintético (semilla fija). Con --profiles lee los JSON que
- * escribe `pnpm decide` (data/out/profiles/, no versionado).
+ * Without --profiles it uses a synthetic portfolio (fixed seed). With --profiles it reads the
+ * JSON that `pnpm decide` writes (data/out/profiles/, not versioned).
  */
 import { parsePolicy, Profile, type Policy, type SimulationCase } from '@gow/contracts'
 import { readdirSync, readFileSync } from 'node:fs'

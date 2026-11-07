@@ -1,8 +1,7 @@
 /**
- * Estados de cuenta sintéticos para tests y para el modo `unit` de los escenarios (docs/06):
- * extracciones válidas, cuadradas y con descripciones como las imprime un banco mexicano, para
- * que pasen por la misma clasificación por reglas y el mismo cálculo de perfil que un documento
- * real. Todo es inventado: ningún dato sale de data/.
+ * Synthetic statements for tests and the scenarios' `unit` mode: valid, balanced extractions with
+ * descriptions as a Mexican bank prints them, so they go through the same rule classification and
+ * profile computation as a real document. All invented: nothing comes from data/.
  */
 import { createHash } from 'node:crypto'
 import {
@@ -23,14 +22,14 @@ export interface SyntheticHolder {
   name: string
   rfc: string | null
   clabe: string | null
-  /** Domicilio impreso en el encabezado (ADR 0066); sin él, el estado de cuenta no lo trae. */
+  /** Address printed in the header; without it the statement carries none. */
   address?: string | null
 }
 
 const CREDIT_KINDS: ReadonlySet<SyntheticFlowKind> = new Set(['customer_payment', 'sales_settlement', 'cash_deposit', 'unclassified_credit', 'loan_disbursement', 'own_transfer_in', 'refund', 'interest'])
 const GROWING_KINDS: ReadonlySet<SyntheticFlowKind> = new Set(['customer_payment', 'sales_settlement', 'cash_deposit', 'unclassified_credit'])
 
-/** Emisor ficticio del CFDI de comisiones. */
+/** Fictitious issuer of the fee CFDI. */
 export const SYNTHETIC_BANK_RFC = 'BFI990101AB1'
 
 function describe(flow: SyntheticFlow, seq: number): string {
@@ -95,7 +94,7 @@ function splitCents(total: number, parts: number): number[] {
   return Array.from({ length: parts }, (_, i) => (base + (i < cents - base * parts ? 1 : 0)) / 100)
 }
 
-/** Movimientos de un mes (1-based) entre `start` y `end` (días). */
+/** Movements of a month (1-based) between `start` and `end` (days). */
 function monthDrafts(spec: z.infer<typeof SyntheticStatement>, month: number, start: number, end: number, seq: { n: number }): Draft[] {
   const out: Draft[] = []
   const len = end - start + 1
@@ -119,10 +118,11 @@ function monthDrafts(spec: z.infer<typeof SyntheticStatement>, month: number, st
 }
 
 /**
- * Genera la extracción. `seed` distingue documentos (entra al sha256), así que dos estados del
- * mismo proveedor no chocan y el mismo estado generado dos veces es idéntico.
+ * Generates the extraction. `seed` tells documents apart (it goes into the sha256), so two
+ * statements from the same supplier do not collide and the same statement generated twice is
+ * identical.
  */
-/** El bloque del titular: lo que se imprime, o nada si el estado de cuenta viene redactado. */
+/** The holder block: what is printed, or nothing if the statement is redacted. */
 function holderBlock(holder: SyntheticHolder, redacted: boolean) {
   const printed = (value: string | null | undefined) => (redacted || !value ? missing() : verified(value, 1))
   return { name: printed(holder.name), rfc: printed(holder.rfc), holder_type: missing(), address: printed(holder.address) }
@@ -215,7 +215,7 @@ export function syntheticStatement(input: z.input<typeof SyntheticStatement>, ho
   if (spec.fiscal) {
     const f = spec.fiscal
     const last = periods.at(-1)
-    // El CFDI del banco ampara las comisiones de todo el documento.
+    // The bank's CFDI covers the fees of the whole document.
     const fees = round2(periods.flatMap((x) => x.transactions).filter((t) => t.type === 'debit' && t.description.startsWith('COMISION')).reduce((s, t) => s + t.amount, 0))
     const total = round2(fees + (f.fees_match ? 0 : 150))
     const subtotal = round2(total / 1.16)

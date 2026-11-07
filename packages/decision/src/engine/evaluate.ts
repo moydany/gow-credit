@@ -1,8 +1,7 @@
 /**
- * `evaluate(policy, profile)`: el motor de decisión (docs/03 §4 a §6). Función pura y
- * determinística, sin LLM ni base: misma política y mismo perfil dan el mismo veredicto, con
- * el diagnóstico (compuertas, dimensiones, topes, línea), las razones y los contrafactuales.
- * La fecha del veredicto es la del perfil salvo que se pase otra.
+ * `evaluate(policy, profile)`: the decision engine. Pure and deterministic, no LLM or database:
+ * same policy and profile give the same verdict, with the diagnosis (gates, dimensions, caps,
+ * line), reasons and counterfactuals. The verdict date is the profile's unless another is passed.
  */
 import { Decision, DOCUMENT_AGE_WARNING, monthsText, statementMaxAgeDays, type Policy, type Profile, type Reason, type StatementAgeSetting, type TransactionRef } from '@gow/contracts'
 import type { z } from 'zod'
@@ -12,33 +11,32 @@ import { evaluateCore } from './core.ts'
 export const ENGINE_VERSION = '0.1.0'
 
 export interface EvaluateOptions {
-  /** Id de la versión de política, para re-explicar la decisión. */
+  /** Policy version id, to re-explain the decision. */
   policyId?: string | null
-  /** `decided_at`; por defecto `profile.computed_at`, para que el resultado sea reproducible. */
+  /** `decided_at`; defaults to `profile.computed_at` so the result is reproducible. */
   now?: string
-  /** Rondas de aclaración ya usadas en la solicitud (docs/03 §7). */
+  /** Clarification rounds already used on the request. */
   clarificationRoundsUsed?: number
-  /** false para no calcular contrafactuales (simulación masiva). */
+  /** false to skip counterfactuals (bulk simulation). */
   counterfactuals?: boolean
-  /** Movimientos sobre los que se pregunta (los agrega `decide`). */
+  /** Movements being asked about (added by `decide`). */
   clarificationTransactions?: TransactionRef[]
   /**
-   * Antigüedad máxima del estado de cuenta, ajuste del tenant (ADR 0049). Con ella, las compuertas
-   * de la política sobre `document_age_days` no aplican: un documento más viejo se analiza igual y
-   * el veredicto lleva la advertencia `document_age_warning`. Sin ella (standalone), la política
-   * decide sola.
+   * Maximum statement age, a tenant setting. With it, the policy's `document_age_days` gates do
+   * not apply: an older document is still analyzed and the verdict carries the
+   * `document_age_warning`. Without it (standalone), the policy decides alone.
    */
   statementAge?: StatementAgeSetting
 }
 
-/** La política sin las compuertas de antigüedad: con el ajuste del tenant, la antigüedad solo advierte. */
+/** The policy without the age gates: with the tenant setting, age only warns. */
 export function withoutDocumentAgeGates(policy: Policy): Policy {
   return policy.gates.some((g) => g.when.feature === 'document_age_days') ? { ...policy, gates: policy.gates.filter((g) => g.when.feature !== 'document_age_days') } : policy
 }
 
 /**
- * La advertencia de antigüedad (ADR 0049): el corte más reciente es más viejo que el ajuste, o no se
- * sabe cuándo fue. Sin límite (`max_months: null`), nunca.
+ * The age warning: the most recent cutoff is older than the setting, or its date is unknown.
+ * Never with no limit (`max_months: null`).
  */
 export function documentAgeWarning(profile: Profile, setting: StatementAgeSetting): z.infer<typeof Reason> | null {
   const months = setting.max_months

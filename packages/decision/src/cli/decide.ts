@@ -1,13 +1,13 @@
-/* eslint-disable no-console -- CLI; la salida en consola no lleva montos, nombres ni RFC */
+/* eslint-disable no-console -- CLI; console output carries no amounts, names or RFC */
 /**
- * Perfil y veredicto sobre extracciones ya hechas, sin llamar a ningún modelo.
+ * Profile and verdict from existing extractions, without calling any model.
  *
- *   pnpm decide <extracción.json>... [--as-of AAAA-MM-DD] [--policy <json>|base]
+ *   pnpm decide <extraction.json>... [--as-of YYYY-MM-DD] [--policy <json>|base]
  *                                  [--amount N] [--out data/out/profiles]
  *
- * El perfil completo y la decisión van a `--out` (por defecto data/out/profiles/, que no se
- * versiona). En consola solo se imprime lo que no identifica a nadie: cobertura, clasificación,
- * features desconocidas, estado y códigos de razón.
+ * The full profile and decision go to `--out` (default data/out/profiles/, not versioned). The
+ * console only prints what identifies no one: coverage, classification, unknown features, status
+ * and reason codes.
  */
 import { calendarToday, parsePolicy, StatementExtraction, type Policy } from '@gow/contracts'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -41,7 +41,7 @@ const out = resolve(ROOT, flag('out') ?? 'data/out/profiles')
 mkdirSync(out, { recursive: true })
 
 for (const file of files) {
-  // pnpm corre el script desde el paquete; las rutas del usuario son relativas a donde lo llamó.
+  // pnpm runs the script from the package; user paths are relative to where it was called from.
   const statement = StatementExtraction.parse(JSON.parse(readFileSync(resolve(process.env.INIT_CWD ?? process.cwd(), file), 'utf8')))
   const request = amount ? { amount: Number(amount), maturity: null, buyer: null } : null
   const { decision, ledger } = decide({ policy, policyId, statements: [statement], request, supplier: null, computedAt: `${asOf}T12:00:00.000Z` })

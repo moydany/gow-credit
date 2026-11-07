@@ -1,4 +1,4 @@
-/** Aritmética de montos en centavos enteros: sumar cientos de movimientos en flotante deja residuos. */
+/** Arithmetic on amounts in integer cents: summing hundreds of movements in floats leaves residue. */
 
 export const toCents = (n: number): number => Math.round(n * 100)
 export const fromCents = (c: number): number => c / 100
@@ -29,7 +29,7 @@ export function clamp01(n: number): number {
   return n < 0 ? 0 : n > 1 ? 1 : n
 }
 
-/** Media ponderada; `fallback` si no hay peso. */
+/** Weighted mean; `fallback` if there is no weight. */
 export function weightedMean(pairs: Iterable<{ value: number; weight: number }>, fallback: number): number {
   let num = 0
   let den = 0

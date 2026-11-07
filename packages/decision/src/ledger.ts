@@ -1,17 +1,17 @@
 /**
- * Libro del perfil: las extracciones de una solicitud aplanadas en movimientos con su
- * clasificación efectiva, más los periodos que cubren. Todo el cálculo de features parte de
- * aquí, así que las reglas de qué entra y qué no viven en un solo lugar:
+ * Profile ledger: a request's extractions flattened into movements with their effective
+ * classification, plus the periods they cover. All feature computation starts here, so the rules
+ * for what gets in live in one place:
  *
- * - Todo documento cuya extracción terminó, aunque el clasificador no lo llamara estado de
- *   cuenta (ADR 0002 y 0042, cambios): la etiqueta queda como aviso. Un mismo sha256 entra una vez.
- * - Cuentas en MXN y que no son tarjeta de crédito (sin conversión de moneda).
- * - Clasificación efectiva: la que trae el movimiento (Jev, Haiku, respuesta del dueño) si
- *   alcanza la confianza mínima; si no, el comprador reconocido por RFC o nombre; si no, la que
- *   traiga; y si no trae ninguna, las reglas (ADR 0013).
- * - Cuenta de uso mixto declarada por el dueño (ADR 0050): un abono que solo se presume pago de
- *   cliente (sin RFC, sin el comprador y con confianza menor a `PRESUMPTION_CONFIDENCE`) baja a
- *   `MIXED_PRESUMED_CONFIDENCE` y deja de contar como ingreso.
+ * - Every document whose extraction finished, even if the classifier did not call it a bank
+ *   statement: the label stays as a warning. A given sha256 enters once.
+ * - MXN accounts that are not credit cards (no currency conversion).
+ * - Effective classification: the movement's own (Jev, Haiku, owner answer) if it reaches the
+ *   minimum confidence; otherwise the buyer recognized by RFC or name; otherwise whatever it
+ *   carries; and if it carries none, the rules.
+ * - Mixed-use account declared by the owner: a deposit that is only presumed a client payment
+ *   (no RFC, not the buyer, confidence below `PRESUMPTION_CONFIDENCE`) drops to
+ *   `MIXED_PRESUMED_CONFIDENCE` and stops counting as income.
  */
 import type { AccountUse, ApplicationRequest, Period, Provenance, StatementExtraction, Transaction, TransactionClassification, TransactionRef } from '@gow/contracts'
 import { bankTokens, buyerMatch, classifyByRules, type RuleContext } from './classify/rules.ts'
@@ -21,7 +21,7 @@ import { normalizeText } from './util/text.ts'
 export interface LedgerDocument {
   index: number
   sha256: string
-  /** Prefijo corto del sha256 para evidencia legible. */
+  /** Short sha256 prefix for readable evidence. */
   tag: string
   statement: StatementExtraction
 }
@@ -31,12 +31,12 @@ export interface LedgerPeriod {
   accountId: string
   accountType: string | null
   period: Period
-  /** Inicio y fin en número de día; null si no hay fechas impresas ni movimientos. */
+  /** Start and end as day numbers; null if there are no printed dates or movements. */
   start: number | null
   end: number | null
-  /** true si inicio y fin salen de fechas impresas verificadas. */
+  /** true if start and end come from verified printed dates. */
   boundsVerified: boolean
-  /** El resumen es consolidado y cuadra sin los traspasos internos (ADR 0009). */
+  /** The summary is consolidated and balances without the internal transfers. */
   excludesInternal: boolean
 }
 
@@ -51,12 +51,12 @@ export interface LedgerRow {
   internal: boolean
   verified: boolean
   classification: TransactionClassification
-  /** De dónde salió la clasificación efectiva. */
+  /** Where the effective classification came from. */
   classifiedBy: 'given' | 'buyer' | 'rules'
   rule: string | null
   buyerMatch: 'rfc' | 'name' | null
   provenance: Provenance
-  /** Abono que se presumía pago de cliente y no cuenta por ser cuenta de uso mixto (ADR 0050). */
+  /** A deposit presumed to be a client payment that does not count because the account is mixed-use. */
   mixedUseDiscount: boolean
 }
 
@@ -64,26 +64,26 @@ export interface Ledger {
   documents: LedgerDocument[]
   periods: LedgerPeriod[]
   rows: LedgerRow[]
-  /** Documentos o cuentas que no entran al perfil, con la razón (para `note`). */
+  /** Documents or accounts left out of the profile, with the reason (for `note`). */
   skipped: string[]
 }
 
 export interface LedgerOptions {
   request: ApplicationRequest | null
   minConfidence: number
-  /** Uso de la cuenta declarado por el dueño (ADR 0050); null o ausente: no se sabe. */
+  /** Account use declared by the owner; null or absent: unknown. */
   accountUse?: AccountUse | null
 }
 
-/** Debajo de esta confianza un pago de cliente sin RFC ni comprador es una presunción (transferencia de un tercero). */
+/** Below this confidence a client payment with no RFC or buyer is a presumption (third-party transfer). */
 export const PRESUMPTION_CONFIDENCE = 0.8
-/** Confianza de una presunción en una cuenta de uso mixto: la de "nada reconocible" de las reglas. */
+/** Confidence of a presumption in a mixed-use account: the rules' "nothing recognizable". */
 export const MIXED_PRESUMED_CONFIDENCE = 0.5
 
 /**
- * ¿Este abono solo se presume pago de cliente? Lo es una transferencia de un tercero que nadie
- * reconoció (ni RFC impreso, ni el comprador, ni una respuesta de una persona) y con confianza
- * menor a `PRESUMPTION_CONFIDENCE`: las reglas le dan 0.75 a "SPEI RECIBIDO" (ADR 0013).
+ * Is this deposit only presumed to be a client payment? A third-party transfer nobody recognized
+ * (no printed RFC, no buyer, no person's answer) with confidence below `PRESUMPTION_CONFIDENCE`:
+ * the rules give "SPEI RECIBIDO" 0.75.
  */
 export function isPresumedCustomerPayment(row: Pick<LedgerRow, 'type' | 'internal' | 'classification' | 'buyerMatch'>): boolean {
   const c = row.classification
@@ -108,7 +108,7 @@ function provenanceOf(t: Transaction, c: TransactionClassification): Provenance 
   return t.provenance
 }
 
-/** Contexto de las reglas para un documento: titular, palabras del banco y comprador de la solicitud. */
+/** Rules context for a document: holder, bank words and the request's buyer. */
 export function ruleContext(s: StatementExtraction, request: ApplicationRequest | null): RuleContext {
   return {
     holderName: s.holder.name.value,
@@ -119,8 +119,8 @@ export function ruleContext(s: StatementExtraction, request: ApplicationRequest 
 }
 
 /**
- * Inicio y fin del periodo: las fechas impresas si están verificadas; si no, las de los
- * movimientos (ADR 0006: los meses salen de fechas, no del número de periodos).
+ * Start and end of the period: the printed dates if verified; otherwise the movements' (months
+ * come from dates, not the number of periods).
  */
 function periodBounds(p: Period): { start: number | null; end: number | null; verified: boolean } {
   const days = p.transactions.map((t) => toDay(t.date))
@@ -150,8 +150,8 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
       continue
     }
     if (s.classification.document_type !== 'bank_statement') {
-      // El clasificador etiqueta, no bloquea (ADR 0002): una extracción terminada se analiza igual y la
-      // etiqueta se avisa; si de verdad no es un estado de cuenta, el cuadre y las compuertas lo dirán.
+      // The classifier labels, it does not block: a finished extraction is analyzed anyway and the
+      // label is flagged; if it is really not a statement, the balance check and gates will say so.
       skipped.push(`documento ${sha.slice(0, 12)} clasificado como ${s.classification.document_type}: entra al perfil con ese aviso`)
     }
     const doc: LedgerDocument = { index: documents.length, sha256: sha, tag: sha.slice(0, 12), statement: s }

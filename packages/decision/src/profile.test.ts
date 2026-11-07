@@ -40,7 +40,7 @@ describe('perfil desde un estado de cuenta', () => {
     const p = profileOf([stmt({ monthly: BASIC })])
     expect(Profile.safeParse(p).success).toBe(true)
     expect(f(p, 'months_of_history').value).toBe(1)
-    // 30 días de septiembre = 0.9856 meses: los promedios son por mes de 30.44 días.
+    // 30 days of September = 0.9856 months: averages are per 30.44-day month.
     const months = 30 / 30.4375
     expect(f(p, 'operating_income_monthly').value).toBeCloseTo(200000 / months, 1)
     expect(f(p, 'operating_expenses_monthly').value).toBeCloseTo((90000 + 40000 + 580) / months, 1)
@@ -62,7 +62,7 @@ describe('perfil desde un estado de cuenta', () => {
     expect(f(p, 'operating_expenses_monthly').confidence).toBe(1)
   })
 
-  it('ADR 0006: un periodo de tres meses cuenta como tres meses, igual que tres periodos mensuales', () => {
+  it('un periodo de tres meses cuenta como tres meses, igual que tres periodos mensuales', () => {
     const spec: Spec = { months: 3, monthly: BASIC }
     const single = profileOf([stmt({ ...spec, periods: 'single' })])
     const monthly = profileOf([stmt({ ...spec, periods: 'monthly' })])
@@ -79,7 +79,7 @@ describe('perfil desde un estado de cuenta', () => {
     expect(Math.abs(f(flat, 'income_trend').value as number)).toBeLessThan(0.03)
   })
 
-  it('ADR 0009: los traspasos internos no son ingreso ni gasto', () => {
+  it('los traspasos internos no son ingreso ni gasto', () => {
     const base = stmt({ monthly: BASIC })
     const withInternal = structuredClone(base)
     const period = withInternal.accounts[0]?.periods[0]
@@ -116,7 +116,7 @@ describe('perfil desde un estado de cuenta', () => {
 
   it('saldo diario promedio y días bajo el umbral', () => {
     const p = profileOf([stmt({ opening_balance: 500, monthly: [{ kind: 'customer_payment', amount: 10000 }] })])
-    // 500 hasta el día 15 (14 días bajo 1,000), 10,500 del 16 al 30.
+    // 500 until day 15 (14 days under 1,000), 10,500 from the 16th to the 30th.
     expect(f(p, 'low_balance_days').value).toBe(15)
     expect(f(p, 'avg_daily_balance').value).toBeCloseTo((500 * 15 + 10500 * 15) / 30, 2)
   })
@@ -126,7 +126,7 @@ describe('perfil desde un estado de cuenta', () => {
     expect(f(p, 'red_flags').value).toEqual(['garnishment', 'judicial_order', 'overdraft'])
   })
 
-  it('un documento repetido entra una vez; uno que el clasificador no llamó estado de cuenta entra con aviso (ADR 0002 y 0042)', () => {
+  it('un documento repetido entra una vez; uno que el clasificador no llamó estado de cuenta entra con aviso', () => {
     const s = stmt({ monthly: BASIC })
     const invoice: StatementExtraction = { ...stmt({ monthly: BASIC }, 's2'), classification: { document_type: 'invoice', confidence: 0.9, bank: null } }
     const failed: StatementExtraction = { ...stmt({ monthly: BASIC }, 's3'), extraction: { ...stmt({ monthly: BASIC }, 's3').extraction, status: 'failed' } }
@@ -190,7 +190,7 @@ describe('bloque fiscal (docs/09 §9)', () => {
     expect(f(profileOf([stmt({ monthly: BASIC, fiscal: { ...fiscal, regime: '999 Inventado' } })]), 'fiscal_regime').value).toBe('other')
   })
 
-  it('CFDI al RFC genérico: el régimen impreso no es del titular, así que queda desconocido (ADR 0056)', () => {
+  it('CFDI al RFC genérico: el régimen impreso no es del titular, así que queda desconocido', () => {
     for (const receiver_rfc of ['XAXX010101000', 'XEXX010101000']) {
       const p = profileOf([stmt({ monthly: BASIC, fiscal: { ...fiscal, regime: '616 Sin obligaciones fiscales', receiver_rfc } })])
       expect(f(p, 'fiscal_regime')).toMatchObject({ value: null, verification: 'unverified', note: 'el CFDI va al RFC genérico; el régimen impreso no es del titular' })
@@ -229,7 +229,7 @@ describe('bloque fiscal (docs/09 §9)', () => {
     const period = s.accounts[0]?.periods[0]
     if (!period) throw new Error('sin periodo')
     period.statement_date = { ...period.statement_date, value: '2026-10-04' }
-    // Corte "editado" al 4 de octubre; el SAT timbró el 2 de octubre.
+    // Cutoff "edited" to October 4; the SAT stamped on October 2.
     expect(f(profileOf([s]), 'document_age_days').value).toBe(3)
   })
 })
@@ -331,7 +331,7 @@ describe('fuentes externas', () => {
   })
 })
 
-describe('robustez documental (ADR 0058)', () => {
+describe('robustez documental', () => {
   const fiscal = { uuid: 'A1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B', regime: '601' }
 
   function issue(id: string, code: Issue['code'], extra: Partial<Issue> = {}): Issue {
@@ -367,7 +367,7 @@ describe('robustez documental (ADR 0058)', () => {
     const s = flagged({ monthly: BASIC }, ['pages_missing'], [issue('i1', 'page_missing', { details: { missing: [2], total: 3 } })])
     const p = profileOf([s])
     expect(f(p, 'document_pages_missing')).toMatchObject({ value: true, verification: 'verified', confidence: 1, evidence: [`${s.document.sha256.slice(0, 12)}:i1`] })
-    // Páginas faltantes no son manipulación.
+    // Missing pages are not tampering.
     expect(f(p, 'document_tamper_signals').value).toEqual([])
   })
 
@@ -395,11 +395,11 @@ describe('robustez documental (ADR 0058)', () => {
   it('fiscal_stamp_far_from_period: date_out_of_period del CFDI sí, el de los movimientos no', () => {
     const cfdi = flagged({ monthly: BASIC, fiscal }, [], [issue('i1', 'date_out_of_period')])
     expect(tamper(cfdi)).toMatchObject({ value: ['fiscal_stamp_far_from_period'], evidence: [`${cfdi.document.sha256.slice(0, 12)}:i1`] })
-    // Los movimientos fuera del periodo (extract.ts) siempre llevan el periodo.
+    // Movements outside the period (extract.ts) always carry the period.
     const periodId = cfdi.accounts[0]?.periods[0]?.id ?? null
     const movements = flagged({ monthly: BASIC, fiscal }, [], [issue('i1', 'date_out_of_period', { period_id: periodId, details: { count: 3 } })])
     expect(tamper(movements).value).toEqual([])
-    // Sin CFDI en el documento no hay timbrado que esté lejos.
+    // With no CFDI in the document there is no stamp that could be far off.
     expect(tamper(flagged({ monthly: BASIC }, [], [issue('i1', 'date_out_of_period')])).value).toEqual([])
   })
 
@@ -419,15 +419,15 @@ describe('robustez documental (ADR 0058)', () => {
   })
 })
 
-describe('el sobregiro calculado solo se cree si el periodo cuadra (ADR 0058)', () => {
-  /** El saldo diario se calcula solo de los movimientos: sin saldo impreso por fila, es la única fuente. */
+describe('el sobregiro calculado solo se cree si el periodo cuadra', () => {
+  /** Daily balance is computed from movements only: with no per-row printed balance it is the only source. */
   function withoutPrintedBalances(s: StatementExtraction): StatementExtraction {
     for (const a of s.accounts) for (const p of a.periods) for (const t of p.transactions) t.balance = null
     return s
   }
 
-  // 100 de saldo inicial, abonos de 4,500 los días 7 y 22 y un cargo de 5,000 el día 15: del 15 al 21 el saldo
-  // diario es de -400. (El saldo es al cierre de cada día: un cargo y un abono del mismo día no lo bajan de cero.)
+  // 100 opening balance, deposits of 4,500 on days 7 and 22 and a 5,000 charge on day 15: from 15 to 21 the daily
+  // balance is -400. (Balance is end-of-day: a charge and deposit on the same day do not take it below zero.)
   const NEGATIVE: Spec['monthly'] = [
     { kind: 'supplier_payment', amount: 5000, description: 'PAGO A PROVEEDOR ACME' },
     { kind: 'customer_payment', amount: 9000, count: 2, description: 'SPEI RECIBIDO CLIENTE' },
@@ -463,7 +463,7 @@ describe('el sobregiro calculado solo se cree si el periodo cuadra (ADR 0058)', 
   })
 
   it('el sobregiro por saldo impreso negativo o por SOBREGIRO en la descripción sigue igual aunque no cuadre', () => {
-    // El saldo impreso de la fila sí es del banco.
+    // The row's printed balance is the bank's.
     const printed = stmt({ opening_balance: 100, reconciled: false, monthly: NEGATIVE })
     expect(f(profileOf([printed]), 'red_flags').value).toEqual(['overdraft'])
     const text = negative({ reconciled: false, monthly: [...NEGATIVE, { kind: 'fee', amount: 100, description: 'COMISION POR SOBREGIRO' }] })
@@ -476,7 +476,7 @@ describe('el sobregiro calculado solo se cree si el periodo cuadra (ADR 0058)', 
   })
 })
 
-describe('domicilio del titular (ADR 0066)', () => {
+describe('domicilio del titular', () => {
   const ADDRESS = 'AV. REFORMA 100, COL. JUÁREZ, CUAUHTÉMOC, CDMX, C.P. 06600'
   const withAddress = (address: string | null, seed: string) => syntheticStatement({ start: '2026-09-01', opening_balance: 50000, monthly: BASIC }, { ...holder, address }, seed)
 

@@ -1,4 +1,4 @@
-/** Fechas ISO (YYYY-MM-DD) como número de día UTC: sin zonas ni horario de verano. */
+/** ISO dates (YYYY-MM-DD) as a UTC day number: no time zones or daylight saving. */
 
 const MS_PER_DAY = 86_400_000
 
@@ -15,7 +15,7 @@ export function addDays(iso: string, days: number): string {
   return fromDay(toDay(iso) + days)
 }
 
-/** Mismo día del mes, `months` meses después; si no existe (31 de febrero), el último día del mes. */
+/** Same day of the month, `months` months later; if it does not exist (February 31), the last day of the month. */
 export function addMonths(iso: string, months: number): string {
   const [y = 1970, m = 1, d = 1] = iso.slice(0, 10).split('-').map(Number)
   const total = y * 12 + (m - 1) + months
@@ -25,7 +25,7 @@ export function addMonths(iso: string, months: number): string {
   return fromDay(Math.round(Date.UTC(ty, tm, Math.min(d, last)) / MS_PER_DAY))
 }
 
-/** Días promedio de un mes calendario (365.25 / 12). */
+/** Average days in a calendar month (365.25 / 12). */
 export const AVG_MONTH_DAYS = 30.4375
 
 export interface Interval {
@@ -33,7 +33,7 @@ export interface Interval {
   end: number
 }
 
-/** Une intervalos de días (inclusive) que se tocan o se enciman. */
+/** Merges day intervals (inclusive) that touch or overlap. */
 export function unionIntervals(intervals: readonly Interval[]): Interval[] {
   const sorted = [...intervals].filter((i) => i.end >= i.start).sort((a, b) => a.start - b.start || a.end - b.end)
   const out: Interval[] = []

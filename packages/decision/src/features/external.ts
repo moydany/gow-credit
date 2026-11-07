@@ -1,7 +1,6 @@
 /**
- * Features que salen de fuentes externas (docs/03 §3, docs/06 §5, docs/09 §9) y de la
- * solicitud. Una fuente no disponible deja sus features en `null` con la razón; nunca se
- * supone "sin créditos" o "sin listas" por defecto.
+ * Features from external sources and from the request. An unavailable source leaves its features
+ * `null` with the reason; "no credits" or "no lists" is never assumed by default.
  */
 import type { ApplicationRequest, ExternalSnapshot } from '@gow/contracts'
 import { type Ledger, evidenceRef } from '../ledger.ts'
@@ -14,7 +13,7 @@ export interface ExternalContext {
   snapshot: ExternalSnapshot
   request: ApplicationRequest | null
   ledger: Ledger
-  /** Entradas ya calculadas desde el estado de cuenta (flujo libre, deuda, ingresos). */
+  /** Entries already computed from the statement (free cash flow, debt, income). */
   statement: Entries
   minConfidence: number
   asOfDay: number
@@ -26,7 +25,7 @@ function unavailable(source: string): string {
   return `fuente ${source} no disponible`
 }
 
-/** UUIDs de los CFDI de los documentos usados (huella del estado de cuenta, docs/09 §9.2). */
+/** UUIDs of the CFDIs in the documents used (statement fingerprint). */
 export function documentUuids(ledger: Ledger): string[] {
   const out = new Set<string>()
   for (const d of ledger.documents) for (const f of d.statement.fiscal_documents) if (f.uuid.value) out.add(f.uuid.value.toUpperCase())
@@ -63,7 +62,7 @@ function bureau(ctx: ExternalContext): Entries {
   const out: Entries = {
     buro_score: report?.score != null ? known(report.score, ext) : unknown(src.available ? 'buró sin score' : unavailable('CreditBureau'), 'external'),
   }
-  // external_debt_signal sale del estado de cuenta; buró solo la confirma (docs/03 §3).
+  // external_debt_signal comes from the statement; the credit bureau only confirms it.
   const signal = ctx.statement.external_debt_signal
   if (signal && signal.value !== null && report?.open_accounts != null) {
     const confirms = report.open_accounts > 0 && (signal.value as number) > 0
@@ -88,7 +87,7 @@ function taxAuthority(ctx: ExternalContext): Entries {
     sat_list_status: tp?.list_status ? known(tp.list_status, ext) : unknown('no se consultaron las listas para el RFC del titular (sin RFC completo)', 'external'),
   }
 
-  // El peor estado de los CFDI consultados; un UUID sin datos para consultar no cuenta.
+  // Worst status among the CFDIs queried; a UUID with no data to query does not count.
   const order = { cancelled: 2, not_found: 1, valid: 0 } as const
   const uuids = new Set(documentUuids(ctx.ledger))
   const checks = src.cfdi.filter((c) => uuids.has(c.uuid.toUpperCase()))
@@ -97,7 +96,7 @@ function taxAuthority(ctx: ExternalContext): Entries {
       ? unknown(uuids.size === 0 ? 'el documento no trae CFDI' : 'CFDI sin datos suficientes para consultarlo (RFC de emisor o receptor, total)', 'external')
       : known(checks.reduce<keyof typeof order>((w, c) => (order[c.status] > order[w] ? c.status : w), 'valid'), { ...ext, evidence: checks.map((c) => `cfdi:${c.uuid}=${c.status}`) })
 
-  // Ingresos de pagadores en 69-B definitivo (docs/09 §9.4): solo se ve lo que trae RFC.
+  // Income from payers on the definitive 69-B list: only what carries an RFC is visible.
   const listed = new Set(src.listed_counterparties.filter((l) => l.list_status === 'efos_definitive').map((l) => l.rfc.toUpperCase()))
   const incomeRows = ctx.ledger.rows.filter((r) => r.verified && isIncomeRow(r, ctx.minConfidence))
   const income = sumMoney(incomeRows.map((r) => r.amount))

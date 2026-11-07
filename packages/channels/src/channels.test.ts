@@ -89,7 +89,7 @@ const pick = (text: string, q: Question) => {
   return a.kind === 'charge' ? a.category : a.kind === 'account_use' ? a.use : a.kind === 'buyer' ? `name:${a.name}` : a.kind
 }
 
-describe('preguntas nuevas por WhatsApp (ADR 0050)', () => {
+describe('preguntas nuevas por WhatsApp', () => {
   it('cargos, uso de la cuenta y cliente principal son conversacionales; identidad y documentos no', () => {
     expect([deposit, charge, accountUse, buyerQ].every(isConversational)).toBe(true)
     expect(isConversational({ ...deposit, kind: 'identity', topic: 'identity_fields' })).toBe(false)
@@ -189,7 +189,7 @@ describe('correo con Resend', () => {
   })
 })
 
-describe('registro de proveedores por WhatsApp (ADR 0038)', () => {
+describe('registro de proveedores por WhatsApp', () => {
   it('lee la razón social y descarta lo que no lo es', () => {
     expect(parseLegalName('  Distribuidora   del Norte SA de CV ')).toBe('Distribuidora del Norte SA de CV')
     expect(parseLegalName('ok')).toBeNull()
@@ -205,7 +205,7 @@ describe('registro de proveedores por WhatsApp (ADR 0038)', () => {
     expect(parseRfc('hola')).toBeNull()
   })
 
-  it('el RFC solo aparece en la confirmación de lo leído, al mismo número que mandó el estado de cuenta (ADR 0047)', () => {
+  it('el RFC solo aparece en la confirmación de lo leído, al mismo número que mandó el estado de cuenta', () => {
     const texts = [REGISTRATION_REPLIES.welcome('Prestamista'), REGISTRATION_REPLIES.ask_rfc({ kind: 'missing' }), REGISTRATION_REPLIES.ask_rfc({ kind: 'corrected' }), REGISTRATION_REPLIES.thanks('Distribuidora'), REGISTRATION_REPLIES.idle('Distribuidora')]
     for (const t of texts) expect(t).not.toMatch(/[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}/)
     expect(REGISTRATION_REPLIES.confirm('Distribuidora SA de CV', 'DNO150304AB1')).toMatch(/a nombre de Distribuidora SA de CV, con RFC DNO150304AB1\.\n\n¿Son correctos\? Responde sí o no\./)
@@ -225,7 +225,7 @@ describe('registro de proveedores por WhatsApp (ADR 0038)', () => {
   })
 })
 
-describe('datos de la factura y aviso del veredicto (ADR 0039)', () => {
+describe('datos de la factura y aviso del veredicto', () => {
   it('lee montos como los escribe un proveedor', () => {
     expect(parseAmount('180000')).toBe(180000)
     expect(parseAmount('$180,000.50')).toBe(180000.5)
@@ -260,7 +260,7 @@ describe('datos de la factura y aviso del veredicto (ADR 0039)', () => {
     const t = 'Prestamista Demo'
     expect(renderVerdict({ status: 'qualified', limit: 180000, request, tenantName: t })).toMatch(/^Buenas noticias: tu factura de \$180,000\.00 pesos a Cadena Norte con vencimiento el 20\/12\/2026 califica/)
     expect(renderVerdict({ status: 'qualified_with_limit', limit: 95000, request, tenantName: t })).toMatch(/hasta \$95,000\.00 pesos/)
-    // Lo pedido cabe en la línea: aprobado completo, sin "con un límite" (ADR 0053).
+    // A request that fits under the line is approved in full, without "con un límite".
     expect(renderVerdict({ status: 'qualified_with_limit', limit: 112304.66, request: { amount: 50000, maturity: null, buyer: null }, tenantName: t })).toBe('Buenas noticias: tu solicitud de adelanto de $50,000.00 pesos está aprobada con Prestamista Demo. Te contactaremos para los siguientes pasos.')
     expect(renderVerdict({ status: 'qualified_with_limit', limit: 40000, request: { amount: 50000, maturity: null, buyer: null }, tenantName: t })).toMatch(/Califica con un límite: podemos adelantarte hasta \$40,000\.00 pesos/)
     expect(renderVerdict({ status: 'qualified_with_limit', limit: 95000, request: null, tenantName: t })).toMatch(/^Revisamos tu estado de cuenta\. Podemos adelantarte hasta \$95,000\.00 pesos/)
@@ -270,7 +270,7 @@ describe('datos de la factura y aviso del veredicto (ADR 0039)', () => {
   })
 })
 
-describe('por qué no se pudo revisar, dicho al proveedor (ADR 0041)', () => {
+describe('por qué no se pudo revisar, dicho al proveedor', () => {
   it('dice qué mandó y qué necesitamos', () => {
     expect(failureNotice({ kind: 'not_bank_statement', documentType: 'credit_card_statement' })).toMatch(/^Lo que mandaste es un estado de cuenta de tarjeta de crédito\. Para revisar tu solicitud necesitamos el estado de cuenta de tu cuenta de cheques o débito/)
     expect(failureNotice({ kind: 'not_bank_statement', documentType: 'invoice' })).toMatch(/parece una factura/)
@@ -280,7 +280,7 @@ describe('por qué no se pudo revisar, dicho al proveedor (ADR 0041)', () => {
     expect(renderVerdict({ status: 'failed', limit: null, request: null, tenantName: 'X', failure: { kind: 'not_bank_statement', documentType: 'credit_card_statement' } })).toMatch(/tarjeta de crédito/)
   })
 
-  it('PDF con contraseña y escaneado ilegible tienen su propio aviso (ADR 0049)', () => {
+  it('PDF con contraseña y escaneado ilegible tienen su propio aviso', () => {
     const password = 'Tu PDF tiene contraseña y no lo puedo abrir. Descárgalo de nuevo desde tu banco sin contraseña (o quítasela) y mándamelo por aquí.'
     expect(DOCUMENT_REPLIES.password_protected).toBe(password)
     expect(failureNotice({ kind: 'password_protected', documentType: null })).toBe(password)
@@ -307,7 +307,7 @@ describe('pedido del PDF completo por páginas faltantes (robustez documental, s
     expect(isDocumentRequest({ ...missingPages, topic: 'recent_statement' })).toBe(false)
     expect(isDocumentRequest({ ...missingPages, topic: 'reconciliation_gap' })).toBe(false)
     expect(isDocumentRequest(deposit)).toBe(false)
-    // No es conversacional: un texto no la contesta ni se numera entre las del chat.
+    // Not conversational: free text does not answer it and it is not numbered with the chat questions.
     expect(isConversational(missingPages)).toBe(false)
     expect(parseReply('ya te lo mandé', missingPages)).toBeNull()
   })
@@ -317,7 +317,7 @@ describe('pedido del PDF completo por páginas faltantes (robustez documental, s
   })
 })
 
-describe('por qué no califica, breve y sin cifras (ADR 0048)', () => {
+describe('por qué no califica, breve y sin cifras', () => {
   const dim = (feature: string, weight: number, points: number, value: number | null, relative_to: string | null = null, used = true) => ({ id: feature, feature, relative_to, value, normalized: null, weight, points, used, excluded_reason: null })
   const decision = (dimensions: ReturnType<typeof dim>[], gates: unknown[] = []) => ({ evaluation: { gates, dimensions, caps: [], limit: null } }) as unknown as Parameters<typeof notQualifiedReasons>[0]
 
@@ -338,7 +338,7 @@ describe('por qué no califica, breve y sin cifras (ADR 0048)', () => {
 })
 
 
-describe('resumen, confirmación y varias respuestas (ADR 0051)', () => {
+describe('resumen, confirmación y varias respuestas', () => {
   const q = (id: string, amount: number, date: string): Question => ({ ...deposit, id, transaction: { document_sha256: 'a'.repeat(64), transaction_id: id }, facts: [{ name: 'fecha', value: date }, { name: 'monto', value: amount }, { name: 'concepto', value: 'DEPOSITO' }] })
   const identity: Question = { ...deposit, id: 'q4', topic: 'identity_fields', kind: 'identity', transaction: null, facts: [], options: [], text: 'Confirma la razón social y el RFC del titular. Gracias.' }
   const questions = [q('q1', 150000, '2026-09-15'), q('q2', 30000.5, '2026-09-20'), q('q3', 8000, '2026-10-01'), identity]
@@ -352,7 +352,7 @@ describe('resumen, confirmación y varias respuestas (ADR 0051)', () => {
     expect(text).toBe(
       'Esto es lo que entendí:\n1) abono de $150,000.00 pesos del 15 de septiembre: Pago de un cliente o venta\n2) abono de $30,000.50 pesos del 20 de septiembre: No lo sé\n3) abono de $8,000.00 pesos del 1 de octubre: sin respuesta\n\n¿Es correcto? Responde sí para enviarlo a evaluación, o el número de la respuesta que quieres cambiar.',
     )
-    // La identidad no se pregunta por el chat: no va en el resumen ni cuenta en "Pregunta N de M".
+    // Identity is never asked over chat: not in the summary, not counted in "Pregunta N de M".
     expect(renderQuestionAt(questions, 1)).toMatch(/^Pregunta 2 de 3\. /)
     expect(questionSubject(identity)).toBe('Confirma la razón social y el RFC del titular.')
   })
@@ -380,9 +380,9 @@ describe('resumen, confirmación y varias respuestas (ADR 0051)', () => {
     expect(parseMultipleReplies('1 9', questions.slice(0, 3))).toEqual({ kind: 'invalid' })
     expect(parseMultipleReplies('el primero es cliente y el tercero asdf', questions.slice(0, 3))).toEqual({ kind: 'invalid' })
     expect(parseMultipleReplies('1', questions.slice(0, 3))).toBeNull()
-    // Una frase con coma que es una sola respuesta.
+    // A comma phrase that is a single answer.
     expect(parseMultipleReplies('Es un pago de cliente, de Cadena Norte', questions.slice(0, 3))).toBeNull()
-    // Sin opciones (texto libre), nunca se parte.
+    // No options (free text): never split.
     expect(parseMultipleReplies('1 2', [identity])).toBeNull()
   })
 
@@ -419,7 +419,7 @@ describe('resumen, confirmación y varias respuestas (ADR 0051)', () => {
   })
 })
 
-describe('pedido de un estado de cuenta con domicilio (ADR 0066)', () => {
+describe('pedido de un estado de cuenta con domicilio', () => {
   const address: Question = { id: 'q1', topic: 'statement_with_address', kind: 'documents', transaction: null, facts: [], options: [], text: 'El estado de cuenta que mandaste no trae tu domicilio. ¿Nos mandas uno que sí lo traiga? Suele venir en la primera página, junto a tu nombre.', text_source: 'template' }
   const pages: Question = { ...address, topic: 'missing_pages', text: 'Al estado de cuenta que mandaste le faltan páginas. ¿Nos mandas el PDF completo?' }
 

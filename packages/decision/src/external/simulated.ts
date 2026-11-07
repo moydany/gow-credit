@@ -1,7 +1,7 @@
 /**
- * Dobles simulados de las fuentes externas (docs/06 §2): responden con los datos del bloque
- * `external` de un escenario. Nada del cálculo sabe que está en simulación; solo el snapshot
- * marca `simulated: true`.
+ * Simulated doubles for the external sources: they answer with the `external` block of a
+ * scenario. Nothing in the calculation knows it is simulated; only the snapshot is marked
+ * `simulated: true`.
  */
 import type { ScenarioExternal } from '@gow/contracts'
 import { addDays } from '../util/dates.ts'
@@ -9,7 +9,7 @@ import { normalizeText } from '../util/text.ts'
 import type { ApplicationHistoryPort, CreditBureauPort, ExistingCreditsPort, ExternalPorts, ProgramPort, TaxAuthorityPort } from './ports.ts'
 
 export interface SimulatedOptions {
-  /** Fecha del reloj del escenario: `seen_elsewhere.days_ago` se convierte en fecha con ella. */
+  /** Scenario clock date: `seen_elsewhere.days_ago` is converted to a date with it. */
   asOf: string
 }
 
@@ -30,7 +30,7 @@ export function simulatedPorts(external: ScenarioExternal, opts: SimulatedOption
     },
     cfdiStatus: (q) => {
       const entry = Object.entries(external.cfdi).find(([uuid]) => uuid.toUpperCase() === q.uuid.toUpperCase())
-      // Un UUID que el doble no conoce: el SAT respondería "No encontrado".
+      // A UUID the double does not know: the SAT would answer "No encontrado".
       return Promise.resolve(entry ? entry[1] : 'not_found')
     },
     listedAmong: (rfcs) =>

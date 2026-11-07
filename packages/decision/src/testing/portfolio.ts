@@ -1,13 +1,13 @@
 /**
- * Portafolio sintético para simular políticas (docs/03 §5) sin datos reales: proveedores con
- * flujos al azar (semilla fija, reproducible) y un outcome inventado que empeora con la
- * capacidad de pago. Sirve para ver el diff entre dos políticas, no para calibrar nada.
+ * Synthetic portfolio for simulating policies without real data: suppliers with random flows
+ * (fixed seed, reproducible) and an invented outcome that worsens with payment capacity. For
+ * seeing the diff between two policies, not for calibrating anything.
  */
 import { emptyExternalSnapshot, type SimulationCase } from '@gow/contracts'
 import { buildProfile } from '../profile.ts'
 import { syntheticStatement } from './synthetic.ts'
 
-/** PRNG mulberry32: determinístico y suficiente para datos de demostración. */
+/** mulberry32 PRNG: deterministic and good enough for demo data. */
 function prng(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -48,7 +48,7 @@ export function syntheticPortfolio(n: number, seed = 42): SimulationCase[] {
       external,
       computedAt: '2026-10-05T12:00:00.000Z',
     })
-    // Outcome inventado: más probable la mora con poca capacidad de pago; la mitad sin outcome.
+    // Invented outcome: delinquency more likely with low payment capacity; half have no outcome.
     const pcp = profile.features.payment_capacity_pct.value ?? -1
     const pBad = pcp < 0 ? 0.6 : pcp < 0.15 ? 0.3 : 0.08
     const outcome = rnd() < 0.5 ? null : rnd() < pBad ? (rnd() < 0.7 ? 'late' : 'default') : 'paid'

@@ -1,7 +1,6 @@
 /**
- * Propiedades del motor (docs/00 fase 4: "el motor es puro"). fast-check genera perfiles con
- * valores, desconocidos, verificación y confianza al azar sobre la política base y sobre
- * variaciones válidas de ella.
+ * Engine properties: it is pure. fast-check generates profiles with random values, unknowns,
+ * verification and confidence over the base policy and valid variations of it.
  */
 import { FINAL_STATUS_RANK, type FeatureName, type Policy, type Profile, type Verification } from '@gow/contracts'
 import { sampleProfile } from '@gow/contracts/testing'
@@ -60,7 +59,7 @@ function build(values: Values, meta: Record<string, { verification: Verification
 const profileArb = fc.tuple(valuesArb, metaArb).map(([v, m]) => build(v, m))
 const verifiedProfileArb = valuesArb.map((v) => build(v))
 
-/** Variaciones válidas de la plantilla: umbrales, pesos que suman 100 y bandas desplazadas. */
+/** Valid template variations: thresholds, weights that sum to 100, and shifted bands. */
 const policyArb: fc.Arbitrary<Policy> = fc
   .record({
     age: fc.integer({ min: 30, max: 180 }),
@@ -173,10 +172,10 @@ describe('propiedades de evaluate(policy, profile)', () => {
         for (const s of d.next_steps) {
           const changed = withFeatures(profile, [{ feature: s.feature, value: s.target_value }, ...s.related.map((r) => ({ feature: r.feature, value: r.target_value }))])
           const to = evaluate(policy, changed, { counterfactuals: false })
-          // `to` es exactamente lo que da el motor, con su línea (ADR 0056); `from` es el resultado de hoy.
+          // `to` is exactly what the engine gives, with its line; `from` is today's result.
           expect({ status: to.status, score: to.score, limit: to.limit }).toEqual(s.to)
           expect({ status: d.status, score: d.score, limit: d.limit }).toEqual(s.from)
-          // Y un paso cuenta solo si mejora el estado o, con un estado que califica, sube la línea.
+          // And a step counts only if it improves the status or, for a qualifying status, raises the line.
           const better = DECISION_STATUS_RANK[to.status] > DECISION_STATUS_RANK[d.status]
           const moreLine = to.status === d.status && (to.status === 'qualified' || to.status === 'qualified_with_limit') && (to.limit ?? 0) > (d.limit ?? 0)
           expect(better || moreLine, s.code).toBe(true)

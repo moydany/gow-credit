@@ -1,7 +1,7 @@
 /**
- * Una entrada del perfil mientras se calcula. El perfil completo se valida contra
- * `ProfileFeatures` al final (`buildProfile`), así que un tipo equivocado aquí truena en los
- * tests en lugar de llegar al motor.
+ * A profile entry while it is being computed. The full profile is validated against
+ * `ProfileFeatures` at the end (`buildProfile`), so a wrong type here fails in tests instead of
+ * reaching the engine.
  */
 import type { FeatureName, Provenance, Verification } from '@gow/contracts'
 
@@ -37,7 +37,7 @@ export function known(value: unknown, meta: EntryMeta = {}): Entry {
   }
 }
 
-/** Desconocido: `value: null` y la razón en `note` (docs/03, cambios de la fase 1). */
+/** Unknown: `value: null` and the reason in `note`. */
 export function unknown(note: string, provenance: Provenance = 'extracted'): Entry {
   return { value: null, confidence: 0, verification: 'unverified', provenance, evidence: [], note }
 }
@@ -48,7 +48,7 @@ export function worst(...vs: Verification[]): Verification {
   return vs.reduce<Verification>((a, b) => (RANK[b] > RANK[a] ? b : a), 'verified')
 }
 
-/** Procedencia de un valor combinado: la respuesta de una persona pesa más que lo extraído. */
+/** Provenance of a combined value: a person's answer outweighs what was extracted. */
 export function combinedProvenance(ps: Iterable<Provenance>): Provenance {
   let out: Provenance = 'extracted'
   for (const p of ps) {

@@ -1,7 +1,7 @@
 /**
- * Textos de `reasons` para el analista del tenant, en español. Las cifras salen del motor tal
- * cual; la redacción para el proveedor (`next_steps.message`) la hace Claude en la fase 5 con
- * el filtro de cifras de docs/04 §4.
+ * `reasons` texts for the tenant's analyst, in Spanish. Figures come from the engine as they are;
+ * the supplier-facing wording (`next_steps.message`) is written by Claude and passes the figure
+ * filter.
  */
 import type { AskTopic, DecisionStatus, FeatureName } from '@gow/contracts'
 import type { ExclusionReason } from './conditions.ts'
@@ -43,7 +43,7 @@ export const ASK_TEXT: Record<AskTopic, string> = {
   account_use: 'saber si la cuenta también es personal',
 }
 
-/** Código estable a partir de un id de la política (que admite `-` y `.`). */
+/** Stable code from a policy id (which allows `-` and `.`). */
 export function codeOf(...parts: string[]): string {
   return parts
     .join('_')

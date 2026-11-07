@@ -1,12 +1,11 @@
 /**
- * Línea máxima sin monto solicitado (docs/07 A: "sin monto ni comprador, la salida es línea
- * máxima y perfil"; ADR 0015). Es el mayor monto que, pedido, la política aprobaría: la
- * dimensión de capacidad compara ingresos contra el monto, así que a más monto, menos puntaje
- * y una banda igual o peor. Se busca por bisección en centavos sobre la misma política.
+ * Maximum line with no requested amount: the largest amount the policy would approve if asked.
+ * The capacity dimension compares income to the amount, so more amount means less score and an
+ * equal or worse band. Found by bisection in cents over the same policy.
  *
- * Las compuertas que piden aclaración no la anulan: se reportan como condiciones
- * (`conditional_on`). Una compuerta que rechaza o manda a revisión, o un resultado que depende
- * de datos dudosos, sí: entonces no hay línea máxima que ofrecer.
+ * Gates that ask for clarification do not void it: they are reported as conditions
+ * (`conditional_on`). A gate that rejects or sends to review, or a result that depends on
+ * doubtful data, does: then there is no maximum line to offer.
  */
 import type { FinalDecisionStatus, MaxLine, Policy, Profile, StatementAgeSetting } from '@gow/contracts'
 import { withFeatures } from './engine/counterfactuals.ts'
@@ -38,7 +37,7 @@ export function maxLine(policy: Policy, profile: Profile, opts: { statementAge?:
 
   const first = probe(MIN_AMOUNT)
   if (!first.ok || first.limit === null) return null
-  // A más monto, línea igual o menor: la línea de la solicitud mínima acota la búsqueda.
+  // More amount, equal or smaller line: the minimum request's line bounds the search.
   let lo = Math.round(MIN_AMOUNT * 100)
   let hi = Math.round(first.limit * 100)
   if (probe(hi / 100).ok) lo = hi

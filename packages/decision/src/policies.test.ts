@@ -1,6 +1,6 @@
 /**
- * Las políticas de ejemplo de policies/examples/ son válidas, y la de evaluación standalone solo
- * cambia lo que dice: identidad que no se puede comparar no bloquea; una que no coincide, sí.
+ * The example policies in policies/examples/ are valid, and the standalone evaluation one only
+ * changes what it says: an identity that cannot be compared does not block; one that mismatches does.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { emptyExternalSnapshot, parsePolicy, type ApplicationRequest, type DocumentFlag, type ExternalSnapshot, type Issue, type Policy, type StatementExtraction } from '@gow/contracts'
@@ -28,7 +28,7 @@ describe('políticas de ejemplo', () => {
     expect(load(file).version).toBeGreaterThan(0)
   })
 
-  it('evaluación standalone: es la base sin la compuerta de antigüedad (ADR 0052: ninguna compara identidad; ADR 0054: la antigüedad no decide)', () => {
+  it('evaluación standalone: es la base sin la compuerta de antigüedad (ninguna compara identidad; la antigüedad no decide)', () => {
     const policy = load('standalone-evaluation.v1.json')
     const base = basePolicyTemplate()
     expect({ ...policy, name: base.name, description: base.description }).toEqual({ ...base, gates: base.gates.filter((g) => g.id !== 'doc_recent') })
@@ -53,7 +53,7 @@ describe('políticas de ejemplo', () => {
   })
 })
 
-describe('robustez documental en las políticas (ADR 0058)', () => {
+describe('robustez documental en las políticas', () => {
   const policies: [string, Policy][] = [
     ['plantilla base', basePolicyTemplate()],
     ['evaluación standalone', load('standalone-evaluation.v1.json')],
@@ -63,7 +63,7 @@ describe('robustez documental en las políticas (ADR 0058)', () => {
   const spec = { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 40000 }] }
   const issue = (code: Issue['code'], extra: Partial<Issue> = {}): Issue => ({ id: 'i1', code, severity: 'warning', message: 'problema de prueba', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: {}, ...extra })
 
-  /** Un estado de cuenta con lo que dejaría la extracción: banderas y problemas puestos a mano. */
+  /** A statement with what extraction would leave: flags and issues set by hand. */
   function withSignals(flags: DocumentFlag[], issues: Issue[], reconciled = true): StatementExtraction {
     const s = syntheticStatement({ ...spec, reconciled }, holder, `sig-${flags.join('-')}-${String(reconciled)}`)
     return { ...s, flags: [...s.flags, ...flags], issues }
@@ -112,7 +112,7 @@ describe('robustez documental en las políticas (ADR 0058)', () => {
   })
 })
 
-describe('estado de cuenta con domicilio (ADR 0066)', () => {
+describe('estado de cuenta con domicilio', () => {
   const spec = { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment' as const, amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment' as const, amount: 40000 }] }
   const statement = (address: string | null) => syntheticStatement(spec, { ...holder, address }, `dom-${String(address)}`)
   const run = (policy: Policy, s: StatementExtraction) => decide({ policy, statements: [s], request, supplier: null, external: noCredits, computedAt: AT }).decision

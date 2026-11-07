@@ -1,11 +1,11 @@
 /**
- * Contrafactuales para `next_steps` (docs/03 §6): qué cambio en una feature, con todo lo demás
- * igual, movería el resultado sobre la misma política. Es el "motor de segunda oportunidad":
- * "con 3 meses de historial el tope desaparece", "al corriente en tu crédito vuelves a calificar".
+ * Counterfactuals for `next_steps`: which change in a feature, everything else equal, would move
+ * the result under the same policy. The "second chance" engine: "with 3 months of history the cap
+ * goes away", "current on your loan you qualify again".
  *
- * Cada candidato se verifica re-evaluando el perfil modificado: el `to` de un next step (estado,
- * puntaje y línea) es exactamente lo que daría el motor (lo comprueba un test de propiedades). Un
- * candidato cuenta solo si mejora el estado o, con un estado que califica, sube la línea (ADR 0056).
+ * Each candidate is verified by re-evaluating the modified profile: a next step's `to` (status,
+ * score and line) is exactly what the engine would give (checked by a property test). A candidate
+ * counts only if it improves the status or, for a qualifying status, raises the line.
  */
 import { FEATURE_CATALOG, type FeatureName, type NextStep, type Policy, type Profile } from '@gow/contracts'
 import type { z } from 'zod'
@@ -21,14 +21,14 @@ export interface FeatureChange {
   value: unknown
 }
 
-/** Features que se mueven juntas: quedar al corriente es cero días de atraso y cero monto vencido; el PDF completo cuadra. */
+/** Features that move together: being current is zero days late and zero overdue amount; the full PDF balances. */
 const COMPANIONS: Readonly<Partial<Record<FeatureName, readonly FeatureChange[]>>> = {
   existing_exposure_days_past_due: [{ feature: 'existing_exposure_past_due_amount', value: 0 }],
-  // Con el PDF completo el cuadre deja de fallar por las páginas que faltaban (ADR 0058).
+  // With the full PDF the balance check stops failing on the missing pages.
   document_pages_missing: [{ feature: 'integrity_ok', value: true }],
 }
 
-/** Copia del perfil con features cambiadas, verificadas y con confianza 1. No muta el original. */
+/** Copy of the profile with changed features, verified and with confidence 1. Does not mutate the original. */
 export function withFeatures(profile: Profile, changes: readonly FeatureChange[]): Profile {
   const features = { ...profile.features } as Record<FeatureName, unknown>
   for (const c of changes) {
@@ -40,7 +40,7 @@ export function withFeatures(profile: Profile, changes: readonly FeatureChange[]
 interface Candidate {
   code: string
   changes: FeatureChange[]
-  /** Prioridad para ordenar empates: compuertas, luego topes, luego dimensiones. */
+  /** Tie-break priority: gates, then caps, then dimensions. */
   priority: number
 }
 
@@ -62,7 +62,7 @@ function withCompanions(feature: FeatureName, value: unknown): FeatureChange[] {
 
 const GATE_SEVERITY = { not_qualified: 0, human_review: 1, needs_clarification: 2, none: 3 } as const
 
-/** Lo que haría pasar todas las compuertas que hoy bloquean, de la más grave a la menos. */
+/** What would pass every gate that blocks today, from the most severe to the least. */
 function gateFixes(policy: Policy, base: Core): FeatureChange[] {
   const out: FeatureChange[] = []
   const blocking = base.gates.filter((g) => g.effect !== 'none').sort((a, b) => GATE_SEVERITY[a.effect] - GATE_SEVERITY[b.effect])
@@ -75,7 +75,7 @@ function gateFixes(policy: Policy, base: Core): FeatureChange[] {
   return out
 }
 
-/** Topes y dimensiones, medidos sobre el resultado que quedaría con las compuertas ya resueltas. */
+/** Caps and dimensions, measured on the result with the gates already resolved. */
 function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candidate[] {
   const out: Candidate[] = []
   for (const c of after.caps) {
@@ -100,7 +100,7 @@ function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candida
     }
     const rel = numberOf(profile, d.relativeTo)
     if (rel !== null && rel > 0) out.push({ code: codeOf('improve', d.id), changes: [{ feature: d.feature, value: roundToward(d.feature, ratio * rel, up) }], priority: 2 })
-    // Pedir menos también sube la capacidad: monto / razón objetivo.
+    // Asking for less also raises capacity: amount / target ratio.
     const main = numberOf(profile, d.feature)
     if (d.relativeTo === 'requested_amount' && !d.inverse && main !== null && main > 0 && ratio > 0) {
       out.push({ code: 'reduce_requested_amount', changes: [{ feature: 'requested_amount', value: roundToward('requested_amount', main / ratio, false) }], priority: 3 })
@@ -110,9 +110,10 @@ function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candida
 }
 
 /**
- * Mejor estado, o el mismo estado que califica con más línea (ADR 0056). Ya no se mira la banda del
- * puntaje: un tope puede dejar estado y línea idénticos aunque el puntaje suba de banda, y decirle al
- * proveedor que pasaría "de califica con límite a califica con límite" no le sirve. Sin línea es 0.
+ * Better status, or the same qualifying status with a bigger line. The score band is not
+ * considered: a cap can leave status and line identical even if the score moves up a band, and
+ * telling the supplier they would go "de califica con límite a califica con límite" is useless.
+ * No line counts as 0.
  */
 function improves(base: Core, to: Core): boolean {
   const a = DECISION_STATUS_RANK[base.status]
@@ -121,7 +122,7 @@ function improves(base: Core, to: Core): boolean {
   return b > a || (b === a && qualifies && (to.limit ?? 0) > (base.limit ?? 0))
 }
 
-/** Si el redondeo dejó el objetivo un paso corto, se intenta un paso más. */
+/** If rounding left the target one step short, try one more step. */
 function nudge(c: Candidate): Candidate | null {
   const [main, ...rest] = c.changes
   if (!main || typeof main.value !== 'number' || c.priority < 2) return null
@@ -131,10 +132,10 @@ function nudge(c: Candidate): Candidate | null {
 }
 
 /**
- * Cuando hay compuertas que bloquean, un cambio aislado casi nunca mueve el estado. Por eso el
- * primer paso es pasar todas las compuertas juntas (`pass_gates`), y cada tope o dimensión se
- * mide sobre ese resultado: sus `related` incluyen las compuertas, así que `to` sigue siendo
- * exactamente lo que da el motor con todos esos cambios.
+ * With blocking gates, an isolated change almost never moves the status. So the first step is to
+ * pass all gates together (`pass_gates`), and each cap or dimension is measured on that result:
+ * its `related` includes the gates, so `to` is still exactly what the engine gives with all those
+ * changes.
  */
 export function counterfactuals(policy: Policy, profile: Profile, base: Core, opts: CoreOptions, max = 5): NextStepOut[] {
   const fixes = gateFixes(policy, base)
@@ -144,7 +145,7 @@ export function counterfactuals(policy: Policy, profile: Profile, base: Core, op
 
   for (const c0 of scoreCandidates(policy, profile, afterGates)) {
     let c: Candidate = { ...c0, changes: [...c0.changes, ...fixes.filter((f) => !c0.changes.some((x) => x.feature === f.feature))] }
-    // Debe mejorar lo que queda tras las compuertas y no quedar peor que el estado actual.
+    // Must improve what is left after the gates and not end up worse than the current status.
     const useful = (t: Core) => improves(afterGates, t) && improves(base, t)
     let to = evaluateCore(policy, withFeatures(profile, c.changes), opts)
     if (!useful(to)) {

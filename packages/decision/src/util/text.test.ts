@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { compareName } from '../features/statement.ts'
 import { editDistance, nameSimilarity, sameNameToken } from './text.ts'
 
-describe('comparación de nombres con acentos y typos (ADR 0040)', () => {
+describe('comparación de nombres con acentos y typos', () => {
   it('acentos, mayúsculas, puntuación y sufijos societarios no cuentan', () => {
     expect(compareName('COMERCIALIZADORA ÑANDÚ, S.A. DE C.V.', 'Comercializadora Nandu SA de CV')).toBe('match')
     expect(compareName('José Pérez Gómez', 'JOSE PEREZ GOMEZ')).toBe('match')
@@ -11,7 +11,7 @@ describe('comparación de nombres con acentos y typos (ADR 0040)', () => {
   it('un typo por palabra se tolera desde 5 letras', () => {
     expect(compareName('Comercialisadora del Norte', 'Comercializadora del Norte')).toBe('match')
     expect(compareName('Distribuidroa Nandu', 'Distribuidora Nandu')).toBe('match')
-    // Una sola palabra significativa: antes un typo daba mismatch y tumbaba el cotejo aunque el RFC coincidiera.
+    // A single significant word: a typo used to give a mismatch and sink the match even if the RFC agreed.
     expect(compareName('Comercialisadora SA de CV', 'Comercializadora SA de CV')).toBe('match')
   })
 

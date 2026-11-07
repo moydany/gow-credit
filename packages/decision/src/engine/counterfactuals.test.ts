@@ -7,7 +7,7 @@ import { evaluate } from './evaluate.ts'
 
 type Values = Parameters<typeof sampleProfile>[0]
 
-/** Perfil sano para la política base (puntaje 100, sin topes). */
+/** Healthy profile for the base policy (score 100, no caps). */
 const HEALTHY: Values = {
   document_age_days: 10,
   identity_match: 'match',
@@ -31,15 +31,15 @@ function profile(values: Values = {}, meta: Partial<Record<FeatureName, { verifi
   return p
 }
 
-/** Un paso que no le cambia nada al proveedor: mismo estado y la línea no sube. */
+/** A step that changes nothing for the supplier: same status and the line does not go up. */
 const changesNothing = (s: { from: { status: string; limit: number | null }; to: { status: string; limit: number | null } }) => s.from.status === s.to.status && (s.to.limit ?? 0) <= (s.from.limit ?? 0)
 
-describe('contrafactuales: cuentan solo si cambian el estado o suben la línea (ADR 0056)', () => {
+describe('contrafactuales: cuentan solo si cambian el estado o suben la línea', () => {
   const base = basePolicyTemplate()
 
-  // Un mes de historia (tope en "califica con límite") y un puntaje de 66.5, de la banda de 25 %. Mejorar
-  // los pagos del comprador sube el puntaje a la banda "califica", pero el tope deja el estado y la
-  // línea exactamente igual: antes se proponía igual ("de califica con límite a califica con límite").
+  // One month of history (cap at "califica con límite") and a score of 66.5, in the 25% band.
+  // Improving buyer payments lifts the score to the "califica" band, but the cap leaves status and
+  // line exactly the same: it used to be proposed anyway ("de califica con límite a califica con límite").
   const capped = profile({ months_of_history: 1, operating_income_monthly: 150000, buyer_payments_count: 1 })
 
   it('un puntaje que cambia de banda con un tope que deja estado y línea iguales no es un paso', () => {
@@ -47,7 +47,7 @@ describe('contrafactuales: cuentan solo si cambian el estado o suben la línea (
     expect([d.status, d.score, d.band?.index, d.limit]).toEqual(['qualified_with_limit', 66.5, 1, 37500])
     expect(d.next_steps.filter(changesNothing)).toEqual([])
     expect(d.next_steps.map((s) => s.feature)).not.toContain('buyer_payments_count')
-    // Lo que se proponía antes sí sube la banda del puntaje y no cambia nada para el proveedor.
+    // What used to be proposed does raise the score band and changes nothing for the supplier.
     const buyer2 = evaluate(base, withFeatures(capped, [{ feature: 'buyer_payments_count', value: 2 }]), { counterfactuals: false })
     expect([buyer2.band?.index, buyer2.status, buyer2.limit]).toEqual([0, 'qualified_with_limit', 37500])
   })
@@ -63,8 +63,8 @@ describe('contrafactuales: cuentan solo si cambian el estado o suben la línea (
   })
 
   it('el mismo estado con más línea sí cuenta', () => {
-    // Dos bandas que califican: la de arriba da 50 % y la de abajo 20 %. Subir el ingreso mueve el
-    // puntaje a la banda de arriba y la línea sube sin cambiar el estado.
+    // Two qualifying bands: the upper gives 50% and the lower 20%. Raising income moves the score
+    // to the upper band and the line goes up without changing status.
     const raw = structuredClone(base)
     raw.decision.caps = []
     raw.decision.bands = [
@@ -80,7 +80,7 @@ describe('contrafactuales: cuentan solo si cambian el estado o suben la línea (
     if (!step) throw new Error('sin paso improve_capacity')
     expect(step).toMatchObject({ from: { status: 'qualified', limit: 30000 }, to: { status: 'qualified' } })
     expect(step.to.limit).toBeGreaterThan(30000)
-    // Lo que anuncia es lo que da el motor.
+    // What it announces is what the engine gives.
     const to = evaluate(policy, withFeatures(p, [{ feature: step.feature, value: step.target_value }, ...step.related.map((r) => ({ feature: r.feature, value: r.target_value }))]), { counterfactuals: false })
     expect({ status: to.status, score: to.score, limit: to.limit }).toEqual(step.to)
   })

@@ -7,6 +7,6 @@ export interface StatementContext {
   supplier: SupplierIdentity | null
   params: ProfileParameters
   asOfDay: number
-  /** El comprador lo dijo el dueño al aclarar; la solicitud no lo traía (ADR 0050). */
+  /** The buyer was stated by the owner when clarifying; the request had none. */
   buyerDeclared?: boolean
 }

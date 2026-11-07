@@ -1,12 +1,12 @@
 /**
- * `decide`: profile + engine + the docs/03 §7 rule at movement and request level. We only ask the
+ * `decide`: profile + engine + the question rule at movement and request level. We only ask the
  * supplier what could change the band: rebuild the profile with the most favorable answer (the
  * least favorable for account use) and compare.
  *
  * - Large deposits not classified with confidence (or loans with medium confidence): customer payments?
- * - Large doubtful charges (ADR 0050), mostly debt payments with low confidence: own-account transfers?
- * - Main buyer (ADR 0050), when the request has none: do their payments show up?
- * - Account use (ADR 0050), for individuals: is the account also personal?
+ * - Large doubtful charges, mostly debt payments with low confidence: own-account transfers?
+ * - Main buyer, when the request has none: do their payments show up?
+ * - Account use, for individuals: is the account also personal?
  *
  * Foreign-currency accounts are never mixed with pesos: the request goes to human review.
  * Still pure: no LLM, no database.
@@ -32,10 +32,10 @@ import { evidenceRef, type Ledger, type LedgerRow } from './ledger.ts'
 import { buildProfileWithLedger, type ProfileInput } from './profile.ts'
 import { sumMoney } from './util/num.ts'
 
-/** A deposit classified as a loan below this confidence is also asked about (docs/03 §7). */
+/** A deposit classified as a loan below this confidence is also asked about. */
 export const LOAN_CONFIDENCE_TO_TRUST = 0.9
 /**
- * A charge taken as a debt payment below this confidence is asked about (ADR 0050). It equals
+ * A charge taken as a debt payment below this confidence is asked about. It equals
  * `CONTRADICTION_CONFIDENCE`: above it, a different answer contradicts the document and is
  * ignored, so asking would be pointless.
  */
@@ -48,7 +48,7 @@ export interface DecideInput extends ProfileInput {
   policy: Policy
   policyId?: string | null
   clarificationRoundsUsed?: number
-  /** Tenant setting (ADR 0049): an old document warns instead of asking for a new one. */
+  /** Tenant setting: an old document warns instead of asking for a new one. */
   statementAge?: StatementAgeSetting
 }
 
@@ -148,8 +148,8 @@ function reclassified(statements: readonly StatementExtraction[], rows: readonly
 
 /**
  * Status and limit band from the score and its caps, without gates: what a movement can change.
- * A final verdict worse than the band (no available line) counts too (ADR 0050), since a doubtful
- * charge usually moves the limit, not the score.
+ * A final verdict worse than the band (no available line) counts too, since a doubtful charge
+ * usually moves the limit, not the score.
  */
 function scoreOutcome(policy: Policy, d: Decision): { status: FinalDecisionStatus; band: number } {
   const band = d.band
@@ -183,8 +183,8 @@ function changed(profile: Profile, best: Profile, features: readonly (keyof Prof
 }
 
 /**
- * Profile with the main buyer identified (ADR 0050): their payments meet the policy's target, so
- * the dimension gets full points and the "no payments" cap doesn't apply.
+ * Profile with the main buyer identified: their payments meet the policy's target, so the
+ * dimension gets full points and the "no payments" cap doesn't apply.
  */
 function withBuyerPayments(policy: Policy, profile: Profile): Profile {
   const target = Math.max(1, ...policy.score.dimensions.filter((d) => d.feature === 'buyer_payments_count').map((d) => Math.ceil(Math.max(d.fullAt, d.zeroAt))))
@@ -206,7 +206,7 @@ interface Ctx {
   profileOf: (statements: readonly StatementExtraction[], d?: OwnerDeclarations) => Profile
 }
 
-/** Foreign-currency accounts are never mixed with pesos: unless a gate already rejects, a person reviews (ADR 0050). */
+/** Foreign-currency accounts are never mixed with pesos: unless a gate already rejects, a person reviews. */
 function foreignCurrencyResult(input: DecideInput, base: Decision, ledger: Ledger): DecideResult | null {
   const foreign = foreignCurrencyAccounts(input.statements)
   if (foreign.length === 0 || base.evaluation.gates.some((g) => g.effect === 'not_qualified')) return null
@@ -323,7 +323,7 @@ function movementAsks(c: Ctx): Ask[] {
 /**
  * Main buyer: a request without a buyer leaves the buyer dimension at zero and applies a cap.
  * Ask if the buyer's payments, once found, would move the band. Without a request there is no
- * invoice to advance, so the buyer is not evaluated by design (ADR 0045).
+ * invoice to advance, so the buyer is not evaluated by design.
  */
 function buyerAsk(c: Ctx): Ask | null {
   const { input, profile, ledger, base, declarations, from, outcomeOf } = c

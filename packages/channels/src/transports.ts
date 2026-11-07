@@ -1,10 +1,10 @@
 /**
- * Transportes de salida. El adaptador no recibe destinatarios de nadie más que del buzón
- * (`outbound_messages`), que copia el destino del vínculo verificado (docs/05 §2b).
+ * Outbound transports. Recipients come only from the outbox (`outbound_messages`), which copies
+ * the address of the verified link.
  *
- * - `ResendEmailTransport`: API REST de Resend con fetch (sin SDK).
- * - WhatsApp (Baileys) vive en apps/whatsapp, el único proceso con la sesión.
- * - `SimulatedTransport`: los escenarios; guarda lo enviado para que el guion conteste.
+ * - `ResendEmailTransport`: Resend REST API over fetch (no SDK).
+ * - WhatsApp (Baileys) lives in apps/whatsapp, the only process holding the session.
+ * - `SimulatedTransport`: scenarios; records what was sent so the script can answer.
  */
 
 export interface OutboundMessage {
@@ -37,7 +37,7 @@ export class ResendEmailTransport implements Transport {
       headers: { authorization: `Bearer ${this.#apiKey}`, 'content-type': 'application/json', 'idempotency-key': message.id },
       body: JSON.stringify({ from: this.#from, to: [message.destination], subject: 'Aclaración sobre tu solicitud', text: message.body }),
     })
-    // Sin el cuerpo de la respuesta en el error: podría traer el destinatario.
+    // Response body left out of the error: it could contain the recipient.
     if (!res.ok) throw new Error(`Resend respondió ${String(res.status)}`)
     const json = (await res.json()) as { id?: string }
     return { externalId: json.id ?? null }

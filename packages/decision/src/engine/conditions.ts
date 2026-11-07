@@ -1,6 +1,6 @@
 /**
- * Condiciones del DSL de política (docs/03 §4) y lectura de features del perfil. Matching
- * exhaustivo sobre `op`: un operador nuevo en el contrato no compila hasta tener su caso aquí.
+ * Policy DSL conditions and profile feature reads. Exhaustive match on `op`: a new operator in
+ * the contract does not compile until it has a case here.
  */
 import { FEATURE_CATALOG, featureEnumValues, type Condition, type ConditionOp, type FeatureName, type Profile } from '@gow/contracts'
 import type { z } from 'zod'
@@ -10,14 +10,14 @@ export type ExclusionReason = z.infer<typeof ExclusionReasonSchema>
 
 export interface FeatureRead {
   value: unknown
-  /** Por qué no se puede usar para decidir; null si se puede. */
+  /** Why it cannot be used to decide; null if it can. */
   exclusion: ExclusionReason | null
   confidence: number
 }
 
 /**
- * Lee una feature para decidir (docs/04 §5): desconocida si es null; excluida si no está
- * verificada o está en conflicto; con `minConfidence`, excluida si la confianza no alcanza.
+ * Reads a feature for deciding: unknown if null; excluded if not verified or in conflict; with
+ * `minConfidence`, excluded if confidence falls short.
  */
 export function readFeature(profile: Profile, name: FeatureName, minConfidence: number | null = null): FeatureRead {
   const f = profile.features[name] as { value: unknown; verification: string; confidence: number }
@@ -33,7 +33,7 @@ function asNumber(v: unknown): number {
   return v
 }
 
-/** ¿Se cumple la condición con este valor (no nulo)? */
+/** Does the (non-null) value meet the condition? */
 export function checkCondition(cond: Condition, value: unknown): boolean {
   const op: ConditionOp = cond.op
   switch (op) {
@@ -60,15 +60,15 @@ export function checkCondition(cond: Condition, value: unknown): boolean {
   }
 }
 
-/** Paso mínimo de una feature numérica: 1 para enteros, un centavo para montos, 0.0001 para razones. */
+/** Minimum step of a numeric feature: 1 for integers, one cent for amounts, 0.0001 for ratios. */
 export function stepOf(name: FeatureName): number {
   const kind = FEATURE_CATALOG[name].kind
   return kind === 'int' ? 1 : kind === 'money' ? 0.01 : 0.0001
 }
 
 /**
- * El valor más cercano que cumple la condición, para los contrafactuales. `undefined` cuando
- * no hay un valor único que proponer (`!=`, `not_empty`).
+ * The closest value that meets the condition, for counterfactuals. `undefined` when there is no
+ * single value to propose (`!=`, `not_empty`).
  */
 export function satisfyingValue(cond: Condition): unknown {
   const step = stepOf(cond.feature)
@@ -97,7 +97,7 @@ export function satisfyingValue(cond: Condition): unknown {
   }
 }
 
-/** La condición contraria: un tope deja de aplicar cuando su condición deja de cumplirse. */
+/** The opposite condition: a cap stops applying when its condition stops being met. */
 export function negate(cond: Condition): Condition {
   const inverse: Record<ConditionOp, ConditionOp> = { '<': '>=', '<=': '>', '>': '<=', '>=': '<', '==': '!=', '!=': '==', in: 'not_in', not_in: 'in', empty: 'not_empty', not_empty: 'empty' }
   return { ...cond, op: inverse[cond.op] }

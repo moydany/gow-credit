@@ -1,7 +1,7 @@
 /**
- * Firma de webhooks de Resend (Svix; docs/05 §5): HMAC-SHA256 de `id.timestamp.cuerpo` con el
- * secreto `whsec_...` en base64, ventana de tiempo contra replay y comparación en tiempo constante.
- * Sin dependencia: es una función de 20 líneas y así no entra otro paquete a la cadena de suministro.
+ * Resend webhook signature (Svix): HMAC-SHA256 over `id.timestamp.body` with the base64 `whsec_...`
+ * secret, a time window against replay, and constant-time comparison. No dependency: it is ~20
+ * lines and keeps another package out of the supply chain.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
@@ -24,7 +24,7 @@ export function verifySvix(secret: string, headers: SvixHeaders, body: string, n
   const ts = Number(timestamp)
   if (!Number.isInteger(ts) || Math.abs(nowSeconds - ts) > SVIX_TOLERANCE_SECONDS) return false
   const expected = Buffer.from(signSvix(secret, id, ts, body))
-  // El encabezado trae una o varias firmas "v1,<base64>" separadas por espacio (rotación de secretos).
+  // The header carries one or more "v1,<base64>" signatures, space-separated (secret rotation).
   return signature.split(' ').some((part) => {
     const [version, sig] = part.split(',')
     if (version !== 'v1' || !sig) return false

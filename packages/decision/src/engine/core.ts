@@ -4,9 +4,9 @@
  *
  * Status precedence:
  *   1. Gates: not_qualified > human_review > needs_clarification. While a gate asks for missing
- *      pages, the integrity gate waits for the full document (ADR 0058).
+ *      pages, the integrity gate waits for the full document.
  *   2. If a doubtful feature (unverified, conflicting, low confidence) could change the band,
- *      don't decide with it: ask the supplier, or send it to human review (docs/04 §5).
+ *      don't decide with it: ask the supplier, or send it to human review.
  *   3. Band from the score, lowered by caps.
  *   4. Limit from `limitFormula`; zero or less means not qualified.
  *   5. With no clarification rounds left, needs_clarification becomes human_review.
@@ -50,7 +50,7 @@ export const DECISION_STATUS_RANK: Readonly<Record<DecisionStatus, number>> = {
 
 /**
  * What we can ask the supplier when a feature isn't enough to decide. Income features are cleared
- * by asking about deposits, debt service by asking about charges (ADR 0050).
+ * by asking about deposits, debt service by asking about charges.
  */
 export const FEATURE_ASK: Readonly<Partial<Record<FeatureName, AskTopic>>> = {
   operating_income_monthly: 'deposit_classification',
@@ -128,7 +128,7 @@ export interface CoreOptions {
 }
 
 /**
- * Missing pages break the balance for the same reason: the document is incomplete (ADR 0058).
+ * Missing pages break the balance for the same reason: the document is incomplete.
  * While a gate asks for the pages, an `integrity_ok` gate that would go to human review waits.
  * If the full PDF still doesn't balance, the gate fails again. Older policies are unaffected.
  */
@@ -228,7 +228,7 @@ function evaluateCap(c: Policy['decision']['caps'][number], index: number, profi
 
 /**
  * Score, band and caps. With `optimistic`, dimensions excluded for doubt (not for missing data)
- * get full points and caps on doubtful data don't apply: the best case docs/04 §5 allows.
+ * get full points and caps on doubtful data don't apply: the best case a doubt allows.
  */
 function scoreProfile(policy: Policy, profile: Profile, optimistic: boolean): Scored {
   const uncertain: Uncertain[] = []
@@ -360,7 +360,7 @@ function gateReasons(profile: Profile, gates: ReturnType<typeof evaluateGates>):
 
 const dimensionFeatures = (d: DimensionEval): FeatureName[] => (d.relative_to ? [d.feature, d.relative_to] : [d.feature])
 
-/** Dimensions that add no points: no data, or doubtful data (ADR 0045). */
+/** Dimensions that add no points: no data, or doubtful data. */
 function unusedDimensionReasons(policy: Policy, profile: Profile, scored: Scored): ReasonOut[] {
   const reasons: ReasonOut[] = []
   for (const d of scored.dimensions) {
@@ -377,7 +377,7 @@ function unusedDimensionReasons(policy: Policy, profile: Profile, scored: Scored
   return reasons
 }
 
-/** Dimensions with data that score under half their weight (ADR 0045). */
+/** Dimensions with data that score under half their weight. */
 function lowDimensionReasons(policy: Policy, scored: Scored): ReasonOut[] {
   const reasons: ReasonOut[] = []
   for (const d of scored.dimensions) {
@@ -444,7 +444,7 @@ function gateOutcome(status: ReturnType<typeof worstGate> & string, gates: Retur
   const topics = new Set<AskTopic>()
   if (status === 'needs_clarification') {
     for (const e of gates.effects) if (e.ask) topics.add(e.ask)
-    // One round only (docs/03 §7): anything else we can ask goes in the same one.
+    // One round only: anything else we can ask goes in the same one.
     if (sensitive) uncertainTopics(scored).forEach((t) => topics.add(t))
   }
   return { status, limit: null, topics, reasons: [] }
@@ -563,7 +563,7 @@ function limitFeatures(t: LimitTerm | null): FeatureName[] {
   }
 }
 
-/** Which term sets the limit. `existing_exposure` is the code the docs/06 scenarios expect. */
+/** Which term sets the limit. `existing_exposure` is the code the scenarios expect. */
 function limitReason(profile: Profile, lim: LimitResult): ReasonOut {
   const t = lim.binding as LimitTerm
   const value = fmt(lim.value)

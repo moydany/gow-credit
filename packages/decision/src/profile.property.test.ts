@@ -1,5 +1,5 @@
 /**
- * Propiedades del cálculo del perfil sobre estados sintéticos con flujos al azar.
+ * Profile computation properties over synthetic statements with random flows.
  */
 import type { StatementExtraction, SyntheticFlowKind } from '@gow/contracts'
 import fc from 'fast-check'
@@ -28,7 +28,7 @@ const profileOf = (s: StatementExtraction) => buildProfile({ statements: [s], re
 const MONTHLY = ['months_of_history', 'operating_income_monthly', 'operating_expenses_monthly', 'debt_service_monthly', 'free_cash_flow_monthly', 'payment_capacity_pct', 'debt_capacity', 'avg_daily_balance', 'low_balance_days', 'income_trend', 'new_debt_in_period'] as const
 
 describe('propiedades del perfil', () => {
-  it('ADR 0006: un periodo impreso o uno por mes dan las mismas features', () => {
+  it('un periodo impreso o uno por mes dan las mismas features', () => {
     fc.assert(
       fc.property(specArb, (spec) => {
         const single = profileOf(syntheticStatement({ ...spec, periods: 'single' }, holder, 'x'))
@@ -40,7 +40,7 @@ describe('propiedades del perfil', () => {
     )
   })
 
-  it('ADR 0009: agregar traspasos internos no cambia ingresos, gastos ni flujo', () => {
+  it('agregar traspasos internos no cambia ingresos, gastos ni flujo', () => {
     fc.assert(
       fc.property(specArb, fc.integer({ min: 1, max: 1_000_000 }), (spec, amount) => {
         const s = syntheticStatement(spec, holder, 'x')

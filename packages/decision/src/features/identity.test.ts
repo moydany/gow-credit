@@ -2,11 +2,11 @@ import { rfcRoot } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
 import { compareRfc } from './statement.ts'
 
-// RFCs inventados con fecha válida; el dígito verificador no invalida (se reporta).
+// Made-up RFCs with a valid date; the check digit does not invalidate (it is reported).
 const REGISTERED_INDIVIDUAL = 'PEGJ850301AB4'
 const REGISTERED_COMPANY = 'DNO150304AB1'
 
-describe('RFC sin homoclave (ADR 0043)', () => {
+describe('RFC sin homoclave', () => {
   it('reconoce la raíz de persona física y moral, con fecha válida', () => {
     expect(rfcRoot('pegj 850301')).toBe('PEGJ850301')
     expect(rfcRoot('DNO150304')).toBe('DNO150304')
@@ -18,7 +18,7 @@ describe('RFC sin homoclave (ADR 0043)', () => {
     expect(compareRfc('PEGJ850301', REGISTERED_INDIVIDUAL)).toBe('root')
     expect(compareRfc('DNO150304', REGISTERED_COMPANY)).toBe('root')
     expect(compareRfc('PEGJ850302', REGISTERED_INDIVIDUAL)).toBe('mismatch')
-    // Una raíz de persona física no se compara contra un RFC de persona moral.
+    // A persona física root is not compared against a persona moral RFC.
     expect(compareRfc('PEGJ850301', REGISTERED_COMPANY)).toBeNull()
   })
 

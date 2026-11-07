@@ -1,6 +1,6 @@
 /**
- * Plantilla GOW (docs/03 §4 y §5): cada tenant arranca clonando la política base. El JSON vive
- * en `policies/` para que se lea y se versione como dato, no como código.
+ * GOW template: each tenant starts by cloning the base policy. The JSON lives in `policies/` so
+ * it is read and versioned as data, not code.
  */
 import { parsePolicy, type Policy } from '@gow/contracts'
 import base from '../../../policies/gow-base.v1.json' with { type: 'json' }
@@ -15,12 +15,12 @@ function parsed(json: unknown, name: string): Policy {
 
 const BASE = parsed(base, BASE_POLICY_ID)
 
-/** Copia de la política base: el tenant la modifica sin tocar la plantilla. */
+/** Copy of the base policy: the tenant edits it without touching the template. */
 export function basePolicyTemplate(): Policy {
   return structuredClone(BASE)
 }
 
-/** Clona una política como versión nueva de un tenant (borrador hasta que se activa). */
+/** Clones a policy as a new tenant version (draft until activated). */
 export function clonePolicy(template: Policy, changes: { version?: number; name?: string; description?: string } = {}): Policy {
   return parsed({ ...structuredClone(template), version: changes.version ?? 1, name: changes.name ?? template.name, description: changes.description ?? template.description }, 'política clonada')
 }

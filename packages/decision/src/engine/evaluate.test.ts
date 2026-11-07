@@ -8,7 +8,7 @@ import { evaluate } from './evaluate.ts'
 
 const policy = basePolicyTemplate()
 
-/** La base ya no tiene compuerta de identidad (ADR 0052); las pruebas del motor la agregan para probar `onUnknown` y lo no verificado. */
+/** The base has no identity gate; engine tests add one to exercise `onUnknown` and unverified data. */
 function withIdentityGate() {
   const raw = structuredClone(basePolicyTemplate()) as unknown as { gates: unknown[] }
   raw.gates.splice(1, 0, { id: 'identity', when: { feature: 'identity_match', op: 'in', value: ['match'] }, onFail: { status: 'needs_clarification', ask: 'identity_fields' }, onUnknown: 'ask' })
@@ -19,7 +19,7 @@ function withIdentityGate() {
 
 type Values = Parameters<typeof sampleProfile>[0]
 
-/** Perfil sano para la política base: puntaje 100, sin topes. */
+/** Healthy profile for the base policy: score 100, no caps. */
 const HEALTHY: Values = {
   document_age_days: 10,
   identity_match: 'match',
@@ -245,7 +245,7 @@ describe('plantilla y políticas versionadas', () => {
   })
 })
 
-describe('robustez documental (ADR 0058)', () => {
+describe('robustez documental', () => {
   const TAMPER = ['prompt_injection', 'fiscal_chain_mismatch', 'fiscal_stamp_far_from_period', 'pages_duplicated', 'header_read_conflict'] as const
   const gate = (d: ReturnType<typeof evaluate>, id: string) => d.evaluation.gates.find((g) => g.id === id)
 
@@ -271,7 +271,7 @@ describe('robustez documental (ADR 0058)', () => {
     expect(d.clarification).toBeNull()
     expect(gate(d, 'no_tamper_signals')).toMatchObject({ outcome: 'fail', effect: 'human_review' })
     expect(codes(d)).toContain('gate_no_tamper_signals')
-    // Lo que haría pasar la compuerta: ninguna señal.
+    // What would pass the gate: no signal.
     expect(d.next_steps[0]).toMatchObject({ code: 'pass_gates', feature: 'document_tamper_signals', target_value: [], to: { status: 'qualified' } })
   })
 
@@ -294,7 +294,7 @@ describe('robustez documental (ADR 0058)', () => {
       expect(gate(d, 'integrity')).toMatchObject({ outcome: 'fail', effect: 'none' })
       expect(codes(d)).toContain('gate_integrity_deferred')
       expect(d.reasons.find((r) => r.code === 'gate_integrity_deferred')?.message).toContain('faltan páginas')
-      // Con el documento completo cuadraría: es el paso para el proveedor.
+      // With the complete document it would balance: that is the step for the supplier.
       expect(d.next_steps[0]).toMatchObject({
         code: 'pass_gates',
         feature: 'document_pages_missing',
