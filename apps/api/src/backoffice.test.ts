@@ -410,7 +410,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
 
   it('configuración: los canales del tenant se leen de la sesión, sin WhatsApp vinculado', async () => {
     const b = await login(tokenFor(userB, tenantB, 'b@prestamista.test'))
-    expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null }, analysis: { statement_max_age_months: 3 } })
+    expect((await call('GET', '/settings', { cookie: b })).json).toEqual({ tenant: { id: tenantB, name: 'Fintech B', created_at: expect.any(String) as unknown }, whatsapp: { number: null }, email: { from: null }, analysis: { statement_max_age_months: null } })
   })
 
   it('configuración: la antigüedad máxima del estado de cuenta se cambia, se valida y queda en la bitácora (ADR 0049)', async () => {
@@ -427,10 +427,10 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
       expect((await patch(bad)).status, JSON.stringify(bad)).toBe(400)
     }
     // B no ve ni toca el ajuste de A.
-    expect(((await call('GET', '/settings', { bearer: tokenFor(userB, tenantB, 'b@prestamista.test') })).json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: 3 })
+    expect(((await call('GET', '/settings', { bearer: tokenFor(userB, tenantB, 'b@prestamista.test') })).json as unknown as { analysis: unknown }).analysis).toEqual({ statement_max_age_months: null })
     const log = await q("SELECT actor, details FROM app.audit_log WHERE action = 'settings.updated' AND tenant_id = $1 ORDER BY at", [tenantA])
     expect(log.rows).toEqual([
-      { actor: `user:${userA}`, details: { statement_max_age_months: { from: 3, to: 6 } } },
+      { actor: `user:${userA}`, details: { statement_max_age_months: { from: null, to: 6 } } },
       { actor: `user:${userA}`, details: { statement_max_age_months: { from: 6, to: null } } },
     ])
   })

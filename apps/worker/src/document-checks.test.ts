@@ -49,7 +49,7 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
     await whatsapp.connect()
     store = new PostgresStore({ id: 'gow-test-age', connectionString: tdb.url('mastra'), schemaName: 'mastra' })
     const storage = new LocalDocumentStorage({ root: mkdtempSync(join(tmpdir(), 'gow-dc-')), secret: 's', publicBaseUrl: 'http://x' })
-    // Sin la columna en el INSERT: el tenant toma el valor por defecto (3 meses).
+    // Sin la columna en el INSERT: el tenant toma el valor por defecto (sin límite, ADR 0054).
     await admin.query("INSERT INTO app.tenants (id, name, whatsapp_number) VALUES ($1, 'Fintech Demo', '+5215500000002')", [tenant])
     await admin.query("INSERT INTO app.policies (id, tenant_id, name) VALUES ($1, $2, 'base')", [policyId, tenant])
     await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 1, 'active', $3)", [tenant, policyId, JSON.stringify(basePolicyTemplate())])
@@ -141,8 +141,17 @@ describe.skipIf(!available)('PDF con contraseña y antigüedad del estado de cue
     const decisionsOf = async (appId: string) => (await admin.query<{ kind: string; payload: Decision }>('SELECT kind, payload FROM app.decisions WHERE application_id = $1 ORDER BY created_at', [appId])).rows
     const warned = (d: Decision | undefined) => d?.reasons.some((r) => r.code === DOCUMENT_AGE_WARNING) ?? false
 
-    it('por defecto (3 meses) un estado de 4 meses se analiza normal y la decisión advierte', async () => {
+    it('por defecto no hay límite (ADR 0054): un estado de 4 meses se analiza normal y no advierte', async () => {
+      const stored = await admin.query<{ months: number | null }>('SELECT statement_max_age_months AS months FROM app.tenants WHERE id = $1', [tenant])
+      expect(stored.rows[0]?.months).toBeNull()
       const appId = await application('2027-02-15', 'age-default')
+      expect(await handleProcess(services, { tenant_id: tenant, application_id: appId })).toBe('qualified_with_limit')
+      expect(warned((await decisionsOf(appId))[0]?.payload)).toBe(false)
+    })
+
+    it('con un límite de 3 meses un estado de 4 meses se analiza normal y la decisión advierte (ADR 0049)', async () => {
+      await admin.query('UPDATE app.tenants SET statement_max_age_months = 3 WHERE id = $1', [tenant])
+      const appId = await application('2027-02-15', 'age-three')
       const status = await handleProcess(services, { tenant_id: tenant, application_id: appId })
       expect(status).toBe('qualified_with_limit')
       const [active] = await decisionsOf(appId)

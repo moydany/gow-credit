@@ -37,9 +37,10 @@ export const tenants = app.table('tenants', {
   emailFrom: text('email_from'),
   /**
    * Antigüedad máxima del estado de cuenta en meses (ADR 0049): uno más viejo se analiza igual y el
-   * veredicto lleva una advertencia. NULL = sin límite. Por defecto 3 (los 90 días de la plantilla).
+   * veredicto lleva una advertencia. NULL = sin límite, que es el valor por defecto (ADR 0054): la
+   * antigüedad del documento no decide ni advierte hasta que el tenant fija un límite.
    */
-  statementMaxAgeMonths: integer('statement_max_age_months').default(3),
+  statementMaxAgeMonths: integer('statement_max_age_months'),
   createdAt: createdAt(),
 })
 
