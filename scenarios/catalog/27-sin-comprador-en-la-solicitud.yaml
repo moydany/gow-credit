@@ -1,0 +1,25 @@
+# ADR 0050. Perfil sano de tres meses, pero la solicitud no dice a quién se facturó: la dimensión del
+# comprador no suma y aplica el tope. Si los pagos del cliente principal aparecen, calificaría sin
+# límite: se le pregunta al dueño quién es su cliente principal.
+id: sin-comprador-en-la-solicitud
+catalog: 27
+title: Solicitud sin comprador, se pregunta el cliente principal
+modes: [unit]
+as_of: 2026-10-05
+tenant: { name: Fintech Demo, policy: base }
+suppliers:
+  - id: sup-1
+    name: Distribuidora Sol SA de CV
+    rfc: DSO150304AB1
+    statements:
+      - start: 2026-07-01
+        months: 3
+        opening_balance: 400000
+        monthly:
+          - { kind: customer_payment, amount: 300000, count: 2, counterparty: Cadena Norte SA de CV }
+          - { kind: supplier_payment, amount: 120000 }
+    request: { amount: 100000 }
+expect:
+  status: needs_clarification
+  clarification_topics: [main_buyer]
+  reasons_include: [main_buyer_clarification]

@@ -13,9 +13,9 @@ suppliers:
     name: Comercializadora de Prueba SA de CV
     documents: ["adversarial:inj-movimientos"]
     request: { amount: 50000, maturity: 2026-06-30, buyer: Cadena Norte SA de CV }
+# La identidad no decide (ADR 0052): ya no se pregunta; lo que importa aquí es la extracción.
 expect:
-  status: needs_clarification
-  clarification_topics: [identity_fields]
+  status: not_qualified
   full:
     extraction:
       transactions: 3

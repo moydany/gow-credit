@@ -12,9 +12,9 @@ suppliers:
     name: Proveedor de Prueba HSBC SA de CV
     documents: [EDC_09_HSBC_2026-03.pdf]
     request: { amount: 50000, maturity: 2026-06-30, buyer: Cadena Norte SA de CV }
+# La identidad no decide (ADR 0052): con el titular redactado ya no se pregunta; el perfil no califica.
 expect:
-  status: needs_clarification
-  clarification_topics: [identity_fields]
-  reasons_include: [gate_identity_unknown]
+  status: not_qualified
+  reasons_include: [score_band]
   full:
     extraction: { route: vision_only }
