@@ -302,6 +302,11 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     await q("INSERT INTO app.clarifications (id, tenant_id, application_id, supplier_id, round, channel, questions) VALUES ($1, $2, $3, $4, 1, 'whatsapp', '[]')", [clar, tenantA, app, sup])
     await q("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, clarification_id) VALUES ($1, 'whatsapp', $2, 'hola', $3), ($1, 'whatsapp', '+5215559990000', 'de otro', null)", [tenantA, phone, clar])
     await q("INSERT INTO app.outbound_messages (tenant_id, channel, destination, body, kind) VALUES ($1, 'whatsapp', $2, 'aviso', 'generic')", [tenantA, phone])
+    // Intercambios con el modelo (ADR 0064): de la solicitud, de un mensaje suyo y de un mensaje de otro.
+    const llmRow = "INSERT INTO app.llm_exchanges (tenant_id, application_id, inbound_message_id, purpose, model, schema_name, prompt_version, effort, max_output_tokens, server_fallback, system, instruction, outcome, latency_ms) SELECT $1, $2::uuid, (SELECT id FROM app.inbound_messages WHERE from_address = $3::text), $4, 'm', 's.v1', 'p.v1', 'low', 10, false, 'sys', 'ins', 'ok', 1"
+    await q(llmRow, [tenantA, app, 'ninguno', 'summary'])
+    await q(llmRow, [tenantA, null, phone, 'interpret'])
+    await q(llmRow, [tenantA, null, '+5215559990000', 'interpret'])
     await q("INSERT INTO app.supplier_registrations (tenant_id, channel, address, step, supplier_id) VALUES ($1, 'whatsapp', $2, 'done', $3)", [tenantA, phone, sup])
     const busy = randomUUID()
     await q("INSERT INTO app.applications (id, tenant_id, supplier_id, status) VALUES ($1, $2, $3, 'extracting')", [busy, tenantA, other])
@@ -320,8 +325,10 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(await count('SELECT count(*)::int AS n FROM app.inbound_messages WHERE from_address = $1', [phone])).toBe(0)
     expect(await count('SELECT count(*)::int AS n FROM app.outbound_messages WHERE destination = $1', [phone])).toBe(0)
     expect(await count('SELECT count(*)::int AS n FROM app.supplier_registrations WHERE address = $1', [phone])).toBe(0)
+    expect(await count('SELECT count(*)::int AS n FROM app.llm_exchanges WHERE application_id = $1', [app])).toBe(0)
     // Lo de otros se queda.
     expect(await count('SELECT count(*)::int AS n FROM app.inbound_messages WHERE from_address = $1', ['+5215559990000'])).toBe(1)
+    expect(await count("SELECT count(*)::int AS n FROM app.llm_exchanges WHERE tenant_id = $1 AND purpose = 'interpret'", [tenantA])).toBe(1)
     expect(await count('SELECT count(*)::int AS n FROM app.applications WHERE supplier_id = $1', [other])).toBe(1)
     // La bitácora guarda solo conteos; la limpieza fuera de la base queda encolada para el worker.
     expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'supplier.deleted'", [sup])).rows).toEqual([{ actor: `user:${userA}`, details: { applications: 1, documents: 1, outcomes: 1, clarifications: 1, messages: 2 } }])

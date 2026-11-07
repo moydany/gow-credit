@@ -120,6 +120,13 @@
       "when": 1794041915518,
       "tag": "0016_supplier_purge",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794052000000,
+      "tag": "0019_llm_exchanges",
+      "breakpoints": true
     }
   ]
 }

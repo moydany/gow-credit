@@ -422,6 +422,46 @@ export const whatsappSessions = app.table('whatsapp_sessions', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+/**
+ * Cada intercambio con un modelo tal cual (ADR 0064): system prompt, instrucción, parámetros, la
+ * huella del PDF y lo que volvió (objeto, salida cruda si no validó, error, uso y costo). Para
+ * analizar un caso que falló sin volver a llamar al modelo. Lleva datos del documento, por eso no
+ * va en la bitácora de movimientos: el worker inserta, la API lee y ver el detalle se audita. Se
+ * borra con el proveedor (`app.purge_supplier`).
+ */
+export const llmExchanges = app.table(
+  'llm_exchanges',
+  {
+    id: id(),
+    tenantId: tenantId().references(() => tenants.id),
+    applicationId: uuid('application_id').references(() => applications.id),
+    inboundMessageId: uuid('inbound_message_id').references(() => inboundMessages.id),
+    purpose: text('purpose').notNull(),
+    model: text('model').notNull(),
+    schemaName: text('schema_name').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    effort: text('effort').notNull(),
+    maxOutputTokens: integer('max_output_tokens').notNull(),
+    serverFallback: boolean('server_fallback').notNull(),
+    system: text('system').notNull(),
+    instruction: text('instruction').notNull(),
+    documentSha256: text('document_sha256'),
+    /** ok | error */
+    outcome: text('outcome').notNull(),
+    response: jsonb('response'),
+    rawOutput: text('raw_output'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    finishReason: text('finish_reason'),
+    responseCacheHit: boolean('response_cache_hit').notNull().default(false),
+    usage: jsonb('usage'),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    latencyMs: integer('latency_ms').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('llm_exchanges_tenant_at').on(t.tenantId, t.createdAt), index('llm_exchanges_application').on(t.tenantId, t.applicationId, t.createdAt)],
+)
+
 /** Bitácora inmutable: los roles de aplicación solo pueden insertar (docs/05 §7). */
 export const auditLog = app.table(
   'audit_log',
@@ -461,5 +501,6 @@ export const TENANT_TABLES = [
   'outcomes',
   'corrections',
   'whatsapp_sessions',
+  'llm_exchanges',
   'audit_log',
 ] as const
