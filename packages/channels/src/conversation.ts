@@ -10,7 +10,7 @@
  * none, we do not guess: the question is asked again with numbered options. Text never authorizes
  * anything; it is only compared against the open question for that number.
  */
-import type { AccountUse, ChargeAnswerCategory, Decision, DepositAnswerCategory, FailureInfo, OwnerAnswer, Question } from '@gow/contracts'
+import type { AccountUse, ChargeAnswerCategory, Decision, DepositAnswerCategory, DiscardReason, FailureInfo, OwnerAnswer, Question } from '@gow/contracts'
 
 export const GENERIC_NO_PENDING = 'Hola. No tenemos una solicitud pendiente de aclarar para este número. Si crees que es un error, contacta a quien te pidió la información.'
 
@@ -390,6 +390,23 @@ export function renderVerdict(v: {
     case 'failed':
       return failureNotice(v.failure ?? null)
   }
+}
+
+/** Why the analyst discarded the document, in words for the supplier. Never accuses: `altered` only says it could not be validated. */
+const DISCARD_NOTICE_REASON: Record<DiscardReason, string> = {
+  wrong_document: 'el documento que mandaste no es un estado de cuenta bancario a tu nombre',
+  illegible: 'no pudimos leer el documento que mandaste',
+  altered: 'no pudimos validar el documento que mandaste',
+  incomplete: 'al documento que mandaste le faltan páginas o periodos',
+}
+
+/**
+ * Notice when an analyst discards the document in human review: the request closes without a
+ * score, so it says why in a closed phrase (no figures, no free text) and asks for another PDF.
+ */
+export function renderDiscardNotice(v: { reason: DiscardReason; request: { amount: number | null; maturity: string | null; buyer: { name: string } | null } | null; tenantName: string }): string {
+  const invoice = describeInvoice(v.request)
+  return `Revisamos ${invoice ?? 'tu estado de cuenta'}. Por ahora ${invoice ? 'no califica' : 'no calificas'} para adelanto con ${v.tenantName} porque ${DISCARD_NOTICE_REASON[v.reason]}. Si quieres volver a intentarlo, mándanos el estado de cuenta en PDF por este chat, tal como lo descargaste de tu banco.`
 }
 
 function listEs(items: readonly string[]): string {

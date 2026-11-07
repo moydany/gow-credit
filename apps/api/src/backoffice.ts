@@ -469,7 +469,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   /** Discard the document in human review: closes the request without re-evaluating. */
   r.post('/applications/:id/discard', async (req, res) => {
     const w = who(res)
-    res.json(await discardDocument(deps.db, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
+    res.json(await discardDocument(deps, w.tenantId, w.userId, parse(z.uuid(), req.params.id), req.body))
   })
 
   // ---------- Clarifications with a manual answer

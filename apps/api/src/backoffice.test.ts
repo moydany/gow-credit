@@ -229,8 +229,11 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(ok.status).toBe(200)
     expect((await q('SELECT status, failure_reason FROM app.applications WHERE id = $1', [app])).rows[0]).toEqual({ status: 'not_qualified', failure_reason: 'document_discarded:altered' })
     expect((await q("SELECT actor, details FROM app.audit_log WHERE subject = $1 AND action = 'application.discarded'", [app])).rows[0]).toEqual({ actor: `user:${userA}`, details: { reason: 'altered' } })
-    // No longer in human review.
+    // No longer in human review: no second notice either.
     expect((await call('POST', `/applications/${app}/discard`, { cookie: a, body: { reason: 'altered' } })).status).toBe(409)
+    // The worker tells the supplier (its own test): the API only leaves one job, not a second one for the rejected retry.
+    const jobs = (await q('SELECT data FROM pgboss.job WHERE name = $1', [QUEUES.discardNotice])).rows as { data: unknown }[]
+    expect(jobs.filter((j) => (j.data as { application_id: string }).application_id === app)).toEqual([{ data: { tenant_id: tenantA, application_id: app } }])
   })
 
   it('proveedores: alta, lista, detalle con contactos, historial y outcomes; edición validada y en la bitácora sin valores', async () => {

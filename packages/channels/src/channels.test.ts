@@ -1,6 +1,6 @@
 import { describeFailure, multipleStatementsReason, type Question } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
-import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, documentRequestReplies, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderVerdict } from './conversation.ts'
+import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, documentRequestReplies, failureNotice, isConversational, isDocumentRequest, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderDiscardNotice, renderVerdict } from './conversation.ts'
 import { signSvix, verifySvix } from './svix.ts'
 import { ResendEmailTransport } from './transports.ts'
 
@@ -253,6 +253,15 @@ describe('datos de la factura y aviso del veredicto', () => {
   it('"omitir" y sus variantes', () => {
     for (const t of ['omitir', 'Omitir ', 'no sé', 'no se', 'ninguno']) expect(isSkip(t)).toBe(true)
     expect(isSkip('Cadena Norte')).toBe(false)
+  })
+
+  it('el aviso de descarte dice el motivo cerrado, no acusa de alteración y pide otro PDF', () => {
+    const t = 'Prestamista Demo'
+    const request = { amount: 50000, maturity: null, buyer: null }
+    expect(renderDiscardNotice({ reason: 'illegible', request: null, tenantName: t })).toMatch(/^Revisamos tu estado de cuenta\. Por ahora no calificas para adelanto con Prestamista Demo porque no pudimos leer el documento.*PDF/)
+    expect(renderDiscardNotice({ reason: 'incomplete', request, tenantName: t })).toMatch(/^Revisamos tu solicitud de adelanto de \$50,000\.00 pesos\. Por ahora no califica .* le faltan páginas o periodos/)
+    expect(renderDiscardNotice({ reason: 'wrong_document', request: null, tenantName: t })).toMatch(/no es un estado de cuenta bancario/)
+    expect(renderDiscardNotice({ reason: 'altered', request: null, tenantName: t })).not.toMatch(/alter|fals|fraude/i)
   })
 
   it('el aviso dice el resultado y el monto, nunca motivos ni datos del documento', () => {

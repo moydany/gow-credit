@@ -16,7 +16,7 @@ import type { Db } from '@gow/db'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import { withLlmScope, type Classifier, type Limiter, type StructuredLlm, type TransactionClassifier } from '@gow/llm'
 import { CLARIFICATION_LOOP_ID, createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type AppInput, type AppState, type WorkflowDeps, type Writer } from '@gow/mastra'
-import { deleteApplicationJobs, enqueueProcess, enqueueRedecide, enqueueResume, pathBelongsTo, ProcessJob, PurgeJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
+import { deleteApplicationJobs, DiscardNoticeJob, enqueueProcess, enqueueRedecide, enqueueResume, pathBelongsTo, ProcessJob, PurgeJob, QUEUES, RedecideJob, ResumeJob, type DocumentStorage, type PgBoss } from '@gow/platform'
 import type { MastraCompositeStore } from '@mastra/core/storage'
 import { OwnerAnswer } from '@gow/contracts'
 import { clarifications, withTenant } from '@gow/db'
@@ -25,6 +25,7 @@ import { z } from 'zod'
 import { DbClarificationChannel } from './channel.ts'
 import { pendingInbound, resolveInbound } from './inbound.ts'
 import type { MessageInterpreter } from './interpret.ts'
+import { handleDiscardNotice } from './discard-notice.ts'
 import { handleRedecide } from './redecide.ts'
 import { loadContext, persistOutcome, requestOf, setStatus, supplierIdentity, type AppContext } from './store.ts'
 
@@ -224,6 +225,16 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
       throw err
     }
   })
+  await boss.work<DiscardNoticeJob>(QUEUES.discardNotice, polling, async ([job]) => {
+    if (!job) return
+    try {
+      const r = await handleDiscardNotice(s, DiscardNoticeJob.parse(job.data))
+      s.logger.info(`application ${job.data.application_id}: aviso de descarte → ${r}`)
+    } catch (err) {
+      s.logger.error(`discard_notice ${job.id}: ${errorText(err)}`)
+      throw err
+    }
+  })
   await boss.work<PurgeJob>(QUEUES.purge, polling, async ([job]) => {
     if (!job) return
     try {
@@ -252,6 +263,7 @@ export async function startWorker(s: WorkerServices, boss: PgBoss, opts: { sweep
       await boss.offWork(QUEUES.process)
       await boss.offWork(QUEUES.resume)
       await boss.offWork(QUEUES.redecide)
+      await boss.offWork(QUEUES.discardNotice)
       await boss.offWork(QUEUES.purge)
     },
   }

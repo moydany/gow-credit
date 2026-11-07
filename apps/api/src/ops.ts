@@ -8,7 +8,7 @@ import { CorrectionsBody, DiscardBody, DISCARDED_PREFIX, OwnerAnswer, parsePolic
 import { applicationDocuments, applications, auditLog, clarifications, corrections, decisions, extractions, outcomes, policies, policyVersions, tenants, withTenant, type Db, type Tx } from '@gow/db'
 import { simulatePolicy } from '@gow/decision'
 import { applyCorrections, CorrectionError, readValue } from '@gow/extraction/corrections'
-import { enqueueRedecide, enqueueResume, type PgBoss } from '@gow/platform'
+import { enqueueDiscardNotice, enqueueRedecide, enqueueResume, type PgBoss } from '@gow/platform'
 import { desc, eq, inArray, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -156,16 +156,20 @@ export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId
   return { batch, corrections: body.corrections.length }
 }
 
-/** Discard the document in human review: the request closes as `not_qualified` without going through the engine. */
-export async function discardDocument(db: Db, tenantId: string, userId: string, applicationId: string, input: unknown): Promise<{ id: string; status: 'not_qualified' }> {
+/**
+ * Discard the document in human review: the request closes as `not_qualified` without going through the engine.
+ * The worker then tells the supplier on WhatsApp (queued after the commit, so a failed discard never notifies).
+ */
+export async function discardDocument(deps: { db: Db; boss: PgBoss }, tenantId: string, userId: string, applicationId: string, input: unknown): Promise<{ id: string; status: 'not_qualified' }> {
   const body = parse(DiscardBody, input)
-  await withTenant(db, tenantId, async (tx) => {
+  await withTenant(deps.db, tenantId, async (tx) => {
     const [a] = await tx.select().from(applications).where(eq(applications.id, applicationId))
     if (!a) throw new HttpError(404, 'solicitud no encontrada')
     if (a.status !== 'human_review') throw new HttpError(409, `la solicitud está ${a.status}; solo se descarta en revisión humana`)
     await tx.update(applications).set({ status: 'not_qualified', failureReason: `${DISCARDED_PREFIX}${body.reason}`, updatedAt: new Date() }).where(eq(applications.id, applicationId))
     await audit(tx, tenantId, `user:${userId}`, 'application.discarded', applicationId, { reason: body.reason })
   })
+  await enqueueDiscardNotice(deps.boss, { tenant_id: tenantId, application_id: applicationId })
   return { id: applicationId, status: 'not_qualified' }
 }
 

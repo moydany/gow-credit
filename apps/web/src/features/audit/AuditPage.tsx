@@ -31,6 +31,7 @@ const ACTION: Record<string, string> = {
   'settings.updated': 'Cambió la antigüedad máxima del estado de cuenta',
   'correction.recorded': 'Corrigió valores de una extracción',
   'application.discarded': 'Descartó un documento',
+  'discard_notice.skipped': 'No avisó del descarte: el proveedor no tiene WhatsApp verificado',
   'contact.created': 'Agregó un contacto',
   'tenant.created': 'Se creó el tenant',
   'supplier.deleted': 'Borró un proveedor',

@@ -5,6 +5,8 @@
  * - `application.process`: a new document. `singletonKey` = tenant + sha256 + prompt version: the
  *   same PDF uploaded twice does not create two jobs.
  * - `application.resume`: an answered clarification. High priority: the supplier is waiting.
+ * - `application.discard_notice`: tells the supplier an analyst discarded their document. The API
+ *   cannot write the outbox (that belongs to the worker's role), so it enqueues and the worker writes.
  * - `supplier.purge`: cleanup outside the database for a supplier deleted from the backoffice.
  * - Retries with exponential backoff and, once exhausted, `application.dead` (dead letter).
  */
@@ -15,11 +17,12 @@ export const QUEUES = {
   process: 'application.process',
   resume: 'application.resume',
   redecide: 'application.redecide',
+  discardNotice: 'application.discard_notice',
   purge: 'supplier.purge',
   dead: 'application.dead',
 } as const
 
-export const PRIORITY = { redecide: 10, resume: 10, process: 0, bulk: -10 } as const
+export const PRIORITY = { redecide: 10, resume: 10, discardNotice: 10, process: 0, bulk: -10 } as const
 
 /** Extraction prompt version in the idempotency key (changing prompts reprocesses). */
 export const PROMPTS_VERSION = 'extract_summary.v2+extract_transactions.v2'
@@ -32,6 +35,10 @@ export type ResumeJob = z.infer<typeof ResumeJob>
 /** An analyst corrected values in human review: re-evaluate with them. */
 export const RedecideJob = z.strictObject({ tenant_id: z.uuid(), application_id: z.uuid(), correction_batch: z.uuid() })
 export type RedecideJob = z.infer<typeof RedecideJob>
+
+/** An analyst discarded the document in human review: tell the supplier why (the reason is read from the request). */
+export const DiscardNoticeJob = z.strictObject({ tenant_id: z.uuid(), application_id: z.uuid() })
+export type DiscardNoticeJob = z.infer<typeof DiscardNoticeJob>
 
 /**
  * A supplier deleted from the backoffice: the database no longer has its rows; what remains is its
@@ -61,7 +68,7 @@ export async function startQueue(connectionString: string, logger: QueueLogger, 
   })
   await boss.start()
   if (!(await boss.getQueue(QUEUES.dead))) await boss.createQueue(QUEUES.dead, { retryLimit: 0 })
-  for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.purge]) {
+  for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.discardNotice, QUEUES.purge]) {
     // `exclusive` with singletonKey: at most one queued or active job per key (in `standard`
      // the key does not deduplicate).
     if (!(await boss.getQueue(name))) await boss.createQueue(name, { ...RETRY, policy: 'exclusive', deadLetter: QUEUES.dead })
@@ -85,6 +92,10 @@ export async function enqueueRedecide(boss: PgBoss, job: RedecideJob): Promise<s
   return boss.send(QUEUES.redecide, RedecideJob.parse(job), { singletonKey: job.correction_batch, priority: PRIORITY.redecide })
 }
 
+export async function enqueueDiscardNotice(boss: PgBoss, job: DiscardNoticeJob): Promise<string | null> {
+  return boss.send(QUEUES.discardNotice, DiscardNoticeJob.parse(job), { singletonKey: job.application_id, priority: PRIORITY.discardNotice })
+}
+
 export async function enqueuePurge(boss: PgBoss, job: PurgeJob): Promise<string | null> {
   return boss.send(QUEUES.purge, PurgeJob.parse(job), { singletonKey: job.supplier_id, priority: PRIORITY.process })
 }
@@ -92,7 +103,7 @@ export async function enqueuePurge(boss: PgBoss, job: PurgeJob): Promise<string 
 /** Queue jobs of these requests, in any state: deleted when the supplier is deleted. */
 export async function deleteApplicationJobs(boss: PgBoss, applicationIds: readonly string[]): Promise<number> {
   let deleted = 0
-  for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.dead]) {
+  for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.discardNotice, QUEUES.dead]) {
     for (const application_id of applicationIds) {
       const jobs = await boss.findJobs<object>(name, { data: { application_id } })
       if (jobs.length === 0) continue
