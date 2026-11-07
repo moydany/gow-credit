@@ -1,9 +1,9 @@
-import type { SupplierApplicationItem, SupplierContactItem, SupplierDetail } from '@gow/contracts'
+import type { SupplierApplicationItem, SupplierDetail } from '@gow/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ApiError, api } from '../../lib/api'
-import { CHANNEL_LABEL, date, money, OUTCOME_LABEL } from '../../lib/format'
+import { date, money, OUTCOME_LABEL } from '../../lib/format'
 import { useSupplier } from '../../lib/queries'
 import { Icon } from '../../ui/icons'
 import { Button, Card, CardHeader, Chip, EmptyState, ErrorState, Modal, SegmentBar, Skeleton, StatusChip } from '../../ui/primitives'
@@ -94,22 +94,7 @@ export function SupplierDetailPage() {
             </dl>
           </Card>
 
-          <Card rise={1} className="pb-4">
-            <CardHeader title="Contactos" subtitle="Solo a uno verificado se le pregunta y solo de él se aceptan respuestas" />
-            {data.contacts.length === 0 ? (
-              <EmptyState icon="chat" title="Sin contactos">Las aclaraciones de este proveedor las respondes tú desde Aclaraciones.</EmptyState>
-            ) : (
-              <ul className="mt-3 px-3">
-                {data.contacts.map((c) => (
-                  <li key={c.id} className="border-t border-line/70 first:border-0">
-                    <Contact c={c} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card rise={2} className="p-6">
+          <Card rise={1} className="p-6">
             <h2 className="text-[17px] font-medium tracking-tight">Outcomes</h2>
             <p className="display tnum mt-5 text-[44px]">{outcomes.length}</p>
             <p className="mt-2 text-[13px] text-muted">de {funded} {funded === 1 ? 'calificada' : 'calificadas'} con outcome registrado</p>
@@ -206,29 +191,6 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
     <div className="grid grid-cols-[130px_minmax(0,1fr)] gap-3">
       <dt className="text-muted">{label}</dt>
       <dd className="min-w-0 break-words">{children}</dd>
-    </div>
-  )
-}
-
-function Contact({ c }: { c: SupplierContactItem }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-3.5">
-      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-sunken text-ink-2">
-        <Icon name={c.channel === 'email' ? 'mail' : c.channel === 'whatsapp' ? 'phone' : 'user'} size={16} />
-      </span>
-      <div className="min-w-0 flex-1 basis-40">
-        <p className="truncate font-mono text-[13.5px]">{c.address}</p>
-        <p className="mt-0.5 text-[12.5px] text-muted">{CHANNEL_LABEL[c.channel]}</p>
-      </div>
-      {c.verified_at ? (
-        <Chip tone="accent" dot>
-          Verificado{c.verification_method === 'kyc' ? ' por KYC' : ''} · {date(c.verified_at)}
-        </Chip>
-      ) : (
-        <Chip tone="hatch" dot>
-          Sin verificar
-        </Chip>
-      )}
     </div>
   )
 }

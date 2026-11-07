@@ -283,3 +283,5 @@ muestra personalización y el loop de aprendizaje.
 - El veredicto solo sale por WhatsApp si el proveedor tiene un número verificado; sin contacto, las
   aclaraciones se responden desde Aclaraciones. El nginx del backoffice deja pasar 41 MB solo en esa ruta
   (el resto sigue en 5 MB).
+- El detalle del proveedor ya no muestra la tarjeta "Contactos": los contactos verificados siguen en la base,
+  entran por la API de integración o el registro por WhatsApp, y se borran con el proveedor.
