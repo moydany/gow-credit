@@ -8,7 +8,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { notBankStatementReason, Question } from '@gow/contracts'
+import { DOCUMENT_REPLIES } from '@gow/channels'
+import { multipleStatementsReason, notBankStatementReason, Question } from '@gow/contracts'
 import { connect, withTenant, type Database } from '@gow/db'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import { basePolicyTemplate } from '@gow/decision'
@@ -638,5 +639,140 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     expect(last.rows[0]?.body).toMatch(/^Lo que mandaste es un estado de cuenta de tarjeta de crédito/)
     const audit = await admin.query<{ details: { failure?: string } }>("SELECT details FROM app.audit_log WHERE subject = $1 AND action = 'verdict.queued' ORDER BY at DESC LIMIT 1", [applicationId])
     expect(audit.rows[0]?.details.failure).toBe('not_bank_statement')
+  })
+
+  it('un PDF con varios estados de cuenta avisa que se manda cada uno en su archivo (robustez documental, sección W)', async () => {
+    const ctx = await loadContext(worker.db, tenant, applicationId)
+    await withTenant(worker.db, tenant, (tx) => queueVerdict(tx, ctx, 'failed', null, multipleStatementsReason(2)))
+    const last = await admin.query<{ body: string }>("SELECT body FROM app.outbound_messages WHERE destination = $1 AND kind = 'verdict' ORDER BY created_at DESC LIMIT 1", [SUPPLIER_PHONE])
+    expect(last.rows[0]?.body).toBe('Tu PDF trae más de un estado de cuenta. Mándanos cada estado de cuenta en un PDF aparte, tal como lo descargaste de tu banco.')
+    const audit = await admin.query<{ details: { failure?: string } }>("SELECT details FROM app.audit_log WHERE subject = $1 AND action = 'verdict.queued' ORDER BY at DESC LIMIT 1", [applicationId])
+    expect(audit.rows[0]?.details.failure).toBe('multiple_statements')
+  })
+
+  describe('páginas faltantes: el PDF completo por WhatsApp contesta la pregunta (robustez documental, sección W)', () => {
+    const TENANT = randomUUID()
+    const SUPPLIER = randomUUID()
+    const APPLICATION = randomUUID()
+    const PHONE = '+5215512340012'
+    const holder = { name: 'Refaccionaria Ficticia SA de CV', rfc: 'RFI150304AB1', clabe: null }
+    // Lo que el estado de cuenta incompleto trae de la extracción: la bandera y el hueco en la paginación.
+    const incomplete = (d: SyntheticDocument) => {
+      const s = syntheticStatement(d.input, d.holder, d.seed)
+      const issue = { id: 'pm1', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } } as const
+      return d.seed === 'incompleto' ? { ...s, flags: [...s.flags, 'pages_missing' as const], issues: [...s.issues, issue] } : s
+    }
+    const complete = Buffer.from('%PDF-1.7\n% estado de cuenta completo\n%%EOF\n')
+    let svc: WorkerServices
+
+    const say = async (body: string, attachment: Buffer | null = null) => {
+      await whatsapp.query('BEGIN')
+      await whatsapp.query("SELECT set_config('app.tenant_id', $1, true)", [TENANT])
+      const r = await whatsapp.query<{ id: string }>("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, attachment) VALUES ($1, 'whatsapp', $2, $3, $4) RETURNING id", [TENANT, PHONE, body, attachment])
+      await whatsapp.query('COMMIT')
+      return resolveInbound(worker.db, TENANT, r.rows[0]?.id ?? '', { storage: svc.storage })
+    }
+    const lastBody = async () => (await admin.query<{ body: string; kind: string }>('SELECT body, kind FROM app.outbound_messages WHERE destination = $1 ORDER BY created_at DESC, id DESC LIMIT 1', [PHONE])).rows[0]
+    const clar = async () => (await admin.query<{ id: string; status: string; step: string; current_question: number; answers: { question_id: string; kind: string; paths?: string[] }[] }>('SELECT id, status, step, current_question, answers FROM app.clarifications WHERE application_id = $1', [APPLICATION])).rows[0]
+
+    beforeAll(async () => {
+      // La compuerta de páginas completas del motor (sección M) pregunta `missing_pages`; aquí la hace una de
+      // meses de historia sobre un documento que la respuesta completa: lo que importa es el canal.
+      const policy = basePolicyTemplate()
+      const gate = { id: 'pages_complete', description: 'Prueba', when: { feature: 'months_of_history', op: '>=', value: 2 }, onFail: { status: 'needs_clarification', ask: 'missing_pages' } } as const
+      const doc: SyntheticDocument = { input: { start: '2026-08-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed: 'incompleto' }
+      const path = `${TENANT}/${randomUUID()}${SYNTHETIC_SUFFIX}`
+      await services.storage.put(path, Buffer.from(JSON.stringify(doc)))
+      const sha = syntheticStatement(doc.input, doc.holder, doc.seed).document.sha256
+      const policyId = randomUUID()
+      const docId = randomUUID()
+      await admin.query("INSERT INTO app.tenants (id, name, whatsapp_number) VALUES ($1, 'Fintech Faltantes', '+5215500000002')", [TENANT])
+      await admin.query("INSERT INTO app.policies (id, tenant_id, name) VALUES ($1, $2, 'base')", [policyId, TENANT])
+      await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 1, 'active', $3)", [TENANT, policyId, JSON.stringify({ ...policy, gates: [gate, ...policy.gates] })])
+      await admin.query('INSERT INTO app.suppliers (id, tenant_id, legal_name, rfc) VALUES ($1, $2, $3, $4)', [SUPPLIER, TENANT, holder.name, holder.rfc])
+      await admin.query("INSERT INTO app.supplier_contacts (tenant_id, supplier_id, channel, address, verified_at, verification_method) VALUES ($1, $2, 'whatsapp', $3, now(), 'kyc')", [TENANT, SUPPLIER, PHONE])
+      await admin.query("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, $4, $5, 10, 'application/json')", [docId, TENANT, SUPPLIER, path, sha])
+      await admin.query("INSERT INTO app.applications (id, tenant_id, supplier_id, request, as_of) VALUES ($1, $2, $3, $4, '2026-10-05')", [APPLICATION, TENANT, SUPPLIER, JSON.stringify({ amount: 50000, maturity: null, buyer: { name: 'Cadena Norte SA de CV', rfc: null, aliases: [] } })])
+      await admin.query('INSERT INTO app.application_documents (tenant_id, application_id, document_id) VALUES ($1, $2, $3)', [TENANT, APPLICATION, docId])
+      svc = { ...services, synthetic: (d) => incomplete(d) }
+    }, 60_000)
+
+    it('la pregunta de páginas faltantes sale por WhatsApp con el pedido del PDF, no el aviso del analista', async () => {
+      expect(await handleProcess(svc, { tenant_id: TENANT, application_id: APPLICATION })).toBe('needs_clarification')
+      expect(await clar()).toMatchObject({ status: 'open', step: 'asking', current_question: 0, answers: [] })
+      const out = await admin.query<{ kind: string; body: string }>('SELECT kind, body FROM app.outbound_messages WHERE destination = $1', [PHONE])
+      expect(out.rows).toEqual([{ kind: 'question', body: 'Al estado de cuenta que mandaste le faltan páginas (por ejemplo la 2 de 3). ¿Nos mandas el PDF completo?\n\nMándalo por este chat como PDF, tal como lo descargaste de tu banco.' }])
+    })
+
+    it('un texto o una foto no lo contestan: se repite el pedido y nada cambia', async () => {
+      expect((await say('ya te lo mandé')).resolution).toBe('awaiting_document')
+      expect(await lastBody()).toEqual({ kind: 'reask', body: DOCUMENT_REPLIES.send_pdf })
+      await whatsapp.query('BEGIN')
+      await whatsapp.query("SELECT set_config('app.tenant_id', $1, true)", [TENANT])
+      const photo = await whatsapp.query<{ id: string }>("INSERT INTO app.inbound_messages (tenant_id, channel, from_address, body, media_kind) VALUES ($1, 'whatsapp', $2, '', 'image') RETURNING id", [TENANT, PHONE])
+      await whatsapp.query('COMMIT')
+      expect((await resolveInbound(worker.db, TENANT, photo.rows[0]?.id ?? '')).resolution).toBe('media_unsupported')
+      expect((await lastBody())?.body).toMatch(/^Solo puedo leer el estado de cuenta en PDF[^\n]*\n\nAl estado de cuenta que mandaste le faltan páginas/)
+      expect(await clar()).toMatchObject({ status: 'open', step: 'asking', answers: [] })
+    })
+
+    it('un archivo que no es PDF se rechaza y la pregunta sigue abierta; el mismo archivo incompleto no sirve', async () => {
+      expect((await say('', Buffer.from('\x89PNG\r\n'))).resolution).toBe('document_rejected')
+      expect(await clar()).toMatchObject({ status: 'open', answers: [] })
+      // El archivo que ya está en la solicitud (al que le faltan páginas) tampoco contesta. El de la prueba es
+      // sintético: por un momento se le pone el hash de un PDF para volver a mandarlo.
+      const incompletePdf = Buffer.from('%PDF-1.7\n% estado de cuenta incompleto\n%%EOF\n')
+      const original = (await admin.query<{ id: string; sha256: string }>('SELECT d.id, d.sha256 FROM app.documents d JOIN app.application_documents ad ON ad.document_id = d.id WHERE ad.application_id = $1', [APPLICATION])).rows[0]
+      await admin.query('UPDATE app.documents SET sha256 = $2 WHERE id = $1', [original?.id, createHash('sha256').update(incompletePdf).digest('hex')])
+      const r = await say('', incompletePdf)
+      await admin.query('UPDATE app.documents SET sha256 = $2 WHERE id = $1', [original?.id, original?.sha256])
+      expect(r).toEqual({ resolution: 'document_duplicate', resume: null })
+      expect(await lastBody()).toEqual({ kind: 'document', body: DOCUMENT_REPLIES.answer_same_file })
+      expect(await clar()).toMatchObject({ status: 'open', answers: [] })
+      expect((await admin.query('SELECT 1 FROM app.application_documents WHERE application_id = $1', [APPLICATION])).rowCount).toBe(1)
+    })
+
+    it('el PDF completo contesta la pregunta, se agrega a la misma solicitud y se encola la reanudación', async () => {
+      const before = (await admin.query('SELECT 1 FROM app.applications WHERE tenant_id = $1', [TENANT])).rowCount
+      const r = await say('aquí está completo', complete)
+      const c = await clar()
+      expect(r).toEqual({ resolution: 'document_answer', resume: { tenant_id: TENANT, application_id: APPLICATION, clarification_id: c?.id } })
+      expect(await lastBody()).toEqual({ kind: 'document', body: DOCUMENT_REPLIES.answer_received })
+      // No abrió otra solicitud: el documento quedó ligado a la misma, como respuesta del proveedor.
+      expect((await admin.query('SELECT 1 FROM app.applications WHERE tenant_id = $1', [TENANT])).rowCount).toBe(before)
+      const linked = await admin.query<{ origin: string; storage_path: string; sha256: string }>('SELECT ad.origin, d.storage_path, d.sha256 FROM app.application_documents ad JOIN app.documents d ON d.id = ad.document_id WHERE ad.application_id = $1 ORDER BY ad.origin', [APPLICATION])
+      expect(linked.rows.map((x) => x.origin)).toEqual(['submitted', 'owner_answer'])
+      const added = linked.rows[1]
+      expect(added?.sha256).toBe(createHash('sha256').update(complete).digest('hex'))
+      expect(await services.storage.read(added?.storage_path ?? '')).toEqual(complete)
+      expect(c).toMatchObject({ status: 'answered', step: 'confirmed', answers: [{ question_id: 'q1', kind: 'documents', paths: [added?.storage_path] }] })
+      // El adjunto no se queda en el entrante.
+      expect((await admin.query('SELECT 1 FROM app.inbound_messages WHERE tenant_id = $1 AND attachment IS NOT NULL', [TENANT])).rowCount).toBe(0)
+    })
+
+    it('la reanudación extrae el PDF nuevo, decide otra vez y avisa el resultado', async () => {
+      // El worker de la prueba no extrae PDFs reales: el documento nuevo se sustituye por un estado de cuenta
+      // sintético del mes siguiente, como hacen las demás pruebas.
+      const added = await admin.query<{ id: string; storage_path: string }>("SELECT d.id, d.storage_path FROM app.documents d JOIN app.application_documents ad ON ad.document_id = d.id WHERE ad.application_id = $1 AND ad.origin = 'owner_answer'", [APPLICATION])
+      const doc: SyntheticDocument = { input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed: 'completo' }
+      const path = `${TENANT}/${randomUUID()}${SYNTHETIC_SUFFIX}`
+      await services.storage.put(path, Buffer.from(JSON.stringify(doc)))
+      await admin.query('UPDATE app.documents SET storage_path = $2, sha256 = $3 WHERE id = $1', [added.rows[0]?.id, path, syntheticStatement(doc.input, doc.holder, doc.seed).document.sha256])
+      await admin.query("UPDATE app.clarifications SET answers = jsonb_build_array(jsonb_build_object('question_id', 'q1', 'kind', 'documents', 'paths', jsonb_build_array($2::text))) WHERE application_id = $1", [APPLICATION, path])
+      const c = await clar()
+      const status = await handleResume(svc, { tenant_id: TENANT, application_id: APPLICATION, clarification_id: c?.id ?? '' })
+      expect(['qualified', 'qualified_with_limit', 'not_qualified', 'human_review']).toContain(status)
+      const app = await admin.query<{ status: string }>('SELECT status FROM app.applications WHERE id = $1', [APPLICATION])
+      expect(app.rows[0]?.status).toBe(status)
+      // Las dos extracciones quedaron guardadas, la del PDF completo con su documento.
+      expect((await admin.query('SELECT 1 FROM app.extractions e JOIN app.application_documents ad ON ad.document_id = e.document_id WHERE ad.application_id = $1', [APPLICATION])).rowCount).toBe(2)
+      expect((await lastBody())?.kind).toBe('verdict')
+    })
+
+    it('si el proveedor manda el PDF cuando no se le pidió nada, abre una solicitud nueva como siempre (ADR 0037)', async () => {
+      const r = await say('otro mes', Buffer.from('%PDF-1.7\n% otro mes\n%%EOF\n'))
+      expect(r.resolution).toBe('document_received')
+      expect(r.process?.job.application_id).not.toBe(APPLICATION)
+    })
   })
 })

@@ -6,7 +6,7 @@
  * desde apps/whatsapp, y en los escenarios el transporte simulado. Ningún código ni modelo pasa un
  * destinatario.
  */
-import { ANALYST_NOTICE, isConversational, nextConversational, renderQuestion, type Transport } from '@gow/channels'
+import { ANALYST_NOTICE, isConversational, isDocumentRequest, nextConversational, renderDocumentRequest, renderQuestion, type Transport } from '@gow/channels'
 import type { Question } from '@gow/contracts'
 import { auditLog, clarifications, outboundMessages, withTenant, type Db } from '@gow/db'
 import type { ClarificationChannel } from '@gow/mastra'
@@ -31,11 +31,18 @@ export class DbClarificationChannel implements ClarificationChannel {
     const contact = contacts.find((c) => c.channel === 'whatsapp') ?? contacts.find((c) => c.channel === 'email') ?? null
     const first = nextConversational(questions, 0)
     const conversational = questions.filter(isConversational).length
-    const channel = contact && first >= 0 ? contact.channel : 'manual'
+    // Páginas faltantes (robustez documental, sección W): sin preguntas de chat, el proveedor con WhatsApp
+    // verificado recibe el pedido del PDF completo y el PDF nuevo lo contesta. Solo por WhatsApp: el
+    // correo no recibe adjuntos (ADR 0037).
+    const whatsappContact = contacts.find((c) => c.channel === 'whatsapp') ?? null
+    const documentRequest = first < 0 && whatsappContact ? questions.findIndex(isDocumentRequest) : -1
+    const chat = first >= 0 ? contact : documentRequest >= 0 ? whatsappContact : null
+    const asked = first >= 0 ? first : documentRequest
+    const channel = chat ? chat.channel : 'manual'
     const queued = await withTenant(this.#db, tenantId, async (tx) => {
       const [row] = await tx
         .insert(clarifications)
-        .values({ tenantId, applicationId, supplierId: supplier.id, round, channel, destination: channel === 'manual' ? null : (contact?.address ?? null), contactId: channel === 'manual' ? null : (contact?.id ?? null), questions, currentQuestion: Math.max(first, 0) })
+        .values({ tenantId, applicationId, supplierId: supplier.id, round, channel, destination: chat?.address ?? null, contactId: chat?.id ?? null, questions, currentQuestion: Math.max(asked, 0) })
         // Un reintento del trabajo después de enviar no duplica la pregunta (una por ronda).
         .onConflictDoNothing()
         .returning({ id: clarifications.id })
@@ -43,15 +50,15 @@ export class DbClarificationChannel implements ClarificationChannel {
       await tx.insert(auditLog).values({ tenantId, actor: 'worker', action: 'clarification.opened', subject: row.id, details: { application_id: applicationId, round, channel, questions: questions.length } })
       // Registro en curso (ADR 0047): la pregunta sale cuando el proveedor confirma sus datos.
       if (identityPending(this.#ctx)) return null
-      if (channel === 'manual' || !contact || first < 0) {
+      if (!chat) {
         // Solo preguntas para el analista (ADR 0051): el proveedor con WhatsApp verificado sabe que su
         // caso sigue. Sale una vez por ronda: un reintento no llega aquí (la fila ya existía).
-        const whatsapp = contacts.find((c) => c.channel === 'whatsapp')
-        if (first < 0 && whatsapp) await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'analyst', channel: 'whatsapp', destination: whatsapp.address, body: ANALYST_NOTICE })
+        if (first < 0 && whatsappContact) await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'analyst', channel: 'whatsapp', destination: whatsappContact.address, body: ANALYST_NOTICE })
         return null
       }
-      const q = questions[first] as Question
-      const [msg] = await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'question', channel, destination: contact.address, body: renderQuestion(q, 1, conversational) }).returning()
+      const q = questions[asked] as Question
+      const body = first >= 0 ? renderQuestion(q, 1, conversational) : renderDocumentRequest(q)
+      const [msg] = await tx.insert(outboundMessages).values({ tenantId, clarificationId: row.id, kind: 'question', channel, destination: chat.address, body }).returning()
       return msg ?? null
     })
     if (queued && queued.channel === 'email' && this.#email) await deliver(this.#db, tenantId, this.#email, queued.id)

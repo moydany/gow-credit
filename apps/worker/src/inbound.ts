@@ -15,9 +15,11 @@
  * Una foto, nota de voz, video o sticker no se lee: se contesta que hace falta el PDF y se repite lo
  * pendiente (ADR 0051).
  *
- * Un mensaje con documento (ADR 0037) no responde aclaraciones: con un solo proveedor en el vínculo
- * verificado y un PDF válido abre una solicitud, igual que la API con una llave de ingesta, y se
- * encola su procesamiento. Los bytes pasan del entrante al almacenamiento del tenant y la columna
+ * Un mensaje con documento (ADR 0037) no responde aclaraciones, con una excepción: si se le pidió el
+ * PDF completo por páginas faltantes (`isDocumentRequest`), el PDF nuevo contesta esa pregunta, se
+ * agrega a la misma solicitud y se encola su reanudación. Fuera de eso, con un solo proveedor en el
+ * vínculo verificado y un PDF válido abre una solicitud, igual que la API con una llave de ingesta, y
+ * se encola su procesamiento. Los bytes pasan del entrante al almacenamiento del tenant y la columna
  * queda vacía. A quien lo mandó solo se le contesta un texto fijo.
  *
  * Con `selfRegistration` (solo la demo, ADR 0038 y 0047), un número de WhatsApp sin vínculo no
@@ -40,6 +42,7 @@ import {
   INVOICE_REPLIES,
   isComplete,
   isConversational,
+  isDocumentRequest,
   isSkip,
   MEDIA_UNSUPPORTED,
   parseAmount,
@@ -52,6 +55,7 @@ import {
   parseYesNo,
   personTypeOf,
   REGISTRATION_REPLIES,
+  renderDocumentRequest,
   renderQuestionAt,
   renderReask,
   renderSummary,
@@ -78,6 +82,9 @@ export type Resolution =
   | 'document_duplicate'
   | 'document_rejected'
   | 'document_ambiguous'
+  // El PDF completo que se pidió por páginas faltantes (robustez documental, sección W).
+  | 'document_answer'
+  | 'awaiting_document'
   | 'registration_started'
   | 'registration_step'
   | 'registration_invalid'
@@ -186,28 +193,37 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     const reask = (why: 'not_understood' | 'off_topic' | null, question: string, specific: string) => (why ? `${CONVERSATION_FALLBACKS[why]}\n\n${question}` : specific)
 
     /**
+     * Valida y guarda el PDF del mensaje en el almacenamiento del tenant. Un PDF ya guardado en el tenant
+     * se reutiliza. `rejected`: `password` si pide contraseña para abrirse (ADR 0049), que se contesta con
+     * su propio mensaje; `invalid` en cualquier otro caso.
+     */
+    const storeDocument = async (supplierId: string, bytes: Buffer): Promise<{ documentId: string; storagePath: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
+      if (!storage || bytes.length === 0 || bytes.length > MAX_DOCUMENT_BYTES || !isPdf(bytes)) return { rejected: 'invalid' }
+      if ((await pdfProtection(bytes)) === 'password') return { rejected: 'password' }
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      const [existing] = await tx.select({ id: documents.id, storagePath: documents.storagePath }).from(documents).where(eq(documents.sha256, sha256))
+      if (existing) return { documentId: existing.id, storagePath: existing.storagePath, sha256 }
+      // Si la transacción se revierte después, queda un archivo huérfano; nunca una fila sin archivo.
+      const storagePath = `${tenantId}/${randomUUID()}.pdf`
+      await storage.put(storagePath, bytes)
+      const [doc] = await tx.insert(documents).values({ tenantId, supplierId, storagePath, sha256, sizeBytes: bytes.length, mediaType: 'application/pdf' }).returning({ id: documents.id })
+      if (!doc) throw new Error('no se guardó el documento recibido')
+      return { documentId: doc.id, storagePath, sha256 }
+    }
+
+    /**
      * Guarda el PDF del mensaje y abre una solicitud del proveedor. Un PDF ya guardado en el tenant
      * se reutiliza. `rejected` si el adjunto no es un PDF aceptable: `password` si pide contraseña
      * para abrirse (ADR 0049), que se contesta con su propio mensaje; `invalid` en cualquier otro caso.
      */
     const openApplication = async (supplierId: string, bytes: Buffer): Promise<{ applicationId: string; sha256: string } | { rejected: 'password' | 'invalid' }> => {
-      if (!storage || bytes.length === 0 || bytes.length > MAX_DOCUMENT_BYTES || !isPdf(bytes)) return { rejected: 'invalid' }
-      if ((await pdfProtection(bytes)) === 'password') return { rejected: 'password' }
-      const sha256 = createHash('sha256').update(bytes).digest('hex')
-      const [existing] = await tx.select({ id: documents.id }).from(documents).where(eq(documents.sha256, sha256))
-      let documentId = existing?.id
-      if (!documentId) {
-        // Si la transacción se revierte después, queda un archivo huérfano; nunca una fila sin archivo.
-        const path = `${tenantId}/${randomUUID()}.pdf`
-        await storage.put(path, bytes)
-        const [doc] = await tx.insert(documents).values({ tenantId, supplierId, storagePath: path, sha256, sizeBytes: bytes.length, mediaType: 'application/pdf' }).returning({ id: documents.id })
-        documentId = doc?.id
-      }
+      const stored = await storeDocument(supplierId, bytes)
+      if ('rejected' in stored) return stored
       const [created] = await tx.insert(applications).values({ tenantId, supplierId, request: null, asOf: null }).returning({ id: applications.id })
-      if (!documentId || !created) throw new Error('no se creó la solicitud del documento recibido')
-      await tx.insert(applicationDocuments).values({ tenantId, applicationId: created.id, documentId })
+      if (!created) throw new Error('no se creó la solicitud del documento recibido')
+      await tx.insert(applicationDocuments).values({ tenantId, applicationId: created.id, documentId: stored.documentId })
       await tx.insert(auditLog).values({ tenantId, actor: `inbound:${msg.channel}`, action: 'application.received', subject: created.id, details: { inbound_message_id: msg.id } })
-      return { applicationId: created.id, sha256 }
+      return { applicationId: created.id, sha256: stored.sha256 }
     }
 
     const links = await tx
@@ -460,6 +476,32 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         return { resolution: 'document_ambiguous', resume: null }
       }
       const bytes = msg.attachment
+      // Se le pidió el PDF completo (páginas faltantes): este PDF contesta esa pregunta, no abre otra solicitud.
+      const requesting = await openClarification()
+      const request = requesting ? documentRequestOf(requesting) : undefined
+      if (requesting && request) {
+        const stored = await storeDocument(supplierId, bytes)
+        if ('rejected' in stored) {
+          // La pregunta sigue abierta: se le dice por qué no sirve el archivo y puede mandar otro.
+          await finish('document_rejected', requesting.id, reply(stored.rejected === 'password' ? 'password_protected' : 'rejected'), { reason: stored.rejected })
+          return { resolution: 'document_rejected', resume: null }
+        }
+        const [linked] = await tx
+          .select({ documentId: applicationDocuments.documentId })
+          .from(applicationDocuments)
+          .where(and(eq(applicationDocuments.applicationId, requesting.applicationId), eq(applicationDocuments.documentId, stored.documentId)))
+        if (linked) {
+          await finish('document_duplicate', requesting.id, reply('answer_same_file'), { application_id: requesting.applicationId })
+          return { resolution: 'document_duplicate', resume: null }
+        }
+        await tx.insert(applicationDocuments).values({ tenantId, applicationId: requesting.applicationId, documentId: stored.documentId, origin: 'owner_answer' })
+        const answers = [...Answers.parse(requesting.answers), { question_id: request.id, kind: 'documents' as const, paths: [stored.storagePath] }]
+        const complete = isComplete(Questions.parse(requesting.questions), answers)
+        // Con todo contestado se reanuda con el PDF como respuesta; si quedan preguntas para el analista, se le avisa.
+        await tx.update(clarifications).set(complete ? { answers, step: 'confirmed', status: 'answered', answeredAt: sql`now()` } : { answers, step: 'confirmed' }).where(eq(clarifications.id, requesting.id))
+        await finish('document_answer', requesting.id, reply(complete ? 'answer_received' : 'answer_for_review'), { application_id: requesting.applicationId })
+        return { resolution: 'document_answer', resume: complete ? { tenant_id: tenantId, application_id: requesting.applicationId, clarification_id: requesting.id } : null }
+      }
       const sha256 = createHash('sha256').update(bytes).digest('hex')
       const [existing] = await tx.select({ id: documents.id }).from(documents).where(eq(documents.sha256, sha256))
       if (existing) {
@@ -559,6 +601,8 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     }
 
     const current = questions[open.currentQuestion]
+    // Se espera el PDF completo (páginas faltantes): un texto no lo contesta y no cambia ningún estado.
+    if (current && isDocumentRequest(current)) return answer('awaiting_document', DOCUMENT_REPLIES.send_pdf, 'reask')
     if (!current || !isConversational(current)) return answer('awaiting_analyst', ANALYST_NOTICE, 'analyst', { step: 'confirmed' })
 
     if (open.step === 'revising') {
@@ -593,7 +637,18 @@ function clarificationPrompt(open: typeof clarifications.$inferSelect): string {
   const questions = Questions.parse(open.questions)
   if (open.step === 'confirming') return renderSummary(questions, Answers.parse(open.answers))
   const q = questions[open.currentQuestion]
+  if (open.step !== 'confirmed' && q && isDocumentRequest(q)) return renderDocumentRequest(q)
   return open.step !== 'confirmed' && q && isConversational(q) ? renderQuestionAt(questions, open.currentQuestion) : ANALYST_NOTICE
+}
+
+/**
+ * La pregunta de páginas faltantes que la aclaración está esperando (`isDocumentRequest`) y que el PDF
+ * del proveedor contesta: la que se le hizo (`currentQuestion`) y todavía sin respuesta.
+ */
+function documentRequestOf(open: typeof clarifications.$inferSelect): QuestionT | undefined {
+  if (open.step === 'confirmed') return undefined
+  const q = Questions.parse(open.questions)[open.currentQuestion]
+  return q && isDocumentRequest(q) && !Answers.parse(open.answers).some((a) => a.question_id === q.id) ? q : undefined
 }
 
 /** Mensajes entrantes sin procesar de todos los tenants (función revisada, solo ids). */
