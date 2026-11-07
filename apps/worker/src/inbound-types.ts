@@ -15,6 +15,8 @@ export type Resolution =
   | 'document_ambiguous'
   // Another PDF of the same send joined the request or the answer of the first (ADR 0072).
   | 'document_batched'
+  // The supplier already has an approved line: its summary instead of a new request.
+  | 'line_active'
   // The complete PDF requested because of missing pages (document robustness).
   | 'document_answer'
   | 'awaiting_document'

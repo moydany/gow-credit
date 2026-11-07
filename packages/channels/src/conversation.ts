@@ -440,6 +440,35 @@ export function renderVerdict(v: {
   }
 }
 
+/** The supplier's approved line, for the summary over chat. */
+export interface ActiveLine {
+  /** What was approved: the requested amount if it fit, the line otherwise. */
+  approved: number
+  /** The line available, when more than what was approved. */
+  limit: number
+  requested: number | null
+  /** ISO date of the verdict. */
+  decidedAt: string
+}
+
+/**
+ * Summary of an approved line (one is enough at a time): what was approved, the line and when.
+ * Said instead of opening another request, so a supplier with a line does not ask for a second
+ * one by sending another statement.
+ */
+export function renderLineSummary(v: { line: ActiveLine; tenantName: string; legalName: string | null; contactName: string | null; sentDocument: boolean }): string {
+  const hello = `Hola${v.contactName ? `, ${v.contactName}` : ''}.`
+  const who = v.legalName ?? 'Tu empresa'
+  const [y, m, d] = v.line.decidedAt.slice(0, 10).split('-')
+  const when = d && m && y ? ` el ${String(Number(d))}/${String(Number(m))}/${y}` : ''
+  const amount =
+    v.line.requested !== null && v.line.approved < v.line.limit - 0.005
+      ? `Te aprobamos ${formatPesos(v.line.approved)}, dentro de una línea de hasta ${formatPesos(v.line.limit)}`
+      : `Tienes una línea aprobada de hasta ${formatPesos(v.line.limit)}`
+  const why = v.sentDocument ? 'Por eso no abrimos otra solicitud con este documento. ' : ''
+  return `${hello} ${who} ya tiene una línea de crédito vigente con ${v.tenantName}. ${amount} (resuelta${when}). ${why}Para ampliarla o hacer un cambio, habla con tu ejecutivo de ${v.tenantName}.`
+}
+
 /** Why the analyst discarded the document, in words for the supplier. Never accuses: `altered` only says it could not be validated. */
 const DISCARD_NOTICE_REASON: Record<DiscardReason, string> = {
   wrong_document: 'el documento que mandaste no es un estado de cuenta bancario a tu nombre',

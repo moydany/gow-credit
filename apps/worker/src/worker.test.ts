@@ -19,7 +19,7 @@ import { CLARIFICATION_LOOP_ID, Writer, WORKFLOW_ID } from '@gow/mastra'
 import { enqueueProcess, enqueueResume, LocalDocumentStorage, QUEUES, startQueue } from '@gow/platform'
 import { PostgresStore } from '@mastra/pg'
 import pg from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { DbClarificationChannel } from './channel.ts'
 import { resolveInbound } from './inbound.ts'
 import { handleRedecide } from './redecide.ts'
@@ -332,7 +332,12 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     })
   })
 
+  /** Tests about opening requests start without an approved line (with one, a PDF only gets its summary). */
+  const withoutLine = (phone: string) =>
+    admin.query("UPDATE app.applications SET status = 'not_qualified' WHERE status IN ('qualified', 'qualified_with_limit') AND supplier_id IN (SELECT supplier_id FROM app.supplier_contacts WHERE address = $1)", [phone])
+
   describe('estado de cuenta por WhatsApp', () => {
+    beforeEach(() => withoutLine(SUPPLIER_PHONE))
     const pdf = Buffer.from('%PDF-1.7\n% estado de cuenta de prueba\n%%EOF\n')
     const replies = async (to: string) => (await admin.query<{ kind: string; body: string }>("SELECT kind, body FROM app.outbound_messages WHERE destination = $1 AND kind = 'document' ORDER BY created_at", [to])).rows
     const attachmentOf = async (id: string) => (await admin.query<{ attachment: Buffer | null; resolution: string }>('SELECT attachment, resolution FROM app.inbound_messages WHERE id = $1', [id])).rows[0]
@@ -540,9 +545,22 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       expect((await kinds(NEWCOMER)).filter((k) => k === 'verdict')).toHaveLength(1)
     })
 
-    it('ya registrado, un saludo dice qué hacer y un PDF abre la solicitud de su proveedor', async () => {
+    it('con una línea aprobada, un saludo trae su resumen y otro PDF no abre otra solicitud', async () => {
       // The previous notice may have asked how much they want to advance: "omitir" closes that question.
-      expect(['offer_skipped', 'registered_idle']).toContain((await step('omitir')).resolution)
+      expect(['offer_skipped', 'registered_idle', 'line_active']).toContain((await step('omitir')).resolution)
+      await admin.query("UPDATE app.applications SET status = 'qualified_with_limit' WHERE supplier_id IN (SELECT supplier_id FROM app.supplier_contacts WHERE address = $1)", [NEWCOMER])
+      const before = (await admin.query('SELECT 1 FROM app.applications WHERE supplier_id IN (SELECT supplier_id FROM app.supplier_contacts WHERE address = $1)', [NEWCOMER])).rowCount
+      expect((await step('hola de nuevo')).resolution).toBe('line_active')
+      const summary = await lastReply()
+      expect(summary.kind).toBe('line_summary')
+      expect(summary.body).toMatch(/^Hola, Ana\. Comercializadora Nueva SA de CV ya tiene una línea de crédito vigente con Fintech Demo\. Tienes una línea aprobada de hasta \$[\d,]+\.\d{2} pesos \(resuelta el \d+\/\d+\/\d{4}\)\. Para ampliarla/)
+      expect((await step('', Buffer.from('%PDF-1.7\n% otro estado de cuenta, con línea\n%%EOF\n'))).resolution).toBe('line_active')
+      expect((await lastReply()).body).toMatch(/Por eso no abrimos otra solicitud con este documento\./)
+      expect((await admin.query('SELECT 1 FROM app.applications WHERE supplier_id IN (SELECT supplier_id FROM app.supplier_contacts WHERE address = $1)', [NEWCOMER])).rowCount).toBe(before)
+    })
+
+    it('ya registrado y sin línea aprobada, un saludo dice qué hacer y un PDF abre la solicitud de su proveedor', async () => {
+      await withoutLine(NEWCOMER)
       expect((await step('hola de nuevo')).resolution).toBe('registered_idle')
       expect((await lastReply()).body).toMatch(/^Hola, Ana\. Ya tienes registrada a Comercializadora Nueva SA de CV/)
       const r = await step('', Buffer.from('%PDF-1.7\n% otro estado de cuenta\n%%EOF\n'))
@@ -622,9 +640,10 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const verdict = await lastReply(PHONE)
       expect(verdict.kind).toBe('verdict')
       expect(verdict.body).toMatch(/tu solicitud de adelanto de \$[\d,]+\.00 pesos/)
-      // With an amount already given, it is not offered again.
+      // With an amount already given, it is not offered again; from now on a message gets the line's summary.
       expect(verdict.body).not.toMatch(/¿Cuánto quieres adelantar/)
-      expect((await step('hola', null, PHONE)).resolution).toBe('registered_idle')
+      expect((await step('hola', null, PHONE)).resolution).toBe('line_active')
+      expect((await lastReply(PHONE)).body).toMatch(/Te aprobamos \$[\d,]+\.\d{2} pesos, dentro de una línea de hasta|Tienes una línea aprobada de hasta/)
     })
 
     it('si los datos leídos no son suyos, se piden nombre y RFC', async () => {
@@ -758,6 +777,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     })
 
     it('un monto en palabras entra por Haiku; uno con formato no lo llama', async () => {
+      await withoutLine(PHONE)
       expect((await say('', Buffer.from('%PDF-1.7\n% abarrotes\n%%EOF\n'))).resolution).toBe('document_received')
       const before = calls.length
       expect(await say('ciento ochenta mil pesitos')).toEqual({ resolution: 'intake_step', resume: null, interpreted: true })
@@ -923,6 +943,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const SUPPLIER = randomUUID()
     const PHONE = '+5215512340072'
     const holder = { name: 'Abarrotes Tres Meses SA de CV', rfc: 'ATM150304AB1', clabe: null }
+    beforeEach(() => withoutLine(PHONE))
     const opts = () => ({ storage: services.storage })
     const say = async (body: string, attachment: Buffer | null = null) => {
       await whatsapp.query('BEGIN')

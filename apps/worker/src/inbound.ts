@@ -78,6 +78,7 @@ import { OFFER_STEP } from './offer.ts'
 import { documentRequestOf, duplicateReply, pendingChatPrompt } from './inbound-replies.ts'
 import { completeRegistration, completeRfc, pendingStatement, registrationPrompt, registrationSupplier, rfcAskReason } from './registration.ts'
 import { historyMonthsOf, joinSend, openSendOf, SEND_WINDOW_SECONDS } from './send-batch.ts'
+import { activeLineOf, lineSummaryFor } from './active-line.ts'
 
 /** What came out of reading a value: the value, that they will not give it, or why it was not understood. */
 type FieldRead<T> = { value: T } | { skip: true } | { invalid: 'not_understood' | 'off_topic' | null }
@@ -511,6 +512,12 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
         const wait = complete && request.topic === 'additional_months' ? { resumeDelaySeconds: SEND_WINDOW_SECONDS } : {}
         return { resolution: 'document_answer', resume: complete ? { tenant_id: tenantId, application_id: requesting.applicationId, clarification_id: requesting.id } : null, ...wait }
       }
+      // One line at a time: with an approved one, another PDF gets its summary, not a new request.
+      const line = await activeLineOf(tx, [supplierId])
+      if (line) {
+        await finish('line_active', null, { body: await lineSummaryFor(tx, supplierId, line, { contactName: reg?.contactName ?? null, sentDocument: true }), kind: 'line_summary' })
+        return { resolution: 'line_active', resume: null }
+      }
       const sha256 = createHash('sha256').update(bytes).digest('hex')
       const [existing] = await tx.select({ id: documents.id }).from(documents).where(eq(documents.sha256, sha256))
       if (existing) {
@@ -553,6 +560,13 @@ export async function resolveInbound(db: Db, tenantId: string, messageId: string
     }
     const open = await openClarification()
     if (!open) {
+      // With an approved line, any message with nothing pending gets its summary.
+      const owners = [...new Set(links.map((l) => l.supplierId))]
+      const line = owners.length === 1 && owners[0] ? await activeLineOf(tx, owners) : null
+      if (line && owners[0]) {
+        await finish('line_active', null, { body: await lineSummaryFor(tx, owners[0], line, { contactName: reg?.contactName ?? null, sentDocument: false }), kind: 'line_summary' })
+        return done({ resolution: 'line_active', resume: null })
+      }
       if (selfRegistration && msg.channel === 'whatsapp') {
         // In the demo, a registered supplier who greets is told what to do, not the generic reply.
         const [s] = await tx.select({ legalName: suppliers.legalName }).from(suppliers).where(inArray(suppliers.id, links.map((l) => l.supplierId))).limit(1)
