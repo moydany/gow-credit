@@ -711,7 +711,8 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
 
     beforeAll(async () => {
       // La compuerta de páginas completas del motor (sección M) pregunta `missing_pages`; aquí la hace una de
-      // meses de historia sobre un documento que la respuesta completa: lo que importa es el canal.
+      // meses de historia sobre un documento que la respuesta completa: lo que importa es el canal. Reemplaza a
+      // la de la plantilla base, que usa el mismo id.
       const policy = basePolicyTemplate()
       const gate = { id: 'pages_complete', description: 'Prueba', when: { feature: 'months_of_history', op: '>=', value: 2 }, onFail: { status: 'needs_clarification', ask: 'missing_pages' } } as const
       const doc: SyntheticDocument = { input: { start: '2026-08-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed: 'incompleto' }
@@ -722,7 +723,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
       const docId = randomUUID()
       await admin.query("INSERT INTO app.tenants (id, name, whatsapp_number) VALUES ($1, 'Fintech Faltantes', '+5215500000002')", [TENANT])
       await admin.query("INSERT INTO app.policies (id, tenant_id, name) VALUES ($1, $2, 'base')", [policyId, TENANT])
-      await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 1, 'active', $3)", [TENANT, policyId, JSON.stringify({ ...policy, gates: [gate, ...policy.gates] })])
+      await admin.query("INSERT INTO app.policy_versions (tenant_id, policy_id, version, status, document) VALUES ($1, $2, 1, 'active', $3)", [TENANT, policyId, JSON.stringify({ ...policy, gates: [gate, ...policy.gates.filter((g) => g.id !== gate.id)] })])
       await admin.query('INSERT INTO app.suppliers (id, tenant_id, legal_name, rfc) VALUES ($1, $2, $3, $4)', [SUPPLIER, TENANT, holder.name, holder.rfc])
       await admin.query("INSERT INTO app.supplier_contacts (tenant_id, supplier_id, channel, address, verified_at, verification_method) VALUES ($1, $2, 'whatsapp', $3, now(), 'kyc')", [TENANT, SUPPLIER, PHONE])
       await admin.query("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, $4, $5, 10, 'application/json')", [docId, TENANT, SUPPLIER, path, sha])
