@@ -88,7 +88,7 @@ export const FEATURE_CATALOG = {
   statement_seen_elsewhere_days: int({ source: 'internal', unit: 'days', description: 'Días desde que otro prestamista vio el mismo UUID; null si nunca' }),
   sat_list_status: enumOf(SAT_LIST_STATUS, { source: 'tax_authority', unit: 'none', description: 'Situación del RFC del titular en las listas 69-B y de no localizados' }),
   income_from_listed_rfc_share: ratio({ source: 'tax_authority', unit: 'ratio', description: 'Parte de los ingresos operativos que viene de pagadores en 69-B definitivo' }),
-  regime_income_plausible: bool({ source: 'statement', unit: 'none', description: 'Ingresos anualizados dentro del tope del régimen (RESICO 626: 3.5 millones)' }),
+  regime_income_plausible: bool({ source: 'statement', unit: 'none', description: 'Ingresos anualizados dentro del tope del régimen fiscal, cuando el régimen tiene tope (RESICO 626: 3.5 millones)' }),
 } as const
 
 export type FeatureCatalog = typeof FEATURE_CATALOG

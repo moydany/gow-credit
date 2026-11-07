@@ -517,9 +517,13 @@ export function regimeCode(raw: string): (typeof FISCAL_REGIMES)[number] | null 
   return (FISCAL_REGIMES as readonly string[]).includes(code) ? (code as (typeof FISCAL_REGIMES)[number]) : 'other'
 }
 
+/** El RFC receptor genérico (público en general o extranjero): el CFDI no es del titular (ADR 0056). */
+const GENERIC_RECEIVER_NOTE = 'el CFDI va al RFC genérico; el régimen impreso no es del titular'
+
 function fiscalRegime(ctx: StatementContext): Entry {
   // El documento más reciente manda; si dos documentos dicen regímenes distintos, es conflicto.
   const found: { code: string; verification: Verification; where: string; end: number }[] = []
+  let genericReceiver = false
   for (const doc of ctx.ledger.documents) {
     const end = Math.max(...ctx.ledger.periods.filter((p) => p.doc === doc).map((p) => p.end ?? 0))
     const fiscal = [...doc.statement.fiscal_documents].sort((a, b) => (a.kind === 'income' ? 0 : 1) - (b.kind === 'income' ? 0 : 1))
@@ -527,11 +531,17 @@ function fiscalRegime(ctx: StatementContext): Entry {
       const raw = f.receiver.tax_regime.value
       const code = raw === null ? null : regimeCode(raw)
       if (code === null) continue
+      // Un CFDI a XAXX010101000 / XEXX010101000 imprime el régimen que se le pone a "público en general"
+      // (616 en el BBVA), no el del titular: no sirve para el perfil.
+      if (checkRfc(f.receiver.rfc.value).kind === 'generic') {
+        genericReceiver = true
+        continue
+      }
       found.push({ code, verification: f.receiver.tax_regime.verification, where: `${doc.tag}:${f.id}.receiver.tax_regime`, end })
       break
     }
   }
-  if (found.length === 0) return unknown('sin CFDI o el CFDI no imprime el régimen del receptor')
+  if (found.length === 0) return unknown(genericReceiver ? GENERIC_RECEIVER_NOTE : 'sin CFDI o el CFDI no imprime el régimen del receptor')
   found.sort((a, b) => b.end - a.end)
   const latest = found[0]
   if (!latest) return unknown('sin régimen')
@@ -571,7 +581,7 @@ function fiscalAnchor(ctx: StatementContext): Entry {
 }
 
 function regimeIncomePlausible(regime: Entry, incomeMonthly: number | null, incomeEntry: Entry | undefined): Entry {
-  if (regime.value === null) return unknown('sin régimen fiscal')
+  if (regime.value === null) return unknown(regime.note ?? 'sin régimen fiscal')
   if (regime.value !== '626') return known(true, { verification: regime.verification, note: `el régimen ${typeof regime.value === 'string' ? regime.value : ''} no tiene tope de ingresos` })
   if (incomeMonthly === null || incomeEntry === undefined) return unknown('sin ingresos operativos mensuales')
   const annual = round2(incomeMonthly * 12)

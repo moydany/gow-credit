@@ -187,6 +187,26 @@ describe('bloque fiscal (docs/09 §9)', () => {
     expect(f(profileOf([stmt({ monthly: BASIC, fiscal: { ...fiscal, regime: '999 Inventado' } })]), 'fiscal_regime').value).toBe('other')
   })
 
+  it('CFDI al RFC genérico: el régimen impreso no es del titular, así que queda desconocido (ADR 0056)', () => {
+    for (const receiver_rfc of ['XAXX010101000', 'XEXX010101000']) {
+      const p = profileOf([stmt({ monthly: BASIC, fiscal: { ...fiscal, regime: '616 Sin obligaciones fiscales', receiver_rfc } })])
+      expect(f(p, 'fiscal_regime')).toMatchObject({ value: null, verification: 'unverified', note: 'el CFDI va al RFC genérico; el régimen impreso no es del titular' })
+      expect(f(p, 'regime_income_plausible')).toMatchObject({ value: null, note: 'el CFDI va al RFC genérico; el régimen impreso no es del titular' })
+      expect(Profile.safeParse(p).success).toBe(true)
+    }
+  })
+
+  it('un régimen con tope en un CFDI genérico no cuenta: el tope de RESICO no se aplica al titular', () => {
+    const big = profileOf([stmt({ monthly: [{ kind: 'customer_payment', amount: 400000, count: 4 }], fiscal: { ...fiscal, regime: '626', receiver_rfc: 'XAXX010101000' } })])
+    expect([f(big, 'fiscal_regime').value, f(big, 'regime_income_plausible').value]).toEqual([null, null])
+  })
+
+  it('con otro CFDI que sí va al titular, ese régimen es el que vale', () => {
+    const generic = stmt({ monthly: BASIC, fiscal: { ...fiscal, regime: '616 Sin obligaciones fiscales', receiver_rfc: 'XAXX010101000' } }, 's1')
+    const own = stmt({ start: '2026-10-01', monthly: BASIC, fiscal: { ...fiscal, uuid: 'B1B2C3D4-0000-4E5F-8A9B-0C1D2E3F4A5B' } }, 's2')
+    expect(f(profileOf([generic, own]), 'fiscal_regime')).toMatchObject({ value: '601', verification: 'verified', note: null })
+  })
+
   it('RESICO: ingresos anualizados sobre 3.5 millones no son plausibles', () => {
     const big = profileOf([stmt({ monthly: [{ kind: 'customer_payment', amount: 400000, count: 4 }], fiscal: { ...fiscal, regime: '626' } })])
     expect(f(big, 'regime_income_plausible').value).toBe(false)
