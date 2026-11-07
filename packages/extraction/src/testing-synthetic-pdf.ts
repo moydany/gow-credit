@@ -97,3 +97,52 @@ export const SYNTHETIC_STATEMENT_LINES = [
   '12/03   PAGO PROVEEDOR PAPELERIA             1,000.00                14,000.00',
   '31/03   COMISION MANEJO DE CUENTA              250.50                13,749.50',
 ] as const
+
+export interface SyntheticPagesOptions {
+  /** `/Rotate` de todas las páginas (múltiplo de 90): la página se muestra girada a la derecha. */
+  rotate?: number
+  /** Hacia dónde corre el texto en el espacio del PDF, en grados contra las manecillas del reloj (0 es el normal). */
+  textAngle?: 0 | 90 | 180 | 270
+}
+
+/** Matriz de colocación y punto de partida del texto por dirección, para que quede dentro de la hoja. */
+const TEXT_PLACEMENT = {
+  0: { cm: '', td: '40 760' },
+  90: { cm: '0 1 -1 0 40 40 cm\n', td: '0 0' },
+  180: { cm: '-1 0 0 -1 572 40 cm\n', td: '0 0' },
+  270: { cm: '0 -1 1 0 572 752 cm\n', td: '0 0' },
+} as const
+
+/**
+ * Un PDF sintético de varias páginas (Helvetica, sin dependencias): cada elemento de `pages` son las
+ * líneas de una página. Las páginas con las mismas líneas dan listas de operadores idénticas, que es
+ * lo que hace falta para probar páginas repetidas. Con `rotate` pone `/Rotate` en todas.
+ */
+export function syntheticStatementPages(pages: readonly (readonly string[])[], opts: SyntheticPagesOptions = {}): Buffer {
+  const place = TEXT_PLACEMENT[opts.textAngle ?? 0]
+  const fontObject = 3
+  const pageObject = (i: number) => 4 + 2 * i
+  const objects: string[] = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pages.map((_, i) => `${String(pageObject(i))} 0 R`).join(' ')}] /Count ${String(pages.length)} >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+  ]
+  const rotate = opts.rotate === undefined ? '' : ` /Rotate ${String(opts.rotate)}`
+  pages.forEach((lines, i) => {
+    const textOps = lines.map((l) => `(${escapePdfText(l)}) Tj T*`).join('\n')
+    const stream = `${place.cm}BT\n/F1 9 Tf\n11 TL\n${place.td} Td\n${textOps}\nET`
+    objects.push(`<< /Type /Page /Parent 2 0 R${rotate} /MediaBox [0 0 612 792] /Contents ${String(pageObject(i) + 1)} 0 R /Resources << /Font << /F1 ${String(fontObject)} 0 R >> >> >>`)
+    objects.push(`<< /Length ${String(Buffer.byteLength(stream, 'latin1'))} >>\nstream\n${stream}\nendstream`)
+  })
+  let out = '%PDF-1.4\n'
+  const offsets: number[] = []
+  objects.forEach((obj, i) => {
+    offsets.push(Buffer.byteLength(out, 'latin1'))
+    out += `${String(i + 1)} 0 obj\n${obj}\nendobj\n`
+  })
+  const xrefOffset = Buffer.byteLength(out, 'latin1')
+  out += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`
+  for (const off of offsets) out += `${String(off).padStart(10, '0')} 00000 n \n`
+  out += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`
+  return Buffer.from(out, 'latin1')
+}
