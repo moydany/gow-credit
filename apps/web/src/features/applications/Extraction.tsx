@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react'
 import { CATEGORY_LABEL, date, ISSUE_SEVERITY_LABEL, money, number } from '../../lib/format'
 import { Icon } from '../../ui/icons'
 import { Chip, EmptyState } from '../../ui/primitives'
+import { BalanceBreaks } from './BalanceBreaks'
+import { balanceBreaks, periodBreaks } from './breaks'
 import { useFocus, useReview, Val } from './focus'
 
 export type ExtractionTab = 'resumen' | 'movimientos' | 'fiscal' | 'alertas'
@@ -63,6 +65,7 @@ export function alertPages(x: StatementExtraction): Set<number> {
     },
   )
   for (const i of x.issues) if (i.page && i.severity !== 'info') pages.add(i.page)
+  for (const b of balanceBreaks(x)) pages.add(b.tx.source.page)
   return pages
 }
 
@@ -267,9 +270,10 @@ function Reconciliation({ p }: { p: Period }) {
       )}
       {r.running_balance ? (
         <p className="mt-2 text-[12.5px] text-muted">
-          Saldo corrido: {r.running_balance.rows_checked} filas revisadas, {r.running_balance.breaks.length === 0 ? 'sin saltos' : `${String(r.running_balance.breaks.length)} salto(s)`}.
+          Saldo corrido: {r.running_balance.rows_checked} filas revisadas, {r.running_balance.breaks.length === 0 ? 'sin saltos' : r.running_balance.breaks.length === 1 ? 'deja de cuadrar en este movimiento:' : `deja de cuadrar en ${String(r.running_balance.breaks.length)} movimientos:`}
         </p>
       ) : null}
+      <BalanceBreaks breaks={periodBreaks(p)} className="mt-2" />
     </div>
   )
 }

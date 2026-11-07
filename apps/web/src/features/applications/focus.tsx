@@ -26,6 +26,10 @@ export interface EditSpec {
   snippet: string | null
   /** A movement is corrected whole: amount, direction and date in the same form. */
   tx?: { id: string; amount: number; type: 'credit' | 'debit'; date: string }
+  /** Amount that makes the running balance match the PDF; the form starts with it. */
+  suggestedAmount?: number | null
+  /** Why this value is being reviewed, shown above the form. */
+  hint?: string
 }
 export interface ReviewApi {
   /** Only on requests in human review. */

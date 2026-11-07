@@ -10,6 +10,8 @@ import { ClarificationCard } from '../clarifications/ClarificationCard'
 import { Icon } from '../../ui/icons'
 import { Button, Card, ErrorState, Modal, Skeleton, StatusChip } from '../../ui/primitives'
 import { useToast } from '../../ui/toast'
+import { BalanceBreaks } from './BalanceBreaks'
+import { balanceBreaks } from './breaks'
 import { CorrectionModal } from './CorrectionModal'
 import { DecisionPanel } from './DecisionPanel'
 import { alertPages, ExtractionPanel, type ExtractionTab } from './Extraction'
@@ -78,6 +80,7 @@ export function ApplicationDetailPage() {
     [data?.status, pending, goTo],
   )
   const pages = useMemo(() => (data?.extraction ? alertPages(data.extraction) : new Set<number>()), [data?.extraction])
+  const breaks = useMemo(() => (data?.extraction ? balanceBreaks(data.extraction) : []), [data?.extraction])
   const doc = data?.documents[0]
   const open = data?.clarifications.filter((c) => c.status === 'open') ?? []
 
@@ -207,8 +210,14 @@ export function ApplicationDetailPage() {
                     <p className="flex items-center gap-2 text-[14px] font-medium text-amber-ink">
                       <Icon name="edit" size={16} /> {pending.length === 0 ? 'Revisa el documento' : pending.length === 1 ? '1 corrección por guardar' : `${String(pending.length)} correcciones por guardar`}
                     </p>
+                    {breaks.length > 0 ? (
+                      <>
+                        <p className="mt-1 text-[13px] leading-snug text-amber-ink/85">El saldo deja de cuadrar {breaks.length === 1 ? 'en este movimiento' : `en ${String(breaks.length)} movimientos`}. Compáralo con el PDF y corrige lo que se leyó mal.</p>
+                        <BalanceBreaks breaks={breaks} className="mt-3" />
+                      </>
+                    ) : null}
                     {pending.length === 0 ? (
-                      <p className="mt-1 text-[13px] leading-snug text-amber-ink/85">Si la extracción leyó mal algo, toca el lápiz junto al valor y escribe lo correcto con el PDF al lado. Al guardar, el motor decide de nuevo con tus correcciones.</p>
+                      <p className="mt-2 text-[13px] leading-snug text-amber-ink/85">{breaks.length > 0 ? 'Para cualquier otro dato, ' : 'Si la extracción leyó mal algo, '}toca el lápiz junto al valor y escribe lo correcto con el PDF al lado. Al guardar, el motor decide de nuevo con tus correcciones.</p>
                     ) : (
                       <>
                         <ul className="mt-3 space-y-2">

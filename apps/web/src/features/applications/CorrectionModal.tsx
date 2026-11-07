@@ -38,7 +38,7 @@ export function CorrectionModal({ spec, onClose, onAdd }: { spec: EditSpec | nul
     if (!spec) return
     setValue(spec.current === null ? '' : String(spec.current))
     if (spec.tx) {
-      setAmount(String(spec.tx.amount))
+      setAmount(String(spec.suggestedAmount ?? spec.tx.amount))
       setType(spec.tx.type)
       setDay(spec.tx.date)
     }
@@ -80,6 +80,12 @@ export function CorrectionModal({ spec, onClose, onAdd }: { spec: EditSpec | nul
         <p className="text-[13.5px] leading-relaxed text-muted">
           {spec.page ? `El PDF está en la página ${String(spec.page)}. ` : ''}Compáralo con lo que dice la extracción y escribe lo correcto.
         </p>
+        {spec.hint ? (
+          <p className="mt-3 rounded-2xl bg-amber-soft px-3.5 py-2.5 text-[13px] leading-snug text-amber-ink">
+            {spec.hint}
+            {tx && spec.suggestedAmount != null ? ` El monto ya trae ${money(spec.suggestedAmount)}, el que lo hace cuadrar; confírmalo en el PDF antes de agregarlo.` : ''}
+          </p>
+        ) : null}
         {!tx ? (
           <div className="mt-4 space-y-4">
             <div className="inner px-4 py-3 text-[13.5px]">
