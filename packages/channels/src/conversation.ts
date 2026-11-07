@@ -416,6 +416,7 @@ export function failureNotice(failure: Pick<FailureInfo, 'kind' | 'documentType'
     return `Lo que mandaste no parece un estado de cuenta bancario. ${ASK_BANK_STATEMENT}`
   }
   if (failure?.kind === 'password_protected') return DOCUMENT_REPLIES.password_protected
+  if (failure?.kind === 'multiple_statements') return 'Tu PDF trae más de un estado de cuenta. Mándanos cada estado de cuenta en un PDF aparte, tal como lo descargaste de tu banco.'
   if (failure?.kind === 'scanned_unreadable') return 'No pude leer tu estado de cuenta: parece escaneado o una foto. Descárgalo en PDF desde el portal o la app de tu banco.'
   if (failure?.kind === 'extraction_failed') return 'No pudimos leer tu estado de cuenta. Mándalo de nuevo como PDF descargado directamente de tu banco (no foto ni escaneo).'
   return 'No pudimos terminar de revisar tu estado de cuenta por un problema de nuestro lado. Ya lo estamos viendo; si quieres, vuelve a mandarlo en unos minutos.'

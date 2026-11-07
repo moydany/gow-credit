@@ -1,4 +1,4 @@
-import type { Question } from '@gow/contracts'
+import { describeFailure, multipleStatementsReason, type Question } from '@gow/contracts'
 import { describe, expect, it } from 'vitest'
 import { ANALYST_NOTICE, answerLabel, DOCUMENT_REPLIES, failureNotice, isConversational, isSkip, parseAmount, parseConfirmation, parseLegalName, parseMaturity, parseMultipleReplies, parseReply, parseRfc, notQualifiedReasons, parseYesNo, personTypeOf, questionSubject, REGISTRATION_REPLIES, renderQuestion, renderQuestionAt, renderReask, renderSummary, renderVerdict } from './conversation.ts'
 import { signSvix, verifySvix } from './svix.ts'
@@ -286,6 +286,16 @@ describe('por qué no se pudo revisar, dicho al proveedor (ADR 0041)', () => {
     expect(failureNotice({ kind: 'password_protected', documentType: null })).toBe(password)
     expect(failureNotice({ kind: 'scanned_unreadable', documentType: null })).toBe('No pude leer tu estado de cuenta: parece escaneado o una foto. Descárgalo en PDF desde el portal o la app de tu banco.')
     expect(renderVerdict({ status: 'failed', limit: null, request: null, tenantName: 'X', failure: { kind: 'scanned_unreadable', documentType: null } })).toMatch(/parece escaneado o una foto/)
+  })
+})
+
+describe('varios estados de cuenta en un PDF, dicho al proveedor (robustez documental, sección W)', () => {
+  const notice = 'Tu PDF trae más de un estado de cuenta. Mándanos cada estado de cuenta en un PDF aparte, tal como lo descargaste de tu banco.'
+
+  it('pide cada estado de cuenta en su propio PDF, sin decir cuántos ni nada del documento', () => {
+    expect(failureNotice({ kind: 'multiple_statements', documentType: null })).toBe(notice)
+    expect(failureNotice(describeFailure(multipleStatementsReason(3)))).toBe(notice)
+    expect(renderVerdict({ status: 'failed', limit: null, request: null, tenantName: 'X', failure: { kind: 'multiple_statements', documentType: null } })).toBe(notice)
   })
 })
 
