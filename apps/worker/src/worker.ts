@@ -76,8 +76,8 @@ function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
       const dir = await mkdtemp(join(tmpdir(), 'gow-doc-'))
       const file = join(dir, basename(path))
       await writeFile(file, bytes)
-      // Modo full: un documento que con seguridad no es estado de cuenta no se extrae (ADR 0002 y 0042).
-      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE })
+      // Modo full: un documento que con seguridad no es estado de cuenta, o que trae más de uno, no se extrae (ADR 0002, 0042 y 0057).
+      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE, rejectMultipleStatements: true })
     },
     transactionClassifier: s.transactionClassifier,
     writer: s.writer,

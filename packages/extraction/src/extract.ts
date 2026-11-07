@@ -32,7 +32,7 @@ import { IssueSink } from './issues.ts'
 import { ExtractionChunk, EXTRACTION_SCHEMA_NAME, type SummaryOut } from './llm-schema.ts'
 import { daysBetween } from './normalize.ts'
 import { PageText, textUsable } from './page-text.ts'
-import { isPdfPasswordError, loadPdf, type LoadedPdf } from './pdf.ts'
+import { isPdfPasswordError, loadPdf, multipleStatementsReason, reportFiscalStatements, reportPageChecks, type LoadedPdf } from './pdf.ts'
 import { pagesWithBreaks, printedOf, reconcilePeriod, reconciliationScore, type PeriodReconciliation } from './reconcile.ts'
 import { isProviderFailure, planModels, supportsServerFallback, type ModelPlan } from './router.ts'
 import { checkClabe, checkRfc, rfcRoot } from './validators.ts'
@@ -58,6 +58,12 @@ export interface ExtractOptions {
    * clasificación etiqueta y no bloquea.
    */
   rejectNotStatementAbove?: number
+  /**
+   * Solo el modo full (ADR 0057, como el corte de ADR 0042): un PDF con más de un estado de cuenta no se
+   * extrae; falla con `multipleStatementsReason`. Sin él (standalone, `evaluate`) se extrae igual y la
+   * bandera `multiple_statements` queda.
+   */
+  rejectMultipleStatements?: boolean
 }
 
 interface Classified {
@@ -139,6 +145,13 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     issues.add({ code: 'page_unreadable', severity: 'info', message: pdf.textRepaired ? 'La capa de texto venía en EBCDIC; se decodificó para verificar montos. El modelo lee las imágenes.' : 'La capa de texto está corrupta; la extracción va por visión y la verificación queda en la aritmética.' })
   }
   const pdfInput = { base64: pdf.base64, sha256: pdf.sha256, cache: true }
+
+  // ---------- Paginación, páginas repetidas y giradas (ADR 0057). Gratis: sin modelos.
+  const pageChecks = reportPageChecks(pdf, issues, flags)
+  const duplicatePages = new Set(pdf.duplicatePages)
+  if (opts.rejectMultipleStatements && pageChecks.statements.documents > 1) {
+    return build({ extractionModel: plan.primary, pdf, route, started, documentType: 'other', classConfidence: 0, classifierBank: null, classifier: { implementation: 'claude', model: 'none', fallback: true }, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason: multipleStatementsReason(pageChecks.statements.documents), status: 'failed' })
+  }
 
   const record = (purpose: string, prompt: string | null, effort: Effort | null, pages: number[], r: { model: string; usage: TokenUsage; costUsd: number; latencyMs: number; responseCacheHit: boolean }) => {
     calls.push({ purpose, model: r.model, prompt, effort, pages, usage: r.usage, cost_usd: r.costUsd, latency_ms: r.latencyMs, response_cache_hit: r.responseCacheHit })
@@ -238,11 +251,17 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
   if (fiscal.length > 0) flags.add('fiscal_document_present')
   if (summary.accounts.length > 1) flags.add('multi_account')
   if (summary.accounts.some((a) => a.periods.length > 1)) flags.add('multi_period')
+  // Sin numeración impresa que lo diga, los CFDI de ingreso timbrados en días distintos son varios estados (ADR 0057).
+  const byCfdi = pageChecks.paginated ? null : reportFiscalStatements(fiscal, issues, flags)
+  if (byCfdi && opts.rejectMultipleStatements) {
+    return build({ extractionModel, pdf, route, started, documentType, classConfidence, classifierBank, classifier, summary: null, fiscal: [], periodsTx: new Map(), issues, flags, calls, failureReason: multipleStatementsReason(byCfdi.documents), status: 'failed' })
+  }
 
   // ---------- Pasada 2 por bloques (después de la pasada 1: la caché ya está escrita)
   const allPages = Array.from({ length: pdf.pageCount }, (_, i) => i + 1)
   const movementPages = [...new Set(summary.periods.flatMap((p) => p.movementPages))].sort((a, b) => a - b)
-  const pages = movementPages.length > 0 ? movementPages : allPages
+  // Una página repetida no se extrae otra vez (sus filas se descartan de todos modos en `placeRows`).
+  const pages = (movementPages.length > 0 ? movementPages : allPages).filter((p) => !duplicatePages.has(p))
   const listing = accountsListing(summary)
 
   const runBlock = async (blockPages: number[], orderBase: number, depth = 0): Promise<PlacedRow[]> => {
@@ -252,7 +271,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
     try {
       progress(`bloque páginas ${String(first)}-${String(last)}`)
       const chunk = await callChunk('transactions', prompt.id, prompt.text, opts.transactionsEffort, blockPages, 32_000)
-      return placeRows(chunk.transactions, blockPages, summary, orderBase, issues)
+      return placeRows(chunk.transactions, blockPages, summary, orderBase, issues, duplicatePages)
     } catch (caught) {
       let err = caught
       // Si se cortó por longitud, se parte el bloque; si no, un reintento y luego salida parcial.
@@ -269,7 +288,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
           progress(`bloque páginas ${String(first)}-${String(last)} con ${plan.qualityFallback}`)
           const chunk = await callChunk('transactions', prompt.id, prompt.text, opts.transactionsEffort, blockPages, 32_000, plan.qualityFallback)
           flags.add('quality_fallback')
-          return placeRows(chunk.transactions, blockPages, summary, orderBase, issues)
+          return placeRows(chunk.transactions, blockPages, summary, orderBase, issues, duplicatePages)
         } catch (err2) {
           err = err2
         }
@@ -302,7 +321,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       const broken = pagesWithBreaks(rec)
       const meta = summary.periods.find((m) => m.id === p.id)
       // Sin saldo por fila no se puede localizar: se relee solo si el periodo es corto.
-      const candidates = broken.length > 0 ? broken : (meta?.movementPages.length ?? 99) <= 2 ? (meta?.movementPages ?? []) : []
+      const candidates = (broken.length > 0 ? broken : (meta?.movementPages.length ?? 99) <= 2 ? (meta?.movementPages ?? []) : []).filter((page) => !duplicatePages.has(page))
       for (const page of candidates) {
         const b = rec.running_balance?.breaks.filter((x) => x.page === page) ?? []
         const why = b.length > 0
@@ -319,7 +338,7 @@ export async function extractStatement(path: string, deps: ExtractDeps, opts: Ex
       // Doble lectura con otra familia de modelos (ADR 0011): menos sesgos compartidos.
       const chunk = await callChunk('retry_page', prompt.id, prompt.text, opts.retryEffort, [page], 32_000, plan.doubleRead)
       const firstOrder = placed.find((r) => r.tx.source.page === page)?.order ?? page * 1000
-      const fresh = placeRows(chunk.transactions, [page], summary, firstOrder, issues)
+      const fresh = placeRows(chunk.transactions, [page], summary, firstOrder, issues, duplicatePages)
       const candidate = [...placed.filter((r) => r.tx.source.page !== page), ...fresh]
       const next = reconcileAll(candidate)
       const affected = new Set([...placed, ...fresh].filter((r) => r.tx.source.page === page).map((r) => r.periodId))
