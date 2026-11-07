@@ -3,7 +3,8 @@
  * clasificación efectiva, más los periodos que cubren. Todo el cálculo de features parte de
  * aquí, así que las reglas de qué entra y qué no viven en un solo lugar:
  *
- * - Solo documentos `bank_statement` (ADR 0002); un mismo sha256 entra una vez.
+ * - Todo documento cuya extracción terminó, aunque el clasificador no lo llamara estado de
+ *   cuenta (ADR 0002 y 0042, cambios): la etiqueta queda como aviso. Un mismo sha256 entra una vez.
  * - Cuentas en MXN y que no son tarjeta de crédito (sin conversión de moneda).
  * - Clasificación efectiva: la que trae el movimiento (Jev, Haiku, respuesta del dueño) si
  *   alcanza la confianza mínima; si no, el comprador reconocido por RFC o nombre; si no, la que
@@ -144,9 +145,14 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
       continue
     }
     seen.add(sha)
-    if (s.classification.document_type !== 'bank_statement') {
-      skipped.push(`documento ${sha.slice(0, 12)} clasificado como ${s.classification.document_type}: no entra al perfil`)
+    if (s.extraction.status === 'failed') {
+      skipped.push(`documento ${sha.slice(0, 12)} sin extracción: no entra al perfil`)
       continue
+    }
+    if (s.classification.document_type !== 'bank_statement') {
+      // El clasificador etiqueta, no bloquea (ADR 0002): una extracción terminada se analiza igual y la
+      // etiqueta se avisa; si de verdad no es un estado de cuenta, el cuadre y las compuertas lo dirán.
+      skipped.push(`documento ${sha.slice(0, 12)} clasificado como ${s.classification.document_type}: entra al perfil con ese aviso`)
     }
     const doc: LedgerDocument = { index: documents.length, sha256: sha, tag: sha.slice(0, 12), statement: s }
     documents.push(doc)

@@ -126,12 +126,15 @@ describe('perfil desde un estado de cuenta', () => {
     expect(f(p, 'red_flags').value).toEqual(['garnishment', 'judicial_order', 'overdraft'])
   })
 
-  it('un documento repetido entra una vez; lo que no es estado de cuenta no entra (ADR 0002)', () => {
+  it('un documento repetido entra una vez; uno que el clasificador no llamó estado de cuenta entra con aviso (ADR 0002 y 0042)', () => {
     const s = stmt({ monthly: BASIC })
     const invoice: StatementExtraction = { ...stmt({ monthly: BASIC }, 's2'), classification: { document_type: 'invoice', confidence: 0.9, bank: null } }
-    const { profile, ledger } = buildProfileWithLedger({ statements: [s, s, invoice], request: null, supplier: null, computedAt: AT })
-    expect(profile.inputs.document_sha256).toEqual([s.document.sha256])
-    expect(ledger.skipped).toHaveLength(2)
+    const failed: StatementExtraction = { ...stmt({ monthly: BASIC }, 's3'), extraction: { ...stmt({ monthly: BASIC }, 's3').extraction, status: 'failed' } }
+    const { profile, ledger } = buildProfileWithLedger({ statements: [s, s, invoice, failed], request: null, supplier: null, computedAt: AT })
+    expect(profile.inputs.document_sha256).toEqual([s.document.sha256, invoice.document.sha256])
+    expect(ledger.skipped).toHaveLength(3)
+    expect(ledger.skipped.some((n) => n.includes('clasificado como invoice: entra al perfil'))).toBe(true)
+    expect(ledger.skipped.some((n) => n.includes('sin extracción'))).toBe(true)
   })
 
   it('sin estados de cuenta utilizables todo lo del estado es desconocido', () => {
@@ -194,6 +197,13 @@ describe('bloque fiscal (docs/09 §9)', () => {
       expect(f(p, 'regime_income_plausible')).toMatchObject({ value: null, note: 'el CFDI va al RFC genérico; el régimen impreso no es del titular' })
       expect(Profile.safeParse(p).success).toBe(true)
     }
+  })
+
+  it('CFDI sin RFC receptor impreso: el régimen no se puede atribuir al titular (el BBVA imprime 616 sin RFC)', () => {
+    const p = profileOf([stmt({ monthly: BASIC, holder_redacted: true, fiscal: { ...fiscal, regime: '616 Sin obligaciones fiscales' } })])
+    expect(f(p, 'fiscal_regime')).toMatchObject({ value: null, verification: 'unverified', note: 'el CFDI no trae RFC receptor; el régimen impreso no se puede atribuir al titular' })
+    expect(f(p, 'regime_income_plausible').value).toBeNull()
+    expect(Profile.safeParse(p).success).toBe(true)
   })
 
   it('un régimen con tope en un CFDI genérico no cuenta: el tope de RESICO no se aplica al titular', () => {
