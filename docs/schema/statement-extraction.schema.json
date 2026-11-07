@@ -182,7 +182,12 @@
               "possible_prompt_injection",
               "fiscal_document_present",
               "provider_fallback",
-              "quality_fallback"
+              "quality_fallback",
+              "multiple_statements",
+              "pages_missing",
+              "pages_duplicated",
+              "rotated_pages",
+              "header_double_read"
             ]
           }
         },
@@ -3541,7 +3546,12 @@
             "fiscal_chain_mismatch",
             "fiscal_totals_mismatch",
             "fiscal_fees_mismatch",
-            "fiscal_receiver_mismatch"
+            "fiscal_receiver_mismatch",
+            "multiple_statements",
+            "page_missing",
+            "duplicate_page_removed",
+            "page_rotated",
+            "header_read_conflict"
           ]
         },
         "severity": {
