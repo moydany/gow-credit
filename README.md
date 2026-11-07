@@ -284,7 +284,7 @@ sequenceDiagram
 | Recorrido | The request step by step in 3D: messages, reads, model calls and decisions |
 | Aclaraciones | Pending questions, answered by hand when the supplier has no WhatsApp |
 | Revisión | Analyst corrections to the extraction, stored as immutable pairs and re-evaluated |
-| Proveedores | Add, search and remove suppliers with everything that belongs to them |
+| Proveedores | Add, search and remove suppliers with everything that belongs to them. On a supplier's page you can upload a statement with the amount to request and watch the evaluation run to its result |
 | Outcomes | Whether each credit was repaid or defaulted, to measure the policy |
 | Bitácora | Who did what, and every model call with its cost |
 | Configuración | General (statement age, WhatsApp, users), policies and prompts |

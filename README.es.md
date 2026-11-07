@@ -284,7 +284,7 @@ sequenceDiagram
 | Recorrido | La solicitud paso a paso en 3D: mensajes, lecturas, llamadas a modelos y decisiones |
 | Aclaraciones | Preguntas pendientes; se responden a mano cuando el proveedor no tiene WhatsApp |
 | Revisión | Correcciones del analista sobre la extracción, guardadas como pares inmutables y reevaluadas |
-| Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo |
+| Proveedores | Alta, búsqueda y baja de proveedores con todo lo suyo. En su detalle se sube un estado de cuenta con el monto a solicitar y se ve la evaluación avanzar hasta el resultado |
 | Outcomes | Si cada crédito se pagó o cayó en mora, para medir la política |
 | Bitácora | Quién hizo qué, y cada llamada a un modelo con su costo |
 | Configuración | General (antigüedad del estado de cuenta, WhatsApp, usuarios), políticas y prompts |

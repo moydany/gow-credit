@@ -265,3 +265,21 @@ muestra personalización y el loop de aprendizaje.
   a paso. Se reconstruye al pedirla con lo que ya hay, sin datos nuevos; los eventos sólidos son exactos,
   los punteados derivados y los rayados inferidos. Los tramos sin actividad se comprimen y se rotulan con
   su duración real. No muestra textos, teléfonos ni montos, y sin WebGL queda la línea de tiempo 2D.
+
+- **Evaluar desde el proveedor (2026-11-07).** El detalle del proveedor tiene la tarjeta "Evaluar un estado
+  de cuenta": se sube el PDF y, opcional, el monto a solicitar ("150000", "150 mil"). Va a
+  `POST /bo/v1/suppliers/:id/statements` (cuerpo `application/pdf`, hasta 40 MB, `?amount=`), que hace lo
+  mismo que `POST /v1/applications`: guarda el PDF, abre la solicitud con `request = { amount, maturity: null,
+  buyer: null }` (null sin monto: decide con la línea máxima) y encola el proceso. Rechaza lo que no es PDF
+  (415), un PDF con contraseña (422), un PDF que ya está en la solicitud de otro proveedor (409) y el mismo PDF
+  mientras su solicitud sigue en proceso (409, porque el proceso es un trabajo por documento). Terminada, el
+  mismo PDF se puede evaluar otra vez para ese proveedor, por ejemplo con otro monto.
+- La tarjeta sigue la solicitud cada 2 s con `GET /bo/v1/suppliers/:id/statements/:applicationId`: estado,
+  monto pedido, veredicto (línea, puntaje y explicación), motivo de falla y si hay aclaración abierta. No lleva
+  RFC, CLABE ni movimientos, por eso consultarlo no escribe en la bitácora como abrir la solicitud. Muestra el
+  avance (recibido, lectura, perfil y decisión, resultado) y al final el monto aprobado con la misma regla del
+  aviso por WhatsApp; con aclaración, el enlace a Aclaraciones. Al recargar la página sigue la solicitud en
+  proceso más reciente.
+- El veredicto solo sale por WhatsApp si el proveedor tiene un número verificado; sin contacto, las
+  aclaraciones se responden desde Aclaraciones. El nginx del backoffice deja pasar 41 MB solo en esa ruta
+  (el resto sigue en 5 MB).
