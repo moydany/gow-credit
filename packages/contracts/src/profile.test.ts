@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FEATURE_CATALOG, FEATURE_CATALOG_VERSION, FEATURE_NAMES } from './features.ts'
+import { DOCUMENT_TAMPER_SIGNALS, FEATURE_CATALOG, FEATURE_CATALOG_VERSION, FEATURE_NAMES } from './features.ts'
 import { Profile, ProfileFeatures } from './profile.ts'
 import { sampleProfile } from './testing/fixtures.ts'
 
@@ -15,10 +15,20 @@ describe('catálogo y perfil', () => {
   })
 
   it('catálogo 1.1.0: las features del bloque fiscal de docs/09 §5 y §9', () => {
-    expect(FEATURE_CATALOG_VERSION).toBe('1.1.0')
     for (const f of ['fiscal_regime', 'cfdi_sat_status', 'fiscal_anchor_ok', 'statement_reuse_count', 'statement_seen_elsewhere_days', 'sat_list_status', 'income_from_listed_rfc_share', 'regime_income_plausible']) {
       expect(FEATURE_CATALOG).toHaveProperty(f)
     }
+  })
+
+  it('catálogo 1.2.0: las señales de robustez documental llegan al motor (ADR 0058)', () => {
+    expect(FEATURE_CATALOG_VERSION).toBe('1.2.0')
+    expect(FEATURE_CATALOG.document_pages_missing).toMatchObject({ kind: 'bool', source: 'statement' })
+    expect(FEATURE_CATALOG.document_tamper_signals).toMatchObject({ kind: 'enum_list', source: 'statement' })
+    expect(FEATURE_CATALOG.document_tamper_signals.values).toEqual(DOCUMENT_TAMPER_SIGNALS)
+    const p = sampleProfile({ document_pages_missing: true, document_tamper_signals: ['prompt_injection', 'pages_duplicated'] })
+    expect(Profile.safeParse(p).success).toBe(true)
+    ;(p.features.document_tamper_signals as { value: unknown }).value = ['otra_senal']
+    expect(Profile.safeParse(p).success).toBe(false)
   })
 
   it('el monto vencido existe para que next_steps diga cuánto regularizar (escenario 6)', () => {

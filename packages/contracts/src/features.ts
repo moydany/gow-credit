@@ -16,6 +16,11 @@ export type FeatureSource = z.infer<typeof FeatureSource>
 
 export const IDENTITY_MATCH = ['match', 'partial', 'mismatch'] as const
 export const RED_FLAGS = ['overdraft', 'returned_check', 'garnishment', 'judicial_order', 'tax_requirement'] as const
+/**
+ * Señales de que el documento pudo alterarse, que la extracción deja en sus banderas y problemas y que
+ * llegan al motor (catálogo 1.2.0, ADR 0058). Lista cerrada: la política compara contra `empty`.
+ */
+export const DOCUMENT_TAMPER_SIGNALS = ['prompt_injection', 'fiscal_chain_mismatch', 'fiscal_stamp_far_from_period', 'pages_duplicated', 'header_read_conflict'] as const
 export const SAT_STATUS = ['compliant', 'non_compliant'] as const
 /** Claves de régimen fiscal del SAT que acepta `fiscal_regime` (docs/09 §5); otra clave es `other`. */
 export const FISCAL_REGIMES = ['601', '603', '605', '606', '607', '608', '610', '611', '612', '614', '615', '616', '620', '621', '622', '623', '624', '625', '626', 'other'] as const
@@ -89,6 +94,9 @@ export const FEATURE_CATALOG = {
   sat_list_status: enumOf(SAT_LIST_STATUS, { source: 'tax_authority', unit: 'none', description: 'Situación del RFC del titular en las listas 69-B y de no localizados' }),
   income_from_listed_rfc_share: ratio({ source: 'tax_authority', unit: 'ratio', description: 'Parte de los ingresos operativos que viene de pagadores en 69-B definitivo' }),
   regime_income_plausible: bool({ source: 'statement', unit: 'none', description: 'Ingresos anualizados dentro del tope del régimen fiscal, cuando el régimen tiene tope (RESICO 626: 3.5 millones)' }),
+  // Catálogo 1.2.0: robustez documental, las señales de la extracción llegan al motor (ADR 0058).
+  document_pages_missing: bool({ source: 'statement', unit: 'none', description: 'Algún documento trae la bandera de páginas faltantes: la paginación que imprime tiene huecos (por ejemplo "Pág 1/3" y "Pág 3/3")' }),
+  document_tamper_signals: enumList(DOCUMENT_TAMPER_SIGNALS, { source: 'statement', unit: 'none', description: 'Señales de que algún documento pudo alterarse: texto dirigido al sistema, cadena fiscal que no coincide, timbrado lejos del periodo, páginas repetidas o dos lecturas del encabezado que no coinciden' }),
 } as const
 
 export type FeatureCatalog = typeof FEATURE_CATALOG
@@ -98,7 +106,7 @@ export type FeatureKind = FeatureCatalog[FeatureName]['kind']
 export const FEATURE_NAMES = Object.keys(FEATURE_CATALOG) as [FeatureName, ...FeatureName[]]
 
 /** Versión del catálogo: sube cuando se agrega, quita o cambia una feature. */
-export const FEATURE_CATALOG_VERSION = '1.1.0'
+export const FEATURE_CATALOG_VERSION = '1.2.0'
 
 export const FeatureName = z.enum(FEATURE_NAMES, {
   error: (issue) => `feature desconocida ${JSON.stringify(issue.input)}; el catálogo (docs/03 §3) no la tiene`,

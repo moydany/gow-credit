@@ -8,7 +8,7 @@
       "properties": {
         "catalog_version": {
           "type": "string",
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "computed_at": {
           "type": "string",
@@ -2650,6 +2650,134 @@
             "note"
           ],
           "additionalProperties": false
+        },
+        "document_pages_missing": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "null = desconocido",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "document_tamper_signals": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "prompt_injection",
+                      "fiscal_chain_mismatch",
+                      "fiscal_stamp_far_from_period",
+                      "pages_duplicated",
+                      "header_read_conflict"
+                    ]
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null = desconocido"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "extracted",
+                "owner_answer",
+                "analyst_answer",
+                "external"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ids de movimientos o JSON Pointers que sustentan el valor"
+            },
+            "note": {
+              "description": "Por qué es desconocido o cómo se calculó, para el analista",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "confidence",
+            "verification",
+            "provenance",
+            "evidence",
+            "note"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -2690,7 +2818,9 @@
         "statement_seen_elsewhere_days",
         "sat_list_status",
         "income_from_listed_rfc_share",
-        "regime_income_plausible"
+        "regime_income_plausible",
+        "document_pages_missing",
+        "document_tamper_signals"
       ],
       "additionalProperties": false
     },
