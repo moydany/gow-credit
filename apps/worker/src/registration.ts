@@ -11,7 +11,7 @@
  *    (`completeRegistration`): el veredicto que ya había o, si el motor esperaba la identidad, la
  *    aclaración se contesta con lo confirmado y la reanudación decide.
  */
-import { failureNotice, isComplete, nextConversational, notQualifiedReasons, parseLegalName, parseRfc, REGISTRATION_REPLIES, renderQuestionAt, renderVerdict } from '@gow/channels'
+import { failureNotice, isComplete, isDocumentRequest, nextConversational, notQualifiedReasons, parseLegalName, parseRfc, REGISTRATION_REPLIES, renderDocumentRequest, renderQuestionAt, renderVerdict } from '@gow/channels'
 import { ApplicationRequest, Decision, describeFailure, OwnerAnswer, Question, rfcRoot } from '@gow/contracts'
 import { applications, auditLog, clarifications, decisions, outboundMessages, supplierRegistrations, suppliers, tenants, type Tx } from '@gow/db'
 import type { AppState } from '@gow/mastra'
@@ -149,6 +149,14 @@ export async function completeRegistration(tx: Tx, tenantId: string, reg: Regist
   if (open.channel === 'whatsapp' && q && !answered.has(q.id)) {
     await tx.update(clarifications).set({ currentQuestion: next, step: 'asking' }).where(eq(clarifications.id, open.id))
     return say(renderQuestionAt(questions, next), 'question', open.id)
+  }
+  // Sin preguntas por el chat, la de páginas faltantes se contesta mandando el PDF por este chat: sale el
+  // pedido, igual que cuando no hay registro de por medio (channel.ts), y no el aviso del analista.
+  const doc = questions.findIndex((x) => isDocumentRequest(x) && !answered.has(x.id))
+  const request = doc >= 0 ? questions[doc] : undefined
+  if (open.channel === 'whatsapp' && request) {
+    await tx.update(clarifications).set({ currentQuestion: doc, step: 'asking' }).where(eq(clarifications.id, open.id))
+    return say(renderDocumentRequest(request), 'question', open.id)
   }
   return say(REGISTRATION_REPLIES.analyst)
 }
