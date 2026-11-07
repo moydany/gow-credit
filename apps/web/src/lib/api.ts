@@ -2,7 +2,7 @@
  * Backoffice API client (`/bo/v1`). Every request carries the session cookie (same origin) and
  * the anti-CSRF header. Errors keep what the API says (field path and message, never the value).
  */
-import type { ApplicationDetail, ApplicationRow, ApplicationTimeline, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierStatementStatus, SupplierStatementUploaded, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
+import type { JobItem, JobListQuery, ApplicationDetail, ApplicationRow, ApplicationTimeline, AuditEntry, BackofficeMe, LlmExchangeDetail, LlmExchangeListQuery, LlmExchangeRow, ClarificationItem, CorrectionInput, DiscardReason, MagicLinkAccepted, OwnerAnswer, PolicyVersionItem, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionCreateBody, PromptVersionItem, SessionConfig, SessionCreateBody, SetupBody, SimulationReport, SupplierCreateBody, SupplierDeleted, SupplierDetail, SupplierRow, SupplierStatementStatus, SupplierStatementUploaded, SupplierUpdateBody, TenantSettings, TenantSettingsUpdateBody, TenantUserCreated, TenantUserItem, WhatsAppLinkState, WhatsAppUnlinkRequested } from '@gow/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -82,6 +82,8 @@ export const api = {
   activatePromptVersion: (name: string, id: string) => request<PromptActivated>('POST', `/prompts/${name}/versions/${id}/activate`),
   recordOutcome: (body: { application_id: string; outcome: 'paid' | 'late' | 'default' | 'fraud'; observed_at: string }) => request<{ ok: true }>('POST', '/outcomes', body),
   audit: () => request<AuditEntry[]>('GET', '/audit'),
+  /** The lender's queue jobs, newest first (`Trabajos` tab). */
+  jobs: (q: JobListQuery) => request<JobItem[]>('GET', `/jobs${queryString(q)}`),
   llmExchanges: (q: LlmExchangeListQuery) => request<LlmExchangeRow[]>('GET', `/llm-exchanges${queryString(q)}`),
   llmExchange: (id: string) => request<LlmExchangeDetail>('GET', `/llm-exchanges/${id}`),
   suppliers: () => request<SupplierRow[]>('GET', '/suppliers'),

@@ -4,6 +4,7 @@ import { dateTime } from '../../lib/format'
 import { useAudit } from '../../lib/queries'
 import { Card, EmptyState, ErrorState, TableSkeleton } from '../../ui/primitives'
 import { PageTitle } from '../applications/ApplicationsPage'
+import { Jobs } from './Jobs'
 import { LlmExchanges } from './LlmExchanges'
 
 const ACTION: Record<string, string> = {
@@ -50,12 +51,13 @@ function who(actor: string, label: string | null): { name: string; kind: string 
 const TABS = [
   { key: 'movimientos', label: 'Movimientos' },
   { key: 'modelo', label: 'Llamadas al modelo' },
+  { key: 'trabajos', label: 'Trabajos' },
 ] as const
 
 export function AuditPage() {
   const { tab = 'movimientos' } = useSearch({ from: '/shell/configuracion/bitacora' })
   const navigate = useNavigate({ from: '/configuracion/bitacora' })
-  const current = tab === 'modelo' ? 'modelo' : 'movimientos'
+  const current = tab === 'modelo' || tab === 'trabajos' ? tab : 'movimientos'
   return (
     <div>
       <PageTitle title="Bitácora" muted="solo lectura" />
@@ -74,7 +76,7 @@ export function AuditPage() {
           </button>
         ))}
       </div>
-      <div role="tabpanel">{current === 'modelo' ? <LlmExchanges /> : <Movements />}</div>
+      <div role="tabpanel">{current === 'modelo' ? <LlmExchanges /> : current === 'trabajos' ? <Jobs /> : <Movements />}</div>
     </div>
   )
 }
