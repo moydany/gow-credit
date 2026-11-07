@@ -123,6 +123,8 @@ describe('multipleStatements: reinicio de la numeración', () => {
     expect(multipleStatements(numbering([1, 2, 3, 1]), { pageTexts: texts })).toEqual({ documents: 1, restartsAt: [] })
     // Con el mismo reinicio pero sin marcas fiscales, sí.
     expect(multipleStatements(numbering([1, 2, 3, 1]), { pageTexts: ['a', 'b', 'c', 'Saldo inicial'] }).documents).toBe(2)
+    // Y su "Página 1 de 1" tampoco inventa páginas faltantes al final del documento.
+    expect(missingPrintedPages(numbering([1, 2, 3, 1], 3), { pageTexts: texts }).missing).toEqual([])
   })
 })
 

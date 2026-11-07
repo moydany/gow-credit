@@ -349,7 +349,8 @@ function splitRuns(real: readonly PageNumbering[], pageTexts: readonly string[] 
   for (const p of real) {
     const isRestart = p.printed === 1 && last !== null && last > 1
     if (isRestart && looksFiscal(pageTexts?.[p.page - 1])) {
-      current.push(p)
+      // Ocupa su lugar en el documento, pero su numeración propia no cuenta.
+      current.push({ page: p.page, printed: null, total: null })
       continue
     }
     if (isRestart) {
