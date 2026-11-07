@@ -8,6 +8,14 @@ import { Button, Card, CardHeader, EmptyState, ErrorState, Skeleton, StatusChip 
 import { PageTitle } from '../applications/ApplicationsPage'
 import { SupplierFormModal } from './SupplierForm'
 
+const matchesSearch = (s: SupplierRow, needle: string) => !needle || [s.legal_name, s.rfc].some((t) => t?.toLowerCase().includes(needle))
+
+function headerText(data: readonly SupplierRow[] | undefined) {
+  if (!data) return { total: undefined, withApps: 'Cargando…' }
+  const withApps = data.filter((s) => s.applications > 0).length
+  return { total: `${String(data.length)} en total`, withApps: `${String(withApps)} con al menos una solicitud` }
+}
+
 /** The tenant's suppliers: how many requests each has and how the latest is going. */
 export function SuppliersPage() {
   const { data, isPending, isError, error, refetch } = useSuppliers()
@@ -15,12 +23,12 @@ export function SuppliersPage() {
   const navigate = useNavigate({ from: '/proveedores' })
   const [creating, setCreating] = useState(false)
   const needle = q.trim().toLowerCase()
-  const rows = (data ?? []).filter((s) => !needle || [s.legal_name, s.rfc].some((t) => t?.toLowerCase().includes(needle)))
-  const withApps = (data ?? []).filter((s) => s.applications > 0).length
+  const rows = (data ?? []).filter((s) => matchesSearch(s, needle))
+  const header = headerText(data)
 
   return (
     <div>
-      <PageTitle title="Proveedores" muted={data ? `${String(data.length)} en total` : undefined}>
+      <PageTitle title="Proveedores" muted={header.total}>
         <Button variant="accent" onClick={() => { setCreating(true) }}>
           <Icon name="plus" size={16} /> Dar de alta
         </Button>
@@ -29,7 +37,7 @@ export function SuppliersPage() {
       <Card rise={0} className="pb-3">
         <CardHeader
           title="Todos"
-          subtitle={data ? `${String(withApps)} con al menos una solicitud` : 'Cargando…'}
+          subtitle={header.withApps}
           action={
             <label className="relative block w-full max-w-60">
               <span className="sr-only">Buscar por razón social o RFC</span>

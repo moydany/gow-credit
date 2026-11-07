@@ -7,6 +7,15 @@ import { Card, Chip, EmptyState, ErrorState, Skeleton } from '../../ui/primitive
 import { PageTitle } from '../applications/ApplicationsPage'
 import { ClarificationCard } from './ClarificationCard'
 
+type Clarification = NonNullable<ReturnType<typeof useClarifications>['data']>[number]
+
+/** The clarifications shown under each tab. */
+function listFor(ver: string, all: readonly Clarification[]): readonly Clarification[] {
+  if (ver === 'todas') return all
+  if (ver === 'respondidas') return all.filter((c) => c.status !== 'open')
+  return all.filter((c) => c.status === 'open')
+}
+
 export function ClarificationsPage() {
   const { data, isPending, isError, error, refetch } = useClarifications()
   const me = useMe()
@@ -15,7 +24,7 @@ export function ClarificationsPage() {
 
   const all = data ?? []
   const open = all.filter((c) => c.status === 'open')
-  const list = ver === 'todas' ? all : ver === 'respondidas' ? all.filter((c) => c.status !== 'open') : open
+  const list = listFor(ver, all)
   const selected = list.find((c) => c.id === id) ?? list[0]
   const tabs = [
     ['abiertas', 'Abiertas', open.length],

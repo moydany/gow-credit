@@ -92,6 +92,13 @@ export interface MatchResult {
 const cents = (n: number) => Math.round(n * 100)
 const dayDiff = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) / 86_400_000
 
+/** A row with a single misread field: date, direction or amount. */
+function oneFieldOff(g: GtTransaction, e: FlatTx): boolean {
+  const sameAmount = cents(e.amount) === cents(g.amount)
+  if (sameAmount) return dayDiff(e.date, g.date) <= 31 || e.type !== g.type
+  return e.date === g.date && e.type === g.type && descriptionMatches(g, e)
+}
+
 /**
  * Matches rows in two rounds. First exact ones by (date, amount, direction), preferring the same
  * page and order. Then, among the leftovers, rows with a single misread field: same amount and a
@@ -123,9 +130,7 @@ export function matchTransactions(gt: readonly GtTransaction[], ex: readonly Fla
     for (let i = 0; i < ex.length && found < 0; i++) {
       const e = ex[i]
       if (!e || usedEx.has(i) || Math.abs(e.page - g.page) > 1) continue
-      const sameAmount = cents(e.amount) === cents(g.amount)
-      const oneFieldOff = (sameAmount && (dayDiff(e.date, g.date) <= 31 || e.type !== g.type)) || (!sameAmount && e.date === g.date && e.type === g.type && descriptionMatches(g, e))
-      if (oneFieldOff) found = i
+      if (oneFieldOff(g, e)) found = i
     }
     const e = ex[found]
     if (found >= 0 && e) {

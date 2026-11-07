@@ -39,6 +39,7 @@ const refreshBefore = (c: SessionClaims) => (c.iat === undefined ? REFRESH_BEFOR
 const REFRESH_SHARE_MS = 30_000
 const nowSeconds = () => Math.floor(Date.now() / 1000)
 const SESSION_REQUIRED = 'sesión requerida'
+const SET_COOKIE = 'Set-Cookie'
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'error')
 /** A cookie-authenticated write must carry the header: a form on another site cannot set it. */
 function assertCsrf(req: Request): void {
@@ -128,7 +129,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
   }
 
   function unauthorized(res: Response, clear: boolean): HttpError {
-    if (clear) res.setHeader('Set-Cookie', clearedCookies(secure))
+    if (clear) res.setHeader(SET_COOKIE, clearedCookies(secure))
     return new HttpError(401, SESSION_REQUIRED)
   }
 
@@ -182,7 +183,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       await revokeQuietly(auth, fresh.accessToken, 'de un usuario sin pertenencia')
       throw unauthorized(res, true)
     }
-    res.setHeader('Set-Cookie', renewedCookies(fresh.accessToken, next.exp, { ...rc, rt: fresh.refreshToken, rat: now }))
+    res.setHeader(SET_COOKIE, renewedCookies(fresh.accessToken, next.exp, { ...rc, rt: fresh.refreshToken, rat: now }))
     return renewed
   }
 
@@ -218,10 +219,10 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     if (deps.auth && w.supabaseSession && body.refresh_token) {
       // Supabase Auth: the refresh token stays on the API side, encrypted in an HttpOnly cookie,
       // and the session renews itself up to its limits.
-      res.setHeader('Set-Cookie', renewedCookies(body.token, w.exp, { v: 1, rt: body.refresh_token, sub: w.userId, iat: at, rat: at }))
+      res.setHeader(SET_COOKIE, renewedCookies(body.token, w.exp, { v: 1, rt: body.refresh_token, sub: w.userId, iat: at, rat: at }))
     } else {
       // Dev link: the cookie lives as long as the token (8 h at most).
-      res.setHeader('Set-Cookie', sessionCookie(body.token, { maxAgeSeconds: Math.min(SESSION_SECONDS, w.exp - at), secure }))
+      res.setHeader(SET_COOKIE, sessionCookie(body.token, { maxAgeSeconds: Math.min(SESSION_SECONDS, w.exp - at), secure }))
       // A Supabase token without its refresh token: nobody will use that refresh token, which
       // travelled in the URL. Its Auth session is closed; the access token stays valid until `exp`.
       if (deps.auth && w.supabaseSession) await revokeQuietly(deps.auth, body.token, 'sin refresh token')
@@ -267,7 +268,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
     const tenantId = created.rows[0]?.tenant
     if (!tenantId) throw taken
     const token = issueToken(deps.backofficeJwtSecret, { sub: userId, email: body.email, tenant_id: tenantId }, SESSION_SECONDS)
-    res.setHeader('Set-Cookie', sessionCookie(token, { maxAgeSeconds: SESSION_SECONDS, secure }))
+    res.setHeader(SET_COOKIE, sessionCookie(token, { maxAgeSeconds: SESSION_SECONDS, secure }))
     res.status(201).json(await meOf({ userId, email: body.email, tenantId }))
   })
 
@@ -307,7 +308,7 @@ export function backofficeRouter(deps: BackofficeDeps): express.Router {
       }
       if (token && claims?.session_id !== undefined) await revokeQuietly(auth, token, 'al salir')
     }
-    res.setHeader('Set-Cookie', clearedCookies(secure))
+    res.setHeader(SET_COOKIE, clearedCookies(secure))
     res.status(204).end()
   })
 

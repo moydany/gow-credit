@@ -53,25 +53,28 @@ export function correctionValueKind(t: CorrectionTarget): 'text' | 'money' | 'si
   return t.field === 'amount' ? 'money' : t.field === 'type' ? 'type' : 'date'
 }
 
+const unless = (ok: boolean, message: string): string | null => (ok ? null : message)
+const HOLDER_TYPES = ['individual', 'individual_with_business_activity', 'legal_entity']
+
 /** Error message for a value on that target, or null if it is valid. */
 export function checkCorrectionValue(t: CorrectionTarget, value: string | number): string | null {
   const kind = correctionValueKind(t)
   const num = typeof value === 'number' ? value : Number(value.replace(/[$,\s]/g, ''))
   switch (kind) {
     case 'money':
-      return Money.safeParse(num).success ? null : 'Escribe un monto positivo con a lo más dos decimales'
+      return unless(Money.safeParse(num).success, 'Escribe un monto positivo con a lo más dos decimales')
     case 'signed_money':
-      return SignedMoney.safeParse(num).success ? null : 'Escribe un monto con a lo más dos decimales'
+      return unless(SignedMoney.safeParse(num).success, 'Escribe un monto con a lo más dos decimales')
     case 'count':
-      return Number.isInteger(num) && num >= 0 ? null : 'Escribe un número entero'
+      return unless(Number.isInteger(num) && num >= 0, 'Escribe un número entero')
     case 'date':
-      return IsoDate.safeParse(value).success ? null : 'Usa el formato AAAA-MM-DD'
+      return unless(IsoDate.safeParse(value).success, 'Usa el formato AAAA-MM-DD')
     case 'type':
-      return TransactionType.safeParse(value).success ? null : 'Elige abono o cargo'
+      return unless(TransactionType.safeParse(value).success, 'Elige abono o cargo')
     case 'holder_type':
-      return ['individual', 'individual_with_business_activity', 'legal_entity'].includes(String(value)) ? null : 'Elige un tipo de titular'
+      return unless(HOLDER_TYPES.includes(String(value)), 'Elige un tipo de titular')
     default:
-      return String(value).trim().length > 0 ? null : 'No puede ir vacío'
+      return unless(String(value).trim().length > 0, 'No puede ir vacío')
   }
 }
 
