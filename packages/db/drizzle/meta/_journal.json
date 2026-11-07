@@ -64,6 +64,48 @@
       "when": 1793998649724,
       "tag": "0008_access_token_hook",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794014416261,
+      "tag": "0009_whatsapp_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794015079092,
+      "tag": "0010_supplier_self_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794015749329,
+      "tag": "0011_invoice_intake_and_verdicts",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794025990478,
+      "tag": "0012_statement_first_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794028405673,
+      "tag": "0013_statement_max_age",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794029306835,
+      "tag": "0014_clarification_confirmation_and_media",
+      "breakpoints": true
     }
   ]
 }

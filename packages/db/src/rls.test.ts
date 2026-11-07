@@ -40,9 +40,11 @@ async function seed(admin: pg.Client, tenant: string, label: string): Promise<vo
   await q('INSERT INTO app.tenant_users (tenant_id, user_id, email) VALUES ($1, $2, $3)', [tenant, randomUUID(), `analista-${label.toLowerCase()}@prestamista.test`])
   await q('INSERT INTO app.suppliers (id, tenant_id, legal_name) VALUES ($1, $2, $3)', [sup, tenant, `Proveedor ${label}`])
   await q("INSERT INTO app.supplier_contacts (id, tenant_id, supplier_id, channel, address, verified_at) VALUES ($1, $2, $3, 'whatsapp', $4, now())", [contact, tenant, sup, `+52155111111${label === 'A' ? '1' : '2'}`])
+  await q("INSERT INTO app.supplier_registrations (tenant_id, channel, address, step, legal_name, supplier_id) VALUES ($1, 'whatsapp', $2, 'done', $3, $4)", [tenant, `+52155222222${label === 'A' ? '1' : '2'}`, `Proveedor ${label}`, sup])
   await q("INSERT INTO app.documents (id, tenant_id, supplier_id, storage_path, sha256, size_bytes, media_type) VALUES ($1, $2, $3, 'x', $4, 10, 'application/pdf')", [doc, tenant, sup, label.repeat(64).slice(0, 64)])
   await q('INSERT INTO app.applications (id, tenant_id, supplier_id) VALUES ($1, $2, $3)', [appId, tenant, sup])
   await q('INSERT INTO app.application_documents (tenant_id, application_id, document_id) VALUES ($1, $2, $3)', [tenant, appId, doc])
+  await q("INSERT INTO app.invoice_intakes (application_id, tenant_id, channel, address, step, document_sha256) VALUES ($1, $2, 'whatsapp', 'x', 'done', 'x')", [appId, tenant])
   await q("INSERT INTO app.extractions (tenant_id, document_id, schema_version, status, payload) VALUES ($1, $2, '1.2.0', 'complete', '{}')", [tenant, doc])
   await q("INSERT INTO app.policies (id, tenant_id, name) VALUES ($1, $2, 'base')", [pol, tenant])
   await q("INSERT INTO app.policy_versions (id, tenant_id, policy_id, version, status, document) VALUES ($1, $2, $3, 1, 'active', '{}')", [ver, tenant, pol])
@@ -205,6 +207,19 @@ describe.skipIf(!available)('RLS por tenant (necesita el Postgres de docker comp
     expect((insert as Error).message).toMatch(/permission denied/)
     const workerRead = await asTenant(worker, A, () => attempt(worker, 'SELECT 1 FROM app.whatsapp_sessions'))
     expect((workerRead as Error).message).toMatch(/permission denied/)
+  })
+
+  it('la API cambia solo la antigüedad máxima del estado de cuenta de su tenant (ADR 0049)', async () => {
+    const own = await asTenant(api, A, () => api.query('UPDATE app.tenants SET statement_max_age_months = 6'))
+    expect(own.rowCount).toBe(1)
+    const other = await asTenant(api, A, () => api.query('UPDATE app.tenants SET statement_max_age_months = 6 WHERE id = $1', [B]))
+    expect(other.rowCount).toBe(0)
+    for (const set of ["name = 'otro'", "whatsapp_number = '+520000000000'", "email_from = 'x@y.z'"]) {
+      const r = await asTenant(api, A, () => attempt(api, `UPDATE app.tenants SET ${set}`))
+      expect((r as Error).message, set).toMatch(/permission denied/)
+    }
+    const worker1 = await asTenant(worker, A, () => attempt(worker, 'UPDATE app.tenants SET statement_max_age_months = 1'))
+    expect((worker1 as Error).message).toMatch(/permission denied/)
   })
 
   it('la API quita usuarios solo de su tenant', async () => {

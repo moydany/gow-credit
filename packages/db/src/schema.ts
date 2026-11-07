@@ -7,9 +7,11 @@
  * política) se guardan tal cual sus contratos Zod; las columnas sueltas son lo que se consulta.
  */
 import { sql } from 'drizzle-orm'
-import { bigint, boolean, index, integer, jsonb, numeric, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, customType, index, integer, jsonb, numeric, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 export const app = pgSchema('app')
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' })
 
 export const applicationStatus = app.enum('application_status', ['received', 'extracting', 'extracted', 'deciding', 'needs_clarification', 'human_review', 'qualified', 'qualified_with_limit', 'not_qualified', 'failed'])
 export const decisionStatus = app.enum('decision_status', ['qualified', 'qualified_with_limit', 'not_qualified', 'needs_clarification', 'human_review'])
@@ -33,6 +35,11 @@ export const tenants = app.table('tenants', {
   whatsappNumber: text('whatsapp_number').unique(),
   /** Remitente de correo de este tenant. */
   emailFrom: text('email_from'),
+  /**
+   * Antigüedad máxima del estado de cuenta en meses (ADR 0049): uno más viejo se analiza igual y el
+   * veredicto lleva una advertencia. NULL = sin límite. Por defecto 3 (los 90 días de la plantilla).
+   */
+  statementMaxAgeMonths: integer('statement_max_age_months').default(3),
   createdAt: createdAt(),
 })
 
@@ -74,10 +81,16 @@ export const suppliers = app.table(
     id: id(),
     tenantId: tenantId().references(() => tenants.id),
     externalRef: text('external_ref'),
-    legalName: text('legal_name').notNull(),
+    /**
+     * Null solo mientras un proveedor que se registra por WhatsApp no confirma los datos de su estado
+     * de cuenta (ADR 0047): sin identidad declarada no hay contra qué comparar al titular.
+     */
+    legalName: text('legal_name'),
     /** Cifrado de columna planeado (docs/05 §3); hoy en claro y protegido por RLS. */
     rfc: text('rfc'),
     clabes: text('clabes').array().notNull().default(sql`'{}'::text[]`),
+    /** Representante legal de una persona moral, si el proveedor lo dio (ADR 0047). No entra a la decisión. */
+    representativeName: text('representative_name'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('suppliers_tenant_ref').on(t.tenantId, t.externalRef)],
@@ -97,6 +110,38 @@ export const supplierContacts = app.table(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('supplier_contacts_unique').on(t.tenantId, t.supplierId, t.channel, t.address), index('supplier_contacts_lookup').on(t.tenantId, t.channel, t.address)],
+)
+
+/**
+ * Registro de un proveedor que escribe por primera vez (ADR 0038 y 0047, solo con
+ * `WHATSAPP_SELF_REGISTRATION`): la conversación pide primero el estado de cuenta; al leerlo, el
+ * proveedor confirma o corrige el titular y el RFC, completa lo que falte y, si es persona moral, da
+ * su representante legal. Solo entonces sale el resultado. Una fila por dirección y tenant.
+ */
+export const supplierRegistrations = app.table(
+  'supplier_registrations',
+  {
+    id: id(),
+    tenantId: tenantId().references(() => tenants.id),
+    channel: channel('channel').notNull(),
+    address: text('address').notNull(),
+    /** statement | reading | confirm | name | rfc | representative | done */
+    step: text('step').notNull(),
+    /** Lo que el proveedor confirmó o escribió. */
+    legalName: text('legal_name'),
+    rfc: text('rfc'),
+    /** Lo que se leyó del estado de cuenta, para preguntar si es correcto. */
+    holderName: text('holder_name'),
+    holderRfc: text('holder_rfc'),
+    /** El proveedor dijo que los datos leídos no son los suyos: el RFC se pide aunque venga completo. */
+    corrected: boolean('corrected').notNull().default(false),
+    supplierId: uuid('supplier_id').references(() => suppliers.id),
+    /** La solicitud del primer estado de cuenta, cuyo resultado espera a que termine el registro. */
+    applicationId: uuid('application_id').references(() => applications.id),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('supplier_registrations_address').on(t.tenantId, t.channel, t.address)],
 )
 
 export const documents = app.table(
@@ -143,6 +188,29 @@ export const applicationDocuments = app.table(
     origin: documentOrigin('origin').notNull().default('submitted'),
   },
   (t) => [primaryKey({ columns: [t.applicationId, t.documentId] })],
+)
+
+/**
+ * Datos de la factura que se piden por el chat antes de analizar un estado de cuenta recibido por
+ * WhatsApp (ADR 0039). Al terminar, `draft` pasa a `applications.request` y se encola el análisis.
+ */
+export const invoiceIntakes = app.table(
+  'invoice_intakes',
+  {
+    applicationId: uuid('application_id').primaryKey().references(() => applications.id),
+    tenantId: tenantId().references(() => tenants.id),
+    channel: channel('channel').notNull(),
+    address: text('address').notNull(),
+    /** amount | buyer | maturity | done */
+    step: text('step').notNull(),
+    /** Lo contestado hasta ahora: `{ amount?, buyer?, maturity? }`. */
+    draft: jsonb('draft').notNull().default(sql`'{}'::jsonb`),
+    /** Clave de idempotencia del análisis que se encola al terminar. */
+    documentSha256: text('document_sha256').notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('invoice_intakes_open').on(t.tenantId, t.channel, t.address, t.step)],
 )
 
 export const extractions = app.table(
@@ -228,6 +296,12 @@ export const clarifications = app.table(
     answers: jsonb('answers').notNull().default(sql`'[]'::jsonb`),
     /** Índice de la pregunta que se está esperando por un canal conversacional. */
     currentQuestion: integer('current_question').notNull().default(0),
+    /**
+     * Paso de la conversación (ADR 0051): `asking` (se espera la pregunta actual), `revising` (se
+     * repregunta una respuesta que el proveedor quiere cambiar), `confirming` (se mostró el resumen y
+     * se espera el sí) o `confirmed` (confirmó; quedan preguntas para el analista).
+     */
+    step: text('step').notNull().default('asking'),
     createdAt: createdAt(),
     answeredAt: timestamp('answered_at', { withTimezone: true }),
   },
@@ -270,9 +344,22 @@ export const inboundMessages = app.table(
     /** Id del mensaje en el canal: idempotencia ante reentregas (docs/05 §5). */
     externalId: text('external_id'),
     body: text('body').notNull(),
+    /**
+     * Documento adjunto (ADR 0037): el proceso de WhatsApp no tiene acceso al almacenamiento de
+     * documentos, así que deja aquí los bytes tal como llegaron. El worker los valida, los mueve al
+     * almacenamiento del tenant y vacía la columna; nunca se guardan dos veces.
+     */
+    attachment: bytea('attachment'),
+    attachmentName: text('attachment_name'),
+    attachmentMediaType: text('attachment_media_type'),
+    /**
+     * Foto, nota de voz, video o sticker (ADR 0051): `image` | `audio` | `video` | `sticker`. Solo el
+     * tipo, para contestar que se necesita el PDF; los bytes nunca se descargan ni se guardan.
+     */
+    mediaKind: text('media_kind'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp('processed_at', { withTimezone: true }),
-    /** matched | no_link | no_open_clarification | unparsed | rejected */
+    /** matched | completed | no_link | unparsed | document_* | registration_* | intake_* | summary | revising | corrected | confirmed | awaiting_* | media_unsupported (`Resolution` en apps/worker/src/inbound.ts) */
     resolution: text('resolution'),
     clarificationId: uuid('clarification_id').references(() => clarifications.id),
   },
@@ -358,9 +445,11 @@ export const TENANT_TABLES = [
   'tenant_users',
   'suppliers',
   'supplier_contacts',
+  'supplier_registrations',
   'documents',
   'applications',
   'application_documents',
+  'invoice_intakes',
   'extractions',
   'policies',
   'policy_versions',
