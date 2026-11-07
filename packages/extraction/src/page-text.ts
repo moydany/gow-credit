@@ -60,6 +60,16 @@ export class PageText {
     return null
   }
 
+  /** First printed line whose normalized text matches, with its page: the source of a verified value. */
+  lineMatching(re: RegExp): { page: number; line: string } | null {
+    for (let i = 0; i < this.#raw.length; i++) {
+      if (!re.test(this.#norm[i] ?? '')) continue
+      const line = (this.#raw[i] ?? '').split('\n').find((l) => re.test(normalizeText(l)))
+      if (line?.trim()) return { page: i + 1, line: line.trim().slice(0, 600) }
+    }
+    return null
+  }
+
   locateAmount(amount: number, pages?: readonly number[]): { page: number; line: string } | null {
     const candidates = pages && pages.length > 0 ? pages : this.#raw.map((_, i) => i + 1)
     for (const p of candidates) {

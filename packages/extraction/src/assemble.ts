@@ -7,6 +7,7 @@ import type { Account, AccountType, HolderType, Period, Provenance, Transaction,
 import type { IssueSink } from './issues.ts'
 import { pick, type SummaryOut, type TransactionOut } from './llm-schema.ts'
 import { isValidIsoDate, parseAmount, parseCount, parseLooseDate, round2 } from './normalize.ts'
+import { accountTypeSource, currencySource } from './inferred.ts'
 import type { PageText } from './page-text.ts'
 
 export interface FieldOf<T> {
@@ -175,12 +176,21 @@ export function assembleSummary(s: SummaryOut, text: PageText): AssembledSummary
       }
     })
     const currencyRaw = a.currency.trim().toUpperCase() || null
+    // Inferred values, verified when a printed word states them; that line is their source (inferred.ts).
+    const currencyProof = currencyRaw ? currencySource(currencyRaw, text) : null
     const currency: FieldOf<string> =
-      currencyRaw && CURRENCY.test(currencyRaw) ? { value: currencyRaw, source: product.source, verification: 'unverified', confidence: 0.8, provenance: 'extracted' } : EMPTY
+      currencyRaw && CURRENCY.test(currencyRaw)
+        ? currencyProof
+          ? { value: currencyRaw, source: currencyProof, verification: 'verified', confidence: 0.95, provenance: 'extracted' }
+          : { value: currencyRaw, source: product.source, verification: 'unverified', confidence: 0.8, provenance: 'extracted' }
+        : EMPTY
+    const accountType = enumField<AccountType>(a.account_type, product)
+    const sameType = s.accounts.filter((x) => x.account_type === a.account_type).length
+    const typeProof = accountType.value !== null ? accountTypeSource(accountType.value, product, sameType, text) : null
     return {
       id: accountId,
       product_name: product,
-      account_type: enumField<AccountType>(a.account_type, product),
+      account_type: typeProof ? { ...accountType, source: typeProof, verification: 'verified', confidence: 0.95 } : accountType,
       account_number: textField(asText(pick(a.values, 'account_number')), text),
       clabe: textField(asText(pick(a.values, 'clabe')), text),
       currency,
