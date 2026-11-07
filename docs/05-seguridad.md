@@ -425,3 +425,14 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
   `app.purge_supplier(uuid)`, una función `SECURITY DEFINER` revisada a mano, con RLS forzado, filtro
   por tenant en cada DELETE y otorgada solo a `gow_api`. El trabajo `supplier.purge` lleva ids y rutas,
   y el worker solo borra rutas bajo el tenant del trabajo.
+
+### Fase 8 (2026-11-07): prompts y respuestas crudos para analizar un caso (ADR 0064)
+
+- Cada llamada a un modelo queda en `app.llm_exchanges` con el prompt y la respuesta tal cual, que
+  llevan datos del documento. No es un log ni la bitácora de movimientos, que siguen sin PII: es una
+  tabla de negocio con los mismos controles que `extractions` (RLS forzada, el worker solo inserta,
+  la API y `gow_readonly` leen, nadie actualiza ni borra) y se borra con el proveedor.
+- Ver el detalle desde el backoffice queda en la bitácora (`llm_exchange.viewed`, sin contenido).
+- El PDF no se copia (va su sha256). El mensaje de `LlmCallError` sigue sin contenido; la salida cruda
+  viaja aparte, solo hacia esta tabla.
+- Pendiente: retención. Hoy viven lo que vive el proveedor.

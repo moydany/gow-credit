@@ -115,6 +115,7 @@ Todo va a `data/out/evaluate/`, o a la carpeta que indiques con `--out`. Por doc
 | `<id>.extraction.json` | Extracción con el contrato `StatementExtraction` (`docs/schema/`): cuentas, periodos, movimientos y CFDI. Cada valor trae su página, su fragmento, su verificación y su confianza. |
 | `<id>.result.json` | `ApplicationResult`: perfil, veredicto con diagnóstico completo, contrafactuales, aclaración y costo por propósito y modelo. |
 | `<id>.md` | Reporte legible. Lo que no se verificó va marcado. |
+| `<id>.llm.jsonl` | Cada llamada al modelo tal cual, una por línea: system prompt, instrucción, respuesta o salida cruda, error, tokens y costo (ADR 0064). Lleva datos del documento. |
 | `summary.md`, `summary.json` | Una fila por documento: estado, línea máxima, preguntas y costo de la corrida. |
 | `extraction-summary.csv`, `extraction-summary.json` | Resumen plano de la extracción, para contrastarla con una verdad de referencia: una fila por documento (y por cuenta si trae varias) con los campos de encabezado. |
 | `answers.template.json` | Solo si alguna solicitud quedó pausada. |

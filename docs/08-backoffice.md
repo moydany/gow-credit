@@ -226,3 +226,10 @@ muestra personalización y el loop de aprendizaje.
   (`DELETE /bo/v1/suppliers/:id`). Con una solicitud en proceso contesta 409. Los PDFs, el estado de
   Mastra y los trabajos de la cola los borra el worker con `supplier.purge`. La bitácora guarda solo
   los conteos.
+
+- **Llamadas al modelo en la bitácora (ADR 0064).** Bitácora tiene dos pestañas: Movimientos (quién
+  hizo qué) y Llamadas al modelo. La segunda lista cada llamada con propósito, modelo, resultado,
+  tokens, costo y tiempo, filtrable por solicitud y por error; el detalle muestra el system prompt, la
+  instrucción, la respuesta o la salida cruda y el error, y se copia o descarga como JSON. Abrir un
+  detalle queda en Movimientos como "Vio una llamada al modelo". El detalle de una solicitud tiene el
+  botón "Llamadas al modelo".
