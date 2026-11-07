@@ -363,3 +363,21 @@ Las versiones de política ya activas no cambian.
 
 La compuerta `identity` sale de la plantilla base y de las políticas de ejemplo. `identity_match` se
 sigue calculando y se informa, pero no cambia el estado ni se pregunta al proveedor.
+
+### Robustez documental (2026-11-07): las señales de la extracción llegan al motor (ADR 0058)
+
+- **Catálogo 1.2.0.** Dos features de fuente `statement`: `document_pages_missing` (bool: algún documento trae
+  la bandera `pages_missing`) y `document_tamper_signals` (lista cerrada: `prompt_injection`,
+  `fiscal_chain_mismatch`, `fiscal_stamp_far_from_period`, `pages_duplicated`, `header_read_conflict`). Salen
+  de las banderas y los problemas de cada documento, con verificación `verified` y confianza 1.
+- **Dos compuertas nuevas** en la plantilla base y en las políticas de ejemplo, ambas con `onUnknown: pass`:
+  `pages_complete` (`document_pages_missing == false`; si falla, `needs_clarification` y se pide
+  `missing_pages`) y `no_tamper_signals` (`document_tamper_signals empty`; si falla, `human_review`).
+- **§4, precedencia.** Mientras una compuerta pide `missing_pages`, la compuerta `integrity` que mandaría a
+  `human_review` espera: un documento al que le faltan páginas no cuadra, y pedir el PDF completo va antes que
+  la revisión humana. Si con el documento completo sigue sin cuadrar, `integrity` falla como siempre.
+- **§3, `red_flags`.** El `overdraft` por saldo diario calculado solo se agrega cuando todos los periodos
+  cuadran; si no, la nota dice "saldo calculado no confiable: el periodo no cuadra". El sobregiro por saldo
+  impreso negativo o por `SOBREGIRO` en la descripción no cambia.
+- **Escenarios.** El 19 (PDF con instrucciones ocultas) espera `human_review`; el 28 (`pagina-faltante`, modo
+  unit) espera `needs_clarification` con `missing_pages`.
