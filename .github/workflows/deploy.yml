@@ -245,7 +245,10 @@ jobs:
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}/gow-api:${{ github.sha }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
           region: ${{ vars.GCP_REGION }}
+          # HOST=0.0.0.0: en local el api escucha solo en loopback; aquí el tráfico entra por la interfaz
+          # del contenedor.
           env_vars: |-
+            HOST=0.0.0.0
             API_PUBLIC_URL=${{ vars.API_PUBLIC_URL }}
             BACKOFFICE_URL=${{ vars.BACKOFFICE_URL }}
             SUPABASE_URL=${{ vars.SUPABASE_URL }}

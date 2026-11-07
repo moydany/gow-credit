@@ -20,6 +20,8 @@ if (!secret) {
   process.exit(2)
 }
 const port = Number(env.PORT ?? 3000)
+// En local solo loopback; en Cloud Run el tráfico entra por la interfaz del contenedor (HOST=0.0.0.0).
+const host = env.HOST ?? '127.0.0.1'
 const publicUrl = env.API_PUBLIC_URL ?? `http://127.0.0.1:${String(port)}`
 const db = connect(databaseUrl('api'), { max: 10 })
 const boss = await startQueue(databaseUrl('queue'), { error: (m) => { log('error', m) } }, { supervise: false })
@@ -50,7 +52,7 @@ const app = createApp({
 })
 if (!env.BACKOFFICE_JWT_SECRET) log('info', 'BACKOFFICE_JWT_SECRET sin definir: /bo/v1 (backoffice) deshabilitado')
 else if (auth) log('info', 'Supabase Auth configurado: el backoffice entra con enlace por correo y la sesión se renueva sola')
-const server = app.listen(port, '127.0.0.1', () => {
+const server = app.listen(port, host, () => {
   log('info', `api escuchando en ${publicUrl}`)
 })
 const shutdown = () => {

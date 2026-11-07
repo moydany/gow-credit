@@ -247,14 +247,13 @@ migraciones, y que `deploy-cloudrun` acepte los flags tal como están escritos.
 
 ### Bloqueos en el código
 
-Aunque todo lo anterior exista, el despliegue no deja los servicios funcionando hasta cerrar esto. El
-pipeline no toca código de aplicación.
+Dos de los tres se cerraron al integrar el pipeline; el tercero sigue en "Falta para producción".
 
-| Bloqueo | Por qué importa | Qué hacer |
-|---|---|---|
-| El `api` escucha solo en `127.0.0.1` (`apps/api/src/main.ts`) | Cloud Run entrega el tráfico por la interfaz del contenedor, no por el loopback: la revisión no pasa la comprobación de arranque | Escuchar en `0.0.0.0` (por ejemplo, con una variable `HOST`) |
-| El `worker` y `whatsapp` no abren ningún puerto | Un servicio de Cloud Run tiene que escuchar en `PORT`; si no, el arranque falla | Un listener mínimo de salud en `PORT`, o pasarlos a worker pools de Cloud Run (la acción de despliegue no los maneja; irían con `gcloud`) |
-| Los documentos se guardan en disco local | Se pierden y el `api` y el `worker` no comparten disco | Ya está en "Falta para producción": adaptador de Supabase Storage |
+| Bloqueo | Estado |
+|---|---|
+| El `api` escuchaba solo en `127.0.0.1` | Hecho: escucha en `HOST` (`127.0.0.1` por defecto); el workflow pasa `HOST=0.0.0.0` |
+| El `worker` y `whatsapp` no abrían ningún puerto | Hecho: con `PORT` definido (Cloud Run siempre lo define) levantan un listener mínimo de salud en todas las interfaces; sin `PORT` (local), nada |
+| Los documentos se guardan en disco local | Pendiente: adaptador de Supabase Storage (ver abajo) |
 
 ## Falta para producción
 

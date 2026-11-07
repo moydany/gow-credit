@@ -4,6 +4,7 @@
  * (gow_worker), cola (gow_queue) y Mastra (gow_mastra); las URL salen del entorno o, sin él, del
  * Postgres local de docker compose.
  */
+import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { ResendEmailTransport } from '@gow/channels'
 import { BUSINESS_TIME_ZONE, calendarToday } from '@gow/contracts'
@@ -21,8 +22,24 @@ function log(level: 'info' | 'error', message: string): void {
   console.log(JSON.stringify({ at: new Date().toISOString(), level, message }))
 }
 
+/**
+ * Cloud Run exige que un servicio escuche en PORT aunque no reciba tráfico: con la variable, un
+ * listener mínimo de salud en todas las interfaces; sin ella (local), nada.
+ */
+function startHealthListener(log: (message: string) => void): void {
+  const port = process.env.PORT
+  if (!port) return
+  createServer((_req, res) => {
+    res.statusCode = 200
+    res.end('ok')
+  }).listen(Number(port), '0.0.0.0', () => {
+    log(`listener de salud en el puerto ${port}`)
+  })
+}
+
 loadRootEnv()
 const env = process.env
+startHealthListener((m) => { log('info', m) })
 const anthropic = readAnthropicEnv()
 const googleAvailable = readGoogleEnv().apiKey !== null
 const cacheMode = (env.LLM_CACHE_MODE ?? 'readwrite') as CacheMode

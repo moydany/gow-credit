@@ -7,6 +7,7 @@
  * se imprime, para que nunca llegue a los registros. Después la sesión queda guardada y no se
  * vuelve a pedir.
  */
+import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { connect, databaseUrl } from '@gow/db'
 import { BaileysTransport } from './baileys.ts'
@@ -27,6 +28,22 @@ const interactive = process.stdout.isTTY
 const line = (fields: Record<string, string>) => {
   console.log(JSON.stringify({ at: new Date().toISOString(), ...fields }))
 }
+
+/**
+ * Cloud Run exige que un servicio escuche en PORT aunque no reciba tráfico: con la variable, un
+ * listener mínimo de salud en todas las interfaces; sin ella (local), nada.
+ */
+function startHealthListener(log: (message: string) => void): void {
+  const port = process.env.PORT
+  if (!port) return
+  createServer((_req, res) => {
+    res.statusCode = 200
+    res.end('ok')
+  }).listen(Number(port), '0.0.0.0', () => {
+    log(`listener de salud en el puerto ${port}`)
+  })
+}
+startHealthListener((m) => { line({ health: m }) })
 
 const transport = new BaileysTransport({
   authDir,
