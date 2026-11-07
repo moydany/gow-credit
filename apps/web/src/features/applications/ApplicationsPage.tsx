@@ -111,7 +111,7 @@ export function ApplicationsPage() {
 
         <Card rise={3}>
           <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
-            <h2 className="text-[17px] font-medium tracking-tight">Línea aprobada</h2>
+            <h2 className="text-[17px] font-medium tracking-tight">{stats.approvedCount > 1 ? 'Líneas aprobadas' : 'Línea aprobada'}</h2>
             <div>
               {isPending ? <Skeleton className="h-12 w-40" /> : <BigMoney value={stats.approvedCount ? stats.approvedLimit : null} className="text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]" />}
               <p className="mt-2 text-[13px] text-muted">{stats.approvedCount ? `En ${String(stats.approvedCount)} solicitud${stats.approvedCount === 1 ? '' : 'es'}` : 'Aún ninguna califica'}</p>
