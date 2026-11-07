@@ -212,3 +212,11 @@ muestra personalización y el loop de aprendizaje.
       ese momento.
 
     Sin Supabase nada cambia.
+
+- **Fase 8, antigüedad máxima del estado de cuenta (ADR 0049).**
+  - **Configuración → Análisis**: 1, 2, 3, 6 o 12 meses, o sin límite (3 por defecto). Se cambia con
+    `PATCH /bo/v1/settings`, queda en la bitácora y aplica a lo que se analice desde ese momento y a
+    las reevaluaciones.
+  - Un estado de cuenta más viejo se analiza igual: el panel de decisión muestra "Estado de cuenta
+    antiguo" con la antigüedad y el límite, y la lista de solicitudes lo etiqueta "Estado antiguo".
+  - Una solicitud fallida por PDF con contraseña o por un escaneado ilegible lo dice en su motivo.

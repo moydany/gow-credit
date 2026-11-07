@@ -366,3 +366,58 @@ prioridad, para discutirlo en la llamada.
   tiene un access token vigente; con GoTrue caído y el token vencido, 503 sin borrar cookies.
 - Ni los tokens ni el correo van a los registros: la llave del mapa de renovaciones es el hash
   del refresh token, y un error de GoTrue registra solo el código.
+
+### Fase 8 (2026-11-06): estados de cuenta por WhatsApp (ADR 0037)
+
+§2b decía que el canal es de una sola dirección en cuanto a datos. Ahora acepta una cosa más: un
+estado de cuenta en PDF desde un **vínculo verificado**, que abre una solicitud igual que la API.
+
+- `gow_whatsapp` no gana acceso: descarga el documento e inserta el entrante con sus bytes, como
+  ya insertaba el texto. Sigue sin ver documentos ni el almacenamiento.
+- El worker valida (vínculo con un solo proveedor, firma PDF, 40 MB, hash no repetido), mueve los
+  bytes al almacenamiento del tenant, vacía la columna y encola el procesamiento. `gow_worker`
+  gana `INSERT` en `app.applications`.
+- Un número sin vínculo, un vínculo con varios proveedores, un archivo que no es PDF o un
+  duplicado reciben un texto fijo; nada se abre. Las respuestas nunca dicen el resultado.
+- Riesgo aceptado: quien controle la cuenta de WhatsApp del proveedor puede mandar un PDF a su
+  nombre. Lo acotan el cotejo de identidad del titular, el CFDI y la política. Pendiente: límite
+  de documentos por número.
+
+### Fase 8 (2026-11-06): registro de proveedores por WhatsApp en la demo (ADR 0038)
+
+Con `WHATSAPP_SELF_REGISTRATION=true` (apagado por defecto), un número sin vínculo verificado no
+recibe la respuesta fija: el bot le pide razón social y RFC y crea el proveedor con su contacto
+verificado **por posesión del número** (`whatsapp_self_registration`), que no equivale a un KYC.
+Solo es para demos: cualquiera puede registrar cualquier razón social y disparar extracciones.
+El cotejo del RFC del titular del documento y la política siguen aplicando. `gow_worker` gana
+`INSERT` en `suppliers` y `supplier_contacts`; la tabla `supplier_registrations` tiene RLS forzada.
+
+### Fase 8 (2026-11-06): factura y veredicto por WhatsApp (ADR 0039)
+
+- Opcional (`askInvoice`, apagado en la demo): antes de analizar un estado de cuenta recibido por
+  WhatsApp, el bot pide monto, cadena compradora y vencimiento de la factura
+  (`app.invoice_intakes`, RLS forzada). Apagado, el estado de cuenta se analiza al llegar.
+- Al guardar un veredicto final se deja un aviso en el buzón de salida del WhatsApp verificado del
+  proveedor. Es una plantilla fija: el resultado, la factura que él mismo dio y, si califica, el
+  monto. **Nunca** saldos, RFC, CLABE ni los motivos del motor, que pueden citar cifras del
+  documento. El destino sale del vínculo verificado, como el resto del buzón.
+
+### Fase 8 (2026-11-06): intérprete con Haiku y nombres con typos (ADR 0040)
+
+- Las respuestas por WhatsApp que las reglas no leen, y siempre la razón social y el comprador,
+  pasan por Haiku, que clasifica el mensaje y propone el dato. El dato vuelve a pasar por el mismo
+  lector determinista; Haiku no autoriza nada, no elige destinatarios y no contesta al proveedor.
+  Una consulta recibe "solo puedo pedirte los datos de tu solicitud" (§2b, el bot no contesta
+  preguntas). El texto del mensaje va a Anthropic; el error se registra sin el mensaje.
+- El cotejo del nombre del titular tolera un typo por palabra (dos desde 10 letras). El RFC sigue
+  siendo la prueba fuerte de identidad.
+
+### Fase 8 (2026-11-06): fotos y notas de voz por WhatsApp (ADR 0051)
+
+- Una foto, nota de voz, video o sticker se guarda en `inbound_messages.media_kind` solo con su tipo
+  (`image`, `audio`, `video`, `sticker`, con CHECK en la base). El proceso de WhatsApp nunca descarga
+  el medio ni guarda sus bytes; el worker contesta con texto fijo que solo lee el PDF. Grupos y
+  estados se siguen ignorando. Sin grants nuevos: `gow_whatsapp` ya inserta entrantes y
+  `app.pending_inbound` solo devuelve ids.
+- El resumen para confirmar las respuestas de la aclaración repite las cifras de los hechos de cada
+  pregunta (monto y fecha del abono), las mismas que ya llevaba la pregunta, al mismo número.

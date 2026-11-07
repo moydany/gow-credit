@@ -298,3 +298,68 @@ Lo que cambia o se precisa respecto a este documento:
   Una respuesta que contradice una clasificación con 0.8 o más en otra categoría no se mergea y
   manda a revisión humana (`owner_answer_contradicts_document`). Si el motor pide aclarar y no
   hay pregunta concreta, también va a revisión humana (`no_concrete_question`).
+
+### Fase 8 (2026-11-06): el nombre del titular tolera typos (ADR 0040)
+
+El cotejo de identidad comparaba las palabras significativas del nombre de forma exacta (después de
+quitar acentos, mayúsculas, puntuación y sufijos societarios). Ahora cada palabra admite un error de
+edición desde 5 letras y dos desde 10, y se empareja a lo más con una palabra del otro nombre. Un
+typo en una razón social de una sola palabra significativa ya no da `mismatch`, que ganaba sobre un
+RFC coincidente. Los umbrales de `match` y `partial` no cambian. `evaluate` da los mismos estados
+sobre los 9 documentos de desarrollo.
+
+### Fase 8 (2026-11-06): RFC sin homoclave y pregunta de identidad específica (ADR 0043)
+
+Un RFC impreso sin homoclave (raíz de 9 o 10 posiciones) se compara contra el inicio del RFC
+registrado (`root`). La identidad es `match` con el RFC completo, o con el nombre más la CLABE o la
+raíz del RFC. La pregunta de identidad dice qué coincidió, qué no y qué no se pudo comparar, y pide
+solo eso.
+
+### Fase 8 (2026-11-06): la identidad se verifica solo con nombre y RFC (ADR 0044)
+
+La CLABE sale del cotejo de identidad y de la pregunta al proveedor: quien manda el documento puede
+dar la misma CLABE que trae impresa, así que no prueba de quién es la cuenta. La identidad es `match`
+con el RFC completo, o con el nombre más la raíz del RFC. La CLABE se sigue extrayendo y midiendo.
+
+### Fase 8 (2026-11-06): veredicto sin monto, motivos y explicación en prosa (ADR 0045)
+
+- Sin monto solicitado, un veredicto final se decide con la línea máxima (el mayor monto que la
+  política aprueba) y el motivo `evaluated_at_max_line` lo dice; si no hay ninguno,
+  `no_amount_no_line`. Antes la dimensión de capacidad quedaba "sin dato" y restaba sus puntos.
+- Los motivos incluyen las dimensiones con dato que suman menos de la mitad de su peso, nombran el
+  dato que falta y dicen cuando un tope aplica por falta de dato.
+- `Decision.explanation`: el resultado en prosa para el analista, redactado por Haiku sobre los hechos
+  de la decisión y con el filtro de cifras de docs/04 §4; sin modelo, una plantilla.
+
+### Fase 8 (2026-11-06): la antigüedad del estado de cuenta advierte, no detiene (ADR 0049)
+
+En el modo full, la antigüedad máxima del estado de cuenta es un ajuste del tenant
+(`statement_max_age_months`: 1 a 24 meses de 30 días, o sin límite; 3 por defecto) y reemplaza a las
+compuertas sobre `document_age_days` de la política. Un corte más viejo se analiza igual y el veredicto
+lleva el motivo `document_age_warning`; ya no se pide un estado reciente. El modo standalone no tiene
+ajustes de tenant y aplica `doc_recent` como está arriba.
+
+### Fase 8 (2026-11-06): dos rondas de aclaración en la plantilla (ADR 0051)
+
+`clarification.maxRounds` pasa de 1 a 2 en la plantilla: si al aclarar un abono otro abono dudoso
+pasa a mover el resultado, se pregunta en una segunda ronda en lugar de mandar el caso a revisión. Lo
+que ya se preguntó en una ronda anterior no se repite; si es lo único que falta, `human_review` con
+`clarification_already_asked`. Antes de evaluar, el proveedor confirma un resumen de sus respuestas.
+Las versiones de política ya activas no cambian.
+
+### Fase 8 (2026-11-06): más preguntas al proveedor (ADR 0050)
+
+- Se preguntan también los cargos grandes dudosos (en especial pagos a créditos con confianza menor
+  a 0.8) si como traspaso propio cambiarían el resultado; el cliente principal, si la solicitud no
+  trae comprador y sus pagos cambiarían la banda; y, a una persona física, si la cuenta también es
+  personal, si eso cambia el resultado.
+- En una cuenta de uso mixto, una transferencia de un tercero sin señal de venta no se presume pago
+  de cliente; los gastos personales siguen restando del flujo.
+- La comparación que decide si preguntar cuenta también un "no califica" por falta de línea.
+- Una cuenta en otra moneda con movimientos manda la solicitud a revisión humana
+  (`foreign_currency_statement`); varias cuentas en MXN de un documento se siguen agregando.
+
+### Fase 8 (2026-11-06): la identidad no decide (ADR 0052)
+
+La compuerta `identity` sale de la plantilla base y de las políticas de ejemplo. `identity_match` se
+sigue calculando y se informa, pero no cambia el estado ni se pregunta al proveedor.
