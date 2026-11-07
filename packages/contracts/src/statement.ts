@@ -14,12 +14,16 @@ import { z } from 'zod'
 import { DocumentType, Provenance, TransactionCategory, TransactionType, Verification } from './enums.ts'
 import { Confidence, Count, Currency, field, IsoDate, IsoDateTime, IsoLocalDateTime, LocalId, Money, Sha256, SignedMoney, SourceRef, TokenUsage } from './primitives.ts'
 
-export const STATEMENT_SCHEMA_VERSION = '1.2.0'
+export const STATEMENT_SCHEMA_VERSION = '1.3.0'
 /**
  * Versiones que se pueden leer. 1.2.0 solo agrega `loan_payment` a la clasificación de
  * movimientos (ADR 0013): una extracción 1.1.0 es una 1.2.0 válida, así que se acepta tal cual.
+ * 1.3.0 agrega el domicilio del titular (ADR 0066): en una extracción anterior entra como no leído.
  */
-export const READABLE_STATEMENT_SCHEMA_VERSIONS = ['1.1.0', STATEMENT_SCHEMA_VERSION] as const
+export const READABLE_STATEMENT_SCHEMA_VERSIONS = ['1.1.0', '1.2.0', STATEMENT_SCHEMA_VERSION] as const
+
+/** Un campo que el documento no trae o que la extracción no leyó: `value: null`, sin fuente. */
+const notRead = () => ({ value: null, source: null, verification: 'unverified' as const, confidence: 0, provenance: 'extracted' as const })
 
 /** Tipo de producto de la cuenta. */
 export const AccountType = z.enum(['checking', 'savings', 'investment', 'credit_card', 'other'])
@@ -177,6 +181,7 @@ export const Holder = z
     name: field(z.string()),
     rfc: field(z.string()).describe('RFC tal como aparece; puede venir enmascarado'),
     holder_type: field(HolderType),
+    address: field(z.string()).default(notRead).describe('Domicilio del titular tal como aparece en el estado de cuenta (calle, número, colonia, municipio, estado y código postal); null si no aparece. ADR 0066'),
   })
   .meta({ id: 'Holder' })
 export type Holder = z.infer<typeof Holder>

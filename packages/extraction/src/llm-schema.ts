@@ -12,7 +12,7 @@
 import { DocumentType, TransactionType } from '@gow/contracts'
 import { z } from 'zod'
 
-export const EXTRACTION_SCHEMA_NAME = 'extraction_chunk.v2'
+export const EXTRACTION_SCHEMA_NAME = 'extraction_chunk.v3'
 
 /** Un valor citado ausente: el modelo simplemente no lo incluye en la lista. */
 export const ABSENT: { value: string; page: number; snippet: string } = { value: '', page: 0, snippet: '' }
@@ -22,7 +22,7 @@ export function pick(values: readonly { field: string; value: string; page: numb
 }
 
 /** Nombres de los valores citados. Un solo tipo de objeto en todo el esquema mantiene chica la gramática. */
-export const HEADER_FIELDS = ['bank_name', 'holder_name', 'holder_rfc'] as const
+export const HEADER_FIELDS = ['bank_name', 'holder_name', 'holder_rfc', 'holder_address'] as const
 export const ACCOUNT_FIELDS = ['product_name', 'account_number', 'clabe'] as const
 export const PERIOD_FIELDS = [
   'period_start',
@@ -111,7 +111,7 @@ export type FiscalOut = z.infer<typeof FiscalOut>
 export const SummaryOut = z.object({
   document_kind: DocumentType,
   holder_type: z.enum(['individual', 'individual_with_business_activity', 'legal_entity', 'unknown']),
-  values: z.array(Cited).describe('bank_name, holder_name y holder_rfc, los que aparezcan'),
+  values: z.array(Cited).describe('bank_name, holder_name, holder_rfc y holder_address, los que aparezcan'),
   accounts: z.array(AccountOut),
   fiscal_documents: z.array(FiscalOut),
   suspicious_instructions: z.array(z.object({ page: z.number().int(), snippet: z.string() })),

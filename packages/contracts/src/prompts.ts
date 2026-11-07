@@ -31,9 +31,9 @@ export const PROMPT_CATALOG = {
     variables: [],
   },
   extract_summary: {
-    version: 2,
+    version: 3,
     title: 'Extracción: portada y resumen',
-    description: 'Pasada 1: titular, cuentas, periodos, saldos, totales y bloque fiscal (CFDI impreso).',
+    description: 'Pasada 1: titular y su domicilio, cuentas, periodos, saldos, totales y bloque fiscal (CFDI impreso).',
     model: EXTRACTION,
     variables: ['page_count'],
   },

@@ -12,7 +12,7 @@ import { assembleSummary } from './assemble.ts'
 import { applyHeaderDoubleRead, compareHeaders, headerDoubleRead, type HeaderDoubleReadOptions } from './double-read.ts'
 import { DEFAULT_OPTIONS, extractStatement } from './extract.ts'
 import { IssueSink } from './issues.ts'
-import type { CitedOut, ExtractionChunk, SummaryOut } from './llm-schema.ts'
+import { EXTRACTION_SCHEMA_NAME, type CitedOut, type ExtractionChunk, type SummaryOut } from './llm-schema.ts'
 import { PageText } from './page-text.ts'
 import { SYNTHETIC_STATEMENT_LINES, syntheticStatementPdf } from './testing-synthetic-pdf.ts'
 
@@ -215,7 +215,7 @@ describe('headerDoubleRead y applyHeaderDoubleRead', () => {
   it('repite la pasada 1 con el otro modelo, a effort medio, y registra la llamada', async () => {
     recorded.length = 0
     const { llm } = await run(() => chunk(summaryOf()))
-    expect(llm.seen).toEqual([{ purpose: 'double_read', model: 'claude-opus-5-5', effort: 'medium', schemaName: 'extraction_chunk.v2', instruction: 'INSTRUCCION DE LA PASADA 1', system: 'SISTEMA' }])
+    expect(llm.seen).toEqual([{ purpose: 'double_read', model: 'claude-opus-5-5', effort: 'medium', schemaName: EXTRACTION_SCHEMA_NAME, instruction: 'INSTRUCCION DE LA PASADA 1', system: 'SISTEMA' }])
     expect(recorded).toEqual(['double_read|extract_summary.v2|medium||claude-opus-5-5'])
   })
 
@@ -344,7 +344,7 @@ describe('extractStatement: documento sin texto', () => {
     expect(doc.accounts[0]?.periods[0]?.reconciliation?.status).toBe('reconciled')
 
     expect(llm.seen.filter((s) => s.purpose === 'double_read')).toEqual([
-      expect.objectContaining({ model: 'claude-opus-5-5', effort: 'medium', schemaName: 'extraction_chunk.v2' }),
+      expect.objectContaining({ model: 'claude-opus-5-5', effort: 'medium', schemaName: EXTRACTION_SCHEMA_NAME }),
     ])
     const first = llm.seen.find((s) => s.purpose === 'summary')
     const second = llm.seen.find((s) => s.purpose === 'double_read')

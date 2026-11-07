@@ -12,6 +12,15 @@ se crean versiones nuevas. Esas versiones no pasan por aquí ni por las evals: q
 "Sin evals". Para volver oficial una, se copia como `v<N+1>`, se sube la versión en el catálogo, se
 mide y se anota aquí. Este changelog, las evals y el modo standalone solo ven los archivos.
 
+## v3 de `extract_summary` (2026-11-07): domicilio del titular
+
+Origen: ADR 0066. Pendiente medir en la fase 3 contra v2 en las métricas de encabezado, movimientos y
+bloque fiscal. El ground truth no trae domicilio, así que la eval solo confirma que no bajan las demás.
+
+| Prompt | Cambio |
+|---|---|
+| `extract_summary.v3` | Pide el domicilio del titular como el valor citado `holder_address` (esquema `extraction_chunk.v3`): un solo valor con los renglones separados por coma, cita un renglón literal, nunca la dirección del banco o de una sucursal y, si no aparece, no se incluye. |
+
 ## Fase 8 (2026-11-06): explicación del resultado en prosa
 
 Prompt nuevo, sin versión anterior contra la cual medir. ADR 0045.

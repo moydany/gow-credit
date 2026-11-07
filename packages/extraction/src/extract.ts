@@ -450,7 +450,7 @@ function build(b: BuildInput): StatementExtraction {
     document: { file_name: b.pdf.fileName, sha256: b.pdf.sha256, size_bytes: b.pdf.sizeBytes, page_count: Math.max(1, b.pdf.pageCount), text_layer: b.pdf.textLayer, route: b.route },
     classification: { document_type: b.documentType, confidence: b.classConfidence, bank: b.classifierBank },
     bank_name: b.summary?.bankName ?? missingField,
-    holder: b.summary?.holder ?? { name: missingField, rfc: missingField, holder_type: missingField },
+    holder: b.summary?.holder ?? { name: missingField, rfc: missingField, holder_type: missingField, address: missingField },
     accounts,
     fiscal_documents: b.fiscal,
     issues: b.issues.issues,

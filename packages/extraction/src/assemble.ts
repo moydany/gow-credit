@@ -117,7 +117,7 @@ export interface PeriodMeta {
 
 export interface AssembledSummary {
   bankName: FieldOf<string>
-  holder: { name: FieldOf<string>; rfc: FieldOf<string>; holder_type: FieldOf<HolderType> }
+  holder: { name: FieldOf<string>; rfc: FieldOf<string>; holder_type: FieldOf<HolderType>; address: FieldOf<string> }
   accounts: Account[]
   periods: PeriodMeta[]
   /** account_ref → period_ref → id del periodo. */
@@ -190,7 +190,7 @@ export function assembleSummary(s: SummaryOut, text: PageText): AssembledSummary
   const holderName = textField(asText(pick(s.values, 'holder_name')), text)
   return {
     bankName: textField(asText(pick(s.values, 'bank_name')), text),
-    holder: { name: holderName, rfc: textField(asText(pick(s.values, 'holder_rfc')), text), holder_type: enumField<HolderType>(s.holder_type, holderName) },
+    holder: { name: holderName, rfc: textField(asText(pick(s.values, 'holder_rfc')), text), holder_type: enumField<HolderType>(s.holder_type, holderName), address: textField(asText(pick(s.values, 'holder_address')), text) },
     accounts,
     periods,
     refs,

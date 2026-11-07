@@ -12,6 +12,9 @@ import { z } from 'zod'
 import { clearActivePrompts, loadPrompt, loadPromptFile, promptCacheTag, setActivePrompts } from './prompts.ts'
 import { requestKey } from './response-cache.ts'
 
+/** La versión de archivo de `extract_summary` que fija el catálogo. */
+const SUMMARY = PROMPT_CATALOG.extract_summary.version
+
 const DIR = fileURLToPath(new URL('../../../prompts/', import.meta.url))
 const sha = (t: string) => createHash('sha256').update(t).digest('hex')
 
@@ -36,8 +39,8 @@ describe('catálogo y archivos', () => {
 describe('sin base (modo standalone)', () => {
   it('sale del archivo que fija el catálogo, sin el bloque de metadatos', () => {
     const p = loadPrompt('extract_summary', { page_count: 7 })
-    expect(p).toMatchObject({ id: 'extract_summary.v2', source: 'file' })
-    expect(p.text).toBe(loadPromptFile('extract_summary', 2, { page_count: 7 }).text)
+    expect(p).toMatchObject({ id: `extract_summary.v${String(SUMMARY)}`, source: 'file' })
+    expect(p.text).toBe(loadPromptFile('extract_summary', SUMMARY, { page_count: 7 }).text)
     expect(p.text.startsWith('<!--')).toBe(false)
     expect(p.text).toContain('7')
     expect(promptCacheTag('extract_summary')).toBeNull()
@@ -64,9 +67,9 @@ describe('con versiones activas de la base (modo full)', () => {
 
   it('la versión de archivo sembrada en la base conserva la id y la llave de caché del archivo', () => {
     const before = keyFor('extract_summary')
-    const body = loadPromptFile('extract_summary', 2, { page_count: '{{page_count}}' }).text
-    setActivePrompts([{ name: 'extract_summary', version: 2, source: 'file', fileVersion: 2, text: body, sha256: sha(body) }])
-    expect(loadPrompt('extract_summary', { page_count: 4 })).toMatchObject({ id: 'extract_summary.v2', source: 'db' })
+    const body = loadPromptFile('extract_summary', SUMMARY, { page_count: '{{page_count}}' }).text
+    setActivePrompts([{ name: 'extract_summary', version: SUMMARY, source: 'file', fileVersion: SUMMARY, text: body, sha256: sha(body) }])
+    expect(loadPrompt('extract_summary', { page_count: 4 })).toMatchObject({ id: `extract_summary.v${String(SUMMARY)}`, source: 'db' })
     expect(promptCacheTag('extract_summary')).toBeNull()
     expect(keyFor('extract_summary')).toBe(before)
   })
@@ -85,7 +88,7 @@ describe('con versiones activas de la base (modo full)', () => {
     ])
     expect(report.loaded).toEqual([])
     expect(report.rejected).toEqual(['extract_summary: usa {{inventada}}', 'otro: no está en el catálogo'])
-    expect(loadPrompt('extract_summary', { page_count: 1 }).id).toBe('extract_summary.v2')
+    expect(loadPrompt('extract_summary', { page_count: 1 }).id).toBe(`extract_summary.v${String(SUMMARY)}`)
   })
 
   it('clearActivePrompts vuelve a los archivos', () => {

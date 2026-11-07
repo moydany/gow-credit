@@ -127,3 +127,18 @@ describe('StatementExtraction', () => {
 function extracted612() {
   return { value: '612', source: { page: 3, snippet: 'Régimen Fiscal: 612' }, verification: 'verified' as const, confidence: 1, provenance: 'extracted' as const }
 }
+
+describe('domicilio del titular (ADR 0066)', () => {
+  it('una extracción 1.2.0 guardada sin domicilio se sigue leyendo, con el domicilio como no leído', () => {
+    const s = sampleStatement()
+    const { address: _address, ...holder } = s.holder
+    const old = StatementExtraction.parse({ ...s, schema_version: '1.2.0', holder })
+    expect(old.holder.address).toEqual({ value: null, source: null, verification: 'unverified', confidence: 0, provenance: 'extracted' })
+  })
+
+  it('una extracción actual lleva el domicilio con su fuente', () => {
+    const s = StatementExtraction.parse(sampleStatement())
+    expect(s.holder.address.value).toMatch(/REFORMA/)
+    expect(s.holder.address.source).not.toBeNull()
+  })
+})

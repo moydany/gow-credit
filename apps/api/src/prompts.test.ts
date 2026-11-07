@@ -10,7 +10,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionItem } from '@gow/contracts'
+import { PROMPT_CATALOG, PromptActivated, PromptCatalogResponse, PromptDetail, PromptDiff, PromptVersionItem } from '@gow/contracts'
 import { connect, loadActivePrompts, type Database } from '@gow/db'
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@gow/db/testing'
 import { clearActivePrompts, loadPrompt, setActivePrompts } from '@gow/llm'
@@ -21,6 +21,10 @@ import type { z } from 'zod'
 import { createTenant } from './admin.ts'
 import { createApp, type ApiDeps } from './app.ts'
 import { issueToken } from './session.ts'
+
+/** La versión de archivo de `extract_summary` que fija el catálogo y la que crea el backoffice encima. */
+const D = PROMPT_CATALOG.extract_summary.version
+const NEW = D + 1
 
 const available = await postgresAvailable()
 const SECRET = 'secreto-de-pruebas-de-prompts-0000'
@@ -113,7 +117,7 @@ describe.skipIf(!available)('Prompts en el backoffice (necesita el Postgres de d
     expect(r.status).toBe(200)
     expect(r.json.can_edit).toBe(false)
     const summary = r.json.prompts.find((p) => p.name === 'extract_summary')
-    expect(summary).toMatchObject({ code_default_file_version: 2, versions: 2, variables: ['page_count'], active: { version: 2, prompt_id: 'extract_summary.v2', source: 'file', is_code_default: true, activated_by: null } })
+    expect(summary).toMatchObject({ code_default_file_version: D, versions: D, variables: ['page_count'], active: { version: D, prompt_id: `extract_summary.v${String(D)}`, source: 'file', is_code_default: true, activated_by: null } })
     expect((await editorA.get(PromptCatalogResponse, '/prompts')).json.can_edit).toBe(true)
   })
 
@@ -138,30 +142,30 @@ describe.skipIf(!available)('Prompts en el backoffice (necesita el Postgres de d
 
   it('crea una versión inmutable sin activarla, la compara y la activa para todas las instituciones', async () => {
     const before = await editorA.get(PromptDetail, '/prompts/extract_summary')
-    const v2 = before.json.items.find((i) => i.version === 2)
-    if (!v2) throw new Error('falta v2')
+    const v2 = before.json.items.find((i) => i.version === D)
+    if (!v2) throw new Error(`falta v${String(D)}`)
     const text = `${v2.text}\nNo inventes movimientos.`
     const created = await editorA.post(PromptVersionItem, '/prompts/extract_summary/versions', { text, note: 'regla contra invención' })
     expect(created.status).toBe(201)
-    expect(created.json).toMatchObject({ version: 3, source: 'backoffice', file_version: null, active: false, is_code_default: false, created_by: 'editora@a.test', note: 'regla contra invención' })
-    expect(created.json.prompt_id).toMatch(/^extract_summary\.db3-[0-9a-f]{8}$/)
+    expect(created.json).toMatchObject({ version: NEW, source: 'backoffice', file_version: null, active: false, is_code_default: false, created_by: 'editora@a.test', note: 'regla contra invención' })
+    expect(created.json.prompt_id).toMatch(new RegExp(`^extract_summary\\.db${String(NEW)}-[0-9a-f]{8}$`))
 
     const diff = await viewerA.get(PromptDiff, `/prompts/extract_summary/diff?from=${v2.id}&to=${created.json.id}`)
-    expect(diff.json).toMatchObject({ from: { version: 2 }, to: { version: 3 }, added: 1, removed: 0 })
+    expect(diff.json).toMatchObject({ from: { version: D }, to: { version: NEW }, added: 1, removed: 0 })
     expect(diff.json.lines.filter((l) => l.op === 'add')).toEqual([{ op: 'add', text: 'No inventes movimientos.' }])
     expect((await viewerA.send('GET', `/prompts/extract_summary/diff?from=${v2.id}&to=${randomUUID()}`)).status).toBe(404)
 
     const activated = await editorA.post(PromptActivated, `/prompts/extract_summary/versions/${created.json.id}/activate`)
-    expect(activated).toMatchObject({ status: 200, json: { version: 3, previous_version: 2 } })
+    expect(activated).toMatchObject({ status: 200, json: { version: NEW, previous_version: D } })
     // Global: la otra institución ve la misma versión activa.
     const seenByB = await viewerB.get(PromptCatalogResponse, '/prompts')
-    expect(seenByB.json.prompts.find((p) => p.name === 'extract_summary')?.active).toMatchObject({ version: 3, source: 'backoffice', activated_by: 'editora@a.test' })
+    expect(seenByB.json.prompts.find((p) => p.name === 'extract_summary')?.active).toMatchObject({ version: NEW, source: 'backoffice', activated_by: 'editora@a.test' })
 
     // Bitácora del tenant de quien cambió, sin el texto.
     const log = await h.admin.query<{ action: string; subject: string; details: Record<string, unknown> }>("SELECT action, subject, details FROM app.audit_log WHERE tenant_id = $1 AND action LIKE 'prompt.%' ORDER BY at", [tenantA])
     expect(log.rows).toEqual([
-      { action: 'prompt.version_created', subject: 'extract_summary', details: { version: 3, prompt_id: created.json.prompt_id } },
-      { action: 'prompt.activated', subject: 'extract_summary', details: { version: 3, previous_version: 2, prompt_id: created.json.prompt_id, source: 'backoffice' } },
+      { action: 'prompt.version_created', subject: 'extract_summary', details: { version: NEW, prompt_id: created.json.prompt_id } },
+      { action: 'prompt.activated', subject: 'extract_summary', details: { version: NEW, previous_version: D, prompt_id: created.json.prompt_id, source: 'backoffice' } },
     ])
 
     // Lo que el worker carga: la versión activa con su id de huella.
@@ -176,7 +180,7 @@ describe.skipIf(!available)('Prompts en el backoffice (necesita el Postgres de d
     }
 
     // Volver a la de archivo: también es una activación.
-    expect((await editorA.send('POST', `/prompts/extract_summary/versions/${v2.id}/activate`)).json).toMatchObject({ version: 2, previous_version: 3 })
+    expect((await editorA.send('POST', `/prompts/extract_summary/versions/${v2.id}/activate`)).json).toMatchObject({ version: D, previous_version: NEW })
   })
 
   it('una versión de otro prompt no se activa por la ruta equivocada', async () => {

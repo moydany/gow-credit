@@ -118,7 +118,7 @@ export function sampleStatement(): StatementExtraction {
     document: { file_name: 'synthetic.pdf', sha256: 'a'.repeat(64), size_bytes: 1024, page_count: 3, text_layer: 'ok', route: 'text_and_vision' },
     classification: { document_type: 'bank_statement', confidence: 0.98, bank: 'Banco Ficticio' },
     bank_name: extracted('BANCO FICTICIO'),
-    holder: { name: extracted('COMERCIALIZADORA DE PRUEBA SA DE CV'), rfc: extracted('XAXX010101000'), holder_type: extracted('legal_entity') },
+    holder: { name: extracted('COMERCIALIZADORA DE PRUEBA SA DE CV'), rfc: extracted('XAXX010101000'), holder_type: extracted('legal_entity'), address: extracted('AV. REFORMA 100, COL. JUÁREZ, CUAUHTÉMOC, CDMX, C.P. 06600') },
     accounts: [account('a1', [p1, p2]), account('a2', [inv], 'investment')],
     fiscal_documents: [],
     issues: [],

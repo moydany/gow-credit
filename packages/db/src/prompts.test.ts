@@ -61,8 +61,9 @@ describe.skipIf(!available)('siembra de prompts (necesita el Postgres de docker 
     const [v1] = await admin.db.select().from(promptVersions).where(eq(promptVersions.promptName, 'extract_summary')).orderBy(promptVersions.version).limit(1)
     await admin.db.update(prompts).set({ codeDefaultFileVersion: 1, activeVersionId: v1?.id }).where(eq(prompts.name, 'extract_summary'))
     const report = await syncPromptFiles(admin.db)
-    expect(report.activated).toEqual(['extract_summary.v2'])
-    expect(await activeOf('extract_summary')).toMatchObject({ fileVersion: 2 })
+    const def = PROMPT_CATALOG.extract_summary.version
+    expect(report.activated).toEqual([`extract_summary.v${String(def)}`])
+    expect(await activeOf('extract_summary')).toMatchObject({ fileVersion: def })
   })
 
   it('si una persona eligió otra versión, se respeta y queda un aviso', async () => {
