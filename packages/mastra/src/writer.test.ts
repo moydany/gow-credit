@@ -102,6 +102,51 @@ describe('redacción con filtro de cifras', () => {
     for (const feature of FEATURE_NAMES) {
       const step: NextStep = { code: 'improve_x', feature, current_value: 0.35, target_value: 12345.67, related: [], from: { status: 'not_qualified', score: 41.5, limit: null }, to: { status: 'qualified_with_limit', score: 55, limit: 45000.5 }, message: null }
       expect(checkFigures(nextStepTemplate(step), nextStepFacts(step)).unsupported, feature).toEqual([])
+      const lineOnly: NextStep = { ...step, from: { status: 'qualified', score: 66.5, limit: 30000 }, to: { status: 'qualified', score: 90, limit: 75000.5 } }
+      expect(checkFigures(nextStepTemplate(lineOnly), nextStepFacts(lineOnly)).unsupported, feature).toEqual([])
     }
+  })
+})
+
+describe('next_steps: cambia el estado o sube la línea (ADR 0056)', () => {
+  const step = (from: NextStep['from'], to: NextStep['to'], code = 'improve_capacity'): NextStep => ({ code, feature: 'operating_income_monthly', current_value: 150000, target_value: 300000, related: [], from, to, message: null })
+  const statusChange = step({ status: 'qualified_with_limit', score: 62.5, limit: 75000 }, { status: 'qualified', score: 80, limit: 150000 })
+  const lineChange = step({ status: 'qualified', score: 66.5, limit: 30000 }, { status: 'qualified', score: 90, limit: 75000.5 })
+
+  it('si cambia el estado, la plantilla dice de cuál a cuál', () => {
+    const text = nextStepTemplate(statusChange)
+    expect(text).toContain('el resultado pasaría de "calificas con límite" a "calificas"')
+    expect(text).not.toContain('línea pasaría')
+  })
+
+  it('si solo sube la línea, dice de cuánto a cuánto y no repite el estado', () => {
+    const text = nextStepTemplate(lineChange)
+    expect(text).toContain('la línea pasaría de $30,000.00 a $75,000.50')
+    expect(text).not.toContain('el resultado pasaría')
+    expect(text).not.toContain('"calificas" a "calificas"')
+  })
+
+  it('las plantillas de reduce_requested_amount y classify_deposits también distinguen estado y línea', () => {
+    expect(nextStepTemplate({ ...lineChange, code: 'reduce_requested_amount' })).toContain('la línea pasaría de $30,000.00 a $75,000.50')
+    expect(nextStepTemplate({ ...statusChange, code: 'classify_deposits' })).toContain('el resultado pasaría de "calificas con límite" a "calificas"')
+    expect(nextStepTemplate({ ...lineChange, code: 'classify_deposits' })).toContain('la línea pasaría de $30,000.00 a $75,000.50')
+  })
+
+  it('un paso de aclaración que solo sube el puntaje no dice que el resultado cambia', () => {
+    const same = step({ status: 'qualified_with_limit', score: 55, limit: 37500 }, { status: 'qualified_with_limit', score: 72, limit: 37500 }, 'classify_deposits')
+    const text = nextStepTemplate(same)
+    expect(text).toContain('tu puntaje pasaría de 55 a 72')
+    expect(text).not.toContain('"calificas con límite" a')
+    expect(checkFigures(text, nextStepFacts(same)).unsupported).toEqual([])
+  })
+
+  it('los hechos traen la línea de antes y de después, y el filtro acepta citarla pero no inventarla', async () => {
+    expect(nextStepFacts(lineChange)).toContainEqual({ name: 'linea_actual', value: 30000 })
+    expect(nextStepFacts(lineChange)).toContainEqual({ name: 'linea_nueva', value: 75000.5 })
+    const good = new ScriptedLlm([(ids) => ids.map((id) => ({ id, text: 'Con ese ingreso tu línea subiría de $30,000.00 a $75,000.50.' }))])
+    expect((await new Writer(good).nextSteps([lineChange])).next_steps[0]?.message).toBe('Con ese ingreso tu línea subiría de $30,000.00 a $75,000.50.')
+    const invented = new ScriptedLlm([(ids) => ids.map((id) => ({ id, text: 'Tu línea subiría a $99,999.00.' })), (ids) => ids.map((id) => ({ id, text: 'Tu línea subiría a $88,888.00.' }))])
+    expect((await new Writer(invented).nextSteps([lineChange])).next_steps[0]?.message).toBe(nextStepTemplate(lineChange))
+    expect(invented.calls).toBe(2)
   })
 })

@@ -77,18 +77,35 @@ export function nextStepFacts(step: NextStep): QuestionFact[] {
     { name: 'que_cambia', value: [step.feature, ...step.related.map((r) => r.feature)].map(featureLabel).join('; ') },
     { name: 'puntaje_actual', value: step.from.score },
     { name: 'puntaje_nuevo', value: step.to.score },
+    // La línea de antes y de después (ADR 0056): las cifras de "la línea pasaría de $A a $B" salen de aquí.
+    { name: 'linea_actual', value: step.from.limit },
+    { name: 'linea_nueva', value: step.to.limit },
   ]
 }
 
+/**
+ * Qué cambia en el resultado, en palabras (ADR 0056). Si cambia el estado: "el resultado pasaría de X a
+ * Y". Si el estado es el mismo y solo sube la línea: "la línea pasaría de $A a $B". El motor no propone
+ * un paso que deje las dos cosas iguales; los `next_steps` de aclaración de `decide` (cambios de banda
+ * por una respuesta del dueño) sí pueden, y entonces se dice el puntaje, que es lo que cambia.
+ */
+function outcomeChange(step: NextStep): string {
+  const { from, to } = step
+  if (from.status !== to.status) return `el resultado pasaría de "${SUPPLIER_STATUS_TEXT[from.status]}" a "${SUPPLIER_STATUS_TEXT[to.status]}"`
+  // Un estado que califica siempre trae línea; sin las dos cifras en los hechos no se escribe ninguna.
+  if (from.limit !== null && to.limit !== null && to.limit > from.limit) return `la línea pasaría de ${pesos(from.limit)} a ${pesos(to.limit)}`
+  if (from.score !== null && to.score !== null && to.score > from.score) return `tu puntaje pasaría de ${String(from.score)} a ${String(to.score)}, sin cambiar el resultado ("${SUPPLIER_STATUS_TEXT[to.status]}") ni la línea`
+  return `el resultado seguiría en "${SUPPLIER_STATUS_TEXT[to.status]}"`
+}
+
 export function nextStepTemplate(step: NextStep): string {
-  const from = SUPPLIER_STATUS_TEXT[step.from.status]
-  const to = SUPPLIER_STATUS_TEXT[step.to.status]
   const cur = valueText(step.feature, step.current_value)
   const tgt = valueText(step.feature, step.target_value)
-  if (step.code === 'classify_deposits') return `Si los abonos por los que te preguntamos son pagos de clientes, tus ingresos operativos mensuales pasarían de ${cur} a ${tgt} y el resultado pasaría de "${from}" a "${to}".`
-  if (step.code === 'reduce_requested_amount') return `Si pides ${tgt} en lugar de ${cur}, el resultado pasaría de "${from}" a "${to}".`
+  const change = outcomeChange(step)
+  if (step.code === 'classify_deposits') return `Si los abonos por los que te preguntamos son pagos de clientes, tus ingresos operativos mensuales pasarían de ${cur} a ${tgt} y ${change}.`
+  if (step.code === 'reduce_requested_amount') return `Si pides ${tgt} en lugar de ${cur}, ${change}.`
   const related = step.related.map((r) => `${featureLabel(r.feature).toLowerCase()} en ${valueText(r.feature, r.target_value)}`)
-  return `${featureLabel(step.feature)}: hoy ${cur}; con ${tgt}${related.length ? ` (y ${related.join(', ')})` : ''}, el resultado pasaría de "${from}" a "${to}".`
+  return `${featureLabel(step.feature)}: hoy ${cur}; con ${tgt}${related.length ? ` (y ${related.join(', ')})` : ''}, ${change}.`
 }
 
 interface Draft {
