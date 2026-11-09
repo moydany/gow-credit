@@ -104,16 +104,21 @@ export async function enqueuePurge(boss: PgBoss, job: PurgeJob): Promise<string 
 
 /** Queue jobs of these requests, in any state: deleted when the supplier is deleted. */
 export async function deleteApplicationJobs(boss: PgBoss, applicationIds: readonly string[]): Promise<number> {
-  let deleted = 0
-  for (const name of [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.discardNotice, QUEUES.dead]) {
-    for (const application_id of applicationIds) {
-      const jobs = await boss.findJobs<object>(name, { data: { application_id } })
-      if (jobs.length === 0) continue
-      await boss.deleteJob(name, jobs.map((j) => j.id))
-      deleted += jobs.length
-    }
-  }
-  return deleted
+  if (applicationIds.length === 0) return 0
+  const queues = [QUEUES.process, QUEUES.resume, QUEUES.redecide, QUEUES.discardNotice, QUEUES.dead] as const
+  const results = await Promise.all(
+    queues.map(async (name) => {
+      const nested = await Promise.all(
+        applicationIds.map((application_id) => boss.findJobs<object>(name, { data: { application_id } })),
+      )
+      const ids = nested.flat().map((j) => j.id)
+      if (ids.length > 0) {
+        await boss.deleteJob(name, ids)
+      }
+      return ids.length
+    }),
+  )
+  return results.reduce((acc, count) => acc + count, 0)
 }
 
 export type { PgBoss }

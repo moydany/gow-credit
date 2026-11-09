@@ -7,7 +7,7 @@
  * sources. Scenarios use the same pieces with doubles (only the implementations of the external
  * interfaces change).
  */
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Transport } from '@gow/channels'
@@ -65,6 +65,17 @@ export interface WorkerServices {
   logger: { info(message: string): void; error(message: string): void }
 }
 
+async function withTempPdfFile<T>(fileName: string, bytes: Buffer, fn: (filePath: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'gow-doc-'))
+  const file = join(dir, fileName)
+  try {
+    await writeFile(file, bytes)
+    return await fn(file)
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
 function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
   return {
     extract: async (path) => {
@@ -73,12 +84,9 @@ function deps(s: WorkerServices, ctx: AppContext): WorkflowDeps {
         if (!s.synthetic) throw new Error('documento sintético fuera de un escenario')
         return s.synthetic(JSON.parse(bytes.toString('utf8')) as SyntheticDocument)
       }
-      // extractStatement reads from disk: temporary copy with the original name (it goes in document.file_name).
-      const dir = await mkdtemp(join(tmpdir(), 'gow-doc-'))
-      const file = join(dir, basename(path))
-      await writeFile(file, bytes)
-      // Full mode: a document that is surely not a bank statement, or that holds more than one, is not extracted.
-      return extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE })
+      return withTempPdfFile(basename(path), bytes, (file) =>
+        extractStatement(file, { llm: s.llm, classifier: s.documentClassifier }, { ...DEFAULT_OPTIONS, googleAvailable: s.googleAvailable, limit: s.limit, rejectNotStatementAbove: REJECT_NOT_STATEMENT_ABOVE }),
+      )
     },
     transactionClassifier: s.transactionClassifier,
     writer: s.writer,
@@ -145,21 +153,32 @@ export async function handleResume(s: WorkerServices, job: ResumeJob): Promise<s
   return status
 }
 
+async function processInboundItem(s: WorkerServices, boss: PgBoss, item: { id: string; tenant_id: string }): Promise<void> {
+  const r = await withLlmScope({ tenantId: item.tenant_id, inboundMessageId: item.id }, () =>
+    resolveInbound(s.db, item.tenant_id, item.id, {
+      storage: s.storage,
+      selfRegistration: s.selfRegistration === true,
+      ...(s.today ? { today: s.today } : {}),
+      ...(s.interpreter ? { interpreter: s.interpreter } : {}),
+    }),
+  )
+  s.logger.info(`entrante ${item.id} → ${r.resolution}${r.interpreted ? ' (Haiku)' : ''}`)
+  if (r.resume) await enqueueResume(boss, r.resume, r.resumeDelaySeconds ?? 0)
+  if (r.redecide) await enqueueRedecide(boss, r.redecide)
+  if (r.process) {
+    await enqueueProcess(boss, r.process.job, r.process.sha256, undefined, r.process.delaySeconds ?? 0)
+    s.logger.info(`application ${r.process.job.application_id} recibida por un mensaje entrante`)
+  }
+}
+
 /** Processes pending inbound messages; those that complete a clarification enqueue the resume. */
 export async function sweepInbound(s: WorkerServices, boss: PgBoss): Promise<number> {
   const pending = await pendingInbound(s.db)
   for (const m of pending) {
-    // Whatever Haiku reads from this message is attributed to it.
-    const r = await withLlmScope({ tenantId: m.tenant_id, inboundMessageId: m.id }, () =>
-      resolveInbound(s.db, m.tenant_id, m.id, { storage: s.storage, selfRegistration: s.selfRegistration === true, ...(s.today ? { today: s.today } : {}), ...(s.interpreter ? { interpreter: s.interpreter } : {}) }),
-    )
-    s.logger.info(`entrante ${m.id} → ${r.resolution}${r.interpreted ? ' (Haiku)' : ''}`)
-    if (r.resume) await enqueueResume(boss, r.resume, r.resumeDelaySeconds ?? 0)
-    // Amount requested after the offer: decide again with it, without models.
-    if (r.redecide) await enqueueRedecide(boss, r.redecide)
-    if (r.process) {
-      await enqueueProcess(boss, r.process.job, r.process.sha256, undefined, r.process.delaySeconds ?? 0)
-      s.logger.info(`application ${r.process.job.application_id} recibida por un mensaje entrante`)
+    try {
+      await processInboundItem(s, boss, m)
+    } catch (err) {
+      s.logger.error(`sweepInbound failed for message ${m.id} (tenant ${m.tenant_id}): ${errorText(err)}`)
     }
   }
   return pending.length
