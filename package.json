@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
-    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 167",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 0",
     "dup": "jscpd",
     "test": "vitest run",
     "test:watch": "vitest",
