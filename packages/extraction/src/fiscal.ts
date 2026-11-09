@@ -19,21 +19,32 @@ const CERT = /^\d{20}$/
  * "2025-02-01 10:12:33", "06/08/2025 03:06:55 AM", "01 de Octubre de 2025 a las 23:28:07".
  * The time is split off the text and the date goes through the shared date parser.
  */
+function parseAmPmHour(hour: number, ampmRaw: string): number {
+  const ampm = ampmRaw.toLowerCase().replace(/[^ap]/g, '')
+  if (ampm === 'p' && hour < 12) return hour + 12
+  if (ampm === 'a' && hour === 12) return 0
+  return hour
+}
+
 export function parseLocalDateTime(raw: string): string | null {
   const s = raw.trim().replace(/\s+/g, ' ')
-  const iso = /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s)
-  const time = iso ? null : /(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(a\.?\s?m\.?|p\.?\s?m\.?|AM|PM))?/i.exec(s)
-  const date = iso ? (iso[1] ?? null) : time ? parseLooseDate(s.slice(0, time.index).replace(/\b(a las|hrs?\.?)\s*$/i, '').trim(), null) : null
-  const parts = iso ? [iso[2], iso[3], iso[4]] : time ? [time[1], time[2], time[3]] : null
-  if (date === null || parts === null) return null
-  let hh = Number(parts[0])
-  const mm = Number(parts[1])
-  const ss = Number(parts[2] ?? 0)
-  const ampm = (time?.[4] ?? '').toLowerCase().replace(/[^ap]/g, '')
-  if (ampm === 'p' && hh < 12) hh += 12
-  if (ampm === 'a' && hh === 12) hh = 0
-  if (hh > 23 || mm > 59 || ss > 59) return null
   const pad = (n: number) => String(n).padStart(2, '0')
+  const iso = /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s)
+  if (iso) {
+    const hh = Number(iso[2])
+    const mm = Number(iso[3])
+    const ss = Number(iso[4] ?? 0)
+    if (hh > 23 || mm > 59 || ss > 59) return null
+    return `${iso[1]}T${pad(hh)}:${pad(mm)}:${pad(ss)}`
+  }
+  const time = /(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(a\.?\s?m\.?|p\.?\s?m\.?|AM|PM))?/i.exec(s)
+  if (!time) return null
+  const date = parseLooseDate(s.slice(0, time.index).replace(/\b(a las|hrs?\.?)\s*$/i, '').trim(), null)
+  if (!date) return null
+  const hh = parseAmPmHour(Number(time[1]), time[4] ?? '')
+  const mm = Number(time[2])
+  const ss = Number(time[3] ?? 0)
+  if (hh > 23 || mm > 59 || ss > 59) return null
   return `${date}T${pad(hh)}:${pad(mm)}:${pad(ss)}`
 }
 
@@ -148,6 +159,104 @@ export interface HolderRefs {
   holder_type: FieldOf<HolderType>
 }
 
+function verifyFiscalUuid(f: FiscalDocument, tag: string, page: number, issues: IssueSink): void {
+  if (f.uuid.value !== null && !UUID.test(f.uuid.value)) {
+    f.uuid = unverify(f.uuid)
+    issues.add({ code: 'invalid_uuid', severity: 'error', message: `${tag}: el folio fiscal no tiene el formato 8-4-4-4-12 hexadecimal.`, page })
+  }
+  if (f.uuid.value !== null && f.original_chain.uuid.value !== null) {
+    if (f.uuid.value === f.original_chain.uuid.value) {
+      f.uuid = verify(f.uuid)
+      f.original_chain.uuid = verify(f.original_chain.uuid)
+    } else {
+      f.uuid = conflict(f.uuid)
+      issues.add({ code: 'fiscal_chain_mismatch', severity: 'error', message: `${tag}: el folio fiscal del encabezado no coincide con el de la cadena original.`, page })
+    }
+  }
+}
+
+function verifyFiscalCertificatesAndDates(f: FiscalDocument, tag: string, page: number, issues: IssueSink): void {
+  if (f.sat_certificate.value !== null && f.original_chain.sat_certificate.value !== null) {
+    if (f.sat_certificate.value === f.original_chain.sat_certificate.value) {
+      f.sat_certificate = verify(f.sat_certificate)
+    } else {
+      f.sat_certificate = conflict(f.sat_certificate)
+      issues.add({ code: 'fiscal_chain_mismatch', severity: 'error', message: `${tag}: el certificado del SAT no coincide con el de la cadena original.`, page })
+    }
+  }
+  if (f.certified_at.value !== null && f.original_chain.certified_at.value !== null && f.certified_at.value !== f.original_chain.certified_at.value) {
+    issues.add({ code: 'fiscal_chain_mismatch', severity: 'warning', message: `${tag}: la fecha de certificación impresa (${f.certified_at.value}) no coincide con la de la cadena original (${f.original_chain.certified_at.value}).`, page })
+  }
+}
+
+function verifyFiscalTotalsAndFees(f: FiscalDocument, periods: readonly Period[], tag: string, page: number, issues: IssueSink): void {
+  const [subtotal, tax, total] = [f.subtotal.value, f.tax.value, f.total.value]
+  if (subtotal !== null && tax !== null && total !== null) {
+    const expected = round2(subtotal + tax)
+    if (Math.abs(expected - total) <= 0.01) {
+      f.subtotal = verify(f.subtotal)
+      f.tax = verify(f.tax)
+      f.total = verify(f.total)
+    } else {
+      issues.add({ code: 'fiscal_totals_mismatch', severity: 'error', message: `${tag}: subtotal ${String(subtotal)} + IVA ${String(tax)} = ${String(expected)}, pero el total impreso es ${String(total)}.`, page })
+    }
+    if (subtotal > 0) {
+      const rate = tax / subtotal
+      if (Math.abs(rate - 0.16) > 0.005) {
+        issues.add({ code: 'fiscal_totals_mismatch', severity: 'info', message: `${tag}: el IVA es ${(rate * 100).toFixed(1)} % del subtotal (no 16 %); puede haber conceptos exentos.`, page })
+      }
+    }
+  }
+  if (f.kind === 'income' && f.subtotal.value !== null) {
+    const fees = periods.map((p) => p.summary.fees_charged.value).filter((v): v is number => v !== null)
+    if (fees.length > 0 && !fees.some((v) => Math.abs(v - (f.subtotal.value ?? 0)) <= 0.01) && !fees.some((v) => Math.abs(v - (f.total.value ?? -1)) <= 0.01)) {
+      issues.add({ code: 'fiscal_fees_mismatch', severity: 'warning', message: `${tag}: el subtotal (${String(f.subtotal.value)}) no coincide con las comisiones cobradas del periodo (${fees.join(', ')}); puede haber comisiones exentas o cortes distintos.`, page })
+    }
+  }
+}
+
+function verifyFiscalReceiverAndHolder(f: FiscalDocument, holder: HolderRefs, tag: string, page: number, issues: IssueSink): void {
+  if (f.receiver.rfc.value !== null && holder.rfc.value !== null) {
+    if (rfcCompatible(f.receiver.rfc.value, holder.rfc.value)) {
+      f.receiver.rfc = verify(f.receiver.rfc)
+    } else {
+      f.receiver.rfc = conflict(f.receiver.rfc)
+      issues.add({ code: 'fiscal_receiver_mismatch', severity: 'error', message: `${tag}: el RFC del receptor del CFDI no coincide con el del titular del estado de cuenta.`, page })
+    }
+  }
+  const regime = f.receiver.tax_regime.value?.match(/\d{3}/)?.[0]
+  const expectedHolder = regime ? REGIME_TO_HOLDER[regime] : undefined
+  if (expectedHolder && holder.holder_type.value !== null && holder.holder_type.value !== expectedHolder) {
+    holder.holder_type = unverify(holder.holder_type)
+    issues.add({ code: 'fiscal_receiver_mismatch', severity: 'warning', message: `${tag}: el régimen fiscal ${regime ?? ''} corresponde a ${expectedHolder}, pero el encabezado sugiere ${holder.holder_type.value}.`, page })
+  }
+}
+
+function verifyFiscalStampWindow(f: FiscalDocument, periods: readonly Period[], tag: string, page: number, issues: IssueSink): void {
+  const stamped = f.certified_at.value?.slice(0, 10) ?? null
+  const ends = periods.map((p) => p.period_end.value ?? p.statement_date.value).filter((d): d is string => d !== null)
+  const lastEnd = ends.sort().at(-1) ?? null
+  if (stamped !== null && lastEnd !== null) {
+    const gap = Math.round((Date.parse(`${stamped}T00:00:00Z`) - Date.parse(`${lastEnd}T00:00:00Z`)) / 86_400_000)
+    if (gap > 30 || gap < -5) {
+      issues.add({ code: 'date_out_of_period', severity: 'warning', message: `${tag}: el timbrado (${stamped}) está a ${String(gap)} días del fin del periodo (${lastEnd}); el estado de cuenta pudo generarse mucho después o el periodo pudo editarse.`, page })
+    }
+  }
+}
+
+function verifyFiscalFormats(f: FiscalDocument, tag: string, page: number, issues: IssueSink): void {
+  for (const [label, cert] of [['emisor', f.issuer_certificate], ['SAT', f.sat_certificate]] as const) {
+    if (cert.value !== null && !CERT.test(cert.value)) {
+      issues.add({ code: 'fiscal_chain_mismatch', severity: 'warning', message: `${tag}: el número de certificado del ${label} no tiene 20 dígitos.`, page })
+    }
+  }
+  for (const [label, rfc] of [['del PAC', f.pac_rfc], ['del emisor', f.issuer.rfc], ['del receptor', f.receiver.rfc]] as const) {
+    if (checkRfc(rfc.value).result === 'invalid') {
+      issues.add({ code: 'invalid_rfc', severity: 'warning', message: `${tag}: el RFC ${label} no tiene una estructura válida.`, page })
+    }
+  }
+}
+
 /**
  * Cross-checks. Mutates in place the verification of the invoice fields (and of the holder's
  * person type) and adds issues.
@@ -156,89 +265,11 @@ export function crossCheckFiscal(docs: FiscalDocument[], holder: HolderRefs, per
   for (const f of docs) {
     const page = f.source.page
     const tag = `CFDI ${f.id} (página ${String(page)})`
-
-    // 1. UUID well-formed and equal to the original string's.
-    if (f.uuid.value !== null && !UUID.test(f.uuid.value)) {
-      f.uuid = unverify(f.uuid)
-      issues.add({ code: 'invalid_uuid', severity: 'error', message: `${tag}: el folio fiscal no tiene el formato 8-4-4-4-12 hexadecimal.`, page })
-    }
-    if (f.uuid.value !== null && f.original_chain.uuid.value !== null) {
-      if (f.uuid.value === f.original_chain.uuid.value) {
-        f.uuid = verify(f.uuid)
-        f.original_chain.uuid = verify(f.original_chain.uuid)
-      } else {
-        f.uuid = conflict(f.uuid)
-        issues.add({ code: 'fiscal_chain_mismatch', severity: 'error', message: `${tag}: el folio fiscal del encabezado no coincide con el de la cadena original.`, page })
-      }
-    }
-    // 2. SAT certificate equal to the string's; dates only as a warning.
-    if (f.sat_certificate.value !== null && f.original_chain.sat_certificate.value !== null) {
-      if (f.sat_certificate.value === f.original_chain.sat_certificate.value) f.sat_certificate = verify(f.sat_certificate)
-      else {
-        f.sat_certificate = conflict(f.sat_certificate)
-        issues.add({ code: 'fiscal_chain_mismatch', severity: 'error', message: `${tag}: el certificado del SAT no coincide con el de la cadena original.`, page })
-      }
-    }
-    if (f.certified_at.value !== null && f.original_chain.certified_at.value !== null && f.certified_at.value !== f.original_chain.certified_at.value) {
-      issues.add({ code: 'fiscal_chain_mismatch', severity: 'warning', message: `${tag}: la fecha de certificación impresa (${f.certified_at.value}) no coincide con la de la cadena original (${f.original_chain.certified_at.value}).`, page })
-    }
-    // 3. total = subtotal + IVA.
-    const [subtotal, tax, total] = [f.subtotal.value, f.tax.value, f.total.value]
-    if (subtotal !== null && tax !== null && total !== null) {
-      const expected = round2(subtotal + tax)
-      if (Math.abs(expected - total) <= 0.01) {
-        f.subtotal = verify(f.subtotal)
-        f.tax = verify(f.tax)
-        f.total = verify(f.total)
-      } else {
-        issues.add({ code: 'fiscal_totals_mismatch', severity: 'error', message: `${tag}: subtotal ${String(subtotal)} + IVA ${String(tax)} = ${String(expected)}, pero el total impreso es ${String(total)}.`, page })
-      }
-      // 5. IVA near 16%: informational only (there may be exempt fees).
-      if (subtotal > 0) {
-        const rate = tax / subtotal
-        if (Math.abs(rate - 0.16) > 0.005) issues.add({ code: 'fiscal_totals_mismatch', severity: 'info', message: `${tag}: el IVA es ${(rate * 100).toFixed(1)} % del subtotal (no 16 %); puede haber conceptos exentos.`, page })
-      }
-    }
-    // 4. Subtotal against fees charged in the period (income CFDI).
-    if (f.kind === 'income' && f.subtotal.value !== null) {
-      const fees = periods.map((p) => p.summary.fees_charged.value).filter((v): v is number => v !== null)
-      if (fees.length > 0 && !fees.some((v) => Math.abs(v - (f.subtotal.value ?? 0)) <= 0.01) && !fees.some((v) => Math.abs(v - (f.total.value ?? -1)) <= 0.01)) {
-        issues.add({ code: 'fiscal_fees_mismatch', severity: 'warning', message: `${tag}: el subtotal (${String(f.subtotal.value)}) no coincide con las comisiones cobradas del periodo (${fees.join(', ')}); puede haber comisiones exentas o cortes distintos.`, page })
-      }
-    }
-    // 6. Receiver RFC against the holder's.
-    if (f.receiver.rfc.value !== null && holder.rfc.value !== null) {
-      if (rfcCompatible(f.receiver.rfc.value, holder.rfc.value)) {
-        f.receiver.rfc = verify(f.receiver.rfc)
-      } else {
-        f.receiver.rfc = conflict(f.receiver.rfc)
-        issues.add({ code: 'fiscal_receiver_mismatch', severity: 'error', message: `${tag}: el RFC del receptor del CFDI no coincide con el del titular del estado de cuenta.`, page })
-      }
-    }
-    // 7. Receiver tax regime against the holder's person type.
-    const regime = f.receiver.tax_regime.value?.match(/\d{3}/)?.[0]
-    const expectedHolder = regime ? REGIME_TO_HOLDER[regime] : undefined
-    if (expectedHolder && holder.holder_type.value !== null && holder.holder_type.value !== expectedHolder) {
-      holder.holder_type = unverify(holder.holder_type)
-      issues.add({ code: 'fiscal_receiver_mismatch', severity: 'warning', message: `${tag}: el régimen fiscal ${regime ?? ''} corresponde a ${expectedHolder}, pero el encabezado sugiere ${holder.holder_type.value}.`, page })
-    }
-    // The stamp date is a SAT timestamp. Far from the period end, the document was generated much
-    // later or the period was edited.
-    const stamped = f.certified_at.value?.slice(0, 10) ?? null
-    const ends = periods.map((p) => p.period_end.value ?? p.statement_date.value).filter((d): d is string => d !== null)
-    const lastEnd = ends.sort().at(-1) ?? null
-    if (stamped !== null && lastEnd !== null) {
-      const gap = Math.round((Date.parse(`${stamped}T00:00:00Z`) - Date.parse(`${lastEnd}T00:00:00Z`)) / 86_400_000)
-      if (gap > 30 || gap < -5) {
-        issues.add({ code: 'date_out_of_period', severity: 'warning', message: `${tag}: el timbrado (${stamped}) está a ${String(gap)} días del fin del periodo (${lastEnd}); el estado de cuenta pudo generarse mucho después o el periodo pudo editarse.`, page })
-      }
-    }
-    // 8. Certificate and RFC format.
-    for (const [label, cert] of [['emisor', f.issuer_certificate], ['SAT', f.sat_certificate]] as const) {
-      if (cert.value !== null && !CERT.test(cert.value)) issues.add({ code: 'fiscal_chain_mismatch', severity: 'warning', message: `${tag}: el número de certificado del ${label} no tiene 20 dígitos.`, page })
-    }
-    for (const [label, rfc] of [['del PAC', f.pac_rfc], ['del emisor', f.issuer.rfc], ['del receptor', f.receiver.rfc]] as const) {
-      if (checkRfc(rfc.value).result === 'invalid') issues.add({ code: 'invalid_rfc', severity: 'warning', message: `${tag}: el RFC ${label} no tiene una estructura válida.`, page })
-    }
+    verifyFiscalUuid(f, tag, page, issues)
+    verifyFiscalCertificatesAndDates(f, tag, page, issues)
+    verifyFiscalTotalsAndFees(f, periods, tag, page, issues)
+    verifyFiscalReceiverAndHolder(f, holder, tag, page, issues)
+    verifyFiscalStampWindow(f, periods, tag, page, issues)
+    verifyFiscalFormats(f, tag, page, issues)
   }
 }
