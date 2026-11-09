@@ -60,6 +60,8 @@ Everything the worksample asks for, and where to find it.
 | What we understood, assumptions and scope | [`docs/00-spec.md`](docs/00-spec.md) |
 | Design decisions and why | [Architecture](#architecture), [How credit is decided](#how-credit-is-decided), and the full design in `docs/01` to `docs/09` |
 | Prompts | [`prompts/`](prompts/), versioned, with a [changelog](prompts/CHANGELOG.md) |
+| Development harness with agents | [`docs/harness.md`](docs/harness.md): the loop, the agents, skills and hooks in [`.claude/`](.claude/), the agent's instructions in [`CLAUDE.md`](CLAUDE.md), and what the build cost |
+| Process artifacts | The implementation brief ([`docs/00-brief.md`](docs/00-brief.md)), the [spikes](docs/spikes/README.md) and the [model experiments](docs/experiments/) |
 | Data contracts | [`docs/schema/`](docs/schema/), JSON Schema generated from the Zod contracts |
 | CI/CD | [`.github/workflows/`](.github/workflows/) and [CI/CD and the road to production](#cicd-and-the-road-to-production) |
 | Deployment | [The demo on Railway](#the-demo-on-railway) today; the production plan in [`docs/deploy.md`](docs/deploy.md) |
@@ -382,7 +384,7 @@ confidence below 0.7 doesn't count toward the score.
 ### 4. One month or three: the policy decides
 
 Each lender decides in its policy how many months of bank statements are evaluated, with a single field:
-`"history": { "months": 1 }` or `"history": { "months": 3 }` ([ADR 0072](docs/adr/0072-evaluated-months-one-or-three.md)).
+`"history": { "months": 1 }` or `"history": { "months": 3 }`.
 
 | | One month (default) | Three consecutive months |
 |---|---|---|

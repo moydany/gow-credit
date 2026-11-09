@@ -60,6 +60,8 @@ Todo lo que pide el worksample, y dónde está.
 | Lo que entendimos, supuestos y alcance | [`docs/00-spec.md`](docs/00-spec.md) |
 | Decisiones de diseño y por qué | [Arquitectura](#arquitectura), [Cómo se decide el crédito](#cómo-se-decide-el-crédito) y el diseño completo en `docs/01` a `docs/09` |
 | Prompts | [`prompts/`](prompts/), versionados, con su [changelog](prompts/CHANGELOG.md) |
+| Harness de desarrollo con agentes | [`docs/harness.md`](docs/harness.md) (en inglés): el ciclo, los agentes, skills y hooks de [`.claude/`](.claude/), las instrucciones del agente en [`CLAUDE.md`](CLAUDE.md) y lo que costó construirlo |
+| Artefactos de proceso | El brief de implementación ([`docs/00-brief.md`](docs/00-brief.md)), los [spikes](docs/spikes/README.md) y los [experimentos de modelos](docs/experiments/) |
 | Contratos de datos | [`docs/schema/`](docs/schema/), JSON Schema generado desde los contratos Zod |
 | CI/CD | [`.github/workflows/`](.github/workflows/) y [CI/CD y el camino a producción](#cicd-y-el-camino-a-producción) |
 | Despliegue | [La demo en Railway](#la-demo-en-railway) hoy; el plan de producción en [`docs/deploy.md`](docs/deploy.md) |
@@ -381,7 +383,7 @@ ingreso con dinero propio es el truco más común en un estado de cuenta. Un dat
 ### 4. Uno o tres meses: lo elige la política
 
 Cada prestamista decide en su política cuántos meses de estados de cuenta se evalúan, con un solo campo:
-`"history": { "months": 1 }` o `"history": { "months": 3 }` ([ADR 0072](docs/adr/0072-evaluated-months-one-or-three.md)).
+`"history": { "months": 1 }` o `"history": { "months": 3 }`.
 
 | | Un mes (por omisión) | Tres meses seguidos |
 |---|---|---|
