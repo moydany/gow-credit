@@ -4,7 +4,7 @@
  * output folder, never to the console or logs.
  */
 import { APPLICATION_RESULT_VERSION, ApplicationResult, DocumentType, FEATURE_NAMES, IsoDate, StatementExtraction, type ApplicationStatus, type CostLine, type Decision, type OwnerAnswer, type Period, type Question } from '@gow/contracts'
-import { buildLedger } from '@gow/decision'
+import { buildLedger, type LedgerRow } from '@gow/decision'
 import { z } from 'zod'
 import { pesos } from './figures.ts'
 import type { AppState } from './state.ts'
@@ -58,29 +58,75 @@ export function applicationStatus(state: AppState | null, run: RunInfo): Applica
   return state.decision.status
 }
 
+function resolveClarificationPayload(state: AppState | null, asked: boolean): ApplicationResult['clarification'] {
+  if (!state || (!asked && state.rounds === 0)) return null
+  return {
+    status: asked ? 'open' : 'answered',
+    rounds_used: state.rounds,
+    questions: asked ? state.questions : state.asked,
+    answers: state.answers,
+    rejected_answers: [...state.rejected_answers, ...state.contradictions],
+  }
+}
+
+function resolveFailureReason(status: ApplicationStatus, state: AppState | null, runError: string | null): string | null {
+  if (status !== 'failed') return null
+  return state?.failure_reason ?? runError ?? 'el workflow terminó sin veredicto'
+}
+
+function computeTotalCosts(lines: readonly CostLine[]) {
+  return {
+    total_usd: Math.round(lines.reduce((s, l) => s + l.cost_usd, 0) * 1e6) / 1e6,
+    lines,
+  }
+}
+
+function resolveApplicationMetadata(state: AppState | null, generatedAt: string) {
+  if (!state) {
+    return {
+      as_of: generatedAt.slice(0, 10),
+      documents: [],
+      request: null,
+      supplier: null,
+      policy: { id: null, version: 1 },
+      decision: null,
+      max_line: null,
+      classification: null,
+    }
+  }
+  return {
+    as_of: state.input.as_of,
+    documents: state.documents,
+    request: state.input.request,
+    supplier: state.supplier,
+    policy: { id: state.input.policy_id, version: state.input.policy.version },
+    decision: state.decision,
+    max_line: state.max_line,
+    classification: state.classification,
+  }
+}
+
 export function toApplicationResult(applicationId: string, state: AppState | null, run: RunInfo, generatedAt: string, runError: string | null): ApplicationResult {
   const lines = costLines(state)
   const status = applicationStatus(state, run)
   const asked = run.status === 'suspended'
+  const meta = resolveApplicationMetadata(state, generatedAt)
   return ApplicationResult.parse({
     schema_version: APPLICATION_RESULT_VERSION,
     application_id: applicationId,
     status,
-    failure_reason: status === 'failed' ? (state?.failure_reason ?? runError ?? 'el workflow terminó sin veredicto') : null,
-    as_of: state?.input.as_of ?? generatedAt.slice(0, 10),
-    documents: state?.documents ?? [],
-    request: state?.input.request ?? null,
-    supplier: state?.supplier ?? null,
-    policy: { id: state?.input.policy_id ?? null, version: state?.input.policy.version ?? 1 },
-    decision: state?.decision ?? null,
-    max_line: state?.max_line ?? null,
-    clarification:
-      state && (asked || state.rounds > 0)
-        ? { status: asked ? 'open' : 'answered', rounds_used: state.rounds, questions: asked ? state.questions : state.asked, answers: state.answers, rejected_answers: [...state.rejected_answers, ...state.contradictions] }
-        : null,
-    classification: state?.classification ?? null,
+    failure_reason: resolveFailureReason(status, state, runError),
+    as_of: meta.as_of,
+    documents: meta.documents,
+    request: meta.request,
+    supplier: meta.supplier,
+    policy: meta.policy,
+    decision: meta.decision,
+    max_line: meta.max_line,
+    clarification: resolveClarificationPayload(state, asked),
+    classification: meta.classification,
     run,
-    costs: { total_usd: Math.round(lines.reduce((s, l) => s + l.cost_usd, 0) * 1e6) / 1e6, lines },
+    costs: computeTotalCosts(lines),
     generated_at: generatedAt,
   })
 }
@@ -165,51 +211,109 @@ function extractionSection(statements: readonly StatementExtraction[]): string[]
   return out
 }
 
-function classificationSection(state: AppState): string[] {
-  const c = state.classification
-  if (!c) return []
+function formatClassifierHeader(c: NonNullable<AppState['classification']>): string {
   const who = c.implementation === 'jev' ? `Jev (\`${c.model ?? ''}\`)` : c.implementation === 'claude' ? `Haiku (\`${c.model ?? ''}\`)${c.fallback ? ', respaldo porque no hay llave de Jev' : ''}` : 'solo reglas'
-  const out = ['', '## Clasificación de movimientos', '', `Reglas \`${c.rules_version}\` y ${who}. ${String(c.transactions)} movimientos; ${String(c.sent_to_model)} sin regla confiable fueron al modelo y ${String(c.classified_by_model)} recibieron etiqueta.${c.error ? ` ${c.error}.` : ''}`, '']
-  const ledger = buildLedger(state.statements, { request: state.input.request, minConfidence: state.decision?.profile.parameters.min_classification_confidence ?? 0.7, months: state.decision?.profile.parameters.evaluation_months ?? 1 })
+  return `Reglas \`${c.rules_version}\` y ${who}. ${String(c.transactions)} movimientos; ${String(c.sent_to_model)} sin regla confiable fueron al modelo y ${String(c.classified_by_model)} recibieron etiqueta.${c.error ? ` ${c.error}.` : ''}`
+}
+
+function aggregateLedgerCategories(ledgerRows: LedgerRow[], minConfidence: number) {
   const by = new Map<string, { n: number; credits: number; debits: number; low: number }>()
-  for (const r of ledger.rows) {
+  for (const r of ledgerRows) {
     const key = r.internal ? 'traspaso interno' : r.classification.category
     const e = by.get(key) ?? { n: 0, credits: 0, debits: 0, low: 0 }
     e.n++
     if (r.type === 'credit') e.credits += r.amount
     else e.debits += r.amount
-    if (r.classification.confidence < (state.decision?.profile.parameters.min_classification_confidence ?? 0.7)) e.low++
+    if (r.classification.confidence < minConfidence) e.low++
     by.set(key, e)
   }
+  return by
+}
+
+function classificationSection(state: AppState): string[] {
+  const c = state.classification
+  if (!c) return []
+  const out = ['', '## Clasificación de movimientos', '', formatClassifierHeader(c), '']
+  const minConfidence = state.decision?.profile.parameters.min_classification_confidence ?? 0.7
+  const ledger = buildLedger(state.statements, { request: state.input.request, minConfidence, months: state.decision?.profile.parameters.evaluation_months ?? 1 })
+  const by = aggregateLedgerCategories(ledger.rows, minConfidence)
   out.push(...table(['Categoría', 'Movimientos', 'Abonos', 'Cargos', 'Bajo el umbral'], [...by.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, e]) => [k, e.n, pesos(Math.round(e.credits * 100) / 100), pesos(Math.round(e.debits * 100) / 100), e.low])))
   return out
 }
 
-export function renderReport(result: ApplicationResult, state: AppState | null): string {
-  const out: string[] = [`# Solicitud ${result.application_id}`, '']
-  const d = result.decision
-  out.push(`**Estado:** \`${result.status}\` (${STATUS_TEXT[result.status]})`)
-  if (result.failure_reason) out.push('', `**Razón:** ${result.failure_reason}`)
-  if (d) {
-    const band = d.band ? `banda "${SUPPLIER_STATUS_TEXT[d.band.status]}" desde ${String(d.band.min)}` : 'sin banda'
-    out.push('', `**Línea:** ${d.limit === null ? '—' : pesos(d.limit)} · **Puntaje:** ${d.score === null ? '—' : String(Math.round(d.score * 100) / 100)} de 100 (${band})`)
-  }
+function formatMaxLineInfo(result: ApplicationResult, d: Decision | null): string | null {
   if (result.max_line) {
     const cond = result.max_line.conditional_on.length > 0 ? `, si se resuelven: ${result.max_line.conditional_on.join(', ')}` : ''
-    out.push('', `**Línea máxima** (no hay monto solicitado): ${pesos(result.max_line.amount)} (${SUPPLIER_STATUS_TEXT[result.max_line.status]}${cond}). Es el mayor monto que, pedido, la política aprobaría.`)
-  } else if (result.request?.amount == null && d) {
-    out.push('', '**Línea máxima:** no hay; con estos datos la política no aprueba ningún monto.')
+    return `**Línea máxima** (no hay monto solicitado): ${pesos(result.max_line.amount)} (${SUPPLIER_STATUS_TEXT[result.max_line.status]}${cond}). Es el mayor monto que, pedido, la política aprobaría.`
   }
-  out.push('', `Fecha de cálculo ${result.as_of} · política \`${result.policy.id ?? 'sin id'}\` v${String(result.policy.version)} · ${result.request ? `solicitud: monto ${result.request.amount === null ? 'sin monto' : pesos(result.request.amount)}, comprador ${result.request.buyer?.name ?? 'sin comprador'}` : 'sin datos de solicitud'} · proveedor ${result.supplier ? 'declarado' : 'sin identidad registrada'}`)
-  if (result.clarification) {
-    out.push(...questionsSection(result.clarification.questions, result.clarification.status === 'open'))
-    if (result.clarification.status === 'open') out.push('', `Para responder: llena \`answers.template.json\` (en esta carpeta) y corre de nuevo el comando con \`--answers <archivo>\`. Ronda ${String(result.clarification.rounds_used + 1)}.`)
-    if (result.clarification.answers.length > 0) {
-      out.push('', 'Respuestas recibidas:', '')
-      for (const a of result.clarification.answers) out.push(`- ${a.question_id}: ${answerText(a)}`)
-    }
-    for (const r of result.clarification.rejected_answers) out.push(`- Respuesta no aplicada (${r.question_id}): ${r.reason}`)
+  if (result.request?.amount == null && d) {
+    return '**Línea máxima:** no hay; con estos datos la política no aprueba ningún monto.'
   }
+  return null
+}
+
+function formatEvaluationContextLine(result: ApplicationResult): string {
+  const reqText = result.request
+    ? `solicitud: monto ${result.request.amount === null ? 'sin monto' : pesos(result.request.amount)}, comprador ${result.request.buyer?.name ?? 'sin comprador'}`
+    : 'sin datos de solicitud'
+  const supText = result.supplier ? 'declarado' : 'sin identidad registrada'
+  return `Fecha de cálculo ${result.as_of} · política \`${result.policy.id ?? 'sin id'}\` v${String(result.policy.version)} · ${reqText} · proveedor ${supText}`
+}
+
+function formatDecisionSummary(d: Decision): string {
+  const band = d.band ? `banda "${SUPPLIER_STATUS_TEXT[d.band.status]}" desde ${String(d.band.min)}` : 'sin banda'
+  const limitText = d.limit === null ? '—' : pesos(d.limit)
+  const scoreText = d.score === null ? '—' : String(Math.round(d.score * 100) / 100)
+  return `**Línea:** ${limitText} · **Puntaje:** ${scoreText} de 100 (${band})`
+}
+
+function renderReportHeader(result: ApplicationResult, d: Decision | null): string[] {
+  const out: string[] = [`# Solicitud ${result.application_id}`, '']
+  out.push(`**Estado:** \`${result.status}\` (${STATUS_TEXT[result.status]})`)
+  if (result.failure_reason) out.push('', `**Razón:** ${result.failure_reason}`)
+  if (d) out.push('', formatDecisionSummary(d))
+  const maxLine = formatMaxLineInfo(result, d)
+  if (maxLine) out.push('', maxLine)
+  out.push('', formatEvaluationContextLine(result))
+  return out
+}
+
+function renderClarificationSection(clarification: ApplicationResult['clarification']): string[] {
+  if (!clarification) return []
+  const out = [...questionsSection(clarification.questions, clarification.status === 'open')]
+  if (clarification.status === 'open') {
+    out.push('', `Para responder: llena \`answers.template.json\` (en esta carpeta) y corre de nuevo el comando con \`--answers <archivo>\`. Ronda ${String(clarification.rounds_used + 1)}.`)
+  }
+  if (clarification.answers.length > 0) {
+    out.push('', 'Respuestas recibidas:', '')
+    for (const a of clarification.answers) out.push(`- ${a.question_id}: ${answerText(a)}`)
+  }
+  for (const r of clarification.rejected_answers) out.push(`- Respuesta no aplicada (${r.question_id}): ${r.reason}`)
+  return out
+}
+
+function renderAssumptionsSection(result: ApplicationResult): string[] {
+  const out = [
+    '',
+    '## Supuestos',
+    '',
+    '- Modo standalone: no se consultan crédito vigente, buró, SAT ni listas; esas features quedan sin dato y la política las trata según `onUnknown`.',
+  ]
+  if (identityUnverifiable(result)) {
+    out.push(`- La identidad no se pudo comparar (titular, RFC o CLABE redactados, o sin proveedor registrado) y la compuerta \`identity\` de esta política lo pregunta. Para ver la decisión sin ese bloqueo: corre sin \`--policy base\` (por defecto se usa \`${STANDALONE_POLICY_PATH}\`), o registra al proveedor con \`--request supplier_name=...,supplier_rfc=...\`.`)
+  }
+  out.push('- Los movimientos los clasifican reglas y, donde no alcanzan, Jev o Haiku; un abono bajo el umbral de confianza no suma ingresos.')
+  out.push('- Ningún valor no verificado contra el documento decide: si cambia la banda, se pregunta o va a revisión (docs/04 §5).')
+  out.push('', `Generado ${result.generated_at} · run \`${result.run.run_id}\` (${result.run.status}).`)
+  return out
+}
+
+export function renderReport(result: ApplicationResult, state: AppState | null): string {
+  const d = result.decision
+  const out: string[] = [
+    ...renderReportHeader(result, d),
+    ...renderClarificationSection(result.clarification),
+  ]
   if (d) out.push('', ...decisionSection(d))
   if (state) {
     out.push(...extractionSection(state.statements))
@@ -219,14 +323,7 @@ export function renderReport(result: ApplicationResult, state: AppState | null):
   out.push('', '## Costo', '')
   out.push(...table(['Propósito', 'Modelo', 'Llamadas', 'De caché', 'USD'], result.costs.lines.map((l) => [l.purpose, l.model, l.calls, l.cache_hits, l.cost_usd.toFixed(6)])))
   out.push('', `Total acumulado: USD ${result.costs.total_usd.toFixed(6)} (una respuesta de caché cuesta 0).`)
-  out.push('', '## Supuestos', '')
-  out.push('- Modo standalone: no se consultan crédito vigente, buró, SAT ni listas; esas features quedan sin dato y la política las trata según `onUnknown`.')
-  if (identityUnverifiable(result)) {
-    out.push(`- La identidad no se pudo comparar (titular, RFC o CLABE redactados, o sin proveedor registrado) y la compuerta \`identity\` de esta política lo pregunta. Para ver la decisión sin ese bloqueo: corre sin \`--policy base\` (por defecto se usa \`${STANDALONE_POLICY_PATH}\`), o registra al proveedor con \`--request supplier_name=...,supplier_rfc=...\`.`)
-  }
-  out.push('- Los movimientos los clasifican reglas y, donde no alcanzan, Jev o Haiku; un abono bajo el umbral de confianza no suma ingresos.')
-  out.push('- Ningún valor no verificado contra el documento decide: si cambia la banda, se pregunta o va a revisión (docs/04 §5).')
-  out.push('', `Generado ${result.generated_at} · run \`${result.run.run_id}\` (${result.run.status}).`)
+  out.push(...renderAssumptionsSection(result))
   return `${out.join('\n')}\n`
 }
 

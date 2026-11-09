@@ -55,6 +55,25 @@ interface ChainResult {
   withoutBalance: number
 }
 
+function consumeDayGroup(
+  group: Transaction[],
+  prevGetter: () => number | null,
+  apply: (t: Transaction) => void,
+): void {
+  const pending = [...group]
+  const reorderable = group.length > 1 && group.every((t) => t.balance !== null)
+  while (pending.length > 0) {
+    let k = 0
+    const prev = prevGetter()
+    if (reorderable && prev !== null) {
+      const fit = pending.findIndex((t) => t.balance !== null && Math.abs(round2(prev + signed(t)) - t.balance) <= ROW_TOLERANCE)
+      if (fit >= 0) k = fit
+    }
+    const [t] = pending.splice(k, 1)
+    if (t) apply(t)
+  }
+}
+
 /**
  * Running balance tolerant of same-day order: some banks apply a day's transactions in an order
  * different from the printed one (Fondeadora lists interest and ISR last, with balances from
@@ -96,20 +115,7 @@ function runChain(txs: readonly Transaction[], opening: number | null): ChainRes
     const date = txs[i]?.date
     let j = i
     while (j < txs.length && txs[j]?.date === date) j++
-    const group = txs.slice(i, j)
-    const pending = [...group]
-    // With rows lacking a balance on the day it cannot be safely reordered: printed order.
-    const reorderable = group.length > 1 && group.every((t) => t.balance !== null)
-    while (pending.length > 0) {
-      let k = 0
-      if (reorderable && prev !== null) {
-        const base: number = prev
-        const fit = pending.findIndex((t) => t.balance !== null && Math.abs(round2(base + signed(t)) - t.balance) <= ROW_TOLERANCE)
-        if (fit >= 0) k = fit
-      }
-      const [t] = pending.splice(k, 1)
-      if (t) apply(t)
-    }
+    consumeDayGroup(txs.slice(i, j), () => prev, apply)
     i = j
   }
   const rows = txs.map((t) => ({ transactionId: t.id, ok: result.get(t.id) ?? null }))
@@ -142,38 +148,77 @@ function adjustmentSets(p: PrintedSummary): Adjustment[][] {
   return sets
 }
 
+function computeGlobalReconciliation(
+  printed: PrintedSummary,
+  all: Sums,
+  external: Sums | null,
+): Reconciliation['global'] {
+  if (printed.opening === null || printed.closing === null) return null
+  const opening = printed.opening
+  const closing = printed.closing
+  const attempt = (base: Sums, excludes: boolean, adj: Adjustment[]) => {
+    const expected = round2(opening + base.credits - base.debits + adj.reduce((s, a) => s + a.amount, 0))
+    const difference = round2(closing - expected)
+    return {
+      opening_balance: opening,
+      credits: base.credits,
+      debits: base.debits,
+      expected_closing: expected,
+      printed_closing: closing,
+      difference,
+      ok: false,
+      excludes_internal_transfers: excludes,
+      adjustments: adj.map((a) => ({ item: a.item, amount: round2(a.amount) })),
+    }
+  }
+  const direct = attempt(all, false, [])
+  if (Math.abs(direct.difference) <= GLOBAL_TOLERANCE) return { ...direct, ok: true }
+  const bases: [Sums, boolean][] = external ? [[external, true], [all, false]] : [[all, false]]
+  for (const [base, excludes] of bases) {
+    for (const adj of [[], ...adjustmentSets(printed)]) {
+      if (!excludes && adj.length === 0) continue
+      const a = attempt(base, excludes, adj)
+      if (Math.abs(a.difference) <= EXACT_TOLERANCE) return { ...a, ok: true }
+    }
+  }
+  return direct
+}
+
+function resolveRunningBalance(
+  transactions: readonly Transaction[],
+  opening: number | null,
+): { running: Reconciliation['running_balance']; rows: RowCheck[]; order: PeriodReconciliation['order'] } {
+  const withBalance = transactions.filter((t) => t.balance !== null).length
+  if (withBalance < 2) {
+    return {
+      running: null,
+      rows: transactions.map((t) => ({ transactionId: t.id, ok: null })),
+      order: null,
+    }
+  }
+  const fwd = runChain(transactions, opening)
+  const rev = runChain([...transactions].reverse(), opening)
+  const useRev = rev.checked > 0 && rev.breaks.length < fwd.breaks.length
+  const chosen = useRev ? rev : fwd
+  return {
+    order: useRev ? 'reversed' : 'printed',
+    rows: useRev ? [...chosen.rows].reverse() : chosen.rows,
+    running: { rows_checked: chosen.checked, rows_without_balance: chosen.withoutBalance, breaks: chosen.breaks, ok: chosen.breaks.length === 0 },
+  }
+}
+
+function determineReconciliationStatus(checks: boolean[], strong: boolean, runningOk: boolean | undefined): Reconciliation['status'] {
+  if (strong) return 'reconciled'
+  if (checks.length === 0) return 'not_checkable'
+  if (checks.includes(false)) return 'not_reconciled'
+  return runningOk === true ? 'reconciled' : 'partially_reconciled'
+}
+
 export function reconcilePeriod(transactions: readonly Transaction[], printed: PrintedSummary): PeriodReconciliation {
   const all = sums(transactions)
   const hasInternal = transactions.some((t) => t.internal_transfer)
-  // Consolidated summary (Nu): transfers between the account and its pockets are neither
-  // inflows nor outflows.
   const external = hasInternal ? sums(transactions.filter((t) => !t.internal_transfer)) : null
-
-  const global =
-    printed.opening !== null && printed.closing !== null
-      ? (() => {
-          const opening = printed.opening
-          const closing = printed.closing
-          const attempt = (base: Sums, excludes: boolean, adj: Adjustment[]) => {
-            const expected = round2(opening + base.credits - base.debits + adj.reduce((s, a) => s + a.amount, 0))
-            const difference = round2(closing - expected)
-            return { opening_balance: opening, credits: base.credits, debits: base.debits, expected_closing: expected, printed_closing: closing, difference, ok: false, excludes_internal_transfers: excludes, adjustments: adj.map((a) => ({ item: a.item, amount: round2(a.amount) })) }
-          }
-          const direct = attempt(all, false, [])
-          if (Math.abs(direct.difference) <= GLOBAL_TOLERANCE) return { ...direct, ok: true }
-          // Alternative formulas, only if they balance to the cent: an exact match with a printed
-          // item is no coincidence.
-          const bases: [Sums, boolean][] = external ? [[external, true], [all, false]] : [[all, false]]
-          for (const [base, excludes] of bases) {
-            for (const adj of [[], ...adjustmentSets(printed)]) {
-              if (!excludes && adj.length === 0) continue
-              const a = attempt(base, excludes, adj)
-              if (Math.abs(a.difference) <= EXACT_TOLERANCE) return { ...a, ok: true }
-            }
-          }
-          return direct
-        })()
-      : null
+  const global = computeGlobalReconciliation(printed, all, external)
 
   const amountCheck = (printedValue: number | null, values: number[]) => {
     const extracted = values.find((v) => printedValue !== null && Math.abs(v - printedValue) <= GLOBAL_TOLERANCE) ?? values[0] ?? 0
@@ -190,22 +235,7 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
   }
   const pick = (f: (s: Sums) => number) => (external ? [f(all), f(external)] : [f(all)])
 
-  // Running balance: in printed order and, if there are many breaks, reversed (statements that
-  // list newest first).
-  const withBalance = transactions.filter((t) => t.balance !== null).length
-  let running: Reconciliation['running_balance'] = null
-  let rows: RowCheck[] = transactions.map((t) => ({ transactionId: t.id, ok: null }))
-  let order: PeriodReconciliation['order'] = null
-  if (withBalance >= 2) {
-    const fwd = runChain(transactions, printed.opening)
-    const rev = runChain([...transactions].reverse(), printed.opening)
-    const useRev = rev.checked > 0 && rev.breaks.length < fwd.breaks.length
-    const chosen = useRev ? rev : fwd
-    order = useRev ? 'reversed' : 'printed'
-    rows = useRev ? [...chosen.rows].reverse() : chosen.rows
-    running = { rows_checked: chosen.checked, rows_without_balance: chosen.withoutBalance, breaks: chosen.breaks, ok: chosen.breaks.length === 0 }
-  }
-
+  const { running, rows, order } = resolveRunningBalance(transactions, printed.opening)
   const totals = {
     credits: amountCheck(printed.totalCredits, pick((s) => s.credits)),
     debits: amountCheck(printed.totalDebits, pick((s) => s.debits)),
@@ -214,18 +244,8 @@ export function reconcilePeriod(transactions: readonly Transaction[], printed: P
   }
 
   const checks = [global?.ok ?? null, totals.credits.ok, totals.debits.ok, totals.credits_count.ok, totals.debits_count.ok, running?.ok ?? null].filter((x): x is boolean => x !== null)
-  // An exact global balance with a healthy running balance wins: a difference against the printed
-  // totals is a presentation matter (banks that leave ISR or fees out of their total).
   const strong = global?.ok === true && running?.ok !== false
-  const status: Reconciliation['status'] = strong
-    ? 'reconciled'
-    : checks.length === 0
-      ? 'not_checkable'
-      : checks.includes(false)
-        ? 'not_reconciled'
-        : running?.ok === true
-          ? 'reconciled'
-          : 'partially_reconciled'
+  const status = determineReconciliationStatus(checks, strong, running?.ok)
 
   return { reconciliation: { status, tolerance: GLOBAL_TOLERANCE, global, totals, running_balance: running }, rows, order }
 }

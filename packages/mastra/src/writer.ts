@@ -117,6 +117,30 @@ interface Draft {
   context: Record<string, unknown>
 }
 
+function filterDraftResponses(
+  pending: readonly Draft[],
+  byId: Map<string, string>,
+  texts: Map<string, string>,
+): { still: Draft[]; rejected: Map<string, string[]> } {
+  const still: Draft[] = []
+  const rejected = new Map<string, string[]>()
+  for (const d of pending) {
+    const text = byId.get(d.id)
+    if (text === undefined) {
+      still.push(d)
+      continue
+    }
+    const check = checkFigures(text, d.facts)
+    if (check.ok) {
+      texts.set(d.id, text)
+    } else {
+      rejected.set(d.id, check.unsupported)
+      still.push(d)
+    }
+  }
+  return { still, rejected }
+}
+
 export class Writer {
   readonly #llm: StructuredLlm | null
   readonly #limit: <T>(task: () => Promise<T>) => Promise<T>
@@ -161,22 +185,9 @@ export class Writer {
       }
       calls.push({ purpose, model: res.model, cost_usd: res.costUsd, cache_hit: res.responseCacheHit })
       const byId = new Map(res.object.texts.map((t) => [t.id, t.text.trim()]))
-      rejected = new Map()
-      const still: Draft[] = []
-      for (const d of pending) {
-        const text = byId.get(d.id)
-        if (text === undefined) {
-          still.push(d)
-          continue
-        }
-        const check = checkFigures(text, d.facts)
-        if (check.ok) texts.set(d.id, text)
-        else {
-          rejected.set(d.id, check.unsupported)
-          still.push(d)
-        }
-      }
-      pending = still
+      const evaluated = filterDraftResponses(pending, byId, texts)
+      rejected = evaluated.rejected
+      pending = evaluated.still
     }
     return { texts, calls, errors }
   }

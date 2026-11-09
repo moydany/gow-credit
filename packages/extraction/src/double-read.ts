@@ -199,6 +199,38 @@ function matchByRef(first: readonly string[], second: readonly string[]): Map<nu
   return matches
 }
 
+function resolveSecondSlot(
+  slot: Slot,
+  accounts: Map<number, number>,
+  periods: Map<number, Map<number, number>>,
+  secondSlots: Map<string, Slot>,
+): Slot | undefined {
+  if (slot.account === null) return secondSlots.get(slotKey(slot.field, null, null))
+  const aj = accounts.get(slot.account)
+  if (aj === undefined) return undefined
+  if (slot.period === null) return secondSlots.get(slotKey(slot.field, aj, null))
+  const pj = periods.get(slot.account)?.get(slot.period)
+  if (pj === undefined) return undefined
+  return secondSlots.get(slotKey(slot.field, aj, pj))
+}
+
+function compareSingleSlot(
+  slot: Slot,
+  accounts: Map<number, number>,
+  periods: Map<number, Map<number, number>>,
+  secondSlots: Map<string, Slot>,
+): FieldReading | null {
+  const f = fieldOf(slot)
+  if (f.value === null || f.verification === 'verified') return null
+  const other = resolveSecondSlot(slot, accounts, periods, secondSlots)
+  const value = other ? fieldOf(other).value : null
+  let status: Agreement = 'only_first'
+  if (value !== null) {
+    status = sameValue(slot.kind, f.value, value) ? 'agree' : 'disagree'
+  }
+  return { field: slot.field, account: slot.account, period: slot.period, status, first: f.value, second: value }
+}
+
 /**
  * Compares two reads of the same summary. Only judges fields the first read produced and that are
  * not already verified; a field only the second read produced has nothing to verify.
@@ -214,14 +246,8 @@ export function compareHeaders(firstOut: SummaryOut, secondOut: SummaryOut, text
   }
   const readings: FieldReading[] = []
   for (const slot of slotsOf(first)) {
-    const f = fieldOf(slot)
-    if (f.value === null || f.verification === 'verified') continue
-    const aj = slot.account === null ? null : (accounts.get(slot.account) ?? undefined)
-    const pj = slot.period === null || slot.account === null ? null : (periods.get(slot.account)?.get(slot.period) ?? undefined)
-    const other = aj === undefined || pj === undefined ? undefined : secondSlots.get(slotKey(slot.field, aj, pj))
-    const value = other ? fieldOf(other).value : null
-    const status: Agreement = value === null ? 'only_first' : sameValue(slot.kind, f.value, value) ? 'agree' : 'disagree'
-    readings.push({ field: slot.field, account: slot.account, period: slot.period, status, first: f.value, second: value })
+    const reading = compareSingleSlot(slot, accounts, periods, secondSlots)
+    if (reading !== null) readings.push(reading)
   }
   return readings
 }
@@ -270,6 +296,31 @@ export async function headerDoubleRead(deps: { llm: StructuredLlm }, summaryOut:
   }
 }
 
+function applyReading(
+  r: FieldReading,
+  slot: Slot,
+  summary: AssembledSummary,
+  issues: IssueSink,
+): void {
+  const f = fieldOf(slot)
+  if (r.status === 'agree') {
+    if (f.source !== null) slot.parent[slot.key] = { ...f, verification: 'verified', confidence: Math.max(f.confidence, AGREED_CONFIDENCE) }
+    return
+  }
+  slot.parent[slot.key] = { ...f, verification: 'conflict', confidence: Math.min(f.confidence, CONFLICT_CONFIDENCE) }
+  const account = r.account === null ? null : (summary.accounts[r.account] ?? null)
+  issues.add({
+    code: 'header_read_conflict',
+    severity: 'warning',
+    message: `Las dos lecturas del documento no coinciden en ${LABEL[r.field]}; el valor queda en conflicto.`,
+    page: f.source?.page ?? null,
+    path: pointerOf(r),
+    account_id: account?.id ?? null,
+    period_id: r.period === null ? null : (account?.periods[r.period]?.id ?? null),
+    details: { first: r.first, second: r.second },
+  })
+}
+
 /**
  * Applies the result to the first read's assembled summary and records the issues. Returns true
  * if the second read happened (flag `header_double_read`).
@@ -284,24 +335,7 @@ export function applyHeaderDoubleRead(read: HeaderDoubleRead, summary: Assembled
   for (const r of read.readings) {
     const slot = slots.get(slotKey(r.field, r.account, r.period))
     if (!slot || r.status === 'only_first') continue
-    const f = fieldOf(slot)
-    if (r.status === 'agree') {
-      // A verified extracted value must cite its source (contract): without a quote nothing backs it.
-      if (f.source !== null) slot.parent[slot.key] = { ...f, verification: 'verified', confidence: Math.max(f.confidence, AGREED_CONFIDENCE) }
-      continue
-    }
-    slot.parent[slot.key] = { ...f, verification: 'conflict', confidence: Math.min(f.confidence, CONFLICT_CONFIDENCE) }
-    const account = r.account === null ? null : (summary.accounts[r.account] ?? null)
-    issues.add({
-      code: 'header_read_conflict',
-      severity: 'warning',
-      message: `Las dos lecturas del documento no coinciden en ${LABEL[r.field]}; el valor queda en conflicto.`,
-      page: f.source?.page ?? null,
-      path: pointerOf(r),
-      account_id: account?.id ?? null,
-      period_id: r.period === null ? null : (account?.periods[r.period]?.id ?? null),
-      details: { first: r.first, second: r.second },
-    })
+    applyReading(r, slot, summary, issues)
   }
   return true
 }

@@ -231,6 +231,69 @@ function resolvePeriod(row: TransactionOut, summary: AssembledSummary, date: str
   return null
 }
 
+function resolveRowDates(r: TransactionOut, summary: AssembledSummary): { periodEnd: string | null; date: string | null; periodId: string | null } {
+  const periodEnd = summary.periods.find((p) => p.periodRef === r.period_ref.trim())?.end ?? summary.periods[0]?.end ?? null
+  const date = isValidIsoDate(r.date.trim()) ? r.date.trim() : parseLooseDate(r.date, periodEnd)
+  const periodId = resolvePeriod(r, summary, date)
+  return { periodEnd, date, periodId }
+}
+
+function convertPlacedRow(
+  r: TransactionOut,
+  index: number,
+  orderBase: number,
+  summary: AssembledSummary,
+  issues: IssueSink,
+  seen: Set<string>,
+): PlacedRow | null {
+  const { periodEnd, date, periodId } = resolveRowDates(r, summary)
+  if (date === null || periodId === null) {
+    issues.add({
+      code: 'missing_required_field',
+      severity: 'error',
+      message: date === null ? `Movimiento de la página ${String(r.page)} con fecha ilegible; se descartó.` : `Movimiento de la página ${String(r.page)} sin cuenta o periodo identificable; se descartó.`,
+      page: r.page,
+      details: { amount: parseAmount(r.amount) },
+    })
+    return null
+  }
+  const settlementRaw = r.settlement_date.trim()
+  const settlement = settlementRaw === '' ? null : isValidIsoDate(settlementRaw) ? settlementRaw : parseLooseDate(settlementRaw, periodEnd)
+  const parsedAmount = parseAmount(r.amount)
+  if (parsedAmount === null) {
+    issues.add({ code: 'missing_required_field', severity: 'error', message: `Movimiento de la página ${String(r.page)} con monto ilegible; se descartó.`, page: r.page, period_id: periodId })
+    return null
+  }
+  const amount = round2(Math.abs(parsedAmount))
+  const balance = parseAmount(r.balance)
+  const description = r.description.replace(/\s+/g, ' ').trim() || '(sin descripción)'
+  const key = `${String(r.page)}|${date}|${String(amount)}|${r.type}|${String(balance)}|${description}`
+  if (balance !== null && seen.has(key)) {
+    issues.add({ code: 'duplicate_transaction_removed', severity: 'info', message: `Fila repetida en la página ${String(r.page)}; se dejó una.`, page: r.page, period_id: periodId, details: { amount } })
+    return null
+  }
+  seen.add(key)
+  return {
+    periodId,
+    order: orderBase + index,
+    tx: {
+      date,
+      settlement_date: settlement,
+      description,
+      reference: r.reference.trim() || null,
+      amount,
+      type: r.type,
+      balance,
+      internal_transfer: r.internal_transfer,
+      source: { page: r.page, snippet: (r.snippet.replace(/\s+/g, ' ').trim() || description).slice(0, 600) },
+      verification: 'unverified',
+      confidence: 0.5,
+      provenance: 'extracted',
+      classification: null,
+    },
+  }
+}
+
 /**
  * Converts a block's rows. Drops rows outside the block's pages (another block extracts them),
  * rows on a repeated page (`skipPages`: already flagged once, must not count twice before the
@@ -247,54 +310,8 @@ export function placeRows(rows: readonly TransactionOut[], blockPages: readonly 
       outside += 1
       return
     }
-    const periodEnd = summary.periods.find((p) => p.periodRef === r.period_ref.trim())?.end ?? summary.periods[0]?.end ?? null
-    const date = isValidIsoDate(r.date.trim()) ? r.date.trim() : parseLooseDate(r.date, periodEnd)
-    const periodId = resolvePeriod(r, summary, date)
-    if (date === null || periodId === null) {
-      issues.add({
-        code: 'missing_required_field',
-        severity: 'error',
-        message: date === null ? `Movimiento de la página ${String(r.page)} con fecha ilegible; se descartó.` : `Movimiento de la página ${String(r.page)} sin cuenta o periodo identificable; se descartó.`,
-        page: r.page,
-        details: { amount: parseAmount(r.amount) },
-      })
-      return
-    }
-    const settlementRaw = r.settlement_date.trim()
-    const settlement = settlementRaw === '' ? null : isValidIsoDate(settlementRaw) ? settlementRaw : parseLooseDate(settlementRaw, periodEnd)
-    const parsedAmount = parseAmount(r.amount)
-    if (parsedAmount === null) {
-      issues.add({ code: 'missing_required_field', severity: 'error', message: `Movimiento de la página ${String(r.page)} con monto ilegible; se descartó.`, page: r.page, period_id: periodId })
-      return
-    }
-    const amount = round2(Math.abs(parsedAmount))
-    const balance = parseAmount(r.balance)
-    const description = r.description.replace(/\s+/g, ' ').trim() || '(sin descripción)'
-    const key = `${String(r.page)}|${date}|${String(amount)}|${r.type}|${String(balance)}|${description}`
-    if (balance !== null && seen.has(key)) {
-      issues.add({ code: 'duplicate_transaction_removed', severity: 'info', message: `Fila repetida en la página ${String(r.page)}; se dejó una.`, page: r.page, period_id: periodId, details: { amount } })
-      return
-    }
-    seen.add(key)
-    placed.push({
-      periodId,
-      order: orderBase + i,
-      tx: {
-        date,
-        settlement_date: settlement,
-        description,
-        reference: r.reference.trim() || null,
-        amount,
-        type: r.type,
-        balance,
-        internal_transfer: r.internal_transfer,
-        source: { page: r.page, snippet: (r.snippet.replace(/\s+/g, ' ').trim() || description).slice(0, 600) },
-        verification: 'unverified',
-        confidence: 0.5,
-        provenance: 'extracted',
-        classification: null,
-      },
-    })
+    const item = convertPlacedRow(r, i, orderBase, summary, issues, seen)
+    if (item !== null) placed.push(item)
   })
   if (outside > 0) {
     issues.add({ code: 'duplicate_transaction_removed', severity: 'info', message: `${String(outside)} filas venían de páginas fuera del bloque ${String(blockPages[0])}-${String(blockPages.at(-1))}; se descartaron porque las extrae otro bloque.`, details: { outside } })

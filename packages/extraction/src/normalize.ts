@@ -62,6 +62,38 @@ function iso(y: number, m: number, d: number): string | null {
   return isValidIsoDate(s) ? s : null
 }
 
+function parseNumericDate(s: string, resolveYear: (m: number, d: number, y: number | null) => string | null): string | null {
+  const m1 = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/.exec(s)
+  if (m1) return resolveYear(Number(m1[2]), Number(m1[1]), Number(m1[3]))
+  const m2 = /^(\d{1,2})[/.-](\d{1,2})$/.exec(s)
+  if (m2) return resolveYear(Number(m2[2]), Number(m2[1]), null)
+  const m3 = /(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (m3) return iso(Number(m3[1]), Number(m3[2]), Number(m3[3]))
+  const m4 = /(?<!\d)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)/.exec(s)
+  if (m4) return resolveYear(Number(m4[2]), Number(m4[1]), Number(m4[3]))
+  return null
+}
+
+function parseNamedMonthDate(s: string, resolveYear: (m: number, d: number, y: number | null) => string | null): string | null {
+  const words = normalizeText(s)
+    .replace(/[-/.,]/g, ' ')
+    .split(' ')
+    .filter((w) => w && !['de', 'del', 'al', 'a'].includes(w))
+  let day: number | null = null
+  let month: number | null = null
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i] ?? ''
+    if (/^\d{1,2}$/.test(w) && day === null) day = Number(w)
+    else if (MONTHS[w] !== undefined && month === null) month = MONTHS[w] ?? null
+    if (day !== null && month !== null) {
+      const next = words[i + 1] ?? ''
+      const year = /^\d{4}$/.test(next) ? Number(next) : null
+      return resolveYear(month, day, year)
+    }
+  }
+  return null
+}
+
 /**
  * Tries to convert a Mexican or mixed date to ISO when the model did not return ISO:
  * "16/01/2025", "ENE. 16", "01/SEP", "31 JUL 2025", "13 de June de 2026". With no year, uses the
@@ -78,34 +110,7 @@ export function parseLooseDate(raw: string, periodEnd: string | null): string | 
     if (guess && guess > periodEnd) return iso(endYear - 1, m, d)
     return guess
   }
-  let m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/.exec(s)
-  if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
-  m = /^(\d{1,2})[/.-](\d{1,2})$/.exec(s)
-  if (m) return withYear(Number(m[2]), Number(m[1]), null)
-  // A full date inside longer text ("DEL 01/09/2025 AL 30/09/2025"): the first one.
-  m = /(\d{4})-(\d{2})-(\d{2})/.exec(s)
-  if (m) return iso(Number(m[1]), Number(m[2]), Number(m[3]))
-  m = /(?<!\d)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)/.exec(s)
-  if (m) return withYear(Number(m[2]), Number(m[1]), Number(m[3]))
-  // Dates with a month in letters: "ENE. 16", "01-ABR-2025", "31 JUL 2025", "13 de June de 2026".
-  // If the text holds a range ("del 01-ABR-2025 al 30-ABR-2025"), the first full date wins.
-  const words = normalizeText(s)
-    .replace(/[-/.,]/g, ' ')
-    .split(' ')
-    .filter((w) => w && !['de', 'del', 'al', 'a'].includes(w))
-  let day: number | null = null
-  let month: number | null = null
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i] ?? ''
-    if (/^\d{1,2}$/.test(w) && day === null) day = Number(w)
-    else if (MONTHS[w] !== undefined && month === null) month = MONTHS[w] ?? null
-    if (day !== null && month !== null) {
-      const next = words[i + 1] ?? ''
-      const year = /^\d{4}$/.test(next) ? Number(next) : null
-      return withYear(month, day, year)
-    }
-  }
-  return null
+  return parseNumericDate(s, withYear) ?? parseNamedMonthDate(s, withYear)
 }
 
 /** Days between two ISO dates (b − a). */

@@ -9,11 +9,7 @@ import { daysBetween } from './normalize.ts'
 import type { PeriodReconciliation } from './reconcile.ts'
 import { checkClabe, checkRfc, rfcRoot } from './validators.ts'
 
-export function reportPeriodIssues(p: Period, rec: PeriodReconciliation, issues: IssueSink, missingOnPage: Map<number, number>, retried: Set<number>): void {
-  const r = rec.reconciliation
-  if (r.global && !r.global.ok) {
-    issues.add({ code: 'reconciliation_mismatch', severity: 'error', message: `Saldo inicial + abonos − cargos = ${String(r.global.expected_closing)}, pero el saldo final impreso es ${String(r.global.printed_closing)} (diferencia ${String(r.global.difference)}).`, period_id: p.id, details: { difference: r.global.difference } })
-  }
+function checkTotalsDiscrepancies(p: Period, r: PeriodReconciliation['reconciliation'], issues: IssueSink): void {
   const components = [
     ['el ISR retenido', p.summary.tax_withheld.value],
     ['las comisiones', p.summary.fees_charged.value],
@@ -29,12 +25,24 @@ export function reportPeriodIssues(p: Period, rec: PeriodReconciliation, issues:
       : `La suma de ${label} extraídos (${String(c.extracted)}) no coincide con el total impreso (${String(c.printed)})${globalOk ? '; el cuadre global sí es exacto' : ''}.`
     issues.add({ code: 'totals_mismatch', severity: explained && globalOk ? 'info' : globalOk ? 'warning' : 'error', message, period_id: p.id, details: { difference: c.difference } })
   }
-  for (const [label, c] of [['abonos', r.totals.credits_count], ['cargos', r.totals.debits_count]] as const) {
-    if (c.ok === false) issues.add({ code: 'count_mismatch', severity: 'warning', message: `Se extrajeron ${String(c.extracted)} ${label} y el banco imprime ${String(c.printed)}.`, period_id: p.id })
-  }
+}
+
+function checkRunningBalanceBreaks(p: Period, r: PeriodReconciliation['reconciliation'], issues: IssueSink, retried: Set<number>): void {
   for (const b of r.running_balance?.breaks.slice(0, 15) ?? []) {
     issues.add({ code: 'running_balance_break', severity: 'warning', message: `Saldo corrido roto en la página ${String(b.page)}: se esperaba ${String(b.expected_balance)} y está impreso ${String(b.printed_balance)}${retried.has(b.page) ? ' (persiste tras releer la página)' : ''}.`, page: b.page, period_id: p.id, transaction_id: b.transaction_id, details: { difference: b.difference } })
   }
+}
+
+export function reportPeriodIssues(p: Period, rec: PeriodReconciliation, issues: IssueSink, missingOnPage: Map<number, number>, retried: Set<number>): void {
+  const r = rec.reconciliation
+  if (r.global && !r.global.ok) {
+    issues.add({ code: 'reconciliation_mismatch', severity: 'error', message: `Saldo inicial + abonos − cargos = ${String(r.global.expected_closing)}, pero el saldo final impreso es ${String(r.global.printed_closing)} (diferencia ${String(r.global.difference)}).`, period_id: p.id, details: { difference: r.global.difference } })
+  }
+  checkTotalsDiscrepancies(p, r, issues)
+  for (const [label, c] of [['abonos', r.totals.credits_count], ['cargos', r.totals.debits_count]] as const) {
+    if (c.ok === false) issues.add({ code: 'count_mismatch', severity: 'warning', message: `Se extrajeron ${String(c.extracted)} ${label} y el banco imprime ${String(c.printed)}.`, period_id: p.id })
+  }
+  checkRunningBalanceBreaks(p, r, issues, retried)
   for (const [page, n] of missingOnPage) {
     issues.add({ code: 'snippet_not_found', severity: 'warning', message: `${String(n)} montos extraídos no aparecen en el texto de la página ${String(page)}.`, page, period_id: p.id, details: { count: n } })
   }

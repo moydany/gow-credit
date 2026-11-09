@@ -25,37 +25,80 @@ function coerce(target: CorrectionTarget, value: Value): Value {
   return typeof value === 'string' ? value.trim() : String(value)
 }
 
-function locate(x: StatementExtraction, target: CorrectionTarget) {
-  if (target.kind === 'holder') return { holder: x.holder }
-  if (target.kind === 'account') {
-    const account = x.accounts.find((a) => a.id === target.account_id)
-    if (!account) throw new CorrectionError(`no existe la cuenta ${target.account_id}`)
-    return { account }
+function locateAccount(x: StatementExtraction, accountId: string) {
+  const account = x.accounts.find((a) => a.id === accountId)
+  if (!account) throw new CorrectionError(`no existe la cuenta ${accountId}`)
+  return account
+}
+
+function locatePeriod(x: StatementExtraction, periodId: string): Period {
+  for (const account of x.accounts) {
+    const period = account.periods.find((p) => p.id === periodId)
+    if (period) return period
   }
+  throw new CorrectionError(`no existe el periodo ${periodId}`)
+}
+
+function locateTransaction(x: StatementExtraction, transactionId: string): { tx: Period['transactions'][number]; period: Period } {
   for (const account of x.accounts) {
     for (const period of account.periods) {
-      if (target.kind === 'period' && period.id === target.period_id) return { period }
-      if (target.kind === 'transaction') {
-        const tx = period.transactions.find((t) => t.id === target.transaction_id)
-        if (tx) return { tx, period }
-      }
+      const tx = period.transactions.find((t) => t.id === transactionId)
+      if (tx) return { tx, period }
     }
   }
-  throw new CorrectionError(target.kind === 'period' ? `no existe el periodo ${target.period_id}` : `no existe el movimiento ${target.transaction_id}`)
+  throw new CorrectionError(`no existe el movimiento ${transactionId}`)
 }
 
 /** The value the blank holds today, kept as the "read value". */
 export function readValue(x: StatementExtraction, target: CorrectionTarget): Value | null {
-  const at = locate(x, target)
-  if (target.kind === 'holder' && at.holder) return at.holder[target.field].value
-  if (target.kind === 'account' && at.account) return at.account[target.field].value
-  if (target.kind === 'period' && at.period) return at.period.summary[target.field].value
-  if (target.kind === 'transaction' && at.tx) return at.tx[target.field]
-  return null
+  if (target.kind === 'holder') return x.holder[target.field].value
+  if (target.kind === 'account') return locateAccount(x, target.account_id)[target.field].value
+  if (target.kind === 'period') return locatePeriod(x, target.period_id).summary[target.field].value
+  return locateTransaction(x, target.transaction_id).tx[target.field]
 }
 
 function confirmed<F extends { value: unknown }>(f: F, value: NonNullable<F['value']>): F {
   return { ...f, value, verification: 'verified', confidence: 1, provenance: 'analyst_answer' }
+}
+
+function applyHolderCorrection(holder: StatementExtraction['holder'], t: Extract<CorrectionTarget, { kind: 'holder' }>, value: Value): void {
+  if (t.field === 'rfc' && checkRfc(String(value)).result === 'invalid') throw new CorrectionError('El RFC no tiene un formato válido')
+  if (t.field === 'holder_type') holder.holder_type = confirmed(holder.holder_type, String(value) as NonNullable<typeof holder.holder_type.value>)
+  else holder[t.field] = confirmed(holder[t.field], String(value))
+}
+
+function applyAccountCorrection(account: StatementExtraction['accounts'][number], t: Extract<CorrectionTarget, { kind: 'account' }>, value: Value): void {
+  if (t.field === 'clabe' && checkClabe(String(value)) === 'invalid') throw new CorrectionError('La CLABE no pasa el dígito verificador')
+  account[t.field] = confirmed(account[t.field], String(value))
+}
+
+function applySingleCorrection(x: StatementExtraction, target: CorrectionTarget, value: Value, touched: Set<Period>): void {
+  if (target.kind === 'holder') {
+    applyHolderCorrection(x.holder, target, value)
+  } else if (target.kind === 'account') {
+    applyAccountCorrection(locateAccount(x, target.account_id), target, value)
+  } else if (target.kind === 'period') {
+    const period = locatePeriod(x, target.period_id)
+    period.summary[target.field] = confirmed(period.summary[target.field], Number(value))
+    touched.add(period)
+  } else {
+    const { tx, period } = locateTransaction(x, target.transaction_id)
+    if (target.field === 'amount') tx.amount = Number(value)
+    else if (target.field === 'date') tx.date = String(value)
+    else tx.type = String(value) as typeof tx.type
+    tx.verification = 'verified'
+    tx.confidence = 1
+    tx.provenance = 'analyst_answer'
+    touched.add(period)
+  }
+}
+
+function refreshReconciledPeriods(x: StatementExtraction, touched: Set<Period>): void {
+  for (const p of touched) {
+    p.reconciliation = reconcilePeriod(p.transactions, printedOf(p)).reconciliation
+    if (p.reconciliation.status === 'reconciled') x.issues = x.issues.filter((i) => !(i.period_id === p.id && RECONCILIATION_ISSUES.has(i.code)))
+  }
+  if (!x.accounts.some((a) => a.periods.some((p) => p.reconciliation?.status === 'not_reconciled'))) x.flags = x.flags.filter((f) => f !== 'reconciliation_failed')
 }
 
 export function applyCorrections(input: StatementExtraction, corrections: readonly Pick<CorrectionInput, 'target' | 'value'>[]): StatementExtraction {
@@ -66,33 +109,8 @@ export function applyCorrections(input: StatementExtraction, corrections: readon
     const problem = checkCorrectionValue(c.target, c.value)
     if (problem) throw new CorrectionError(problem)
     const value = coerce(c.target, c.value)
-    const t = c.target
-    const at = locate(x, t)
-    if (t.kind === 'holder' && at.holder) {
-      if (t.field === 'rfc' && checkRfc(String(value)).result === 'invalid') throw new CorrectionError('El RFC no tiene un formato válido')
-      if (t.field === 'holder_type') at.holder.holder_type = confirmed(at.holder.holder_type, String(value) as NonNullable<typeof at.holder.holder_type.value>)
-      else at.holder[t.field] = confirmed(at.holder[t.field], String(value))
-    } else if (t.kind === 'account' && at.account) {
-      if (t.field === 'clabe' && checkClabe(String(value)) === 'invalid') throw new CorrectionError('La CLABE no pasa el dígito verificador')
-      at.account[t.field] = confirmed(at.account[t.field], String(value))
-    } else if (t.kind === 'period' && at.period) {
-      at.period.summary[t.field] = confirmed(at.period.summary[t.field], Number(value))
-      touched.add(at.period)
-    } else if (t.kind === 'transaction' && at.tx) {
-      const tx = at.tx
-      if (t.field === 'amount') tx.amount = Number(value)
-      else if (t.field === 'date') tx.date = String(value)
-      else tx.type = String(value) as typeof tx.type
-      tx.verification = 'verified'
-      tx.confidence = 1
-      tx.provenance = 'analyst_answer'
-      touched.add(at.period)
-    }
+    applySingleCorrection(x, c.target, value, touched)
   }
-  for (const p of touched) {
-    p.reconciliation = reconcilePeriod(p.transactions, printedOf(p)).reconciliation
-    if (p.reconciliation.status === 'reconciled') x.issues = x.issues.filter((i) => !(i.period_id === p.id && RECONCILIATION_ISSUES.has(i.code)))
-  }
-  if (!x.accounts.some((a) => a.periods.some((p) => p.reconciliation?.status === 'not_reconciled'))) x.flags = x.flags.filter((f) => f !== 'reconciliation_failed')
+  refreshReconciledPeriods(x, touched)
   return x
 }

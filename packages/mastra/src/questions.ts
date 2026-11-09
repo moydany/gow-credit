@@ -163,13 +163,7 @@ function listEs(items: readonly string[]): string {
   return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1) ?? ''}`
 }
 
-/**
- * Identity question saying what matched, what did not and what could not be compared, and asking
- * only for what is missing. The cross-check evidence comes as `<doc>:<field>=<result>`. Without
- * evidence (no registered provider to compare against), the question asks for name and RFC.
- */
-export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>, decision: Decision): Question {
-  const evidence = decision.profile.features.identity_match.evidence
+function parseIdentityEvidence(evidence: readonly string[]): Map<IdentityField, Set<string>> {
   const results = new Map<IdentityField, Set<string>>()
   for (const e of evidence) {
     const m = /:(?:.*\.)?(name|rfc)=(\w+)$/.exec(e)
@@ -177,6 +171,26 @@ export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>
     const field = m[1] as IdentityField
     results.set(field, (results.get(field) ?? new Set()).add(m[2]))
   }
+  return results
+}
+
+function formatIdentityQuestionText(matched: IdentityField[], mismatched: IdentityField[], unchecked: IdentityField[], ask: IdentityField[]): string {
+  const parts: string[] = []
+  if (matched.length) parts.push(`${listEs(matched.map((f) => FIELD_LABEL[f]))} ${matched.length === 1 ? 'coincide' : 'coinciden'} con tus datos registrados`)
+  if (mismatched.length) parts.push(`${listEs(mismatched.map((f) => FIELD_LABEL[f]))} no ${mismatched.length === 1 ? 'coincide' : 'coinciden'}`)
+  if (unchecked.length) parts.push(`${listEs(unchecked.map((f) => FIELD_LABEL[f]))} no ${unchecked.length === 1 ? 'se pudo' : 'se pudieron'} comparar (en el estado de cuenta ${unchecked.length === 1 ? 'viene oculto o incompleto' : 'vienen ocultos o incompletos'}, o no lo tenemos registrado)`)
+  const head = `Revisamos a quién pertenece la cuenta de tu estado de cuenta: ${parts.join('; ')}.`
+  const want = ask.length ? ` ¿Nos confirmas ${listEs(ask.map((f) => FIELD_LABEL[f]))} del titular de la cuenta?` : ''
+  return head + want
+}
+
+/**
+ * Identity question saying what matched, what did not and what could not be compared, and asking
+ * only for what is missing. The cross-check evidence comes as `<doc>:<field>=<result>`. Without
+ * evidence (no registered provider to compare against), the question asks for name and RFC.
+ */
+export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>, decision: Decision): Question {
+  const results = parseIdentityEvidence(decision.profile.features.identity_match.evidence)
   if (results.size === 0) {
     return {
       ...base,
@@ -189,12 +203,6 @@ export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>
   const mismatched = IDENTITY_FIELDS.filter((f) => results.get(f)?.has('mismatch'))
   const unchecked = IDENTITY_FIELDS.filter((f) => !results.has(f) || (!matched.includes(f) && !mismatched.includes(f)))
   const ask = IDENTITY_FIELDS.filter((f) => !matched.includes(f) || mismatched.includes(f))
-  const parts: string[] = []
-  if (matched.length) parts.push(`${listEs(matched.map((f) => FIELD_LABEL[f]))} ${matched.length === 1 ? 'coincide' : 'coinciden'} con tus datos registrados`)
-  if (mismatched.length) parts.push(`${listEs(mismatched.map((f) => FIELD_LABEL[f]))} no ${mismatched.length === 1 ? 'coincide' : 'coinciden'}`)
-  if (unchecked.length) parts.push(`${listEs(unchecked.map((f) => FIELD_LABEL[f]))} no ${unchecked.length === 1 ? 'se pudo' : 'se pudieron'} comparar (en el estado de cuenta ${unchecked.length === 1 ? 'viene oculto o incompleto' : 'vienen ocultos o incompletos'}, o no lo tenemos registrado)`)
-  const head = `Revisamos a quién pertenece la cuenta de tu estado de cuenta: ${parts.join('; ')}.`
-  const want = ask.length ? ` ¿Nos confirmas ${listEs(ask.map((f) => FIELD_LABEL[f]))} del titular de la cuenta?` : ''
   return {
     ...base,
     kind: 'identity',
@@ -204,7 +212,7 @@ export function identityQuestion(base: Omit<Question, 'kind' | 'facts' | 'text'>
       { name: 'sin_comparar', value: unchecked.join(',') || null },
       { name: 'pedir', value: ask.join(',') || null },
     ],
-    text: head + want,
+    text: formatIdentityQuestionText(matched, mismatched, unchecked, ask),
   }
 }
 
@@ -314,6 +322,19 @@ function otherQuestion(id: string, topic: Exclude<AskTopic, 'deposit_classificat
   }
 }
 
+function buildClassificationQuestions(
+  topic: 'deposit_classification' | 'charge_classification',
+  signaled: TxRow[],
+  statements: readonly StatementExtraction[],
+  decision: Decision,
+  next: () => string,
+): Question[] {
+  const type = topic === 'deposit_classification' ? 'credit' : 'debit'
+  const mine = signaled.filter((r) => r.type === type)
+  const rows = mine.length > 0 ? mine : txRows(statements, uncertainRows(statements, decision, type))
+  return rows.map((row) => (type === 'credit' ? depositQuestion(next(), row) : chargeQuestion(next(), row)))
+}
+
 /** Questions for a `needs_clarification` verdict. Empty if there is nothing concrete to ask. */
 export function buildQuestions(decision: Decision, statements: readonly StatementExtraction[]): Question[] {
   const c = decision.clarification
@@ -324,10 +345,7 @@ export function buildQuestions(decision: Decision, statements: readonly Statemen
   for (const topic of TOPIC_ORDER) {
     if (!c.topics.includes(topic)) continue
     if (topic === 'deposit_classification' || topic === 'charge_classification') {
-      const type = topic === 'deposit_classification' ? 'credit' : 'debit'
-      const mine = signaled.filter((r) => r.type === type)
-      const rows = mine.length > 0 ? mine : txRows(statements, uncertainRows(statements, decision, type))
-      for (const row of rows) out.push(type === 'credit' ? depositQuestion(next(), row) : chargeQuestion(next(), row))
+      out.push(...buildClassificationQuestions(topic, signaled, statements, decision, next))
     } else {
       out.push(otherQuestion(next(), topic, decision, statements))
     }

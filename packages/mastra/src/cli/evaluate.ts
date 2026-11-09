@@ -15,9 +15,8 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
-import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
-import { AnswersFile, ApplicationRequest, ApplicationResult, calendarToday, IsoDate, OwnerAnswer, parsePolicy, StatementExtraction, SupplierIdentity, type Policy, type Question } from '@gow/contracts'
+import { AnswersFile, ApplicationRequest, ApplicationResult, calendarToday, IsoDate, parsePolicy, StatementExtraction, SupplierIdentity, type Policy, type Question } from '@gow/contracts'
 import { BASE_POLICY_ID, basePolicyTemplate } from '@gow/decision'
 import { DEFAULT_OPTIONS, extractStatement } from '@gow/extraction'
 import {
@@ -46,6 +45,7 @@ import { extractionSummaryCsv, extractionSummaryRows, identityUnverifiable, miss
 import { createRuntime, resumeApplication, startApplication, WORKFLOW_ID, type RunOutcome } from '../runtime.ts'
 import type { AppInput } from '../state.ts'
 import { Writer } from '../writer.ts'
+import { askInteractively } from './interactive.ts'
 
 const REPO = resolve(import.meta.dirname, '../../../..')
 /** pnpm runs the script inside the package; user paths are relative to where they typed it. */
@@ -196,38 +196,6 @@ function summaryRowsOf(statements: readonly StatementExtraction[], pdf: string, 
   return statements.length > 0 ? statements.flatMap(extractionSummaryRows) : [missingExtractionRow(basename(pdf), status === 'failed')]
 }
 
-async function askInteractively(questions: readonly Question[]): Promise<OwnerAnswer[]> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  const answers: OwnerAnswer[] = []
-  try {
-    for (const q of questions) {
-      console.log(`\n${q.id}. ${q.text}`)
-      if (q.kind === 'deposit' || q.kind === 'charge' || q.kind === 'account_use') {
-        q.options.forEach((o, i) => { console.log(`   ${String(i + 1)}) ${o.label}`); })
-        const pick = Number((await rl.question('   Opción (vacío = no sé): ')).trim())
-        const value = q.options[pick - 1]?.value
-        // The schema validates the option: one not valid for the question type becomes "don't know".
-        const parsed = value === undefined ? null : OwnerAnswer.safeParse(q.kind === 'account_use' ? { question_id: q.id, kind: q.kind, use: value } : { question_id: q.id, kind: q.kind, category: value, counterparty: null })
-        answers.push(parsed?.success ? parsed.data : { question_id: q.id, kind: 'decline', note: null })
-      } else if (q.kind === 'buyer') {
-        const name = (await rl.question('   Nombre del cliente principal (vacío = no sé): ')).replace(/\s+/g, ' ').trim()
-        answers.push(name.length >= 3 ? { question_id: q.id, kind: 'buyer', name } : { question_id: q.id, kind: 'decline', note: null })
-      } else if (q.kind === 'identity') {
-        const legal = (await rl.question('   Razón social o nombre del titular (vacío = no sé): ')).trim()
-        const rfc = (await rl.question('   RFC (opcional): ')).trim()
-        const clabe = (await rl.question('   CLABE (opcional): ')).trim()
-        answers.push(legal ? { question_id: q.id, kind: 'identity', legal_name: legal, rfc: rfc || null, clabe: clabe || null } : { question_id: q.id, kind: 'decline', note: null })
-      } else {
-        const paths = (await rl.question('   Ruta de los PDF, separadas por coma (vacío = no los tengo): ')).split(',').map((p) => p.trim()).filter(Boolean)
-        answers.push(paths.length ? { question_id: q.id, kind: 'documents', paths: paths.map((p) => resolve(USER_CWD, p)) } : { question_id: q.id, kind: 'decline', note: null })
-      }
-    }
-  } finally {
-    rl.close()
-  }
-  return answers
-}
-
 interface Row {
   id: string
   identity_unverifiable: boolean
@@ -310,48 +278,239 @@ function parseCli() {
   }
 }
 
-async function main(): Promise<void> {
-  loadRootEnv()
-  const { values, positionals } = parseCli()
-  if (values.help) {
-    console.log(USAGE)
-    return
+interface EvaluationState {
+  rows: Row[]
+  summaryRows: ExtractionSummaryRow[]
+  pending: Record<string, { round: number; answers: Record<string, unknown>[] }>
+  failures: number
+}
+
+interface EvaluationConfig {
+  values: ReturnType<typeof parseCli>['values']
+  positionals: string[]
+  outDir: string
+  asOf: string
+  policy: { policy: Policy; id: string }
+  requestFor: (id: string) => RequestSpec | null
+  answers: ReturnType<typeof loadAnswers>
+  wf: ReturnType<typeof createRuntime>
+  exchanges: JsonlLlmExchangeSink
+}
+
+function buildSkippedRow(id: string, prevResult: ApplicationResult, pausedRound: number, otherRound: boolean, hasGiven: boolean): Row {
+  let note = 'ya evaluada (--force para repetir)'
+  if (prevResult.run.status === 'suspended') {
+    note = otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(hasGiven ? pausedRound : 0)}` : 'pausada; sin respuestas para ella'
   }
-  if (positionals.length === 0) fail(USAGE)
+  return {
+    id,
+    identity_unverifiable: identityUnverifiable(prevResult),
+    max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount },
+    status: prevResult.status,
+    questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0,
+    usd_this_run: 0,
+    cache_hits: 0,
+    calls: 0,
+    classifier: prevResult.classification?.implementation ?? '—',
+    note,
+  }
+}
+
+async function handleInteractiveClarification(
+  wf: ReturnType<typeof createRuntime>,
+  id: string,
+  initialOutcome: RunOutcome,
+  inScope: <T>(fn: () => Promise<T>) => Promise<T>,
+): Promise<RunOutcome> {
+  let outcome = initialOutcome
+  while (outcome.status === 'suspended' && outcome.state && outcome.suspendedStep) {
+    console.log(`\n${id}: necesita aclaración.`)
+    const answers = await askInteractively(outcome.state.questions)
+    const { runId, suspendedStep } = outcome
+    outcome = await inScope(() => resumeApplication(wf, runId, suspendedStep, { answers, base_dir: null }))
+  }
+  return outcome
+}
+
+function saveGroupOutcome(
+  id: string,
+  outcome: RunOutcome,
+  callsBefore: number,
+  note: string,
+  pdf: string,
+  cfg: EvaluationConfig,
+  state: EvaluationState,
+): void {
+  const run: RunInfo = { workflow: WORKFLOW_ID, run_id: outcome.runId, status: outcome.status, suspended_step: outcome.suspendedStep }
+  const generatedAt = new Date().toISOString()
+  const result = toApplicationResult(id, outcome.state, run, generatedAt, outcome.error)
+  if (outcome.state) {
+    outcome.state.statements.forEach((s, i) => { writeFileSync(join(cfg.outDir, `${id}.extraction${i === 0 ? '' : `-${String(i + 1)}`}.json`), `${JSON.stringify(s, null, 2)}\n`); })
+  }
+  const resultPath = join(cfg.outDir, `${id}.result.json`)
+  writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`)
+  writeFileSync(join(cfg.outDir, `${id}.md`), renderReport(result, outcome.state))
+  state.summaryRows.push(...summaryRowsOf(outcome.state?.statements ?? [], pdf, result.status))
+  if (outcome.status === 'failed') state.failures++
+  if (outcome.status === 'suspended' && result.clarification) state.pending[id] = { round: result.clarification.rounds_used + 1, answers: result.clarification.questions.map(templateAnswer) }
+  const newCalls = (outcome.state?.calls ?? []).slice(callsBefore)
+  state.rows.push({
+    id,
+    identity_unverifiable: identityUnverifiable(result),
+    max_line: result.max_line && { status: result.max_line.status, amount: result.max_line.amount },
+    status: result.status,
+    questions: result.clarification?.status === 'open' ? result.clarification.questions.length : 0,
+    usd_this_run: Math.round(newCalls.reduce((s, c) => s + c.cost_usd, 0) * 1e6) / 1e6,
+    cache_hits: newCalls.filter((c) => c.cache_hit).length,
+    calls: newCalls.length,
+    classifier: result.classification?.implementation ?? '—',
+    note: outcome.error ? `error del workflow: ${outcome.error}` : note,
+  })
+  printRow(state.rows.at(-1) as Row)
+}
+
+async function tryResumeApplication(
+  id: string,
+  pdf: string,
+  prevResult: ApplicationResult,
+  cfg: EvaluationConfig,
+  state: EvaluationState,
+  inScope: <T>(fn: () => Promise<T>) => Promise<T>,
+): Promise<{ outcome: RunOutcome; callsBefore: number; note: string } | null> {
+  const given = cfg.answers?.file.applications[id]
+  const pausedRound = (prevResult.clarification?.rounds_used ?? 0) + 1
+  const otherRound = given?.round !== undefined && given.round !== pausedRound
+  if (prevResult.run.status === 'suspended' && given && !otherRound && prevResult.run.suspended_step) {
+    const callsBefore = prevResult.costs.lines.reduce((n, l) => n + l.calls, 0)
+    const outcome = await inScope(() => resumeApplication(cfg.wf, prevResult.run.run_id, prevResult.run.suspended_step as string[], { answers: given.answers, base_dir: cfg.answers?.baseDir ?? null }))
+    return { outcome, callsBefore, note: 'reanudada con respuestas' }
+  }
+  state.rows.push(buildSkippedRow(id, prevResult, pausedRound, otherRound, Boolean(given)))
+  if (prevResult.run.status === 'suspended' && prevResult.clarification) {
+    state.pending[id] = { round: pausedRound, answers: prevResult.clarification.questions.map(templateAnswer) }
+  }
+  state.summaryRows.push(...summaryRowsOf(readExtractions(cfg.outDir, id), pdf, prevResult.status))
+  printRow(state.rows.at(-1) as Row)
+  return null
+}
+
+async function startGroupApplication(
+  group: Group,
+  cfg: EvaluationConfig,
+  inScope: <T>(fn: () => Promise<T>) => Promise<T>,
+): Promise<RunOutcome> {
+  const { id, pdfs } = group
+  const [pdf, ...extra] = pdfs
+  const spec = cfg.requestFor(id)
+  const input: AppInput = {
+    application_id: id,
+    pdf_path: pdf ?? '',
+    ...(extra.length > 0 ? { extra_pdf_paths: extra } : {}),
+    as_of: cfg.asOf,
+    request: toRequest(spec),
+    supplier: toSupplier(spec),
+    policy: cfg.policy.policy,
+    policy_id: cfg.policy.id,
+  }
+  rmSync(cfg.exchanges.pathFor(id), { force: true })
+  return inScope(() => startApplication(cfg.wf, input))
+}
+
+async function evaluateGroup(group: Group, cfg: EvaluationConfig, state: EvaluationState): Promise<void> {
+  const { id, pdfs } = group
+  const [pdf] = pdfs
+  if (!pdf) return
+  const resultPath = join(cfg.outDir, `${id}.result.json`)
+  const previous = existsSync(resultPath) ? ApplicationResult.safeParse(JSON.parse(readFileSync(resultPath, 'utf8'))) : null
+  const prevResult = previous?.success ? previous.data : null
+  const inScope = <T>(fn: () => Promise<T>) => withLlmScope({ applicationId: id }, fn)
+
+  let outcome: RunOutcome
+  let callsBefore = 0
+  let note = ''
+
+  if (prevResult && !cfg.values.force) {
+    const resumed = await tryResumeApplication(id, pdf, prevResult, cfg, state, inScope)
+    if (!resumed) return
+    outcome = resumed.outcome
+    callsBefore = resumed.callsBefore
+    note = resumed.note
+  } else {
+    outcome = await startGroupApplication(group, cfg, inScope)
+  }
+
+  if (cfg.values.interactive) {
+    outcome = await handleInteractiveClarification(cfg.wf, id, outcome, inScope)
+    note = 'respondida en consola'
+  }
+
+  saveGroupOutcome(id, outcome, callsBefore, note, pdf, cfg, state)
+}
+
+function writeFinalSummaryFiles(cfg: EvaluationConfig, state: EvaluationState): void {
+  const total = state.rows.reduce((s, r) => s + r.usd_this_run, 0)
+  const summary = [
+    '# Evaluación standalone',
+    '',
+    `Fecha de cálculo ${cfg.asOf} · política \`${cfg.policy.id}\` · ${String(state.rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)}`,
+    '',
+    'Sin monto solicitado, el estado evalúa una solicitud sin monto ni comprador; la línea máxima es el mayor monto que la política aprobaría pedido tal cual.',
+    '',
+    '| Solicitud | Estado | Línea máxima | Preguntas abiertas | Movimientos | USD esta corrida | Nota |',
+    '|---|---|---|---|---|---|---|',
+    ...state.rows.map((r) => `| [${r.id}](${r.id}.md) | \`${r.status}\` | ${r.max_line ? `${pesos(r.max_line.amount)} (\`${r.max_line.status}\`)` : '—'} | ${String(r.questions)} | ${r.classifier} | ${r.usd_this_run.toFixed(4)} | ${r.note} |`),
+    '',
+  ].join('\n')
+  writeFileSync(join(cfg.outDir, 'summary.md'), summary)
+  writeFileSync(join(cfg.outDir, 'extraction-summary.json'), `${JSON.stringify(state.summaryRows, null, 2)}\n`)
+  writeFileSync(join(cfg.outDir, 'extraction-summary.csv'), extractionSummaryCsv(state.summaryRows))
+  writeFileSync(join(cfg.outDir, 'summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), as_of: cfg.asOf, policy: cfg.policy.id, cost_usd_this_run: Math.round(total * 1e6) / 1e6, applications: state.rows }, null, 2)}\n`)
+  const pendingIds = Object.keys(state.pending)
+  if (pendingIds.length > 0) {
+    writeFileSync(join(cfg.outDir, 'answers.template.json'), `${JSON.stringify({ version: 1, applications: state.pending }, null, 2)}\n`)
+    console.log(`\n${String(pendingIds.length)} solicitud(es) pausada(s). Las preguntas están en cada <id>.md y en outbox/.`)
+    console.log(`Copia ${join(cfg.outDir, 'answers.template.json')}, elige una opción por pregunta (o cambia kind a "decline"), deja solo lo que respondas y corre:`)
+    console.log(`  pnpm run evaluate ${cfg.positionals.join(' ')} --out ${cfg.outDir} --answers <archivo>`)
+  }
+  const unverifiable = state.rows.filter((r) => r.identity_unverifiable).length
+  if (unverifiable > 0 && cfg.values.policy === 'base') {
+    console.log(`\n${String(unverifiable)} solicitud(es) sin identidad comparable (documento redactado o sin proveedor registrado): la política base lo pregunta.`)
+    console.log(`Para ver la decisión sin ese bloqueo, en otra carpeta de salida, quita --policy base (usa ${STANDALONE_POLICY_PATH}) y agrega --out <dir>`)
+  }
+  console.log(`\n${String(state.rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)} · salida en ${cfg.outDir}`)
+  if (state.failures > 0) process.exit(1)
+}
+
+function resolveDatesAndPolicy(values: ReturnType<typeof parseCli>['values']) {
   const asOf = values['as-of'] ?? calendarToday()
   if (!IsoDate.safeParse(asOf).success) fail('--as-of debe ser una fecha AAAA-MM-DD')
   const policy = loadPolicyArg(values.policy)
-  console.error(
-    values.policy === undefined
-      ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: la antigüedad del estado de cuenta no decide; --policy base para la plantilla base) · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`
-      : `Política: ${policy.id} · fecha de cálculo ${asOf}${values['as-of'] ? '' : ' (hoy; --as-of para otra)'}`,
-  )
-  const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
-  const anthropic = readAnthropicEnv()
-  const googleAvailable = readGoogleEnv().apiKey !== null
-  if (!anthropic.apiKey && mode !== 'read') fail('Falta ANTHROPIC_API_KEY (entorno o .env). Con GEMINI_API_KEY además, la extracción va con Gemini. Con --cache read se usan solo respuestas guardadas.', 2)
-  const primary = googleAvailable ? EXTRACTION_MODEL : PROVIDER_FALLBACK_MODEL
-  console.error(providerOf(primary) === 'google' ? `Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia.` : `Sin llave de Google: extracción con ${primary}.`)
+  const isDefaultPolicy = values.policy === undefined
+  const asOfNote = values['as-of'] ? '' : ' (hoy; --as-of para otra)'
+  const policyMsg = isDefaultPolicy
+    ? `Política: ${STANDALONE_POLICY_PATH} (por defecto en standalone: la antigüedad del estado de cuenta no decide; --policy base para la plantilla base) · fecha de cálculo ${asOf}${asOfNote}`
+    : `Política: ${policy.id} · fecha de cálculo ${asOf}${asOfNote}`
+  console.error(policyMsg)
+  return { asOf, policy }
+}
 
-  const requestFor = loadRequests(values.request)
-  const answers = loadAnswers(values.answers)
-  const outDir = resolve(USER_CWD, values.out)
-  mkdirSync(join(outDir, '.state'), { recursive: true })
-  const cacheDir = resolve(USER_CWD, values['cache-dir'])
-
-  const limit = createLimiter(Math.max(1, Number(values.concurrency) || 3))
-  // With --cache read no client is built: a miss fails instead of calling the model.
-  // Every raw model exchange goes to <id>.llm.jsonl for analyzing a case.
+function buildEvaluationWorkflow(
+  outDir: string,
+  cacheDir: string,
+  mode: CacheMode,
+  anthropic: ReturnType<typeof readAnthropicEnv>,
+  googleAvailable: boolean,
+  concurrency: string,
+) {
+  const limit = createLimiter(Math.max(1, Number(concurrency) || 3))
   const exchanges = new JsonlLlmExchangeSink(outDir)
   const llm = new RecordingStructuredLlm(new CachingStructuredLlm(mode !== 'read' && (anthropic.apiKey || googleAvailable) ? new MastraStructuredLlm(anthropic) : null, cacheDir, mode), exchanges, {
     onError: (m) => { console.error(m) },
   })
   const jevKey = process.env.TYPESAFE_API_KEY?.trim()
-  // Same key as the classifier eval: what was already classified replays at no cost.
   const docClassifier = new CachedClassifier(jevKey ? 'jev' : 'haiku', mode === 'read' ? null : createClassifier(llm), join(cacheDir, 'classifier'))
   const txClassifier = createTransactionClassifier(llm, new JsonFileCache(join(cacheDir, 'transactions'), mode))
   console.error(txClassifier.implementation === 'jev' ? 'Movimientos: reglas y Jev donde no alcanzan.' : 'Movimientos: reglas y Haiku donde no alcanzan (sin TYPESAFE_API_KEY no hay Jev; el reporte lo indica).')
-
   const wf = createRuntime(
     {
       extract: (path) => extractStatement(path, { llm, classifier: docClassifier }, { ...DEFAULT_OPTIONS, googleAvailable, limit }),
@@ -362,116 +521,46 @@ async function main(): Promise<void> {
     },
     join(outDir, '.state', 'mastra.db'),
   )
+  return { wf, exchanges }
+}
 
-  const groups = collectGroups(positionals)
-  const rows: Row[] = []
-  const summaryRows: ExtractionSummaryRow[] = []
-  const pending: Record<string, { round: number; answers: Record<string, unknown>[] }> = {}
-  let failures = 0
-
-  for (const { id, pdfs } of groups) {
-    const [pdf, ...extra] = pdfs
-    if (!pdf) continue
-    const resultPath = join(outDir, `${id}.result.json`)
-    const previous = existsSync(resultPath) ? ApplicationResult.safeParse(JSON.parse(readFileSync(resultPath, 'utf8'))) : null
-    const prevResult = previous?.success ? previous.data : null
-    const given = answers?.file.applications[id]
-    const inScope = <T>(fn: () => Promise<T>) => withLlmScope({ applicationId: id }, fn)
-    let outcome: RunOutcome
-    let callsBefore = 0
-    let note = ''
-
-    if (prevResult && !values.force) {
-      // Ids q1, q2... repeat across rounds: answers from another round are not applied.
-      const pausedRound = (prevResult.clarification?.rounds_used ?? 0) + 1
-      const otherRound = given?.round !== undefined && given.round !== pausedRound
-      if (prevResult.run.status === 'suspended' && given && !otherRound && prevResult.run.suspended_step) {
-        callsBefore = prevResult.costs.lines.reduce((n, l) => n + l.calls, 0)
-        const { run_id: runId, suspended_step: step } = prevResult.run
-        const baseDir = answers.baseDir
-        outcome = await inScope(() => resumeApplication(wf, runId, step, { answers: given.answers, base_dir: baseDir }))
-        note = 'reanudada con respuestas'
-      } else {
-        rows.push({ id, identity_unverifiable: identityUnverifiable(prevResult), max_line: prevResult.max_line && { status: prevResult.max_line.status, amount: prevResult.max_line.amount }, status: prevResult.status, questions: prevResult.clarification?.status === 'open' ? prevResult.clarification.questions.length : 0, usd_this_run: 0, cache_hits: 0, calls: 0, classifier: prevResult.classification?.implementation ?? '—', note: prevResult.run.status !== 'suspended' ? 'ya evaluada (--force para repetir)' : otherRound ? `pausada en la ronda ${String(pausedRound)}; las respuestas son de la ronda ${String(given.round)}` : 'pausada; sin respuestas para ella' })
-        if (prevResult.run.status === 'suspended' && prevResult.clarification) pending[id] = { round: pausedRound, answers: prevResult.clarification.questions.map(templateAnswer) }
-        summaryRows.push(...summaryRowsOf(readExtractions(outDir, id), pdf, prevResult.status))
-        printRow(rows.at(-1) as Row)
-        continue
-      }
-    } else {
-      const spec = requestFor(id)
-      const input: AppInput = { application_id: id, pdf_path: pdf, ...(extra.length > 0 ? { extra_pdf_paths: extra } : {}), as_of: asOf, request: toRequest(spec), supplier: toSupplier(spec), policy: policy.policy, policy_id: policy.id }
-      // New run: exchanges from a previous run (--force) are not mixed in.
-      rmSync(exchanges.pathFor(id), { force: true })
-      outcome = await inScope(() => startApplication(wf, input))
-    }
-
-    while (values.interactive && outcome.status === 'suspended' && outcome.state && outcome.suspendedStep) {
-      console.log(`\n${id}: necesita aclaración.`)
-      const given2 = await askInteractively(outcome.state.questions)
-      const { runId, suspendedStep } = outcome
-      outcome = await inScope(() => resumeApplication(wf, runId, suspendedStep, { answers: given2, base_dir: null }))
-      note = 'respondida en consola'
-    }
-
-    const run: RunInfo = { workflow: WORKFLOW_ID, run_id: outcome.runId, status: outcome.status, suspended_step: outcome.suspendedStep }
-    const generatedAt = new Date().toISOString()
-    const result = toApplicationResult(id, outcome.state, run, generatedAt, outcome.error)
-    if (outcome.state) {
-      outcome.state.statements.forEach((s, i) => { writeFileSync(join(outDir, `${id}.extraction${i === 0 ? '' : `-${String(i + 1)}`}.json`), `${JSON.stringify(s, null, 2)}\n`); })
-    }
-    writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`)
-    writeFileSync(join(outDir, `${id}.md`), renderReport(result, outcome.state))
-    summaryRows.push(...summaryRowsOf(outcome.state?.statements ?? [], pdf, result.status))
-    if (outcome.status === 'failed') failures++
-    if (outcome.status === 'suspended' && result.clarification) pending[id] = { round: result.clarification.rounds_used + 1, answers: result.clarification.questions.map(templateAnswer) }
-    const newCalls = (outcome.state?.calls ?? []).slice(callsBefore)
-    rows.push({
-      id,
-      identity_unverifiable: identityUnverifiable(result),
-      max_line: result.max_line && { status: result.max_line.status, amount: result.max_line.amount },
-      status: result.status,
-      questions: result.clarification?.status === 'open' ? result.clarification.questions.length : 0,
-      usd_this_run: Math.round(newCalls.reduce((s, c) => s + c.cost_usd, 0) * 1e6) / 1e6,
-      cache_hits: newCalls.filter((c) => c.cache_hit).length,
-      calls: newCalls.length,
-      classifier: result.classification?.implementation ?? '—',
-      note: outcome.error ? `error del workflow: ${outcome.error}` : note,
-    })
-    printRow(rows.at(-1) as Row)
+async function main(): Promise<void> {
+  loadRootEnv()
+  const { values, positionals } = parseCli()
+  if (values.help) {
+    console.log(USAGE)
+    return
   }
+  if (positionals.length === 0) fail(USAGE)
+  const { asOf, policy } = resolveDatesAndPolicy(values)
+  const mode = (['off', 'read', 'readwrite'].includes(values.cache) ? values.cache : 'readwrite') as CacheMode
+  const anthropic = readAnthropicEnv()
+  const googleAvailable = readGoogleEnv().apiKey !== null
+  if (!anthropic.apiKey && mode !== 'read') fail('Falta ANTHROPIC_API_KEY (entorno o .env). Con GEMINI_API_KEY además, la extracción va con Gemini. Con --cache read se usan solo respuestas guardadas.', 2)
+  const primary = googleAvailable ? EXTRACTION_MODEL : PROVIDER_FALLBACK_MODEL
+  console.error(providerOf(primary) === 'google' ? `Extracción con ${primary}: los PDFs se mandan a Google; Claude hace la doble lectura y la emergencia.` : `Sin llave de Google: extracción con ${primary}.`)
 
-  const total = rows.reduce((s, r) => s + r.usd_this_run, 0)
-  const summary = [
-    '# Evaluación standalone',
-    '',
-    `Fecha de cálculo ${asOf} · política \`${policy.id}\` · ${String(rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)}`,
-    '',
-    'Sin monto solicitado, el estado evalúa una solicitud sin monto ni comprador; la línea máxima es el mayor monto que la política aprobaría pedido tal cual.',
-    '',
-    '| Solicitud | Estado | Línea máxima | Preguntas abiertas | Movimientos | USD esta corrida | Nota |',
-    '|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| [${r.id}](${r.id}.md) | \`${r.status}\` | ${r.max_line ? `${pesos(r.max_line.amount)} (\`${r.max_line.status}\`)` : '—'} | ${String(r.questions)} | ${r.classifier} | ${r.usd_this_run.toFixed(4)} | ${r.note} |`),
-    '',
-  ].join('\n')
-  writeFileSync(join(outDir, 'summary.md'), summary)
-  writeFileSync(join(outDir, 'extraction-summary.json'), `${JSON.stringify(summaryRows, null, 2)}\n`)
-  writeFileSync(join(outDir, 'extraction-summary.csv'), extractionSummaryCsv(summaryRows))
-  writeFileSync(join(outDir, 'summary.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), as_of: asOf, policy: policy.id, cost_usd_this_run: Math.round(total * 1e6) / 1e6, applications: rows }, null, 2)}\n`)
-  const pendingIds = Object.keys(pending)
-  if (pendingIds.length > 0) {
-    writeFileSync(join(outDir, 'answers.template.json'), `${JSON.stringify({ version: 1, applications: pending }, null, 2)}\n`)
-    console.log(`\n${String(pendingIds.length)} solicitud(es) pausada(s). Las preguntas están en cada <id>.md y en outbox/.`)
-    console.log(`Copia ${join(outDir, 'answers.template.json')}, elige una opción por pregunta (o cambia kind a "decline"), deja solo lo que respondas y corre:`)
-    console.log(`  pnpm run evaluate ${positionals.join(' ')} --out ${outDir} --answers <archivo>`)
+  const outDir = resolve(USER_CWD, values.out)
+  mkdirSync(join(outDir, '.state'), { recursive: true })
+  const cacheDir = resolve(USER_CWD, values['cache-dir'])
+  const { wf, exchanges } = buildEvaluationWorkflow(outDir, cacheDir, mode, anthropic, googleAvailable, values.concurrency)
+
+  const cfg: EvaluationConfig = {
+    values,
+    positionals,
+    outDir,
+    asOf,
+    policy,
+    requestFor: loadRequests(values.request),
+    answers: loadAnswers(values.answers),
+    wf,
+    exchanges,
   }
-  const unverifiable = rows.filter((r) => r.identity_unverifiable).length
-  if (unverifiable > 0 && values.policy === 'base') {
-    console.log(`\n${String(unverifiable)} solicitud(es) sin identidad comparable (documento redactado o sin proveedor registrado): la política base lo pregunta.`)
-    console.log(`Para ver la decisión sin ese bloqueo, en otra carpeta de salida, quita --policy base (usa ${STANDALONE_POLICY_PATH}) y agrega --out <dir>`)
+  const state: EvaluationState = { rows: [], summaryRows: [], pending: {}, failures: 0 }
+  for (const group of collectGroups(positionals)) {
+    await evaluateGroup(group, cfg, state)
   }
-  console.log(`\n${String(rows.length)} documento(s) · costo de esta corrida USD ${total.toFixed(4)} · salida en ${outDir}`)
-  if (failures > 0) process.exit(1)
+  writeFinalSummaryFiles(cfg, state)
 }
 
 await main()
