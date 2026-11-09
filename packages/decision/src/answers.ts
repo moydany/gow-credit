@@ -103,109 +103,196 @@ function findTransaction(s: StatementExtraction, txId: string): Transaction | nu
   return null
 }
 
-export function applyOwnerAnswers(input: ApplyAnswersInput): AppliedAnswers {
-  const statements = [...input.statements]
-  let supplier = input.supplier
-  const applied: OwnerAnswer[] = []
-  const rejected: AnswerIssue[] = []
-  const contradictions: AnswerIssue[] = []
-  const documents: string[] = []
-  const seen = new Set<string>()
-  let declarations: OwnerDeclarations = input.declarations ?? NO_DECLARATIONS
-  const request = effectiveRequest(input.request, declarations)
+interface AnswersApplyState {
+  statements: StatementExtraction[]
+  supplier: ApplyAnswersInput['supplier']
+  applied: OwnerAnswer[]
+  rejected: AnswerIssue[]
+  contradictions: AnswerIssue[]
+  documents: string[]
+  declarations: OwnerDeclarations
+}
 
-  for (const answer of input.answers) {
-    const q = input.questions.find((x) => x.id === answer.question_id)
-    const reject = (reason: string) => rejected.push({ question_id: answer.question_id, reason })
-    if (!q) {
-      reject('no hay una pregunta con ese id en esta solicitud')
-      continue
-    }
-    if (seen.has(q.id)) {
-      reject('pregunta respondida dos veces: vale la primera respuesta')
-      continue
-    }
-    if (answer.kind !== 'decline' && answer.kind !== q.kind) {
-      reject(`la pregunta espera una respuesta de tipo ${q.kind}, no ${answer.kind}`)
-      continue
-    }
-    seen.add(q.id)
-    // Main client and account use are not asked again, even after a "no sé".
-    if (q.kind === 'buyer' || q.kind === 'account_use') {
-      const topic = q.kind === 'buyer' ? 'main_buyer' : 'account_use'
-      if (!declarations.answered.includes(topic)) declarations = { ...declarations, answered: [...declarations.answered, topic] }
-    }
+function applyDepositAnswer(
+  state: AnswersApplyState,
+  q: Question,
+  answer: Extract<OwnerAnswer, { kind: 'deposit' }>,
+  request: ApplyAnswersInput['request'],
+): void {
+  const ref = q.transaction
+  const idx = ref ? state.statements.findIndex((s) => s.document.sha256 === ref.document_sha256) : -1
+  const s = state.statements[idx]
+  const t = ref && s ? findTransaction(s, ref.transaction_id) : null
+  if (!ref || !s || !t) {
+    state.rejected.push({ question_id: answer.question_id, reason: 'el movimiento de la pregunta ya no está en la extracción' })
+    return
+  }
+  const current = existingClassification(s, t, request)
+  if (current.category !== answer.category && current.confidence >= CONTRADICTION_CONFIDENCE) {
+    state.contradictions.push({
+      question_id: q.id,
+      reason: `el dueño dice ${answer.category}, el documento indica ${current.category} con confianza ${String(current.confidence)}`,
+    })
+    return
+  }
+  state.statements[idx] = setClassification(s, t.id, {
+    category: answer.category,
+    confidence: 1,
+    counterparty: answer.counterparty,
+    counterparty_rfc: current.counterparty_rfc,
+    classifier: 'owner_answer',
+  })
+  state.applied.push(answer)
+}
 
-    switch (answer.kind) {
-      case 'decline':
-        applied.push(answer)
-        break
-      case 'deposit': {
-        const ref = q.transaction
-        const idx = ref ? statements.findIndex((s) => s.document.sha256 === ref.document_sha256) : -1
-        const s = statements[idx]
-        const t = ref && s ? findTransaction(s, ref.transaction_id) : null
-        if (!ref || !s || !t) {
-          reject('el movimiento de la pregunta ya no está en la extracción')
-          break
-        }
-        const current = existingClassification(s, t, request)
-        if (current.category !== answer.category && current.confidence >= CONTRADICTION_CONFIDENCE) {
-          contradictions.push({ question_id: q.id, reason: `el dueño dice ${answer.category}, el documento indica ${current.category} con confianza ${String(current.confidence)}` })
-          break
-        }
-        statements[idx] = setClassification(s, t.id, { category: answer.category, confidence: 1, counterparty: answer.counterparty, counterparty_rfc: current.counterparty_rfc, classifier: 'owner_answer' })
-        applied.push(answer)
-        break
-      }
-      case 'charge': {
-        const ref = q.transaction
-        const idx = ref ? statements.findIndex((s) => s.document.sha256 === ref.document_sha256) : -1
-        const s = statements[idx]
-        const t = ref && s ? findTransaction(s, ref.transaction_id) : null
-        if (!ref || !s || !t || t.type !== 'debit') {
-          reject('el cargo de la pregunta ya no está en la extracción')
-          break
-        }
-        const category = CHARGE_CATEGORY[answer.category]
-        const current = existingClassification(s, t, request)
-        if (chargeGroup(current.category) !== chargeGroup(category) && current.confidence >= CONTRADICTION_CONFIDENCE) {
-          contradictions.push({ question_id: q.id, reason: `el dueño dice ${answer.category}, el documento indica ${current.category} con confianza ${String(current.confidence)}` })
-          break
-        }
-        statements[idx] = setClassification(s, t.id, { category, confidence: 1, counterparty: answer.counterparty, counterparty_rfc: current.counterparty_rfc, classifier: 'owner_answer' })
-        applied.push(answer)
-        break
-      }
-      case 'buyer':
-        // A buyer already on the request wins: the answer is only recorded.
-        if (!input.request?.buyer) declarations = { ...declarations, buyer: answer.name }
-        applied.push(answer)
-        break
-      case 'account_use':
-        declarations = { ...declarations, account_use: answer.use }
-        applied.push(answer)
-        break
-      case 'identity': {
-        if (supplier !== null) {
-          applied.push(answer)
-          break
-        }
-        if (answer.legal_name === null) {
-          reject('para declarar la identidad hace falta al menos la razón social o el nombre del titular (legal_name)')
-          break
-        }
-        supplier = { legal_name: answer.legal_name, rfc: answer.rfc, clabes: answer.clabe === null ? [] : [answer.clabe] }
-        applied.push(answer)
-        break
-      }
-      case 'documents':
-        documents.push(...answer.paths)
-        applied.push(answer)
-        break
+function applyChargeAnswer(
+  state: AnswersApplyState,
+  q: Question,
+  answer: Extract<OwnerAnswer, { kind: 'charge' }>,
+  request: ApplyAnswersInput['request'],
+): void {
+  const ref = q.transaction
+  const idx = ref ? state.statements.findIndex((s) => s.document.sha256 === ref.document_sha256) : -1
+  const s = state.statements[idx]
+  const t = ref && s ? findTransaction(s, ref.transaction_id) : null
+  if (!ref || !s || !t || t.type !== 'debit') {
+    state.rejected.push({ question_id: answer.question_id, reason: 'el cargo de la pregunta ya no está en la extracción' })
+    return
+  }
+  const category = CHARGE_CATEGORY[answer.category]
+  const current = existingClassification(s, t, request)
+  if (chargeGroup(current.category) !== chargeGroup(category) && current.confidence >= CONTRADICTION_CONFIDENCE) {
+    state.contradictions.push({
+      question_id: q.id,
+      reason: `el dueño dice ${answer.category}, el documento indica ${current.category} con confianza ${String(current.confidence)}`,
+    })
+    return
+  }
+  state.statements[idx] = setClassification(s, t.id, {
+    category,
+    confidence: 1,
+    counterparty: answer.counterparty,
+    counterparty_rfc: current.counterparty_rfc,
+    classifier: 'owner_answer',
+  })
+  state.applied.push(answer)
+}
+
+function applyIdentityAnswer(
+  state: AnswersApplyState,
+  answer: Extract<OwnerAnswer, { kind: 'identity' }>,
+): void {
+  if (state.supplier !== null) {
+    state.applied.push(answer)
+    return
+  }
+  if (answer.legal_name === null) {
+    state.rejected.push({
+      question_id: answer.question_id,
+      reason: 'para declarar la identidad hace falta al menos la razón social o el nombre del titular (legal_name)',
+    })
+    return
+  }
+  state.supplier = {
+    legal_name: answer.legal_name,
+    rfc: answer.rfc,
+    clabes: answer.clabe === null ? [] : [answer.clabe],
+  }
+  state.applied.push(answer)
+}
+
+function recordTopicAnswered(kind: Question['kind'], declarations: OwnerDeclarations): OwnerDeclarations {
+  if (kind === 'buyer' || kind === 'account_use') {
+    const topic = kind === 'buyer' ? 'main_buyer' : 'account_use'
+    if (!declarations.answered.includes(topic)) {
+      return { ...declarations, answered: [...declarations.answered, topic] }
     }
   }
-  return { statements, supplier, applied, rejected, contradictions, documents, declarations }
+  return declarations
+}
+
+function validateAnswer(
+  answer: OwnerAnswer,
+  questions: readonly Question[],
+  seen: Set<string>,
+): { q: Question } | { rejectReason: string } {
+  const q = questions.find((x) => x.id === answer.question_id)
+  if (!q) return { rejectReason: 'no hay una pregunta con ese id en esta solicitud' }
+  if (seen.has(q.id)) return { rejectReason: 'pregunta respondida dos veces: vale la primera respuesta' }
+  if (answer.kind !== 'decline' && answer.kind !== q.kind) {
+    return { rejectReason: `la pregunta espera una respuesta de tipo ${q.kind}, no ${answer.kind}` }
+  }
+  seen.add(q.id)
+  return { q }
+}
+
+function dispatchSingleAnswer(
+  state: AnswersApplyState,
+  q: Question,
+  answer: OwnerAnswer,
+  input: ApplyAnswersInput,
+  request: ApplyAnswersInput['request'],
+): void {
+  switch (answer.kind) {
+    case 'decline':
+      state.applied.push(answer)
+      break
+    case 'deposit':
+      applyDepositAnswer(state, q, answer, request)
+      break
+    case 'charge':
+      applyChargeAnswer(state, q, answer, request)
+      break
+    case 'buyer':
+      if (!input.request?.buyer) state.declarations = { ...state.declarations, buyer: answer.name }
+      state.applied.push(answer)
+      break
+    case 'account_use':
+      state.declarations = { ...state.declarations, account_use: answer.use }
+      state.applied.push(answer)
+      break
+    case 'identity':
+      applyIdentityAnswer(state, answer)
+      break
+    case 'documents':
+      state.documents.push(...answer.paths)
+      state.applied.push(answer)
+      break
+  }
+}
+
+export function applyOwnerAnswers(input: ApplyAnswersInput): AppliedAnswers {
+  const state: AnswersApplyState = {
+    statements: [...input.statements],
+    supplier: input.supplier,
+    applied: [],
+    rejected: [],
+    contradictions: [],
+    documents: [],
+    declarations: input.declarations ?? NO_DECLARATIONS,
+  }
+  const seen = new Set<string>()
+  const request = effectiveRequest(input.request, state.declarations)
+
+  for (const answer of input.answers) {
+    const val = validateAnswer(answer, input.questions, seen)
+    if ('rejectReason' in val) {
+      state.rejected.push({ question_id: answer.question_id, reason: val.rejectReason })
+      continue
+    }
+    state.declarations = recordTopicAnswered(val.q.kind, state.declarations)
+    dispatchSingleAnswer(state, val.q, answer, input, request)
+  }
+
+  return {
+    statements: state.statements,
+    supplier: state.supplier,
+    applied: state.applied,
+    rejected: state.rejected,
+    contradictions: state.contradictions,
+    documents: state.documents,
+    declarations: state.declarations,
+  }
 }
 
 /**

@@ -107,7 +107,24 @@ function dimensionLabel(d: Decision['evaluation']['dimensions'][number]): string
   return d.relative_to !== null ? `${lowerFirst(featureLabel(d.feature))} frente a ${lowerFirst(featureLabel(d.relative_to))}` : lowerFirst(featureLabel(d.feature))
 }
 
-export function explanationDraft(decision: Decision, maxLine: MaxLine | null = null, ctx: ExplanationContext = {}): ExplanationDraft {
+interface DraftBuilder {
+  decision: Decision
+  maxLine: MaxLine | null
+  ctx: ExplanationContext
+  facts: QuestionFact[]
+  sentences: string[]
+  codes: Set<string>
+  request: Decision['profile']['inputs']['request']
+  fact: (name: string, value: QuestionFact['value']) => void
+  notCollected: (feature: FeatureName | null) => boolean
+  byDesign: (d: Decision['evaluation']['dimensions'][number]) => boolean
+}
+
+function createDraftBuilder(
+  decision: Decision,
+  maxLine: MaxLine | null,
+  ctx: ExplanationContext,
+): DraftBuilder {
   const facts: QuestionFact[] = []
   const fact = (name: string, value: QuestionFact['value']) => {
     facts.push({ name, value })
@@ -117,42 +134,50 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
   const request = decision.profile.inputs.request
   const noAmount = typeof decision.profile.features.requested_amount.value !== 'number'
   const noBuyer = request?.buyer == null
-  // What is not evaluated by design (no amount or buyer requested) is not a provider gap: it is
-  // said separately and once, not as "missing data" nor as a cause.
-  const notCollected = (feature: FeatureName | null) => (feature === 'requested_amount' && noAmount) || (feature !== null && BUYER_FEATURES.has(feature) && noBuyer)
-  const byDesign = (d: Decision['evaluation']['dimensions'][number]) => !d.used && (notCollected(d.relative_to) || notCollected(d.feature))
+  const notCollected = (feature: FeatureName | null) =>
+    (feature === 'requested_amount' && noAmount) ||
+    (feature !== null && BUYER_FEATURES.has(feature) && noBuyer)
+  const byDesign = (d: Decision['evaluation']['dimensions'][number]) =>
+    !d.used && (notCollected(d.relative_to) || notCollected(d.feature))
 
-  // 1. Result and score.
-  fact('resultado', RESULT_TEXT[decision.status])
-  let head = `Resultado: ${RESULT_TEXT[decision.status]}`
-  if (decision.score !== null) {
-    fact('puntaje', decision.score)
-    fact('puntaje_maximo', 100)
-    head += ` (puntaje ${String(decision.score)} de 100)`
+  return { decision, maxLine, ctx, facts, sentences, codes, request, fact, notCollected, byDesign }
+}
+
+function appendDecisionLimitNotice(b: DraftBuilder): void {
+  const { decision, codes, request, fact, sentences } = b
+  if (decision.limit === null || (decision.status !== 'qualified' && decision.status !== 'qualified_with_limit')) return
+  fact('linea', decision.limit)
+  const requested = codes.has('evaluated_at_max_line') ? null : (request?.amount ?? null)
+  if (requested === null) {
+    sentences.push(`La línea aprobada es de ${pesos(decision.limit)}.`)
+    return
   }
-  sentences.push(`${head}.`)
-  const holder = ctx.holderType ? HOLDER_TEXT[ctx.holderType] : null
-  const regime = decision.profile.features.fiscal_regime.value
-  const regimeText = typeof regime === 'string' && regime !== 'other' ? `régimen ${regime}${REGIME_TEXT[regime] ? `, ${REGIME_TEXT[regime] ?? ''}` : ''}` : null
-  if (holder) {
-    fact('tipo_de_titular', holder)
-    if (regimeText) fact('regimen_fiscal', regimeText)
-    sentences.push(`El titular es ${holder}${regimeText ? ` (${regimeText})` : ''}.`)
-  }
-  // What the owner said when clarifying: stays on record for the reviewer.
-  const declared = decision.profile.inputs.declarations
+  fact('monto_solicitado', requested)
+  sentences.push(
+    requested <= decision.limit + 0.005
+      ? `Se aprueba el monto solicitado de ${pesos(requested)}; la línea disponible llega a ${pesos(decision.limit)}.`
+      : `Se aprueba una línea de ${pesos(decision.limit)}, menor al monto solicitado de ${pesos(requested)}.`,
+  )
+}
+
+function appendDeclarationNotices(b: DraftBuilder): void {
+  const declared = b.decision.profile.inputs.declarations
   if (declared.account_use !== null) {
-    fact('uso_de_la_cuenta', ACCOUNT_USE_TEXT[declared.account_use])
-    sentences.push(
+    b.fact('uso_de_la_cuenta', ACCOUNT_USE_TEXT[declared.account_use])
+    b.sentences.push(
       declared.account_use === 'mixed'
         ? 'El proveedor dijo que usa la cuenta también para gastos personales: las transferencias de terceros sin señal de venta no se cuentan como ingreso y los gastos personales siguen restando del flujo.'
         : 'El proveedor dijo que usa la cuenta solo para su negocio.',
     )
   }
   if (declared.buyer !== null) {
-    fact('cliente_principal_declarado', declared.buyer)
-    sentences.push('La solicitud no indicaba el comprador; se tomó como comprador al cliente principal que dijo el proveedor y se buscaron sus pagos en el estado de cuenta.')
+    b.fact('cliente_principal_declarado', declared.buyer)
+    b.sentences.push('La solicitud no indicaba el comprador; se tomó como comprador al cliente principal que dijo el proveedor y se buscaron sus pagos en el estado de cuenta.')
   }
+}
+
+function appendRequestedAmountNotice(b: DraftBuilder): void {
+  const { decision, maxLine, codes, fact, sentences } = b
   if (codes.has('evaluated_at_max_line')) {
     const amount = num(decision, 'requested_amount')
     if (amount !== null) {
@@ -165,118 +190,173 @@ export function explanationDraft(decision: Decision, maxLine: MaxLine | null = n
     fact('linea_maxima', maxLine.amount)
     sentences.push(`La línea máxima, si se resuelve lo pendiente, sería de ${pesos(maxLine.amount)}.`)
   }
-  if (decision.limit !== null && (decision.status === 'qualified' || decision.status === 'qualified_with_limit')) {
-    fact('linea', decision.limit)
-    // With a requested amount, the amount is approved if it fits the line; otherwise the line. The
-    // amount goes in as a fact so the figures filter allows it. If evaluated at the maximum line,
-    // the profile amount is that line, not a provider request.
-    const requested = codes.has('evaluated_at_max_line') ? null : (request?.amount ?? null)
-    if (requested === null) sentences.push(`La línea aprobada es de ${pesos(decision.limit)}.`)
-    else {
-      fact('monto_solicitado', requested)
-      sentences.push(
-        requested <= decision.limit + 0.005
-          ? `Se aprueba el monto solicitado de ${pesos(requested)}; la línea disponible llega a ${pesos(decision.limit)}.`
-          : `Se aprueba una línea de ${pesos(decision.limit)}, menor al monto solicitado de ${pesos(requested)}.`,
-      )
-    }
+}
+
+function appendResultAndHeaderSection(b: DraftBuilder): string | null {
+  const { decision, ctx, fact, sentences } = b
+  fact('resultado', RESULT_TEXT[decision.status])
+  let head = `Resultado: ${RESULT_TEXT[decision.status]}`
+  if (decision.score !== null) {
+    fact('puntaje', decision.score)
+    fact('puntaje_maximo', 100)
+    head += ` (puntaje ${String(decision.score)} de 100)`
+  }
+  sentences.push(`${head}.`)
+
+  const holder = ctx.holderType ? HOLDER_TEXT[ctx.holderType] : null
+  const regime = decision.profile.features.fiscal_regime.value
+  const regimeText = typeof regime === 'string' && regime !== 'other' ? `régimen ${regime}${REGIME_TEXT[regime] ? `, ${REGIME_TEXT[regime] ?? ''}` : ''}` : null
+  if (holder) {
+    fact('tipo_de_titular', holder)
+    if (regimeText) fact('regimen_fiscal', regimeText)
+    sentences.push(`El titular es ${holder}${regimeText ? ` (${regimeText})` : ''}.`)
   }
 
-  // 2. Period cash flow, if known.
+  appendDeclarationNotices(b)
+  appendRequestedAmountNotice(b)
+  appendDecisionLimitNotice(b)
+  return regimeText
+}
+
+function buildCashFlowItems(
+  b: DraftBuilder,
+  income: number | null,
+  expenses: number | null,
+  debt: number | null,
+): string[] {
+  const flow: string[] = []
+  if (income !== null) {
+    b.fact('ingreso_operativo_mensual', income)
+    flow.push(`ingresos operativos de ${pesos(income)} al mes`)
+  }
+  if (expenses !== null) {
+    b.fact('gastos_operativos_mensuales', expenses)
+    flow.push(`gastos operativos de ${pesos(expenses)}`)
+  }
+  if (debt !== null && debt > 0) {
+    b.fact('pagos_a_creditos_mensuales', debt)
+    const share = income !== null && income > 0 ? Math.round((debt / income) * 1000) / 10 : null
+    if (share !== null) b.fact('pagos_a_creditos_sobre_ingreso_porcentaje', share)
+    flow.push(`pagos a créditos de ${pesos(debt)}${share !== null ? ` (${String(share)}% del ingreso)` : ''}`)
+  }
+  return flow
+}
+
+function appendCashFlowSection(b: DraftBuilder): void {
+  const { decision, ctx, fact, sentences } = b
   const income = num(decision, 'operating_income_monthly')
   const expenses = num(decision, 'operating_expenses_monthly')
   const debt = num(decision, 'debt_service_monthly')
   const free = num(decision, 'free_cash_flow_monthly')
   const months = num(decision, 'months_of_history')
-  const flow: string[] = []
-  if (income !== null) {
-    fact('ingreso_operativo_mensual', income)
-    flow.push(`ingresos operativos de ${pesos(income)} al mes`)
-  }
-  if (expenses !== null) {
-    fact('gastos_operativos_mensuales', expenses)
-    flow.push(`gastos operativos de ${pesos(expenses)}`)
-  }
-  if (debt !== null && debt > 0) {
-    fact('pagos_a_creditos_mensuales', debt)
-    const share = income !== null && income > 0 ? Math.round((debt / income) * 1000) / 10 : null
-    if (share !== null) fact('pagos_a_creditos_sobre_ingreso_porcentaje', share)
-    flow.push(`pagos a créditos de ${pesos(debt)}${share !== null ? ` (${String(share)}% del ingreso)` : ''}`)
-  }
-  if (flow.length > 0) {
-    let s = `En el periodo tiene ${listEs(flow)}`
-    if (free !== null) {
-      fact('flujo_libre_mensual', free)
-      s += free < 0 ? `, así que le queda un flujo libre negativo de ${pesos(Math.abs(free))} al mes` : `, y le queda un flujo libre de ${pesos(free)} al mes`
-    }
-    if (months !== null) {
-      fact('meses_de_historial', months)
-      s += ` (con ${String(months)} ${months === 1 ? 'mes' : 'meses'} de historial)`
-    }
-    sentences.push(`${s}.`)
-    if (ctx.holderType === 'individual' || ctx.holderType === 'individual_with_business_activity') sentences.push('Como es persona física, los gastos y créditos personales de la cuenta cuentan en ese flujo.')
-  }
+  const flow = buildCashFlowItems(b, income, expenses, debt)
+  if (flow.length === 0) return
 
-  // 3. Gates that failed or could not be evaluated.
-  const failed = decision.evaluation.gates.filter((g) => g.outcome === 'fail')
+  let s = `En el periodo tiene ${listEs(flow)}`
+  if (free !== null) {
+    fact('flujo_libre_mensual', free)
+    s += free < 0 ? `, así que le queda un flujo libre negativo de ${pesos(Math.abs(free))} al mes` : `, y le queda un flujo libre de ${pesos(free)} al mes`
+  }
+  if (months !== null) {
+    fact('meses_de_historial', months)
+    s += ` (con ${String(months)} ${months === 1 ? 'mes' : 'meses'} de historial)`
+  }
+  sentences.push(`${s}.`)
+  if (ctx.holderType === 'individual' || ctx.holderType === 'individual_with_business_activity') {
+    sentences.push('Como es persona física, los gastos y créditos personales de la cuenta cuentan en ese flujo.')
+  }
+}
+
+function appendGateRejections(b: DraftBuilder): void {
+  const failed = b.decision.evaluation.gates.filter((g) => g.outcome === 'fail')
   for (const g of failed) {
-    fact(`compuerta_${g.id}_valor`, typeof g.value === 'number' || typeof g.value === 'string' || typeof g.value === 'boolean' ? g.value : g.value === null ? null : JSON.stringify(g.value))
-    if (typeof g.threshold === 'number') fact(`compuerta_${g.id}_umbral`, g.threshold)
-    sentences.push(`No cumple un requisito: ${lowerFirst(featureLabel(g.feature))} es ${valueText(g.feature, g.value)}${g.threshold !== null && typeof g.threshold !== 'object' ? ` y la política pide ${OP_TEXT[g.op] ?? g.op} ${valueText(g.feature, g.threshold)}` : ''}.`)
+    b.fact(`compuerta_${g.id}_valor`, typeof g.value === 'number' || typeof g.value === 'string' || typeof g.value === 'boolean' ? g.value : g.value === null ? null : JSON.stringify(g.value))
+    if (typeof g.threshold === 'number') b.fact(`compuerta_${g.id}_umbral`, g.threshold)
+    b.sentences.push(`No cumple un requisito: ${lowerFirst(featureLabel(g.feature))} es ${valueText(g.feature, g.value)}${g.threshold !== null && typeof g.threshold !== 'object' ? ` y la política pide ${OP_TEXT[g.op] ?? g.op} ${valueText(g.feature, g.threshold)}` : ''}.`)
   }
-  const unknownGates = decision.evaluation.gates.filter((g) => g.outcome === 'unknown' && g.effect !== 'none')
-  if (unknownGates.length > 0) sentences.push(`No se pudo comprobar ${listEs(unknownGates.map((g) => lowerFirst(featureLabel(g.feature))))}.`)
-  // Age as a tenant warning: it does not change the result, but it is stated.
-  if (codes.has(DOCUMENT_AGE_WARNING)) {
-    const age = num(decision, 'document_age_days')
-    if (age !== null) {
-      fact('dias_desde_el_corte', age)
-      sentences.push(`Aviso: el estado de cuenta tiene ${String(age)} días desde su corte, más de lo que pide la configuración de la institución crediticia; se analizó igual.`)
-    } else sentences.push('Aviso: no se pudo calcular la antigüedad del estado de cuenta; se analizó igual.')
+  const unknownGates = b.decision.evaluation.gates.filter((g) => g.outcome === 'unknown' && g.effect !== 'none')
+  if (unknownGates.length > 0) {
+    b.sentences.push(`No se pudo comprobar ${listEs(unknownGates.map((g) => lowerFirst(featureLabel(g.feature))))}.`)
   }
+}
 
-  // 4. Dimensions: those that add little and those with no data.
+function appendAgeNotice(b: DraftBuilder): void {
+  if (!b.codes.has(DOCUMENT_AGE_WARNING)) return
+  const age = num(b.decision, 'document_age_days')
+  if (age !== null) {
+    b.fact('dias_desde_el_corte', age)
+    b.sentences.push(`Aviso: el estado de cuenta tiene ${String(age)} días desde su corte, más de lo que pide la configuración de la institución crediticia; se analizó igual.`)
+  } else {
+    b.sentences.push('Aviso: no se pudo calcular la antigüedad del estado de cuenta; se analizó igual.')
+  }
+}
+
+function appendGatesAndAgeSection(b: DraftBuilder): void {
+  appendGateRejections(b)
+  appendAgeNotice(b)
+}
+
+function appendDimensionsSection(b: DraftBuilder, skipped: Decision['evaluation']['dimensions']): void {
+  const { decision, fact, sentences, byDesign } = b
   const low = decision.evaluation.dimensions.filter((d) => d.used && d.normalized !== null && d.normalized < 0.5)
   for (const d of low) {
     if (d.value !== null) fact(`dimension_${d.id}`, d.value)
     fact(`dimension_${d.id}_puntos`, Math.round(d.points * 100) / 100)
     fact(`dimension_${d.id}_peso`, d.weight)
   }
-  if (low.length > 0) sentences.push(`Suman pocos puntos: ${listEs(low.map((d) => `${dimensionLabel(d)} (${dimensionValue(d)}, ${String(Math.round(d.points * 100) / 100)} de ${String(d.weight)} puntos)`))}.`)
+  if (low.length > 0) {
+    sentences.push(`Suman pocos puntos: ${listEs(low.map((d) => `${dimensionLabel(d)} (${dimensionValue(d)}, ${String(Math.round(d.points * 100) / 100)} de ${String(d.weight)} puntos)`))}.`)
+  }
   const missing = decision.evaluation.dimensions.filter((d) => !d.used && !byDesign(d))
-  if (missing.length > 0) sentences.push(`No suman puntos por falta de datos: ${listEs(missing.map((d) => dimensionLabel(d)))}.`)
-  const skipped = decision.evaluation.dimensions.filter(byDesign)
-  // The amount was explained above (maximum line or no amount): here only the rest, like the buyer.
+  if (missing.length > 0) {
+    sentences.push(`No suman puntos por falta de datos: ${listEs(missing.map((d) => dimensionLabel(d)))}.`)
+  }
   const skippedOther = skipped.filter((d) => d.relative_to !== 'requested_amount')
-  if (skippedOther.length > 0) sentences.push(`No se evaluaron ${listEs(skippedOther.map((d) => dimensionLabel(d)))}, porque la solicitud no indica a quién se facturó.`)
-  // A single dimension list, one name each, so the writer does not duplicate them.
+  if (skippedOther.length > 0) {
+    sentences.push(`No se evaluaron ${listEs(skippedOther.map((d) => dimensionLabel(d)))}, porque la solicitud no indica a quién se facturó.`)
+  }
   fact(
     'dimensiones',
     decision.evaluation.dimensions
       .map((d) => `${dimensionLabel(d)}: ${byDesign(d) ? 'no se evaluó (no se pidió ese dato)' : d.used ? `${String(Math.round(d.points * 100) / 100)} de ${String(d.weight)} puntos` : 'sin dato'}`)
       .join('; '),
   )
+}
 
-  // 5. Caps that lowered the result (if it does not qualify they change nothing and are not mentioned).
+function appendCapsAndClarificationSection(b: DraftBuilder): void {
+  const { decision, sentences, notCollected } = b
   const caps = decision.evaluation.caps.filter((c) => c.applied)
   if (caps.length > 0 && decision.status !== 'not_qualified') {
     const why = caps.map((c) => (notCollected(c.feature) ? 'no indicar el comprador' : lowerFirst(featureLabel(c.feature))))
     sentences.push(`Además, la política limita el resultado a "${RESULT_TEXT[caps[0]?.max_status ?? 'qualified_with_limit']}" por ${listEs(why)}.`)
   }
+  if (decision.clarification !== null) {
+    sentences.push(`Falta aclarar con el proveedor ${listEs(decision.clarification.topics.map((t) => ASK_LABEL[t] ?? t))}.`)
+  }
+}
 
-  // 6. What remains to clarify.
-  if (decision.clarification !== null) sentences.push(`Falta aclarar con el proveedor ${listEs(decision.clarification.topics.map((t) => ASK_LABEL[t] ?? t))}.`)
-
-  // Engine reasons go in as a fact: their figures can be cited and give the writer context. Without
-  // those of what is not evaluated by design, and with the same dimension name as the list above.
+function buildEngineMotivesFact(b: DraftBuilder, skipped: Decision['evaluation']['dimensions']): void {
+  const { decision, fact, notCollected } = b
   const skippedCodes = new Set(skipped.map((d) => `dimension_${d.id}_without_data`))
   const motives = decision.reasons
     .filter((r) => !skippedCodes.has(r.code) && !(r.code.startsWith('cap_') && r.features.every((f) => notCollected(f))))
     .map((r) => decision.evaluation.dimensions.reduce((m, d) => m.replaceAll(`La dimensión "${d.id}"`, `La dimensión ${dimensionLabel(d)}`), r.message))
   fact('motivos_del_motor', motives.join(' | '))
+}
+
+export function explanationDraft(decision: Decision, maxLine: MaxLine | null = null, ctx: ExplanationContext = {}): ExplanationDraft {
+  const b = createDraftBuilder(decision, maxLine, ctx)
+  const regimeText = appendResultAndHeaderSection(b)
+  appendCashFlowSection(b)
+  appendGatesAndAgeSection(b)
+  const skipped = decision.evaluation.dimensions.filter(b.byDesign)
+  appendDimensionsSection(b, skipped)
+  appendCapsAndClarificationSection(b)
+  buildEngineMotivesFact(b, skipped)
+
   return {
-    facts,
-    template: sentences.join(' '),
+    facts: b.facts,
+    template: b.sentences.join(' '),
     context: {
       resultado: RESULT_TEXT[decision.status],
       no_evaluado_por_diseno: skipped.map((d) => dimensionLabel(d)),

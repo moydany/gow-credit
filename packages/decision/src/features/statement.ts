@@ -9,12 +9,13 @@
  * - The confidence of a feature that depends on classification is the amount-weighted mean
  *   confidence of the movements feeding it.
  */
-import { checkRfc, rfcRoot, type DOCUMENT_TAMPER_SIGNALS, type Issue, type StatementExtraction, type Verification } from '@gow/contracts'
-import { evidenceRef, type Ledger, type LedgerRow } from '../ledger.ts'
+import { type DOCUMENT_TAMPER_SIGNALS, type Issue, type StatementExtraction, type Verification } from '@gow/contracts'
+import { evidenceRef, type Ledger, type LedgerDocument, type LedgerPeriod, type LedgerRow } from '../ledger.ts'
 import { AVG_MONTH_DAYS, intervalDays, toDay, unionIntervals, type Interval } from '../util/dates.ts'
 import { clamp01, round2, round4, sumMoney, weightedMean } from '../util/num.ts'
-import { nameSimilarity, normalizeText } from '../util/text.ts'
+import { normalizeText } from '../util/text.ts'
 import { fiscalAnchor, fiscalRegime, regimeIncomePlausible } from './fiscal.ts'
+import { compareName, compareRfc, identityMatch } from './statement-identity.ts'
 import type { StatementContext } from './statement-context.ts'
 import { combinedProvenance, known, unknown, worst, type Entries, type Entry } from './entry.ts'
 
@@ -26,6 +27,7 @@ const MIN_DAYS_FOR_MONTHLY = 7
 const MIN_IDENTIFIED_SHARE = 0.5
 
 export type { StatementContext }
+export { compareName, compareRfc }
 
 export interface Coverage {
   segments: Interval[]
@@ -87,109 +89,53 @@ function monthsOfHistory(ledger: Ledger, cov: Coverage): Entry {
   return known(Math.floor(days / AVG_MONTH_DAYS + MONTH_TOLERANCE), { verification: cov.verified ? 'verified' : 'unverified', evidence: ledger.periods.map((p) => `${p.doc.tag}:${p.period.id}`), note })
 }
 
+function periodCutoffDay(p: LedgerPeriod): { day: number | null; verified: boolean } {
+  const printed = p.period.statement_date.verification === 'verified' ? p.period.statement_date.value : null
+  const end = p.period.period_end.verification === 'verified' ? p.period.period_end.value : null
+  const day = printed !== null ? toDay(printed) : end !== null ? toDay(end) : p.end
+  return { day, verified: printed !== null || end !== null }
+}
+
+function documentReferenceDay(
+  doc: LedgerDocument,
+  periods: readonly LedgerPeriod[],
+): { day: number; verified: boolean; evidenceRef: string } | null {
+  let corte: number | null = null
+  let corteVerified = true
+  for (const p of periods) {
+    const { day, verified } = periodCutoffDay(p)
+    if (day === null) continue
+    if (!verified) corteVerified = false
+    corte = corte === null ? day : Math.max(corte, day)
+  }
+  if (corte === null) return null
+
+  const certified = doc.statement.fiscal_documents
+    .filter((f) => f.kind === 'income' && f.certified_at.value !== null && f.certified_at.verification === 'verified')
+    .map((f) => toDay(f.certified_at.value ?? ''))
+  const reference = certified.length > 0 ? Math.min(corte, ...certified) : corte
+  const field = certified.length > 0 && Math.min(...certified) < corte ? 'cfdi.certified_at' : 'statement_date'
+  return { day: reference, verified: corteVerified, evidenceRef: `${doc.tag}:${field}` }
+}
+
 function documentAgeDays(ctx: StatementContext): Entry {
   let latest: number | null = null
   let latestVerification: Verification = 'verified'
   const evidence: string[] = []
   for (const doc of ctx.ledger.documents) {
     const periods = ctx.ledger.periods.filter((p) => p.doc === doc)
-    let corte: number | null = null
-    let corteVerified = true
-    for (const p of periods) {
-      const printed = p.period.statement_date.verification === 'verified' ? p.period.statement_date.value : null
-      const end = p.period.period_end.verification === 'verified' ? p.period.period_end.value : null
-      const day = printed !== null ? toDay(printed) : end !== null ? toDay(end) : p.end
-      if (day === null) continue
-      if (printed === null && end === null) corteVerified = false
-      corte = corte === null ? day : Math.max(corte, day)
-    }
-    if (corte === null) continue
-    // The CFDI stamp date is a SAT mark: if it is earlier than the printed cutoff, it wins. So a
-    // cutoff edited forward does not make the document look newer.
-    const certified = doc.statement.fiscal_documents
-      .filter((f) => f.kind === 'income' && f.certified_at.value !== null && f.certified_at.verification === 'verified')
-      .map((f) => toDay(f.certified_at.value ?? ''))
-    const reference = certified.length > 0 ? Math.min(corte, ...certified) : corte
-    evidence.push(`${doc.tag}:${certified.length > 0 && Math.min(...certified) < corte ? 'cfdi.certified_at' : 'statement_date'}`)
-    if (latest === null || reference > latest) {
-      latest = reference
-      latestVerification = corteVerified ? 'verified' : 'unverified'
+    const ref = documentReferenceDay(doc, periods)
+    if (ref === null) continue
+    evidence.push(ref.evidenceRef)
+    if (latest === null || ref.day > latest) {
+      latest = ref.day
+      latestVerification = ref.verified ? 'verified' : 'unverified'
     }
   }
   if (latest === null) return unknown('sin fecha de corte ni movimientos')
   const age = ctx.asOfDay - latest
   if (age < 0) return known(0, { verification: 'conflict', evidence, note: 'la fecha de corte es posterior a la fecha de cálculo' })
   return known(age, { verification: latestVerification, evidence, note: null })
-}
-
-/** `root`: the document's RFC has no homoclave and its root matches the registered one. */
-type FieldResult = 'match' | 'partial' | 'root' | 'mismatch' | null
-
-const MASK_CHARS = /[*•#]/
-
-function cleanId(s: string): string {
-  return s.replace(/[\s-]/g, '').toUpperCase()
-}
-
-/** Compares position by position, skipping masked ones. */
-function compareMasked(doc: string, registered: string): FieldResult {
-  if (doc.length !== registered.length) return 'mismatch'
-  let visible = 0
-  for (let i = 0; i < doc.length; i++) {
-    const c = doc[i] ?? ''
-    if (MASK_CHARS.test(c)) continue
-    visible++
-    if (c !== registered[i]) return 'mismatch'
-  }
-  return visible >= 3 ? 'partial' : null
-}
-
-export function compareRfc(docRfc: string, registered: string): FieldResult {
-  const a = cleanId(docRfc)
-  const b = cleanId(registered)
-  // No homoclave: the root (letters and date) is compared against the start of the registered RFC.
-  const root = rfcRoot(a)
-  if (root !== null) return checkRfc(b).result === 'valid' && b.length === root.length + 3 ? (b.startsWith(root) ? 'root' : 'mismatch') : null
-  const check = checkRfc(a)
-  if (check.result === 'valid') return check.kind === 'generic' ? null : a === b ? 'match' : 'mismatch'
-  if (check.result === 'masked') return compareMasked(a, b)
-  return null
-}
-
-export function compareName(docName: string, registered: string): FieldResult {
-  const sim = nameSimilarity(docName, registered)
-  if (normalizeText(docName).length === 0) return null
-  return sim >= 0.99 ? 'match' : sim >= 0.5 ? 'partial' : 'mismatch'
-}
-
-function identityMatch(ctx: StatementContext): Entry {
-  const supplier = ctx.supplier
-  if (supplier === null) return unknown('sin proveedor registrado contra el cual comparar')
-  // Only name and RFC. The CLABE is extracted but does not tell whose account it is: whoever
-  // sends the document can supply the same CLABE it prints.
-  const results: { field: 'rfc' | 'name'; result: FieldResult; verification: Verification; where: string }[] = []
-  for (const doc of ctx.ledger.documents) {
-    const s = doc.statement
-    if (supplier.rfc !== null) {
-      if (s.holder.rfc.value !== null) results.push({ field: 'rfc', result: compareRfc(s.holder.rfc.value, supplier.rfc), verification: s.holder.rfc.verification, where: `${doc.tag}:holder.rfc` })
-      // The header often masks the RFC; the CFDI prints it in full.
-      for (const f of s.fiscal_documents) {
-        if (f.receiver.rfc.value !== null) results.push({ field: 'rfc', result: compareRfc(f.receiver.rfc.value, supplier.rfc), verification: f.receiver.rfc.verification, where: `${doc.tag}:${f.id}.receiver.rfc` })
-      }
-    }
-    if (s.holder.name.value !== null) results.push({ field: 'name', result: compareName(s.holder.name.value, supplier.legal_name), verification: s.holder.name.verification, where: `${doc.tag}:holder.name` })
-  }
-  const compared = results.filter((r) => r.result !== null)
-  if (compared.length === 0) return unknown('titular y RFC no vienen en el documento o no se pueden comparar (redactados o enmascarados)')
-  const verification = worst(...compared.map((r) => r.verification))
-  const evidence = compared.map((r) => `${r.where}=${r.result ?? ''}`)
-  const has = (field: string, result: FieldResult) => compared.some((r) => r.field === field && r.result === result)
-  let value: 'match' | 'partial' | 'mismatch'
-  if (compared.some((r) => r.result === 'mismatch')) value = 'mismatch'
-  // The full RFC, or the name plus the RFC root (no homoclave).
-  else if (has('rfc', 'match') || (has('name', 'match') && has('rfc', 'root'))) value = 'match'
-  else value = 'partial'
-  return known(value, { verification, evidence, note: `campos comparados: ${[...new Set(compared.map((r) => r.field))].join(', ')}` })
 }
 
 function integrityOk(ledger: Ledger): Entry {
@@ -219,6 +165,20 @@ const FLAG_RULES: readonly (readonly ['returned_check' | 'garnishment' | 'judici
 /** What is said when the computed daily balance goes negative and is not taken as an overdraft. */
 const UNRELIABLE_BALANCE_NOTE = 'saldo calculado no confiable: el periodo no cuadra'
 
+function scanRowRedFlags(
+  row: Ledger['rows'][number],
+  add: (flag: string, verified: boolean, ref: string) => void,
+): void {
+  if (row.internal) return
+  const text = normalizeText(`${row.tx.description} ${row.tx.reference ?? ''}`)
+  for (const [flag, re] of FLAG_RULES) {
+    if (re.test(text)) add(flag, row.verified, evidenceRef(row))
+  }
+  if (row.tx.balance !== null && row.tx.balance < 0) {
+    add('overdraft', row.verified, evidenceRef(row))
+  }
+}
+
 /**
  * `balancesTrusted`: every period balances, so the daily balance computed from the movements is
  * the bank's. If they do not (a repeated or missing page, an altered row), that balance says
@@ -234,12 +194,7 @@ function redFlags(ledger: Ledger, minDailyBalance: number | null, balancesTruste
     f.refs.push(ref)
     found.set(flag, f)
   }
-  for (const r of ledger.rows) {
-    if (r.internal) continue
-    const text = normalizeText(`${r.tx.description} ${r.tx.reference ?? ''}`)
-    for (const [flag, re] of FLAG_RULES) if (re.test(text)) add(flag, r.verified, evidenceRef(r))
-    if (r.tx.balance !== null && r.tx.balance < 0) add('overdraft', r.verified, evidenceRef(r))
-  }
+  for (const r of ledger.rows) scanRowRedFlags(r, add)
   const negativeComputed = minDailyBalance !== null && minDailyBalance < 0
   if (negativeComputed && balancesTrusted) add('overdraft', true, 'saldo diario calculado')
   const flags = [...found.keys()].sort()
@@ -467,6 +422,26 @@ interface DailyBalances {
   verification: Verification
 }
 
+function accumulatePeriodDailyBalances(
+  p: LedgerPeriod,
+  rows: readonly LedgerRow[],
+  perDay: Map<number, number>,
+): void {
+  const byDay = new Map<number, number>()
+  const start = p.start ?? 0
+  const end = p.end ?? 0
+  for (const r of rows) {
+    if (r.period !== p || (p.excludesInternal && r.internal)) continue
+    const d = Math.min(Math.max(r.day, start), end)
+    byDay.set(d, (byDay.get(d) ?? 0) + Math.round((r.type === 'credit' ? 1 : -1) * r.amount * 100))
+  }
+  let cents = Math.round(((p.period.summary.opening_balance.value ?? 0) + p.openingShift) * 100)
+  for (let d = start; d <= end; d++) {
+    cents += byDay.get(d) ?? 0
+    perDay.set(d, (perDay.get(d) ?? 0) + cents)
+  }
+}
+
 /**
  * End-of-day balance, summing the accounts that cover that day. Walks from the printed opening
  * balance; in a consolidated summary internal transfers do not move the balance.
@@ -479,17 +454,7 @@ function dailyBalances(ledger: Ledger, threshold: number): DailyBalances | strin
     const opening = p.period.summary.opening_balance
     if (opening.value === null) return `el periodo ${p.period.id} de ${p.doc.tag} no imprime saldo inicial`
     verification = worst(verification, opening.verification)
-    const byDay = new Map<number, number>()
-    for (const r of ledger.rows) {
-      if (r.period !== p || (p.excludesInternal && r.internal)) continue
-      const d = Math.min(Math.max(r.day, p.start), p.end)
-      byDay.set(d, (byDay.get(d) ?? 0) + Math.round((r.type === 'credit' ? 1 : -1) * r.amount * 100))
-    }
-    let cents = Math.round((opening.value + p.openingShift) * 100)
-    for (let d = p.start; d <= p.end; d++) {
-      cents += byDay.get(d) ?? 0
-      perDay.set(d, (perDay.get(d) ?? 0) + cents)
-    }
+    accumulatePeriodDailyBalances(p, ledger.rows, perDay)
   }
   if (perDay.size === 0) return 'sin días cubiertos'
   const values = [...perDay.values()]

@@ -155,6 +155,146 @@ function periodBounds(p: Period): { start: number | null; end: number | null; ve
   return { start: printedStart ?? minTx, end: printedEnd ?? maxTx, verified: printedStart !== null && printedEnd !== null }
 }
 
+function isEligibleAccount(
+  a: StatementExtraction['accounts'][number],
+  docTag: string,
+  skipped: string[],
+): boolean {
+  if (a.account_type.value === 'credit_card') {
+    skipped.push(`cuenta ${a.id} de ${docTag} es tarjeta de crédito: no es flujo de la empresa`)
+    return false
+  }
+  const currency = a.currency.value
+  if (currency !== null && currency !== 'MXN') {
+    skipped.push(`cuenta ${a.id} de ${docTag} en ${currency}: sin conversión de moneda`)
+    return false
+  }
+  return true
+}
+
+interface ResolvedClassification {
+  classification: TransactionClassification
+  classifiedBy: LedgerRow['classifiedBy']
+  rule: string | null
+  buyer: LedgerRow['buyerMatch']
+  mixedUseDiscount: boolean
+}
+
+function selectInitialClassification(
+  given: TransactionClassification | null,
+  rules: ReturnType<typeof classifyByRules>,
+  buyerHit: 'rfc' | 'name' | null,
+  ctxBuyer: ReturnType<typeof ruleContext>['buyer'],
+  minConfidence: number,
+): {
+  classification: TransactionClassification
+  classifiedBy: LedgerRow['classifiedBy']
+  rule: string | null
+  buyer: LedgerRow['buyerMatch']
+} {
+  if (given !== null && given.confidence >= minConfidence) {
+    return {
+      classification: given,
+      classifiedBy: 'given',
+      rule: null,
+      buyer: given.category === 'customer_payment' ? buyerHit : null,
+    }
+  }
+  if (buyerHit !== null && ctxBuyer !== null) {
+    return {
+      classification: {
+        category: 'customer_payment',
+        confidence: buyerHit === 'rfc' ? 0.98 : 0.95,
+        counterparty: ctxBuyer.name,
+        counterparty_rfc: given?.counterparty_rfc ?? rules.classification.counterparty_rfc,
+        classifier: rules.classification.classifier,
+      },
+      classifiedBy: 'buyer',
+      rule: `buyer_${buyerHit}`,
+      buyer: buyerHit,
+    }
+  }
+  if (given !== null) {
+    return { classification: given, classifiedBy: 'given', rule: null, buyer: null }
+  }
+  return {
+    classification: rules.classification,
+    classifiedBy: 'rules',
+    rule: rules.rule,
+    buyer: rules.buyerMatch,
+  }
+}
+
+function resolveRowClassification(
+  t: Transaction,
+  ctx: ReturnType<typeof ruleContext>,
+  opts: LedgerOptions,
+): ResolvedClassification {
+  const given = t.classification
+  const text = normalizeText(`${t.description} ${t.reference ?? ''}`)
+  const rules = classifyByRules(t, ctx)
+  const buyerHit =
+    t.type === 'credit' && !t.internal_transfer
+      ? buyerMatch(text, given?.counterparty_rfc ?? rules.classification.counterparty_rfc, ctx.buyer)
+      : null
+
+  const initial = selectInitialClassification(given, rules, buyerHit, ctx.buyer, opts.minConfidence)
+  let classification = initial.classification
+
+  const mixedUseDiscount =
+    opts.accountUse === 'mixed' &&
+    isPresumedCustomerPayment({
+      type: t.type,
+      internal: t.internal_transfer,
+      classification,
+      buyerMatch: initial.buyer,
+    })
+
+  if (mixedUseDiscount) {
+    classification = {
+      ...classification,
+      confidence: Math.min(classification.confidence, MIXED_PRESUMED_CONFIDENCE),
+    }
+  }
+
+  return {
+    classification,
+    classifiedBy: initial.classifiedBy,
+    rule: initial.rule,
+    buyer: initial.buyer,
+    mixedUseDiscount,
+  }
+}
+
+function buildPeriodRows(
+  doc: LedgerDocument,
+  lp: LedgerPeriod,
+  p: StatementExtraction['accounts'][number]['periods'][number],
+  ctx: ReturnType<typeof ruleContext>,
+  opts: LedgerOptions,
+): LedgerRow[] {
+  return p.transactions.map((t) => {
+    const res = resolveRowClassification(t, ctx, opts)
+    return {
+      ref: { document_sha256: doc.sha256, transaction_id: t.id },
+      doc,
+      period: lp,
+      tx: t,
+      day: toDay(t.date),
+      amount: t.amount,
+      type: t.type,
+      internal: t.internal_transfer,
+      verified: t.verification === 'verified',
+      classification: res.classification,
+      classifiedBy: res.classifiedBy,
+      rule: res.rule,
+      buyerMatch: res.buyer,
+      provenance: provenanceOf(t, res.classification),
+      mixedUseDiscount: res.mixedUseDiscount,
+    }
+  })
+}
+
 export function buildLedger(statements: readonly StatementExtraction[], opts: LedgerOptions): Ledger {
   const documents: LedgerDocument[] = []
   const periods: LedgerPeriod[] = []
@@ -183,22 +323,13 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
     const ctx = ruleContext(s, opts.request)
 
     for (const a of s.accounts) {
-      const accountType = a.account_type.value
-      if (accountType === 'credit_card') {
-        skipped.push(`cuenta ${a.id} de ${doc.tag} es tarjeta de crédito: no es flujo de la empresa`)
-        continue
-      }
-      const currency = a.currency.value
-      if (currency !== null && currency !== 'MXN') {
-        skipped.push(`cuenta ${a.id} de ${doc.tag} en ${currency}: sin conversión de moneda`)
-        continue
-      }
+      if (!isEligibleAccount(a, doc.tag, skipped)) continue
       for (const p of a.periods) {
         const b = periodBounds(p)
         const lp: LedgerPeriod = {
           doc,
           accountId: a.id,
-          accountType,
+          accountType: a.account_type.value,
           period: p,
           start: b.start,
           end: b.end,
@@ -208,54 +339,7 @@ export function buildLedger(statements: readonly StatementExtraction[], opts: Le
           clipped: false,
         }
         periods.push(lp)
-        for (const t of p.transactions) {
-          const given = t.classification
-          const text = normalizeText(`${t.description} ${t.reference ?? ''}`)
-          let classification: TransactionClassification
-          let classifiedBy: LedgerRow['classifiedBy']
-          let rule: string | null = null
-          let buyer: LedgerRow['buyerMatch'] = null
-          const rules = classifyByRules(t, ctx)
-          const buyerHit = t.type === 'credit' && !t.internal_transfer ? buyerMatch(text, given?.counterparty_rfc ?? rules.classification.counterparty_rfc, ctx.buyer) : null
-          if (given !== null && given.confidence >= opts.minConfidence) {
-            classification = given
-            classifiedBy = 'given'
-            buyer = given.category === 'customer_payment' ? buyerHit : null
-          } else if (buyerHit !== null && ctx.buyer !== null) {
-            classification = { category: 'customer_payment', confidence: buyerHit === 'rfc' ? 0.98 : 0.95, counterparty: ctx.buyer.name, counterparty_rfc: given?.counterparty_rfc ?? rules.classification.counterparty_rfc, classifier: rules.classification.classifier }
-            classifiedBy = 'buyer'
-            rule = `buyer_${buyerHit}`
-            buyer = buyerHit
-          } else if (given !== null) {
-            classification = given
-            classifiedBy = 'given'
-          } else {
-            classification = rules.classification
-            classifiedBy = 'rules'
-            rule = rules.rule
-            buyer = rules.buyerMatch
-          }
-          const internal = t.internal_transfer
-          const mixedUseDiscount = opts.accountUse === 'mixed' && isPresumedCustomerPayment({ type: t.type, internal, classification, buyerMatch: buyer })
-          if (mixedUseDiscount) classification = { ...classification, confidence: Math.min(classification.confidence, MIXED_PRESUMED_CONFIDENCE) }
-          rows.push({
-            ref: { document_sha256: sha, transaction_id: t.id },
-            doc,
-            period: lp,
-            tx: t,
-            day: toDay(t.date),
-            amount: t.amount,
-            type: t.type,
-            internal,
-            verified: t.verification === 'verified',
-            classification,
-            classifiedBy,
-            rule,
-            buyerMatch: buyer,
-            provenance: provenanceOf(t, classification),
-            mixedUseDiscount,
-          })
-        }
+        rows.push(...buildPeriodRows(doc, lp, p, ctx, opts))
       }
     }
   }
@@ -329,6 +413,35 @@ export interface PeriodWindow {
   status: PeriodWindowStatus
 }
 
+function classifyPeriodWindow(
+  s: StatementExtraction,
+  a: StatementExtraction['accounts'][number],
+  p: StatementExtraction['accounts'][number]['periods'][number],
+  ledger: Ledger,
+  kept: Map<string, LedgerPeriod>,
+): PeriodWindow {
+  const k = kept.get(`${s.document.sha256}|${a.id}|${p.id}`)
+  const b = periodBounds(p)
+  const isExcludedAccount =
+    a.account_type.value === 'credit_card' || (a.currency.value !== null && a.currency.value !== 'MXN')
+  const inLedger = !isExcludedAccount && ledger.submitted.some((d) => d.statement === s)
+  let status: PeriodWindowStatus = 'excluded'
+  if (k) {
+    status = k.clipped ? 'cut' : 'evaluated'
+  } else if (inLedger) {
+    status = 'outside'
+  }
+  const iso = (d: number | null) => (d === null ? null : fromDay(d))
+  return {
+    document_sha256: s.document.sha256,
+    account_id: a.id,
+    period_id: p.id,
+    start: iso(k ? k.start : b.start),
+    end: iso(k ? k.end : b.end),
+    status,
+  }
+}
+
 /**
  * Each period of the statements against the evaluated months, with the same rules as the profile:
  * `evaluated` whole, `cut` to its last months, `outside` the window, `excluded` from the profile
@@ -339,19 +452,11 @@ export function periodWindows(statements: readonly StatementExtraction[], months
   const ledger = buildLedger(statements, { request: null, minConfidence: 0, months })
   const kept = new Map(ledger.periods.map((p) => [`${p.doc.sha256}|${p.accountId}|${p.period.id}`, p]))
   const iso = (d: number | null) => (d === null ? null : fromDay(d))
-  const periods: PeriodWindow[] = []
-  for (const s of statements) {
-    for (const a of s.accounts) {
-      for (const p of a.periods) {
-        const k = kept.get(`${s.document.sha256}|${a.id}|${p.id}`)
-        const b = periodBounds(p)
-        // Same exclusions as buildLedger: a document that did not enter, a credit card, another currency.
-        const inLedger = ledger.submitted.some((d) => d.statement === s) && a.account_type.value !== 'credit_card' && (a.currency.value === null || a.currency.value === 'MXN')
-        const status: PeriodWindowStatus = k ? (k.clipped ? 'cut' : 'evaluated') : inLedger ? 'outside' : 'excluded'
-        periods.push({ document_sha256: s.document.sha256, account_id: a.id, period_id: p.id, start: iso(k ? k.start : b.start), end: iso(k ? k.end : b.end), status })
-      }
-    }
-  }
+  const periods = statements.flatMap((s) =>
+    s.accounts.flatMap((a) =>
+      a.periods.map((p) => classifyPeriodWindow(s, a, p, ledger, kept)),
+    ),
+  )
   const starts = ledger.periods.flatMap((p) => (p.start === null ? [] : [p.start]))
   const ends = ledger.periods.flatMap((p) => (p.end === null ? [] : [p.end]))
   return { start: starts.length > 0 ? iso(Math.min(...starts)) : null, end: ends.length > 0 ? iso(Math.max(...ends)) : null, periods }
