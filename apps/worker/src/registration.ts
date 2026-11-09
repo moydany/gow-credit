@@ -140,6 +140,59 @@ export interface Completion {
   resume: ResumeJob | null
 }
 
+async function buildHeldVerdictCompletion(
+  tx: Tx,
+  tenantId: string,
+  app: typeof applications.$inferSelect,
+  reg: Registration,
+  verdict: string,
+  say: (rest: string, kind?: string, clarificationId?: string | null, resume?: ResumeJob | null) => Completion,
+): Promise<Completion> {
+  await tx.insert(auditLog).values({ tenantId, actor: `inbound:${reg.channel}`, action: 'verdict.queued', subject: app.id, details: { status: app.status, channel: reg.channel, held_until: 'registration' } })
+  const [d] = await tx.select({ limit: decisions.limitAmount }).from(decisions).where(and(eq(decisions.applicationId, app.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
+  const offer = reg.channel === 'whatsapp' ? await offerAmount(tx, { tenantId, applicationId: app.id, status: app.status, limit: d?.limit == null ? null : Number(d.limit), request: app.request, channel: 'whatsapp', address: reg.address }) : null
+  return say(offer ? `${verdict}\n\n${offer}` : verdict, 'verdict')
+}
+
+async function handleRegistrationClarification(
+  tx: Tx,
+  tenantId: string,
+  app: typeof applications.$inferSelect,
+  identity: { legalName: string; rfc: string },
+  say: (rest: string, kind?: string, clarificationId?: string | null, resume?: ResumeJob | null) => Completion,
+): Promise<Completion> {
+  const [open] = await tx
+    .select()
+    .from(clarifications)
+    .where(and(eq(clarifications.applicationId, app.id), eq(clarifications.status, 'open')))
+    .orderBy(desc(clarifications.round))
+    .limit(1)
+  if (!open) return say(REGISTRATION_REPLIES.analyst)
+  const questions = z.array(Question).parse(open.questions)
+  const prior = z.array(OwnerAnswer).parse(open.answers)
+  const identityAnswers: OwnerAnswer[] = questions.filter((q) => q.kind === 'identity' && !prior.some((a) => a.question_id === q.id)).map((q) => ({ question_id: q.id, kind: 'identity', legal_name: identity.legalName, rfc: identity.rfc, clabe: null }))
+  const answers = [...prior, ...identityAnswers]
+  if (isComplete(questions, answers)) {
+    await tx.update(clarifications).set({ answers, status: 'answered', answeredAt: sql`now()` }).where(eq(clarifications.id, open.id))
+    return say(REGISTRATION_REPLIES.finishing, 'registration', open.id, { tenant_id: tenantId, application_id: app.id, clarification_id: open.id })
+  }
+  await tx.update(clarifications).set({ answers }).where(eq(clarifications.id, open.id))
+  const answered = new Set(answers.map((a) => a.question_id))
+  const next = nextConversational(questions, open.currentQuestion)
+  const q = next >= 0 ? questions[next] : undefined
+  if (open.channel === 'whatsapp' && q && !answered.has(q.id)) {
+    await tx.update(clarifications).set({ currentQuestion: next, step: 'asking' }).where(eq(clarifications.id, open.id))
+    return say(renderQuestionAt(questions, next), 'question', open.id)
+  }
+  const doc = questions.findIndex((x) => isDocumentRequest(x) && !answered.has(x.id))
+  const request = doc >= 0 ? questions[doc] : undefined
+  if (open.channel === 'whatsapp' && request) {
+    await tx.update(clarifications).set({ currentQuestion: doc, step: 'asking' }).where(eq(clarifications.id, open.id))
+    return say(renderDocumentRequest(request), 'question', open.id)
+  }
+  return say(REGISTRATION_REPLIES.analyst)
+}
+
 /**
  * Writes the confirmed identity to the supplier and decides what to reply: the held verdict, the
  * clarification's next question or, if the clarification only waited for the identity, the resume.
@@ -156,49 +209,9 @@ export async function completeRegistration(tx: Tx, tenantId: string, reg: Regist
   const [app] = reg.applicationId ? await tx.select().from(applications).where(eq(applications.id, reg.applicationId)) : []
   if (!app) return say(REGISTRATION_REPLIES.ask_statement)
   const verdict = await verdictText(tx, app)
-  if (verdict) {
-    await tx.insert(auditLog).values({ tenantId, actor: `inbound:${reg.channel}`, action: 'verdict.queued', subject: app.id, details: { status: app.status, channel: reg.channel, held_until: 'registration' } })
-    // With no requested amount and a line, here too we ask how much they want to advance.
-    const [d] = await tx.select({ limit: decisions.limitAmount }).from(decisions).where(and(eq(decisions.applicationId, app.id), eq(decisions.kind, 'active'))).orderBy(desc(decisions.createdAt)).limit(1)
-    const offer = reg.channel === 'whatsapp' ? await offerAmount(tx, { tenantId, applicationId: app.id, status: app.status, limit: d?.limit == null ? null : Number(d.limit), request: app.request, channel: 'whatsapp', address: reg.address }) : null
-    return say(offer ? `${verdict}\n\n${offer}` : verdict, 'verdict')
-  }
+  if (verdict) return buildHeldVerdictCompletion(tx, tenantId, app, reg, verdict, say)
   if (app.status === 'failed') return say(failureNotice(describeFailure(app.failureReason)), 'verdict')
   if (app.status !== 'needs_clarification') return say(REGISTRATION_REPLIES.finishing)
 
-  const [open] = await tx
-    .select()
-    .from(clarifications)
-    .where(and(eq(clarifications.applicationId, app.id), eq(clarifications.status, 'open')))
-    .orderBy(desc(clarifications.round))
-    .limit(1)
-  if (!open) return say(REGISTRATION_REPLIES.analyst)
-  // The identity question is answered with what the supplier just confirmed or corrected.
-  const questions = z.array(Question).parse(open.questions)
-  const prior = z.array(OwnerAnswer).parse(open.answers)
-  const identityAnswers: OwnerAnswer[] = questions.filter((q) => q.kind === 'identity' && !prior.some((a) => a.question_id === q.id)).map((q) => ({ question_id: q.id, kind: 'identity', legal_name: identity.legalName, rfc: identity.rfc, clabe: null }))
-  const answers = [...prior, ...identityAnswers]
-  if (isComplete(questions, answers)) {
-    await tx.update(clarifications).set({ answers, status: 'answered', answeredAt: sql`now()` }).where(eq(clarifications.id, open.id))
-    return say(REGISTRATION_REPLIES.finishing, 'registration', open.id, { tenant_id: tenantId, application_id: app.id, clarification_id: open.id })
-  }
-  await tx.update(clarifications).set({ answers }).where(eq(clarifications.id, open.id))
-  // Payments left to ask over this chat: the held question goes out now.
-  const answered = new Set(answers.map((a) => a.question_id))
-  const next = nextConversational(questions, open.currentQuestion)
-  const q = next >= 0 ? questions[next] : undefined
-  // The summary to confirm goes out on answering the last one; with no chat questions there is no summary.
-  if (open.channel === 'whatsapp' && q && !answered.has(q.id)) {
-    await tx.update(clarifications).set({ currentQuestion: next, step: 'asking' }).where(eq(clarifications.id, open.id))
-    return say(renderQuestionAt(questions, next), 'question', open.id)
-  }
-  // With no chat questions, the missing-pages one is answered by sending the PDF over this chat: the
-  // request goes out, as when there is no registration in between (channel.ts), not the analyst notice.
-  const doc = questions.findIndex((x) => isDocumentRequest(x) && !answered.has(x.id))
-  const request = doc >= 0 ? questions[doc] : undefined
-  if (open.channel === 'whatsapp' && request) {
-    await tx.update(clarifications).set({ currentQuestion: doc, step: 'asking' }).where(eq(clarifications.id, open.id))
-    return say(renderDocumentRequest(request), 'question', open.id)
-  }
-  return say(REGISTRATION_REPLIES.analyst)
+  return handleRegistrationClarification(tx, tenantId, app, identity, say)
 }

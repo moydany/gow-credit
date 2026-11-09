@@ -18,9 +18,7 @@ export function inUse(e: unknown): boolean {
 
 const PurgeResult = z.object({ application_ids: z.array(z.uuid()), run_ids: z.array(z.string()), storage_paths: z.array(z.string()), counts: SupplierDeleted.shape.counts })
 
-export function suppliersRouter(deps: BackofficeDeps): express.Router {
-  const r = express.Router()
-  // ---------- Suppliers: list, create, detail and edit
+function mountSupplierQueries(r: express.Router, deps: BackofficeDeps): void {
   r.get('/suppliers', async (_req, res) => {
     const rows = await withTenant(deps.db, who(res).tenantId, (tx) =>
       tx.execute<{ id: string; legal_name: string; rfc: string | null; external_ref: string | null; created_at: Date; applications: number; last_id: string | null; last_status: ApplicationRow['status'] | null; last_at: Date | null }>(sql`
@@ -44,24 +42,6 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
     res.json(list)
   })
 
-  /** Create without contacts: a verified link comes in through the integration API (tenant KYC). */
-  r.post('/suppliers', async (req, res) => {
-    const w = who(res)
-    const body = parse(SupplierCreateBody, req.body)
-    try {
-      const id = await withTenant(deps.db, w.tenantId, async (tx) => {
-        const [s] = await tx.insert(suppliers).values({ tenantId: w.tenantId, legalName: body.legal_name, rfc: body.rfc, externalRef: body.external_ref, clabes: body.clabes }).returning({ id: suppliers.id })
-        if (!s) throw new HttpError(500, 'no se creó el proveedor')
-        await audit(tx, w.tenantId, actorOf(w), 'supplier.created', s.id, { contacts: 0 })
-        return s.id
-      })
-      res.status(201).json({ id })
-    } catch (e) {
-      if (uniqueViolation(e)) throw new HttpError(409, 'ya existe un proveedor con esa referencia externa', [{ path: 'external_ref', message: 'referencia repetida' }])
-      throw e
-    }
-  })
-
   r.get('/suppliers/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -76,7 +56,6 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
           left join lateral (select dd.status, dd.limit_amount, dd.score from app.decisions dd where dd.application_id = a.id and dd.kind = 'active' order by dd.created_at desc limit 1) d on true
          where a.supplier_id = ${id}::uuid
          order by a.created_at desc`)
-      // Viewing a supplier means viewing their RFC and CLABEs: audit-logged like viewing a request.
       await audit(tx, w.tenantId, actorOf(w), 'supplier.viewed', id)
       return { s, contacts, apps: apps.rows }
     })
@@ -100,8 +79,26 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
     }
     res.json(detail)
   })
+}
 
-  /** Edit legal name, RFC and CLABEs; the audit log carries only field names, never values. */
+function mountSupplierMutations(r: express.Router, deps: BackofficeDeps): void {
+  r.post('/suppliers', async (req, res) => {
+    const w = who(res)
+    const body = parse(SupplierCreateBody, req.body)
+    try {
+      const id = await withTenant(deps.db, w.tenantId, async (tx) => {
+        const [s] = await tx.insert(suppliers).values({ tenantId: w.tenantId, legalName: body.legal_name, rfc: body.rfc, externalRef: body.external_ref, clabes: body.clabes }).returning({ id: suppliers.id })
+        if (!s) throw new HttpError(500, 'no se creó el proveedor')
+        await audit(tx, w.tenantId, actorOf(w), 'supplier.created', s.id, { contacts: 0 })
+        return s.id
+      })
+      res.status(201).json({ id })
+    } catch (e) {
+      if (uniqueViolation(e)) throw new HttpError(409, 'ya existe un proveedor con esa referencia externa', [{ path: 'external_ref', message: 'referencia repetida' }])
+      throw e
+    }
+  })
+
   r.patch('/suppliers/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -116,13 +113,6 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
     res.json({ id, fields })
   })
 
-  /**
-   * Delete a supplier with everything of theirs: requests, documents, extractions, decisions,
-   * clarifications, credit results, corrections, registration and messages. The database part is
-   * one transaction through `app.purge_supplier` (the API role has no DELETE on those tables); the
-   * worker deletes the PDFs, queue jobs and Mastra state with `supplier.purge`. Refused with 409
-   * while a request is in progress. The audit log keeps only counts.
-   */
   r.delete('/suppliers/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -144,6 +134,11 @@ export function suppliersRouter(deps: BackofficeDeps): express.Router {
     const body: SupplierDeleted = { id, counts: purged.counts }
     res.json(body)
   })
+}
 
+export function suppliersRouter(deps: BackofficeDeps): express.Router {
+  const r = express.Router()
+  mountSupplierQueries(r, deps)
+  mountSupplierMutations(r, deps)
   return r
 }

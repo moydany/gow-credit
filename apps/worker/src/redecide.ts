@@ -5,7 +5,7 @@
  * and the tenant's current statement-age setting, using the same pure code as the workflow
  * (`decideState`). The result is stored as a new verdict; the previous one is kept.
  */
-import { calendarToday, CorrectionTarget, Decision, emptyExternalSnapshot, NO_DECLARATIONS, OwnerAnswer, Question, StatementExtraction, type OwnerDeclarations, type SupplierIdentity } from '@gow/contracts'
+import { calendarToday, CorrectionTarget, Decision, emptyExternalSnapshot, NO_DECLARATIONS, OwnerAnswer, Question, StatementExtraction, type ApplicationRequest, type ExternalSnapshot, type OwnerDeclarations, type SupplierIdentity } from '@gow/contracts'
 import { auditLog, applications, clarifications, corrections, decisions, extractions, withTenant, type Tx } from '@gow/db'
 import { applyOwnerAnswers } from '@gow/decision'
 import { applyCorrections } from '@gow/extraction/corrections'
@@ -69,6 +69,57 @@ async function loadForRedecide(s: WorkerServices, job: RedecideJob, applicationI
   return { ...loaded, statements, submittedSha: new Set([first, ...rest].map((x) => x.document.sha256)) }
 }
 
+function resolveAsOfDate(ctx: Awaited<ReturnType<typeof loadContext>>, lastPayload: unknown, today?: () => string): string {
+  if (ctx.application.asOf) return ctx.application.asOf
+  const previous = lastPayload ? Decision.safeParse(lastPayload) : null
+  if (previous?.success) return previous.data.profile.computed_at.slice(0, 10)
+  return today ? today() : calendarToday()
+}
+
+function replayRounds(
+  rounds: { questions: unknown; answers: unknown }[],
+  initialStatements: StatementExtraction[],
+  initialSupplier: SupplierIdentity | null,
+  request: ApplicationRequest | null,
+): { statements: StatementExtraction[]; supplier: SupplierIdentity | null; declarations: OwnerDeclarations; contradictions: AppState['contradictions'] } {
+  let statements = initialStatements
+  let supplier = initialSupplier
+  let declarations: OwnerDeclarations = NO_DECLARATIONS
+  const contradictions: AppState['contradictions'] = []
+  for (const r of rounds) {
+    const applied = applyOwnerAnswers({ statements, supplier, request, questions: z.array(Question).parse(r.questions), answers: z.array(OwnerAnswer).parse(r.answers), declarations })
+    statements = applied.statements
+    supplier = applied.supplier
+    declarations = applied.declarations
+    contradictions.push(...applied.contradictions)
+  }
+  return { statements, supplier, declarations, contradictions }
+}
+
+function finalizeRedecideDecision(
+  state: AppState,
+  external: ExternalSnapshot,
+  maxRounds: number,
+  fixesCount: number,
+): Decision {
+  let decided = decideState(state, external)
+  if (decided.decision?.status === 'needs_clarification' && fixesCount === 0) {
+    decided = decideState({ ...state, rounds: maxRounds }, external)
+  }
+  let decision = decided.decision
+  if (!decision) throw new Error('el motor no devolvió un veredicto')
+  if (decision.status === 'needs_clarification') {
+    decision = Decision.parse({
+      ...decision,
+      status: 'human_review',
+      limit: null,
+      clarification: null,
+      reasons: [...decision.reasons, { code: 'correction_needs_clarification', message: 'Con las correcciones el motor pediría una aclaración al proveedor; revisa el documento antes de decidir.', features: [] }],
+    })
+  }
+  return decision
+}
+
 export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promise<string> {
   const ctx = await loadContext(s.db, job.tenant_id, job.application_id)
   // The API puts the request in `deciding` when saving corrections; if it no longer is, this job already ran.
@@ -81,27 +132,20 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
   if (!doc) throw new Error('la solicitud no tiene documento')
 
   const loaded = await loadForRedecide(s, job, ctx.application.id, submitted, answered)
-  let statements = loaded.statements
-  const submittedSha = loaded.submittedSha
-  // What the supplier already answered still holds: re-applied in round order.
-  let supplier: SupplierIdentity | null = supplierIdentity(ctx.supplier)
-  let declarations: OwnerDeclarations = NO_DECLARATIONS
-  const contradictions: AppState['contradictions'] = []
-  for (const r of loaded.rounds) {
-    const applied = applyOwnerAnswers({ statements, supplier, request: requestOf(ctx), questions: z.array(Question).parse(r.questions), answers: z.array(OwnerAnswer).parse(r.answers), declarations })
-    statements = applied.statements
-    supplier = applied.supplier
-    declarations = applied.declarations
-    contradictions.push(...applied.contradictions)
-  }
+  const req = requestOf(ctx)
+  const { statements, supplier, declarations, contradictions } = replayRounds(
+    loaded.rounds,
+    loaded.statements,
+    supplierIdentity(ctx.supplier),
+    req,
+  )
 
   // Same "today" as the previous decision: correcting a value does not age the document.
-  const previous = loaded.last ? Decision.safeParse(loaded.last.payload) : null
-  const asOf = ctx.application.asOf ?? (previous?.success ? previous.data.profile.computed_at.slice(0, 10) : (s.today ? s.today() : calendarToday()))
+  const asOf = resolveAsOfDate(ctx, loaded.last?.payload, s.today)
   const state: AppState = {
-    input: { application_id: ctx.application.id, pdf_path: doc.storagePath, extra_pdf_paths: extra.map((d) => d.storagePath), as_of: asOf, request: requestOf(ctx), supplier: supplierIdentity(ctx.supplier), policy: ctx.active.policy, policy_id: ctx.active.id, statement_age: ctx.statementAge },
+    input: { application_id: ctx.application.id, pdf_path: doc.storagePath, extra_pdf_paths: extra.map((d) => d.storagePath), as_of: asOf, request: req, supplier: supplierIdentity(ctx.supplier), policy: ctx.active.policy, policy_id: ctx.active.id, statement_age: ctx.statementAge },
     statements,
-    documents: statements.map((x) => ({ file_name: x.document.file_name, sha256: x.document.sha256, extraction_status: x.extraction.status, origin: submittedSha.has(x.document.sha256) ? ('submitted' as const) : ('owner_answer' as const) })),
+    documents: statements.map((x) => ({ file_name: x.document.file_name, sha256: x.document.sha256, extraction_status: x.extraction.status, origin: loaded.submittedSha.has(x.document.sha256) ? ('submitted' as const) : ('owner_answer' as const) })),
     supplier,
     declarations,
     classification: null,
@@ -119,25 +163,7 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
     notes: [],
   }
   const external = s.external ? await s.external(ctx, state) : emptyExternalSnapshot()
-  let decided = decideState(state, external)
-  // Without corrections, the re-evaluation comes from the amount requested after the offer: the
-  // engine opens no new questions for that amount (e.g. main client) and decides with what it has.
-  if (decided.decision?.status === 'needs_clarification' && loaded.fixes.length === 0) {
-    decided = decideState({ ...state, rounds: ctx.active.policy.clarification.maxRounds }, external)
-  }
-  let decision = decided.decision
-  if (!decision) throw new Error('el motor no devolvió un veredicto')
-  // With the correction the engine might ask a new clarification; there is no suspended workflow to
-  // hand it back to, so it stays with the analyst rather than leaving the request with no way out.
-  if (decision.status === 'needs_clarification') {
-    decision = Decision.parse({
-      ...decision,
-      status: 'human_review',
-      limit: null,
-      clarification: null,
-      reasons: [...decision.reasons, { code: 'correction_needs_clarification', message: 'Con las correcciones el motor pediría una aclaración al proveedor; revisa el documento antes de decidir.', features: [] }],
-    })
-  }
+  const decision = finalizeRedecideDecision(state, external, ctx.active.policy.clarification.maxRounds, loaded.fixes.length)
 
   await withTenant(s.db, job.tenant_id, async (tx) => {
     await insertDecisions(tx, ctx, decision)

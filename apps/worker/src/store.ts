@@ -142,31 +142,59 @@ export function latestAddress(statements: readonly StatementExtraction[]): strin
   return best?.address ?? null
 }
 
+async function persistExtractions(tx: Tx, ctx: AppContext, statements: readonly StatementExtraction[]): Promise<void> {
+  for (const s of statements) {
+    const doc = ctx.documents.find((d) => d.sha256 === s.document.sha256)
+    if (!doc) continue
+    const [existing] = await tx.select({ id: extractions.id }).from(extractions).where(eq(extractions.documentId, doc.id))
+    if (!existing) {
+      await tx.insert(extractions).values({ tenantId: ctx.tenantId, documentId: doc.id, schemaVersion: s.schema_version, status: s.extraction.status, payload: s, costUsd: String(s.extraction.cost_usd) })
+    }
+  }
+}
+
+async function persistSupplierAddress(tx: Tx, supplierId: string, statements: readonly StatementExtraction[]): Promise<void> {
+  const address = latestAddress(statements)
+  if (address) await tx.update(suppliers).set({ address }).where(eq(suppliers.id, supplierId))
+}
+
+function resolveFailureReason(status: string, stateReason?: string | null, error?: string | null): string | null {
+  if (status !== 'failed') return null
+  return stateReason ?? error ?? 'el workflow terminó sin veredicto'
+}
+
+function extractVerdictLimit(state?: RunOutcome['state']): number | null {
+  if (state?.decision?.limit != null) return state.decision.limit
+  if (state?.max_line?.amount != null) return state.max_line.amount
+  return null
+}
+
+async function persistOutcomeTransaction(
+  tx: Tx,
+  ctx: AppContext,
+  outcome: RunOutcome,
+  status: typeof applications.$inferSelect.status,
+): Promise<void> {
+  const state = outcome.state
+  const stmts = state?.statements
+  if (stmts) {
+    await persistExtractions(tx, ctx, stmts)
+    await persistSupplierAddress(tx, ctx.supplier.id, stmts)
+  }
+  if (state?.decision) await insertDecisions(tx, ctx, state.decision)
+  const failure = resolveFailureReason(status, state?.failure_reason, outcome.error)
+  await tx
+    .update(applications)
+    .set({ status, failureReason: failure, runId: outcome.runId, suspendedStep: outcome.suspendedStep, updatedAt: new Date() })
+    .where(eq(applications.id, ctx.application.id))
+  await tx.insert(auditLog).values({ tenantId: ctx.tenantId, actor: 'worker', action: `application.${outcome.status}`, subject: ctx.application.id, details: { status } })
+  await queueVerdict(tx, ctx, status, extractVerdictLimit(state), failure, state?.decision ?? null)
+  if (identityPending(ctx)) await startConfirmation(tx, ctx, state, status)
+}
+
 export async function persistOutcome(db: Db, ctx: AppContext, outcome: RunOutcome): Promise<typeof applications.$inferSelect.status> {
   const run: RunInfo = { workflow: 'process-application', run_id: outcome.runId, status: outcome.status, suspended_step: outcome.suspendedStep }
-  const state = outcome.state
-  const status = applicationStatus(state, run)
-  await withTenant(db, ctx.tenantId, async (tx) => {
-    for (const s of state?.statements ?? []) {
-      const doc = ctx.documents.find((d) => d.sha256 === s.document.sha256)
-      if (!doc) continue
-      // The extraction is immutable: what the owner clarifies lives in the clarification and the verdict.
-      const [existing] = await tx.select({ id: extractions.id }).from(extractions).where(eq(extractions.documentId, doc.id))
-      if (!existing) await tx.insert(extractions).values({ tenantId: ctx.tenantId, documentId: doc.id, schemaVersion: s.schema_version, status: s.extraction.status, payload: s, costUsd: String(s.extraction.cost_usd) })
-    }
-    if (state?.decision) await insertDecisions(tx, ctx, state.decision)
-    // The holder's address, if any bank statement carries it, goes into the supplier profile.
-    const address = latestAddress(state?.statements ?? [])
-    if (address) await tx.update(suppliers).set({ address }).where(eq(suppliers.id, ctx.supplier.id))
-    const failure = status === 'failed' ? (state?.failure_reason ?? outcome.error ?? 'el workflow terminó sin veredicto') : null
-    await tx
-      .update(applications)
-      .set({ status, failureReason: failure, runId: outcome.runId, suspendedStep: outcome.suspendedStep, updatedAt: new Date() })
-      .where(eq(applications.id, ctx.application.id))
-    await tx.insert(auditLog).values({ tenantId: ctx.tenantId, actor: 'worker', action: `application.${outcome.status}`, subject: ctx.application.id, details: { status } })
-    // Without a requested amount, the notice amount is the maximum line.
-    await queueVerdict(tx, ctx, status, state?.decision?.limit ?? state?.max_line?.amount ?? null, failure, state?.decision ?? null)
-    if (identityPending(ctx)) await startConfirmation(tx, ctx, state, status)
-  })
+  const status = applicationStatus(outcome.state, run)
+  await withTenant(db, ctx.tenantId, (tx) => persistOutcomeTransaction(tx, ctx, outcome, status))
   return status
 }

@@ -14,10 +14,55 @@ import { actorOf, backofficeBase, ENTER_PATH, iso, SESSION_SECONDS, uniqueViolat
 const apiKeyColumns = { id: apiKeys.id, prefix: apiKeys.prefix, scopes: apiKeys.scopes, createdAt: apiKeys.createdAt, revokedAt: apiKeys.revokedAt }
 const apiKeyItem = (k: { id: string; prefix: string; scopes: string[]; createdAt: Date; revokedAt: Date | null }): ApiKeyItem => ({ id: k.id, prefix: k.prefix, scopes: k.scopes as ApiKeyItem['scopes'], created_at: k.createdAt.toISOString(), revoked_at: iso(k.revokedAt) })
 
-export function teamRouter(deps: BackofficeDeps): express.Router {
-  const r = express.Router()
-  const backofficeOrigin = backofficeBase(deps)
-  // ---------- Settings: backoffice users
+async function inviteTenantUser(
+  deps: BackofficeDeps,
+  w: ReturnType<typeof who>,
+  body: z.infer<typeof TenantUserCreateBody>,
+  backofficeOrigin: string,
+): Promise<TenantUserCreated> {
+  const conflict = new HttpError(409, 'ese correo ya tiene acceso al backoffice', [{ path: 'email', message: 'correo ya registrado' }])
+  const memberOfThisTenant = async (tx: Tx) => (await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))).length > 0
+  let userId: string = randomUUID()
+  if (deps.auth) {
+    if (await withTenant(deps.db, w.tenantId, memberOfThisTenant)) throw conflict
+    try {
+      userId = await deps.auth.ensureUser(body.email)
+    } catch (e) {
+      deps.logger?.error(`backoffice: no se creó la cuenta de Auth (${e instanceof Error ? e.message : 'error'})`)
+      throw new HttpError(502, 'no se pudo crear la cuenta de acceso; intenta de nuevo')
+    }
+  }
+  let row: { userId: string; email: string; createdAt: Date }
+  try {
+    row = await withTenant(deps.db, w.tenantId, async (tx) => {
+      if (await memberOfThisTenant(tx)) throw conflict
+      const [u] = await tx.insert(tenantUsers).values({ tenantId: w.tenantId, userId, email: body.email, invitedBy: w.userId }).returning()
+      if (!u) throw new HttpError(500, 'no se agregó el usuario')
+      await audit(tx, w.tenantId, actorOf(w), 'user.added', u.userId)
+      return u
+    })
+  } catch (e) {
+    if (uniqueViolation(e)) throw conflict
+    throw e
+  }
+  const user = { id: row.userId, email: row.email, created_at: row.createdAt.toISOString(), invited_by: w.email, is_me: false }
+  if (deps.auth) {
+    const sent = await deps.auth.sendMagicLink(row.email, `${backofficeOrigin}${ENTER_PATH}`).catch((e: unknown) => {
+      deps.logger?.error(`backoffice: no se mandó el enlace al invitado (${e instanceof Error ? e.message : 'error'})`)
+      return false
+    })
+    return { user, access_link: null, expires_at: null, email_sent: sent }
+  }
+  const token = issueToken(deps.backofficeJwtSecret, { sub: row.userId, email: row.email, tenant_id: w.tenantId }, SESSION_SECONDS)
+  return {
+    user,
+    access_link: `${backofficeOrigin}${ENTER_PATH}#token=${token}`,
+    expires_at: new Date(Date.now() + SESSION_SECONDS * 1000).toISOString(),
+    email_sent: false,
+  }
+}
+
+function mountUserRoutes(r: express.Router, deps: BackofficeDeps, backofficeOrigin: string): void {
   r.get('/users', async (_req, res) => {
     const w = who(res)
     const rows = await withTenant(deps.db, w.tenantId, (tx) =>
@@ -30,67 +75,13 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     res.json(list)
   })
 
-  /**
-   * Invite: creates the membership. Without Supabase Auth it returns, once, the access link with
-   * the same JWT that `pnpm tenant user add` issues. With Supabase Auth it creates or finds the
-   * Auth account, stores its id as `user_id` and emails the link; there is no link to share. An
-   * existing user gets no new link here: that would be signing in as someone else.
-   */
   r.post('/users', async (req, res) => {
     const w = who(res)
     const body = parse(TenantUserCreateBody, req.body)
-    const conflict = new HttpError(409, 'ese correo ya tiene acceso al backoffice', [{ path: 'email', message: 'correo ya registrado' }])
-    const memberOfThisTenant = async (tx: Tx) => (await tx.select({ id: tenantUsers.userId }).from(tenantUsers).where(eq(tenantUsers.email, body.email))).length > 0
-    let userId: string = randomUUID()
-    if (deps.auth) {
-      // Before touching Auth, so we do not create accounts for a conflict already visible here.
-      if (await withTenant(deps.db, w.tenantId, memberOfThisTenant)) throw conflict
-      try {
-        userId = await deps.auth.ensureUser(body.email)
-      } catch (e) {
-        deps.logger?.error(`backoffice: no se creó la cuenta de Auth (${e instanceof Error ? e.message : 'error'})`)
-        throw new HttpError(502, 'no se pudo crear la cuenta de acceso; intenta de nuevo')
-      }
-    }
-    let row: { userId: string; email: string; createdAt: Date }
-    try {
-      row = await withTenant(deps.db, w.tenantId, async (tx) => {
-        if (await memberOfThisTenant(tx)) throw conflict
-        const [u] = await tx.insert(tenantUsers).values({ tenantId: w.tenantId, userId, email: body.email, invitedBy: w.userId }).returning()
-        if (!u) throw new HttpError(500, 'no se agregó el usuario')
-        await audit(tx, w.tenantId, actorOf(w), 'user.added', u.userId)
-        return u
-      })
-    } catch (e) {
-      // The email is unique across tenants: if it belongs to another, RLS hides it and uniqueness stops us.
-      // With Supabase the Auth account already exists and stays without membership: no tenant_id, no entry.
-      if (uniqueViolation(e)) throw conflict
-      throw e
-    }
-    const user = { id: row.userId, email: row.email, created_at: row.createdAt.toISOString(), invited_by: w.email, is_me: false }
-    if (deps.auth) {
-      const sent = await deps.auth.sendMagicLink(row.email, `${backofficeOrigin}${ENTER_PATH}`).catch((e: unknown) => {
-        deps.logger?.error(`backoffice: no se mandó el enlace al invitado (${e instanceof Error ? e.message : 'error'})`)
-        return false
-      })
-      const out: TenantUserCreated = { user, access_link: null, expires_at: null, email_sent: sent }
-      return void res.status(201).json(out)
-    }
-    const token = issueToken(deps.backofficeJwtSecret, { sub: row.userId, email: row.email, tenant_id: w.tenantId }, SESSION_SECONDS)
-    const out: TenantUserCreated = {
-      user,
-      access_link: `${backofficeOrigin}${ENTER_PATH}#token=${token}`,
-      expires_at: new Date(Date.now() + SESSION_SECONDS * 1000).toISOString(),
-      email_sent: false,
-    }
+    const out = await inviteTenantUser(deps, w, body, backofficeOrigin)
     res.status(201).json(out)
   })
 
-  /**
-   * Removing a user cuts their session on the next request (membership is always read). With
-   * Supabase Auth only the membership is removed: the Auth account stays (no tenant_id, no entry)
-   * and its id still explains the audit log.
-   */
   r.delete('/users/:id', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -102,8 +93,9 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     })
     res.status(204).end()
   })
+}
 
-  // ---------- Settings: API keys (the full key is shown once; only the hash is stored)
+function mountApiKeyRoutes(r: express.Router, deps: BackofficeDeps): void {
   r.get('/api-keys', async (_req, res) => {
     const rows = await withTenant(deps.db, who(res).tenantId, (tx) => tx.select(apiKeyColumns).from(apiKeys).orderBy(desc(apiKeys.createdAt)))
     res.json(rows.map(apiKeyItem))
@@ -123,7 +115,6 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     res.status(201).json(out)
   })
 
-  /** Revocation is immediate: `resolve_api_key` ignores revoked keys. The row is kept for the audit log. */
   r.post('/api-keys/:id/revoke', async (req, res) => {
     const id = parse(z.uuid(), req.params.id)
     const w = who(res)
@@ -138,6 +129,12 @@ export function teamRouter(deps: BackofficeDeps): express.Router {
     })
     res.json(apiKeyItem(row))
   })
+}
 
+export function teamRouter(deps: BackofficeDeps): express.Router {
+  const r = express.Router()
+  const backofficeOrigin = backofficeBase(deps)
+  mountUserRoutes(r, deps, backofficeOrigin)
+  mountApiKeyRoutes(r, deps)
   return r
 }

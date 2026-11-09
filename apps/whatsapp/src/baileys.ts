@@ -82,17 +82,22 @@ export function documentOf(message: WAMessage['message']): { caption: string; fi
   return { caption: doc.caption ?? '', fileName: doc.fileName ?? null, mediaType: doc.mimetype ?? null, size: Number(doc.fileLength ?? 0) }
 }
 
-/**
- * Photo, voice note, video or sticker: the sender is told a PDF is needed. Anything else that isn't
- * text or a document (reactions, locations, contacts, protocol notices) is still ignored.
- */
+function unwrapMessage(message: WAMessage['message']): WAMessage['message'] {
+  if (!message) return undefined
+  if (message.viewOnceMessage?.message) return message.viewOnceMessage.message
+  if (message.viewOnceMessageV2?.message) return message.viewOnceMessageV2.message
+  if (message.ephemeralMessage?.message) return message.ephemeralMessage.message
+  return message
+}
+
 export function mediaKindOf(message: WAMessage['message']): { kind: InboundMediaKind; caption: string } | null {
-  const inner = message?.viewOnceMessage?.message ?? message?.viewOnceMessageV2?.message ?? message?.ephemeralMessage?.message ?? message
-  if (inner?.imageMessage) return { kind: 'image', caption: inner.imageMessage.caption ?? '' }
-  if (inner?.videoMessage) return { kind: 'video', caption: inner.videoMessage.caption ?? '' }
-  if (inner?.ptvMessage) return { kind: 'video', caption: '' }
-  if (inner?.audioMessage) return { kind: 'audio', caption: '' }
-  if (inner?.stickerMessage) return { kind: 'sticker', caption: '' }
+  const inner = unwrapMessage(message)
+  if (!inner) return null
+  if (inner.imageMessage) return { kind: 'image', caption: inner.imageMessage.caption ?? '' }
+  if (inner.videoMessage) return { kind: 'video', caption: inner.videoMessage.caption ?? '' }
+  if (inner.ptvMessage) return { kind: 'video', caption: '' }
+  if (inner.audioMessage) return { kind: 'audio', caption: '' }
+  if (inner.stickerMessage) return { kind: 'sticker', caption: '' }
   return null
 }
 
@@ -166,6 +171,29 @@ export class BaileysTransport implements LinkableTransport {
     })
   }
 
+  async #downloadDocumentBuffer(sock: WASocket, m: WAMessage, docSize: number): Promise<Buffer> {
+    if (docSize > MAX_INBOUND_DOCUMENT_BYTES) return Buffer.alloc(0)
+    try {
+      const got = await downloadMediaMessage(m, 'buffer', {}, { logger: silent, reuploadRequest: sock.updateMediaMessage })
+      return got.length <= MAX_INBOUND_DOCUMENT_BYTES ? got : Buffer.alloc(0)
+    } catch {
+      return Buffer.alloc(0)
+    }
+  }
+
+  async #receiveNonDocument(m: WAMessage, from: string, onMessage: (m: IncomingWhatsApp) => Promise<void>): Promise<void> {
+    const text = m.message?.conversation ?? m.message?.extendedTextMessage?.text ?? ''
+    const media = mediaKindOf(m.message)
+    const id = m.key.id ?? ''
+    if (media) {
+      await onMessage({ from, id, text: media.caption, media: media.kind })
+    } else if (text) {
+      await onMessage({ from, id, text })
+    } else {
+      this.#onIgnored('unsupported_type')
+    }
+  }
+
   /**
    * One-to-one chats only: text and documents. Photos, voice notes, videos and stickers are passed
    * on by type without downloading, so the worker can ask for the PDF. Groups and statuses are
@@ -186,22 +214,10 @@ export class BaileysTransport implements LinkableTransport {
     }
     const doc = documentOf(m.message)
     if (!doc) {
-      const text = m.message?.conversation ?? m.message?.extendedTextMessage?.text ?? ''
-      const media = mediaKindOf(m.message)
-      if (media) await onMessage({ from, id: m.key.id, text: media.caption, media: media.kind })
-      else if (text) await onMessage({ from, id: m.key.id, text })
-      else this.#onIgnored('unsupported_type')
+      await this.#receiveNonDocument(m, from, onMessage)
       return
     }
-    let bytes: Buffer = Buffer.alloc(0)
-    if (doc.size <= MAX_INBOUND_DOCUMENT_BYTES) {
-      try {
-        const got = await downloadMediaMessage(m, 'buffer', {}, { logger: silent, reuploadRequest: sock.updateMediaMessage })
-        if (got.length <= MAX_INBOUND_DOCUMENT_BYTES) bytes = got
-      } catch {
-        // No bytes: the worker replies that it couldn't be received.
-      }
-    }
+    const bytes = await this.#downloadDocumentBuffer(sock, m, doc.size)
     await onMessage({ from, id: m.key.id, text: doc.caption, document: { bytes, fileName: doc.fileName, mediaType: doc.mediaType } })
   }
 
