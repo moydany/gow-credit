@@ -32,6 +32,40 @@ interface Box {
   height: number
 }
 
+interface RenderedTextItem {
+  str: string
+  transform: number[]
+  width: number
+}
+
+function computeHighlightBoxes(
+  items: RenderedTextItem[],
+  snippet: string | null,
+  viewport: { transform: number[] },
+  scale: number,
+): { flatLength: number; boxes: Box[] } {
+  let flat = ''
+  const owner: number[] = []
+  items.forEach((it, idx) => {
+    const n = norm(it.str)
+    for (let k = 0; k < n.length; k++) owner.push(idx)
+    flat += n
+  })
+  if (flat.length < 20 || !snippet) return { flatLength: flat.length, boxes: [] }
+  const hit = locate(flat, snippet)
+  if (!hit) return { flatLength: flat.length, boxes: [] }
+  const used = new Set(owner.slice(hit.start, hit.end))
+  const boxes: Box[] = []
+  for (const idx of used) {
+    const it = items[idx]
+    if (!it || !it.str.trim()) continue
+    const t = pdfjs.Util.transform(viewport.transform, it.transform) as number[]
+    const h = Math.hypot(t[2] ?? 0, t[3] ?? 0)
+    boxes.push({ left: (t[4] ?? 0) - 2, top: (t[5] ?? 0) - h * 0.9, width: it.width * scale + 4, height: h * 1.15 })
+  }
+  return { flatLength: flat.length, boxes }
+}
+
 export function PdfViewer({ documentId, focus, onPage, alerts, onAlert }: { documentId: string; focus: PdfFocus; onPage: (page: number) => void; alerts: ReadonlyMap<number, readonly PageAlert[]>; onAlert: (page: number, alert: PageAlert) => void }) {
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -106,29 +140,9 @@ export function PdfViewer({ documentId, focus, onPage, alerts, onAlert }: { docu
       // Highlight the cited snippet.
       const content = await p.getTextContent()
       const items = content.items.filter((i): i is Extract<typeof i, { str: string }> => 'str' in i)
-      let flat = ''
-      const owner: number[] = []
-      items.forEach((it, idx) => {
-        const n = norm(it.str)
-        for (let k = 0; k < n.length; k++) owner.push(idx)
-        flat += n
-      })
-      setNoText(flat.length < 20)
-      const hit = focus.snippet && flat.length >= 20 ? locate(flat, focus.snippet) : null
-      if (!hit) {
-        setBoxes([])
-        return
-      }
-      const used = new Set(owner.slice(hit.start, hit.end))
-      const out: Box[] = []
-      for (const idx of used) {
-        const it = items[idx]
-        if (!it || !it.str.trim()) continue
-        const t = pdfjs.Util.transform(viewport.transform, it.transform) as number[]
-        const h = Math.hypot(t[2] ?? 0, t[3] ?? 0)
-        out.push({ left: (t[4] ?? 0) - 2, top: (t[5] ?? 0) - h * 0.9, width: it.width * scale + 4, height: h * 1.15 })
-      }
-      setBoxes(out)
+      const { flatLength, boxes: snippetBoxes } = computeHighlightBoxes(items, focus.snippet, viewport, scale)
+      setNoText(flatLength < 20)
+      setBoxes(snippetBoxes)
     })()
     return () => {
       ctl.cancelled = true

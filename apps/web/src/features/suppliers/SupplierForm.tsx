@@ -26,6 +26,30 @@ function issuesByField(issues: { path: string; message: string }[]): Partial<Rec
   return out
 }
 
+function computeSupplierChanges(supplier: SupplierDetail, data: { legal_name?: string; rfc?: string | null; clabes?: string[] }) {
+  const changes: { legal_name?: string; rfc?: string | null; clabes?: string[] } = {}
+  if (data.legal_name !== undefined && data.legal_name !== supplier.legal_name) changes.legal_name = data.legal_name
+  if (data.rfc !== undefined && data.rfc !== supplier.rfc) changes.rfc = data.rfc
+  if (data.clabes !== undefined && data.clabes.join() !== supplier.clabes.join()) changes.clabes = data.clabes
+  return changes
+}
+
+function resolveFieldErrors(
+  server: Partial<Record<Field, string>>,
+  local: Partial<Record<Field, string>>,
+  tried: boolean,
+  name: string,
+  rfc: string,
+  clabes: string,
+  supplier?: SupplierDetail,
+) {
+  const show = (f: Field, dirty: boolean): string | undefined => server[f] ?? (tried || dirty ? local[f] : undefined)
+  const errName = show('legal_name', name !== (supplier?.legal_name ?? ''))
+  const errRfc = show('rfc', rfc.trim() !== '' && rfc !== (supplier?.rfc ?? ''))
+  const errClabes = show('clabes', clabes.trim() !== '' && clabes !== (supplier?.clabes ?? []).join('\n'))
+  return { errName, errRfc, errClabes }
+}
+
 export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open: boolean; onClose: () => void; supplier?: SupplierDetail; onCreated?: (id: string) => void }) {
   const editing = supplier !== undefined
   const [name, setName] = useState('')
@@ -49,19 +73,12 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
   const parsed = editing ? SupplierUpdateBody.safeParse(input) : SupplierCreateBody.safeParse(input)
   const local = parsed.success ? {} : issuesByField(parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
 
-  // On edit, what really changed from what's stored (already normalized).
-  const changes: { legal_name?: string; rfc?: string | null; clabes?: string[] } = {}
-  if (editing && parsed.success) {
-    const p = parsed.data
-    if (p.legal_name !== undefined && p.legal_name !== supplier.legal_name) changes.legal_name = p.legal_name
-    if (p.rfc !== undefined && p.rfc !== supplier.rfc) changes.rfc = p.rfc
-    if (p.clabes !== undefined && p.clabes.join() !== supplier.clabes.join()) changes.clabes = p.clabes
-  }
+  const changes = editing && parsed.success ? computeSupplierChanges(supplier, parsed.data) : {}
   const nothing = editing && Object.keys(changes).length === 0
 
   const save = useMutation({
     mutationFn: async () => {
-      if (editing) {
+      if (supplier) {
         await api.updateSupplier(supplier.id, changes)
         return supplier.id
       }
@@ -80,10 +97,7 @@ export function SupplierFormModal({ open, onClose, supplier, onCreated }: { open
     },
   })
 
-  const show = (f: Field, dirty: boolean): string | undefined => server[f] ?? (tried || dirty ? local[f] : undefined)
-  const errName = show('legal_name', name !== (supplier?.legal_name ?? ''))
-  const errRfc = show('rfc', rfc.trim() !== '' && rfc !== (supplier?.rfc ?? ''))
-  const errClabes = show('clabes', clabes.trim() !== '' && clabes !== (supplier?.clabes ?? []).join('\n'))
+  const { errName, errRfc, errClabes } = resolveFieldErrors(server, local, tried, name, rfc, clabes, supplier)
 
   return (
     <Modal open={open} onClose={onClose} title={editing ? 'Editar proveedor' : 'Dar de alta un proveedor'}>

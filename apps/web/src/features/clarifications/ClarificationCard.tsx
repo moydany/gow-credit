@@ -9,7 +9,7 @@ import { checkClabe, checkRfc, type ClarificationItem, type OwnerAnswer, type Qu
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api, ApiError } from '../../lib/api'
 import { ago, CATEGORY_LABEL, CHANNEL_LABEL, dateTime, money } from '../../lib/format'
 import { Icon } from '../../ui/icons'
@@ -63,6 +63,16 @@ const TOPIC: Record<string, string> = {
   statement_with_address: 'Estado de cuenta con domicilio',
 }
 
+function toIdentityAnswer(q: Question, d: Extract<Draft, { kind: 'identity' }>): OwnerAnswer | null {
+  const legal = d.legal_name.trim()
+  const rfc = d.rfc.trim().toUpperCase()
+  const clabe = d.clabe.replace(/\s/g, '')
+  if (!legal && !rfc && !clabe) return null
+  if (rfc && checkRfc(rfc).result === 'invalid') return null
+  if (clabe && checkClabe(clabe) === 'invalid') return null
+  return { question_id: q.id, kind: 'identity', legal_name: legal || null, rfc: rfc || null, clabe: clabe || null }
+}
+
 function toAnswer(q: Question, d: Draft | undefined): OwnerAnswer | null {
   if (!d) return null
   if (d.kind === 'decline') return { question_id: q.id, kind: 'decline', note: d.note.trim() || null }
@@ -75,13 +85,197 @@ function toAnswer(q: Question, d: Draft | undefined): OwnerAnswer | null {
     const name = d.name.replace(/\s+/g, ' ').trim()
     return name.length >= 3 && name.length <= 200 ? { question_id: q.id, kind: 'buyer', name } : null
   }
-  const legal = d.legal_name.trim()
-  const rfc = d.rfc.trim().toUpperCase()
-  const clabe = d.clabe.replace(/\s/g, '')
-  if (!legal && !rfc && !clabe) return null
-  if (rfc && checkRfc(rfc).result === 'invalid') return null
-  if (clabe && checkClabe(clabe) === 'invalid') return null
-  return { question_id: q.id, kind: 'identity', legal_name: legal || null, rfc: rfc || null, clabe: clabe || null }
+  return toIdentityAnswer(q, d)
+}
+
+function OptionsEditor({
+  q,
+  kind,
+  draft: d,
+  onSetDraft,
+}: {
+  q: Question
+  kind: 'deposit' | 'charge' | 'account_use'
+  draft: Draft | undefined
+  onSetDraft: (id: string, d: Draft) => void
+}) {
+  const options = q.options.length > 0 ? q.options.map((o) => o.value) : [...FALLBACK_OPTIONS[kind]]
+  return (
+    <div className="mt-4 space-y-3">
+      <div role="radiogroup" aria-label={OPTIONS_ARIA[kind]} className="flex flex-wrap gap-1.5">
+        {options.map((v) => {
+          const on = d?.kind === kind && selected(d) === v
+          const counterparty = d && (d.kind === 'deposit' || d.kind === 'charge') ? d.counterparty : ''
+          const pick = () => {
+            onSetDraft(q.id, kind === 'account_use' ? { kind, use: v } : { kind, category: v, counterparty })
+          }
+          return (
+            <button key={v} type="button" role="radio" aria-checked={on} onClick={pick} className={clsx('h-9 rounded-full px-4 text-[13px] font-medium transition-colors', on ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
+              {q.options.find((o) => o.value === v)?.label ?? CATEGORY_LABEL[v] ?? OPTION_LABEL[v] ?? v}
+            </button>
+          )
+        })}
+      </div>
+      {d && (d.kind === 'deposit' || d.kind === 'charge') ? (
+        <Field label={d.kind === 'deposit' ? '¿Quién lo depositó? (opcional)' : '¿A quién se le pagó? (opcional)'}>
+          <input value={d.counterparty} onChange={(e) => { onSetDraft(q.id, { ...d, counterparty: e.target.value }) }} className="input" autoComplete="off" />
+        </Field>
+      ) : null}
+    </div>
+  )
+}
+
+interface QuestionEditorProps {
+  q: Question
+  draft: Draft | undefined
+  channel: string
+  onSetDraft: (id: string, d: Draft) => void
+}
+
+function QuestionEditor({ q, draft: d, channel, onSetDraft }: QuestionEditorProps) {
+  if (q.kind === 'deposit' || q.kind === 'charge' || q.kind === 'account_use') {
+    return <OptionsEditor q={q} kind={q.kind} draft={d} onSetDraft={onSetDraft} />
+  }
+  if (q.kind === 'buyer') {
+    return (
+      <div className="mt-4">
+        <Field label="Cliente principal (razón social o nombre comercial)" hint="Se buscan sus pagos en el estado de cuenta por este nombre.">
+          <input value={d?.kind === 'buyer' ? d.name : ''} onChange={(e) => { onSetDraft(q.id, { kind: 'buyer', name: e.target.value }) }} className="input" autoComplete="off" maxLength={200} />
+        </Field>
+      </div>
+    )
+  }
+  if (q.kind === 'identity') {
+    return (
+      <IdentityFields d={d?.kind === 'identity' ? d : { kind: 'identity', legal_name: '', rfc: '', clabe: '' }} ask={askedFields(q.facts)} onChange={(next) => { onSetDraft(q.id, next) }} />
+    )
+  }
+  return (
+    <p className="mt-3 flex items-start gap-2 rounded-2xl bg-sunken p-3 text-[12.5px] text-ink-2">
+      <Icon name="file" size={15} className="mt-0.5 shrink-0" />
+      {channel === 'whatsapp' && PDF_BY_CHAT.has(q.topic)
+        ? 'Se le pidió el PDF por WhatsApp. Cuando lo mande por ese chat, se agrega a la solicitud y la evaluación sigue sola. Si no lo va a mandar, declina para que siga sin él.'
+        : 'El estado de cuenta nuevo lo manda el proveedor por la API. Si no lo hay, declina para que la evaluación siga sin él.'}
+    </p>
+  )
+}
+
+interface QuestionItemProps {
+  q: Question
+  index: number
+  draft: Draft | undefined
+  given: OwnerAnswer | undefined
+  open: boolean
+  channel: string
+  onSetDraft: (id: string, d: Draft) => void
+  onClearDraft: (id: string) => void
+}
+
+function QuestionItem({ q, index, draft: d, given, open, channel, onSetDraft, onClearDraft }: QuestionItemProps) {
+  return (
+    <li className="rounded-[22px] border border-line p-5">
+      <div className="flex gap-3">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[12px] font-semibold text-white">{index + 1}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-medium uppercase tracking-wide text-muted">{TOPIC[q.topic] ?? q.topic}</p>
+          <p className="mt-1 text-[14.5px] leading-relaxed">{q.text}</p>
+          {q.facts.length > 0 ? (
+            <dl className="mt-3 flex flex-wrap gap-1.5">
+              {q.facts.map((f) => (
+                <div key={f.name} className="inline-flex items-center gap-1.5 rounded-full bg-sunken px-3 py-1 text-[12px]">
+                  <dt className="text-muted">{f.name.replace(/_/g, ' ')}</dt>
+                  <dd className="tnum font-medium">{factText(f.name, f.value)}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+
+          {!open ? (
+            <Given a={given} />
+          ) : (
+            <QuestionEditor q={q} draft={d} channel={channel} onSetDraft={onSetDraft} />
+          )}
+
+          {open ? (
+            <button
+              type="button"
+              className={clsx('mt-3 inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium transition-colors', d?.kind === 'decline' ? 'bg-ink text-white' : 'text-muted hover:bg-sunken hover:text-ink')}
+              aria-pressed={d?.kind === 'decline'}
+              onClick={() => {
+                if (d?.kind === 'decline') onClearDraft(q.id)
+                else onSetDraft(q.id, { kind: 'decline', note: '' })
+              }}
+            >
+              Sin respuesta / no disponible
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </li>
+  )
+}
+
+interface ClarificationCardHeaderProps {
+  item: ClarificationItem
+  open: boolean
+  showSupplier: boolean
+}
+
+function ClarificationCardHeader({ item, open, showSupplier }: ClarificationCardHeaderProps) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5">
+      <div className="min-w-0">
+        <h3 id={`c-${item.id}`} className="truncate text-[17px] font-medium tracking-tight">
+          {showSupplier ? item.supplier_name : `Ronda ${String(item.round)}`}
+        </h3>
+        <p className="mt-0.5 text-[13px] text-muted">
+          Ronda {item.round} · {CHANNEL_LABEL[item.channel]} · enviada {ago(item.created_at)}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Chip tone={open ? 'indigo' : item.status === 'answered' ? 'accent' : 'hatch'} dot>
+          {open ? 'Abierta' : item.status === 'answered' ? 'Respondida' : item.status === 'expired' ? 'Vencida' : 'Rechazada'}
+        </Chip>
+        <Link to="/solicitudes/$id" params={{ id: item.application_id }} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium hover:bg-sunken">
+          Solicitud <Icon name="arrow" size={13} />
+        </Link>
+      </div>
+    </header>
+  )
+}
+
+interface ClarificationCardFooterProps {
+  open: boolean
+  ready: boolean
+  isPending: boolean
+  answeredAt?: string | null
+  answeredBy?: string | null
+  onDeclineAll: () => void
+  onSend: () => void
+}
+
+function ClarificationCardFooter({ open, ready, isPending, answeredAt, answeredBy, onDeclineAll, onSend }: ClarificationCardFooterProps) {
+  if (open) {
+    return (
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-sunken/60 px-6 py-4">
+        <p className="text-[12.5px] text-muted">{ready ? 'Todo listo para enviar.' : 'Contesta cada pregunta o márcala sin respuesta.'}</p>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" disabled={isPending} onClick={onDeclineAll}>
+            Declinar todo y seguir
+          </Button>
+          <Button variant="accent" size="sm" disabled={!ready || isPending} onClick={onSend}>
+            {isPending ? 'Enviando…' : 'Responder a nombre del proveedor'}
+          </Button>
+        </div>
+      </footer>
+    )
+  }
+  if (!answeredAt) return null
+  return (
+    <footer className="border-t border-line px-6 py-3 text-[12.5px] text-muted">
+      Respondida {dateTime(answeredAt)} {answeredBy ? `por ${answeredBy} (analista)` : 'por el proveedor'}
+    </footer>
+  )
 }
 
 export function ClarificationCard({ item, showSupplier = true }: { item: ClarificationItem; showSupplier?: boolean }) {
@@ -103,27 +297,11 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
   const answers = item.questions.map((q) => toAnswer(q, drafts[q.id]))
   const ready = open && answers.every((a) => a !== null)
   const set = (id: string, d: Draft) => { setDrafts((x) => ({ ...x, [id]: d })) }
+  const clear = (id: string) => { setDrafts((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== id))) }
 
   return (
     <article className="card overflow-hidden" aria-labelledby={`c-${item.id}`}>
-      <header className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5">
-        <div className="min-w-0">
-          <h3 id={`c-${item.id}`} className="truncate text-[17px] font-medium tracking-tight">
-            {showSupplier ? item.supplier_name : `Ronda ${String(item.round)}`}
-          </h3>
-          <p className="mt-0.5 text-[13px] text-muted">
-            Ronda {item.round} · {CHANNEL_LABEL[item.channel]} · enviada {ago(item.created_at)}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Chip tone={open ? 'indigo' : item.status === 'answered' ? 'accent' : 'hatch'} dot>
-            {open ? 'Abierta' : item.status === 'answered' ? 'Respondida' : item.status === 'expired' ? 'Vencida' : 'Rechazada'}
-          </Chip>
-          <Link to="/solicitudes/$id" params={{ id: item.application_id }} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium hover:bg-sunken">
-            Solicitud <Icon name="arrow" size={13} />
-          </Link>
-        </div>
-      </header>
+      <ClarificationCardHeader item={item} open={open} showSupplier={showSupplier} />
 
       {open && item.channel === 'manual' ? (
         <p className="mx-6 mt-4 flex items-start gap-2.5 rounded-2xl bg-sunken px-4 py-3 text-[13px] text-ink-2">
@@ -133,113 +311,35 @@ export function ClarificationCard({ item, showSupplier = true }: { item: Clarifi
       ) : null}
 
       <ol className="space-y-3 px-6 pb-6 pt-4">
-        {item.questions.map((q, i) => {
-          const d = drafts[q.id]
-          const given = item.answers.find((a) => a.question_id === q.id)
-          return (
-            <li key={q.id} className="rounded-[22px] border border-line p-5">
-              <div className="flex gap-3">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[12px] font-semibold text-white">{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted">{TOPIC[q.topic] ?? q.topic}</p>
-                  <p className="mt-1 text-[14.5px] leading-relaxed">{q.text}</p>
-                  {q.facts.length > 0 ? (
-                    <dl className="mt-3 flex flex-wrap gap-1.5">
-                      {q.facts.map((f) => (
-                        <div key={f.name} className="inline-flex items-center gap-1.5 rounded-full bg-sunken px-3 py-1 text-[12px]">
-                          <dt className="text-muted">{f.name.replace(/_/g, ' ')}</dt>
-                          <dd className="tnum font-medium">{factText(f.name, f.value)}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : null}
-
-                  {!open ? (
-                    <Given a={given} />
-                  ) : q.kind === 'deposit' || q.kind === 'charge' || q.kind === 'account_use' ? (
-                    <div className="mt-4 space-y-3">
-                      <div role="radiogroup" aria-label={OPTIONS_ARIA[q.kind]} className="flex flex-wrap gap-1.5">
-                        {(q.options.length > 0 ? q.options.map((o) => o.value) : [...FALLBACK_OPTIONS[q.kind]]).map((v) => {
-                          const kind = q.kind as 'deposit' | 'charge' | 'account_use'
-                          const on = d?.kind === kind && selected(d) === v
-                          const counterparty = d && (d.kind === 'deposit' || d.kind === 'charge') ? d.counterparty : ''
-                          const pick = () => {
-                            set(q.id, kind === 'account_use' ? { kind, use: v } : { kind, category: v, counterparty })
-                          }
-                          return (
-                            <button key={v} type="button" role="radio" aria-checked={on} onClick={pick} className={clsx('h-9 rounded-full px-4 text-[13px] font-medium transition-colors', on ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
-                              {q.options.find((o) => o.value === v)?.label ?? CATEGORY_LABEL[v] ?? OPTION_LABEL[v] ?? v}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      {d && (d.kind === 'deposit' || d.kind === 'charge') ? (
-                        <Field label={d.kind === 'deposit' ? '¿Quién lo depositó? (opcional)' : '¿A quién se le pagó? (opcional)'}>
-                          <input value={d.counterparty} onChange={(e) => { set(q.id, { ...d, counterparty: e.target.value }) }} className="input" autoComplete="off" />
-                        </Field>
-                      ) : null}
-                    </div>
-                  ) : q.kind === 'buyer' ? (
-                    <div className="mt-4">
-                      <Field label="Cliente principal (razón social o nombre comercial)" hint="Se buscan sus pagos en el estado de cuenta por este nombre.">
-                        <input value={d?.kind === 'buyer' ? d.name : ''} onChange={(e) => { set(q.id, { kind: 'buyer', name: e.target.value }) }} className="input" autoComplete="off" maxLength={200} />
-                      </Field>
-                    </div>
-                  ) : q.kind === 'identity' ? (
-                    <IdentityFields d={d?.kind === 'identity' ? d : { kind: 'identity', legal_name: '', rfc: '', clabe: '' }} ask={askedFields(q.facts)} onChange={(next) => { set(q.id, next) }} />
-                  ) : (
-                    <p className="mt-3 flex items-start gap-2 rounded-2xl bg-sunken p-3 text-[12.5px] text-ink-2">
-                      <Icon name="file" size={15} className="mt-0.5 shrink-0" />
-                      {item.channel === 'whatsapp' && PDF_BY_CHAT.has(q.topic)
-                        ? 'Se le pidió el PDF por WhatsApp. Cuando lo mande por ese chat, se agrega a la solicitud y la evaluación sigue sola. Si no lo va a mandar, declina para que siga sin él.'
-                        : 'El estado de cuenta nuevo lo manda el proveedor por la API. Si no lo hay, declina para que la evaluación siga sin él.'}
-                    </p>
-                  )}
-
-                  {open ? (
-                    <button
-                      type="button"
-                      className={clsx('mt-3 inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium transition-colors', d?.kind === 'decline' ? 'bg-ink text-white' : 'text-muted hover:bg-sunken hover:text-ink')}
-                      aria-pressed={d?.kind === 'decline'}
-                      onClick={() => { if (d?.kind === 'decline') setDrafts((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== q.id))); else set(q.id, { kind: 'decline', note: '' }) }}
-                    >
-                      Sin respuesta / no disponible
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </li>
-          )
-        })}
+        {item.questions.map((q, i) => (
+          <QuestionItem
+            key={q.id}
+            q={q}
+            index={i}
+            draft={drafts[q.id]}
+            given={item.answers.find((a) => a.question_id === q.id)}
+            open={open}
+            channel={item.channel}
+            onSetDraft={set}
+            onClearDraft={clear}
+          />
+        ))}
       </ol>
 
-      {open ? (
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-sunken/60 px-6 py-4">
-          <p className="text-[12.5px] text-muted">{ready ? 'Todo listo para enviar.' : 'Contesta cada pregunta o márcala sin respuesta.'}</p>
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={send.isPending}
-              onClick={() => { send.mutate(item.questions.map((q) => ({ question_id: q.id, kind: 'decline', note: null }))) }}
-            >
-              Declinar todo y seguir
-            </Button>
-            <Button variant="accent" size="sm" disabled={!ready || send.isPending} onClick={() => { send.mutate(answers.filter((a): a is OwnerAnswer => a !== null)) }}>
-              {send.isPending ? 'Enviando…' : 'Responder a nombre del proveedor'}
-            </Button>
-          </div>
-        </footer>
-      ) : item.answered_at ? (
-        <footer className="border-t border-line px-6 py-3 text-[12.5px] text-muted">
-          Respondida {dateTime(item.answered_at)} {item.answered_by ? `por ${item.answered_by} (analista)` : 'por el proveedor'}
-        </footer>
-      ) : null}
+      <ClarificationCardFooter
+        open={open}
+        ready={ready}
+        isPending={send.isPending}
+        answeredAt={item.answered_at}
+        answeredBy={item.answered_by}
+        onDeclineAll={() => { send.mutate(item.questions.map((q) => ({ question_id: q.id, kind: 'decline', note: null }))) }}
+        onSend={() => { send.mutate(answers.filter((a): a is OwnerAnswer => a !== null)) }}
+      />
     </article>
   )
 }
 
-function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | null; children: React.ReactNode }) {
+function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | null; children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">{label}</span>
@@ -292,24 +392,24 @@ function IdentityFields({ d, ask, onChange }: { d: Extract<Draft, { kind: 'ident
   )
 }
 
+function formatGivenAnswerText(a: OwnerAnswer): string {
+  if (a.kind === 'deposit' || a.kind === 'charge') {
+    const cat = CATEGORY_LABEL[a.category] ?? OPTION_LABEL[a.category] ?? a.category
+    return a.counterparty ? `${cat} · ${a.counterparty}` : cat
+  }
+  if (a.kind === 'account_use') return OPTION_LABEL[a.use] ?? a.use
+  if (a.kind === 'buyer') return a.name
+  if (a.kind === 'identity') return [a.legal_name, a.rfc, a.clabe].filter(Boolean).join(' · ') || 'Sin datos'
+  if (a.kind === 'decline') return `Sin respuesta${a.note ? `: ${a.note}` : ''}`
+  return 'Documentos enviados'
+}
+
 function Given({ a }: { a: OwnerAnswer | undefined }) {
   if (!a) return <p className="mt-3 text-[13px] text-muted">Sin respuesta todavía.</p>
-  const text =
-    a.kind === 'deposit' || a.kind === 'charge'
-      ? `${CATEGORY_LABEL[a.category] ?? OPTION_LABEL[a.category] ?? a.category}${a.counterparty ? ` · ${a.counterparty}` : ''}`
-      : a.kind === 'account_use'
-        ? (OPTION_LABEL[a.use] ?? a.use)
-        : a.kind === 'buyer'
-          ? a.name
-          : a.kind === 'identity'
-            ? [a.legal_name, a.rfc, a.clabe].filter(Boolean).join(' · ') || 'Sin datos'
-            : a.kind === 'decline'
-              ? `Sin respuesta${a.note ? `: ${a.note}` : ''}`
-              : 'Documentos enviados'
   return (
     <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-2xl bg-accent-soft px-3.5 py-2 text-[13.5px] font-medium text-accent-ink">
       <Icon name="check" size={15} className="shrink-0" />
-      <span className="truncate">{text}</span>
+      <span className="truncate">{formatGivenAnswerText(a)}</span>
     </p>
   )
 }

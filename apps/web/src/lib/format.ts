@@ -97,20 +97,29 @@ export const ENUM_LABEL: Record<string, string> = {
   clear: 'Limpio', efos_presumed: 'EFOS presunto', efos_definitive: 'EFOS definitivo', not_located: 'No localizado',
 }
 
+function formatNumericFeature(value: number, unit: string): string {
+  if (unit === 'MXN') return money(value)
+  if (unit === 'ratio') return percent(value)
+  if (unit === 'months') return `${number(value)} meses`
+  if (unit === 'days') return `${number(value)} días`
+  return number(value)
+}
+
+function formatArrayFeature(value: unknown[]): string {
+  if (value.length === 0) return 'Ninguna'
+  const isStr = typeof value[0] === 'string'
+  const details = isStr ? '· ' + value.map((v) => ENUM_LABEL[String(v)] ?? String(v)).join(', ') : 'registros'
+  return `${String(value.length)} ${details}`
+}
+
 /** Value of a profile feature, by its unit in the catalog. */
 export function featureValue(name: FeatureName, value: unknown): string {
   if (value === null || value === undefined) return '—'
   const unit = FEATURE_CATALOG[name].unit
   if (typeof value === 'boolean') return value ? 'Sí' : 'No'
   if (typeof value === 'string') return ENUM_LABEL[value] ?? value
-  if (Array.isArray(value)) return value.length === 0 ? 'Ninguna' : `${String(value.length)} ${typeof value[0] === 'string' ? '· ' + value.map((v) => ENUM_LABEL[String(v)] ?? String(v)).join(', ') : 'registros'}`
-  if (typeof value === 'number') {
-    if (unit === 'MXN') return money(value)
-    if (unit === 'ratio') return percent(value)
-    if (unit === 'months') return `${number(value)} meses`
-    if (unit === 'days') return `${number(value)} días`
-    return number(value)
-  }
+  if (Array.isArray(value)) return formatArrayFeature(value)
+  if (typeof value === 'number') return formatNumericFeature(value, unit)
   return JSON.stringify(value)
 }
 

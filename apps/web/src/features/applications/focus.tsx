@@ -49,6 +49,24 @@ interface FieldLike<T> {
   provenance: string
 }
 
+function resolveShownValue<T>(pending: PendingFix | undefined, field: FieldLike<T>, format?: (v: T) => ReactNode, empty = '—'): ReactNode {
+  if (pending) return format ? format(pending.value as T) : String(pending.value)
+  if (field.value === null) return empty
+  return format ? format(field.value) : String(field.value)
+}
+
+function resolveValClassName(pending: PendingFix | undefined, missing: boolean, verification: Verification, provenance: string, className?: string): string {
+  return clsx(
+    'val',
+    pending && 'bg-indigo-soft text-indigo-ink',
+    !pending && !missing && verification === 'unverified' && 'val-unverified',
+    !pending && !missing && verification === 'conflict' && 'val-conflict',
+    missing && !pending && 'text-muted',
+    provenance === 'analyst_answer' && !pending && 'underline decoration-indigo decoration-2 underline-offset-4',
+    className,
+  )
+}
+
 /**
  * An extracted value with its visible status: verified looks normal, unverified gets amber
  * stripes, conflicting gets coral stripes. Click = go to its PDF page and highlight the snippet.
@@ -57,13 +75,12 @@ export function Val<T>({ field, format, empty = '—', className, target, label 
   const focus = useFocus()
   const review = useReview()
   const pending = target ? review.pending.find((p) => targetKey(p.target) === targetKey(target)) : undefined
-  const shown: ReactNode = pending ? (format ? format(pending.value as T) : String(pending.value)) : field.value === null ? empty : format ? format(field.value) : String(field.value)
+  const shown = resolveShownValue(pending, field, format, empty)
   const status = VERIFICATION_LABEL[field.verification] ?? field.verification
   const where = field.source ? ` · p. ${String(field.source.page)}` : ''
   const tip = `${status}${where} · confianza ${String(Math.round(field.confidence * 100))} % · ${PROVENANCE_LABEL[field.provenance] ?? field.provenance}`
-  // A value absent from the document is not an alarm: shown muted, no stripes.
   const missing = field.value === null
-  const cls = clsx('val', pending && 'bg-indigo-soft text-indigo-ink', !pending && !missing && field.verification === 'unverified' && 'val-unverified', !pending && !missing && field.verification === 'conflict' && 'val-conflict', missing && !pending && 'text-muted', field.provenance === 'analyst_answer' && !pending && 'underline decoration-indigo decoration-2 underline-offset-4', className)
+  const cls = resolveValClassName(pending, missing, field.verification, field.provenance, className)
   const marker = field.verification === 'verified' || missing ? null : <Icon name={field.verification === 'conflict' ? 'alert' : 'help'} size={12} className="mb-0.5 ml-1 inline" />
 
   const source = field.source

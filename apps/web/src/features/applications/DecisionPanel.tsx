@@ -34,168 +34,258 @@ function lineChange(step: NextStep): { from: number; to: number } | null {
   return from !== null && to !== null && from !== to ? { from, to } : null
 }
 
+function gateValue(g: Decision['evaluation']['gates'][0]): string {
+  if (FEATURE_CATALOG[g.feature].unit === 'MXN' && typeof g.value === 'number') {
+    return money(g.value)
+  }
+  return featureValue(g.feature, g.value)
+}
+
+function gateIcon(outcome: string): 'check' | 'x' | 'help' {
+  if (outcome === 'pass') return 'check'
+  if (outcome === 'fail') return 'x'
+  return 'help'
+}
+
+function gateTone(outcome: string): string {
+  if (outcome === 'pass') return 'bg-accent text-white'
+  if (outcome === 'fail') return 'bg-coral-soft text-coral-ink'
+  return 'hatch text-ink-2'
+}
+
+function gateLabel(outcome: string): string {
+  if (outcome === 'pass') return 'Pasa'
+  if (outcome === 'fail') return 'No pasa'
+  return 'Desconocido'
+}
+
+function gateEffectLabel(effect: string): string {
+  if (effect === 'needs_clarification') return 'pide aclaración'
+  if (effect === 'human_review') return 'pasa a revisión humana'
+  return 'no califica'
+}
+
+function GateItem({ gate: g }: { gate: Decision['evaluation']['gates'][0] }) {
+  const isPass = g.outcome === 'pass'
+  const val = gateValue(g)
+  return (
+    <li className="flex items-start gap-3 rounded-2xl px-1 py-1.5">
+      <span className={clsx('mt-0.5 grid size-6 shrink-0 place-items-center rounded-full', gateTone(g.outcome))}>
+        <Icon name={gateIcon(g.outcome)} size={13} />
+        <span className="sr-only">{gateLabel(g.outcome)}</span>
+      </span>
+      <div className="min-w-0 text-[13px] leading-snug">
+        <p className="font-medium">{featureLabel(g.feature)}</p>
+        <p className="mt-0.5 text-muted">
+          Valor <span className="tnum font-medium text-ink-2">{val}</span> · regla {OP_LABEL[g.op] ?? g.op} {jsonValue(g.threshold)}
+        </p>
+        {!isPass && g.effect !== 'none' ? (
+          <p className="mt-0.5 text-[12px] text-muted">
+            Si falla: {gateEffectLabel(g.effect)}
+          </p>
+        ) : null}
+      </div>
+    </li>
+  )
+}
+
+function GatesSection({ gates }: { gates: Decision['evaluation']['gates'] }) {
+  const passed = gates.filter((g) => g.outcome === 'pass').length
+  return (
+    <Section title="Compuertas" hint={`${String(passed)} de ${String(gates.length)} pasan`}>
+      <ul className="space-y-1.5">
+        {gates.map((g) => (
+          <GateItem key={g.id} gate={g} />
+        ))}
+      </ul>
+    </Section>
+  )
+}
+
+function NextStepsSection({ steps }: { steps: Decision['next_steps'] }) {
+  return (
+    <Section title="Qué cambiaría el resultado" hint="Calculado con la misma política">
+      <ul className="space-y-2">
+        {steps.map((s) => {
+          const line = lineChange(s)
+          return (
+            <li key={s.code} className="inner p-3.5 text-[13px] leading-snug">
+              <p className="font-medium">{s.message ?? `${featureLabel(s.feature)}: de ${featureValue(s.feature, s.current_value)} a ${featureValue(s.feature, s.target_value)}`}</p>
+              <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+                <Chip tone="plain">{DECISION_LABEL[s.from.status]}</Chip>
+                <Icon name="right" size={12} />
+                <Chip tone={s.to.status === 'not_qualified' ? 'coral' : 'accent'}>{DECISION_LABEL[s.to.status]}</Chip>
+              </p>
+              {line ? (
+                <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted">
+                  <span>Línea</span>
+                  <span className="text-ink-2">{money(line.from)}</span>
+                  <Icon name="right" size={12} />
+                  <span className="font-medium text-ink">{money(line.to)}</span>
+                </p>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </Section>
+  )
+}
+
+function ReasonsSection({ d, discarded }: { d: Decision; discarded: string | null }) {
+  if (!d.explanation && d.reasons.length === 0) return null
+  return (
+    <Section title={discarded ? 'Por qué fue a revisión' : 'Por qué'}>
+      {d.explanation ? <p className="text-[14px] leading-relaxed text-ink">{d.explanation.text}</p> : null}
+      {d.reasons.length > 0 ? (
+        <details className={d.explanation ? 'mt-3' : undefined} open={!d.explanation}>
+          <summary className="cursor-pointer text-[12.5px] font-medium text-muted">Detalle del motor</summary>
+          <ul className="mt-2 space-y-2">
+            {d.reasons.map((r) => (
+              <li key={r.code} className="flex gap-2.5 text-[13px] leading-snug text-ink-2">
+                <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
+                {r.message}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </Section>
+  )
+}
+
+function ClarificationAlert({ count, onAnswer }: { count: number; onAnswer: () => void }) {
+  return (
+    <div className="mt-4 rounded-[24px] bg-indigo-soft p-5">
+      <p className="flex items-center gap-2 text-[14px] font-medium text-indigo-ink">
+        <Icon name="chat" size={16} /> {count === 1 ? 'Hay una pregunta abierta' : `Hay ${String(count)} preguntas abiertas`}
+      </p>
+      <p className="mt-1 text-[13px] text-indigo-ink/80">La evaluación está en pausa hasta que se conteste.</p>
+      <Button className="mt-3" variant="primary" size="sm" onClick={onAnswer}>
+        Responder aclaración
+      </Button>
+    </div>
+  )
+}
+
+function resolveDiscarded(failureReason?: string | null): string | null {
+  if (!failureReason?.startsWith(DISCARDED_PREFIX)) return null
+  const parsed = DiscardReason.safeParse(failureReason.slice(DISCARDED_PREFIX.length))
+  return parsed.success ? DISCARD_REASON_LABELS[parsed.data] : null
+}
+
+function EmptyDecisionView({ detail }: { detail: ApplicationDetail }) {
+  return (
+    <div className="px-6 pb-6 pt-5">
+      <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
+      <div className="hatch mt-4 rounded-3xl p-6 text-[14px] text-ink-2">
+        {detail.status === 'failed' ? (
+          <p>La solicitud no se pudo analizar. {describeFailure(detail.failure_reason).label}</p>
+        ) : (
+          <p>Todavía no hay decisión. La solicitud está {detail.status === 'extracting' ? 'extrayendo el documento' : 'en proceso'}.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DimensionsSection({ d }: { d: Decision }) {
+  return (
+    <Section title="Dimensiones" hint={d.score === null ? 'Sin score' : `Score ${number(d.score)} de 100`}>
+      <ul className="space-y-3">
+        {d.evaluation.dimensions.map((x) => (
+          <li key={x.id}>
+            <div className="flex items-baseline justify-between gap-3 text-[13px]">
+              <span className="min-w-0 truncate font-medium" title={featureLabel(x.feature)}>
+                {featureLabel(x.feature)}
+              </span>
+              <span className="tnum shrink-0 text-muted">{x.used ? `${number(x.points)} / ${number(x.weight)}` : EXCLUDED[x.excluded_reason ?? 'unknown']}</span>
+            </div>
+            <div className="mt-1.5">
+              <Meter value={x.used ? x.points : 0} max={x.weight} hatch={!x.used} tone="indigo" />
+            </div>
+          </li>
+        ))}
+      </ul>
+      {d.evaluation.limit ? (
+        <p className="inner mt-4 p-3.5 text-[12.5px] leading-relaxed text-ink-2">
+          <span className="font-medium">Línea = </span>
+          {d.evaluation.limit.terms.map((t) => `${t.term} ${money(t.value)}`).join(' · ')} → <strong className="tnum">{money(d.evaluation.limit.value)}</strong>
+        </p>
+      ) : null}
+    </Section>
+  )
+}
+
+function CorrectionsSection({ corrections }: { corrections: ApplicationDetail['corrections'] }) {
+  if (corrections.length === 0) return null
+  return (
+    <Section title="Correcciones del analista" hint={String(corrections.length)}>
+      <ul className="space-y-2">
+        {corrections.map((c) => (
+          <li key={c.id} className="inner p-3.5 text-[13px] leading-snug">
+            <p className="font-medium">{describeTarget(c.target)}</p>
+            <p className="tnum mt-1 flex flex-wrap items-center gap-x-2 text-muted">
+              <span className="line-through decoration-coral/60">{c.read_value === null ? 'sin dato' : String(c.read_value)}</span>
+              <Icon name="right" size={12} />
+              <span className="font-medium text-ink">{String(c.value)}</span>
+            </p>
+            <p className="mt-1 text-[11.5px] text-muted">
+              {c.created_by ?? 'Analista'} · {date(c.created_at)}
+              {c.page ? ` · p. ${String(c.page)}` : ''}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  )
+}
+
+function OutcomesSection({ outcomes }: { outcomes: ApplicationDetail['outcomes'] }) {
+  if (outcomes.length === 0) return null
+  return (
+    <Section title="Resultado después de financiar">
+      <ul className="space-y-1.5 text-[13.5px]">
+        {outcomes.map((o) => (
+          <li key={o.observed_at} className="flex items-center justify-between">
+            <Chip tone={o.outcome === 'paid' ? 'accent' : 'coral'}>{OUTCOME_LABEL[o.outcome]}</Chip>
+            <span className="text-muted">{date(o.observed_at)}</span>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  )
+}
+
 export function DecisionPanel({ detail, onAnswer, tray }: { detail: ApplicationDetail; onAnswer: () => void; tray?: React.ReactNode }) {
   const d = detail.decision?.payload
   const open = detail.clarifications.filter((c) => c.status === 'open')
-  const discardedReason = detail.failure_reason?.startsWith(DISCARDED_PREFIX) ? DiscardReason.safeParse(detail.failure_reason.slice(DISCARDED_PREFIX.length)) : null
-  const discarded = discardedReason?.success ? DISCARD_REASON_LABELS[discardedReason.data] : null
+  const discarded = resolveDiscarded(detail.failure_reason)
   if (!d) {
-    return (
-      <div className="px-6 pb-6 pt-5">
-        <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
-        <div className="hatch mt-4 rounded-3xl p-6 text-[14px] text-ink-2">
-          {detail.status === 'failed' ? <p>La solicitud no se pudo analizar. {describeFailure(detail.failure_reason).label}</p> : <p>Todavía no hay decisión. La solicitud está {detail.status === 'extracting' ? 'extrayendo el documento' : 'en proceso'}.</p>}
-        </div>
-      </div>
-    )
+    return <EmptyDecisionView detail={detail} />
   }
   return (
     <div className="scroll-thin h-full overflow-y-auto px-6 pb-6 pt-5">
       <h2 className="text-[17px] font-medium tracking-tight">Decisión</h2>
-      {/* Discarded in review: the verdict is the analyst's, not the one that sent it to review. */}
       {discarded ? <Discarded detail={detail} d={d} reason={discarded} /> : <Verdict detail={detail} d={d} />}
       <AgeWarning d={d} />
       {tray}
 
-      {open.length > 0 ? (
-        <div className="mt-4 rounded-[24px] bg-indigo-soft p-5">
-          <p className="flex items-center gap-2 text-[14px] font-medium text-indigo-ink">
-            <Icon name="chat" size={16} /> {open[0]?.questions.length === 1 ? 'Hay una pregunta abierta' : `Hay ${String(open[0]?.questions.length ?? 0)} preguntas abiertas`}
-          </p>
-          <p className="mt-1 text-[13px] text-indigo-ink/80">La evaluación está en pausa hasta que se conteste.</p>
-          <Button className="mt-3" variant="primary" size="sm" onClick={onAnswer}>
-            Responder aclaración
-          </Button>
-        </div>
-      ) : null}
+      {open.length > 0 && open[0] ? <ClarificationAlert count={open[0].questions.length} onAnswer={onAnswer} /> : null}
 
-      {d.explanation || d.reasons.length > 0 ? (
-        <Section title={discarded ? 'Por qué fue a revisión' : 'Por qué'}>
-          {/* The prose explanation and, below it, the engine's reasons for auditing. */}
-          {d.explanation ? <p className="text-[14px] leading-relaxed text-ink">{d.explanation.text}</p> : null}
-          {d.reasons.length > 0 ? (
-            <details className={d.explanation ? 'mt-3' : undefined} open={!d.explanation}>
-              <summary className="cursor-pointer text-[12.5px] font-medium text-muted">Detalle del motor</summary>
-              <ul className="mt-2 space-y-2">
-                {d.reasons.map((r) => (
-                  <li key={r.code} className="flex gap-2.5 text-[13px] leading-snug text-ink-2">
-                    <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
-                    {r.message}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </Section>
-      ) : null}
+      <ReasonsSection d={d} discarded={discarded} />
 
-      {d.next_steps.length > 0 && !discarded ? (
-        <Section title="Qué cambiaría el resultado" hint="Calculado con la misma política">
-          <ul className="space-y-2">
-            {d.next_steps.map((s) => {
-              const line = lineChange(s)
-              return (
-                <li key={s.code} className="inner p-3.5 text-[13px] leading-snug">
-                  <p className="font-medium">{s.message ?? `${featureLabel(s.feature)}: de ${featureValue(s.feature, s.current_value)} a ${featureValue(s.feature, s.target_value)}`}</p>
-                  <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-                    <Chip tone="plain">{DECISION_LABEL[s.from.status]}</Chip>
-                    <Icon name="right" size={12} />
-                    <Chip tone={s.to.status === 'not_qualified' ? 'coral' : 'accent'}>{DECISION_LABEL[s.to.status]}</Chip>
-                  </p>
-                  {line ? (
-                    <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted">
-                      <span>Línea</span>
-                      <span className="text-ink-2">{money(line.from)}</span>
-                      <Icon name="right" size={12} />
-                      <span className="font-medium text-ink">{money(line.to)}</span>
-                    </p>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        </Section>
-      ) : null}
+      {d.next_steps.length > 0 && !discarded ? <NextStepsSection steps={d.next_steps} /> : null}
 
-      <Section title="Compuertas" hint={`${String(d.evaluation.gates.filter((g) => g.outcome === 'pass').length)} de ${String(d.evaluation.gates.length)} pasan`}>
-        <ul className="space-y-1.5">
-          {d.evaluation.gates.map((g) => (
-            <li key={g.id} className="flex items-start gap-3 rounded-2xl px-1 py-1.5">
-              <span className={clsx('mt-0.5 grid size-6 shrink-0 place-items-center rounded-full', g.outcome === 'pass' ? 'bg-accent text-white' : g.outcome === 'fail' ? 'bg-coral-soft text-coral-ink' : 'hatch text-ink-2')}>
-                <Icon name={g.outcome === 'pass' ? 'check' : g.outcome === 'fail' ? 'x' : 'help'} size={13} />
-                <span className="sr-only">{g.outcome === 'pass' ? 'Pasa' : g.outcome === 'fail' ? 'No pasa' : 'Desconocido'}</span>
-              </span>
-              <div className="min-w-0 text-[13px] leading-snug">
-                <p className="font-medium">{featureLabel(g.feature)}</p>
-                <p className="mt-0.5 text-muted">
-                  Valor <span className="tnum font-medium text-ink-2">{FEATURE_CATALOG[g.feature].unit === 'MXN' && typeof g.value === 'number' ? money(g.value) : featureValue(g.feature, g.value)}</span> · regla {OP_LABEL[g.op] ?? g.op} {jsonValue(g.threshold)}
-                </p>
-                {g.outcome !== 'pass' && g.effect !== 'none' ? <p className="mt-0.5 text-[12px] text-muted">Si falla: {g.effect === 'needs_clarification' ? 'pide aclaración' : g.effect === 'human_review' ? 'pasa a revisión humana' : 'no califica'}</p> : null}
-              </div>
-            </li>
-          ))}
-        </ul>
-      </Section>
+      <GatesSection gates={d.evaluation.gates} />
 
-      <Section title="Dimensiones" hint={d.score === null ? 'Sin score' : `Score ${number(d.score)} de 100`}>
-        <ul className="space-y-3">
-          {d.evaluation.dimensions.map((x) => (
-            <li key={x.id}>
-              <div className="flex items-baseline justify-between gap-3 text-[13px]">
-                <span className="min-w-0 truncate font-medium" title={featureLabel(x.feature)}>
-                  {featureLabel(x.feature)}
-                </span>
-                <span className="tnum shrink-0 text-muted">{x.used ? `${number(x.points)} / ${number(x.weight)}` : EXCLUDED[x.excluded_reason ?? 'unknown']}</span>
-              </div>
-              <div className="mt-1.5">
-                <Meter value={x.used ? x.points : 0} max={x.weight} hatch={!x.used} tone="indigo" />
-              </div>
-            </li>
-          ))}
-        </ul>
-        {d.evaluation.limit ? (
-          <p className="inner mt-4 p-3.5 text-[12.5px] leading-relaxed text-ink-2">
-            <span className="font-medium">Línea = </span>
-            {d.evaluation.limit.terms.map((t) => `${t.term} ${money(t.value)}`).join(' · ')} → <strong className="tnum">{money(d.evaluation.limit.value)}</strong>
-          </p>
-        ) : null}
-      </Section>
+      <DimensionsSection d={d} />
 
       <Profile d={d} />
 
-      {detail.corrections.length > 0 ? (
-        <Section title="Correcciones del analista" hint={String(detail.corrections.length)}>
-          <ul className="space-y-2">
-            {detail.corrections.map((c) => (
-              <li key={c.id} className="inner p-3.5 text-[13px] leading-snug">
-                <p className="font-medium">{describeTarget(c.target)}</p>
-                <p className="tnum mt-1 flex flex-wrap items-center gap-x-2 text-muted">
-                  <span className="line-through decoration-coral/60">{c.read_value === null ? 'sin dato' : String(c.read_value)}</span>
-                  <Icon name="right" size={12} />
-                  <span className="font-medium text-ink">{String(c.value)}</span>
-                </p>
-                <p className="mt-1 text-[11.5px] text-muted">
-                  {c.created_by ?? 'Analista'} · {date(c.created_at)}
-                  {c.page ? ` · p. ${String(c.page)}` : ''}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
+      <CorrectionsSection corrections={detail.corrections} />
 
-      {detail.outcomes.length > 0 ? (
-        <Section title="Resultado después de financiar">
-          <ul className="space-y-1.5 text-[13.5px]">
-            {detail.outcomes.map((o) => (
-              <li key={o.observed_at} className="flex items-center justify-between">
-                <Chip tone={o.outcome === 'paid' ? 'accent' : 'coral'}>{OUTCOME_LABEL[o.outcome]}</Chip>
-                <span className="text-muted">{date(o.observed_at)}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
+      <OutcomesSection outcomes={detail.outcomes} />
       <p className="mt-6 text-[11.5px] text-muted">
         Motor {d.engine_version} · política v{detail.decision?.policy_version ?? d.policy.version} · decidida {date(d.decided_at)}
       </p>
@@ -229,12 +319,25 @@ function Discarded({ detail, d, reason }: { detail: ApplicationDetail; d: Decisi
   )
 }
 
+function verdictTone(status: Decision['status']): string {
+  if (status === 'qualified' || status === 'qualified_with_limit') return 'bg-accent-soft'
+  if (status === 'not_qualified') return 'bg-coral-soft'
+  if (status === 'human_review') return 'bg-amber-soft'
+  return 'bg-indigo-soft'
+}
+
+function verdictMessage(final: boolean, status: Decision['status']): string {
+  if (final) return 'No hay línea para esta solicitud'
+  if (status === 'human_review') return 'Un analista tiene que revisar'
+  return 'Falta información del proveedor'
+}
+
 function Verdict({ detail, d }: { detail: ApplicationDetail; d: Decision }) {
   const final = d.status === 'qualified' || d.status === 'qualified_with_limit' || d.status === 'not_qualified'
   const shadow = detail.shadow
   const approval = approvalOf(d, detail.request?.amount)
   return (
-    <div className={clsx('mt-4 rounded-[26px] p-5', d.status === 'qualified' || d.status === 'qualified_with_limit' ? 'bg-accent-soft' : d.status === 'not_qualified' ? 'bg-coral-soft' : d.status === 'human_review' ? 'bg-amber-soft' : 'bg-indigo-soft')}>
+    <div className={clsx('mt-4 rounded-[26px] p-5', verdictTone(d.status))}>
       <div className="flex items-center justify-between gap-3">
         <StatusChip status={d.status} decision />
         <span className="text-[12px] text-ink-2/80">Política v{detail.decision?.policy_version ?? d.policy.version}</span>
@@ -246,7 +349,7 @@ function Verdict({ detail, d }: { detail: ApplicationDetail; d: Decision }) {
           {approval.note ? <p className="mt-2 text-[13px] text-ink-2">{approval.note}</p> : null}
         </>
       ) : (
-        <p className="display mt-5 text-[26px] leading-tight">{final ? 'No hay línea para esta solicitud' : d.status === 'human_review' ? 'Un analista tiene que revisar' : 'Falta información del proveedor'}</p>
+        <p className="display mt-5 text-[26px] leading-tight">{verdictMessage(final, d.status)}</p>
       )}
       {d.score !== null && final ? (
         <div className="mt-4 flex items-center gap-3">

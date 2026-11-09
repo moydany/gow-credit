@@ -28,28 +28,114 @@ export function PageTitle({ title, muted, children }: { title: string; muted?: s
   )
 }
 
+interface ApplicationsStats {
+  total: number
+  clarification: number
+  review: number
+  approvedAmount: number
+  approvedCount: number
+  qualified: number
+  rejected: number
+  busy: number
+}
+
+function computeApplicationsStats(rows: ApplicationRow[] = []): ApplicationsStats {
+  const by = (f: (a: ApplicationRow) => boolean) => rows.filter(f).length
+  const approved = rows.filter((a) => (a.status === 'qualified' || a.status === 'qualified_with_limit') && a.decision?.limit)
+  return {
+    total: rows.length,
+    clarification: by((a) => a.status === 'needs_clarification'),
+    review: by((a) => a.status === 'human_review'),
+    approvedAmount: approved.reduce((s, a) => s + (a.decision ? (approvalOf(a.decision, a.request?.amount)?.value ?? 0) : 0), 0),
+    approvedCount: approved.length,
+    qualified: by((a) => a.status === 'qualified' || a.status === 'qualified_with_limit'),
+    rejected: by((a) => a.status === 'not_qualified' || a.status === 'failed'),
+    busy: by((a) => ['received', 'extracting', 'extracted', 'deciding'].includes(a.status)),
+  }
+}
+
+function ApplicationsSummaryCards({
+  stats,
+  isPending,
+  whatsappLinked,
+}: {
+  stats: ApplicationsStats
+  isPending: boolean
+  whatsappLinked?: boolean
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+      <Card rise={0} className="col-span-2 xl:col-span-1">
+        <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
+          <h2 className="text-[17px] font-medium tracking-tight">Solicitudes</h2>
+          <div>
+            {isPending ? <Skeleton className="h-12 w-28" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.total}</p>}
+            <p className="mt-2 text-[13px] text-muted">{stats.busy > 0 ? `${String(stats.busy)} procesándose ahora` : 'Todas con resultado'}</p>
+          </div>
+          <SegmentBar
+            segments={[
+              { value: stats.qualified, className: 'bg-accent', label: 'Calificadas' },
+              { value: stats.clarification, className: 'bg-indigo', label: 'Aclaración' },
+              { value: stats.review, className: 'bg-amber', label: 'Revisión' },
+              { value: stats.rejected, className: 'bg-ink', label: 'No calificadas o fallidas' },
+              { value: stats.busy, className: 'hatch', label: 'En proceso' },
+            ]}
+          />
+        </div>
+      </Card>
+
+      <Card rise={1}>
+        <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[17px] font-medium tracking-tight">Piden aclaración</h2>
+            <Link to="/aclaraciones" className="grid size-9 place-items-center rounded-full border border-line hover:bg-sunken" aria-label="Ir a Aclaraciones">
+              <Icon name="right" size={16} />
+            </Link>
+          </div>
+          <div>
+            {isPending ? <Skeleton className="h-12 w-20" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.clarification}</p>}
+            <p className="mt-2 flex items-center gap-1.5 text-[13px] text-muted">
+              <Icon name="chat" size={14} /> {whatsappLinked ? 'Se preguntan por WhatsApp o correo' : 'Sin WhatsApp: respondes desde aquí'}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      <Card rise={2}>
+        <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[17px] font-medium tracking-tight">Revisión humana</h2>
+            <Link to="/revision" className="grid size-9 place-items-center rounded-full border border-line hover:bg-sunken" aria-label="Ir a Revisión">
+              <Icon name="right" size={16} />
+            </Link>
+          </div>
+          <div>
+            {isPending ? <Skeleton className="h-12 w-20" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.review}</p>}
+            <p className="mt-2 text-[13px] text-muted">Un analista decide qué sigue</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card rise={3}>
+        <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
+          <h2 className="text-[17px] font-medium tracking-tight">Monto aprobado</h2>
+          <div>
+            {isPending ? <Skeleton className="h-12 w-40" /> : <BigMoney value={stats.approvedCount ? stats.approvedAmount : null} className="text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]" />}
+            <p className="mt-2 text-[13px] text-muted">{stats.approvedCount ? `En ${String(stats.approvedCount)} solicitud${stats.approvedCount === 1 ? '' : 'es'}` : 'Aún ninguna califica'}</p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
 export function ApplicationsPage() {
   const { data, isPending, isError, error, refetch } = useApplications()
   const me = useMe()
   const { estado = 'todas', q = '' } = useSearch({ from: '/shell/' })
   const navigate = useNavigate({ from: '/' })
 
-  const stats = useMemo(() => {
-    const rows = data ?? []
-    const by = (f: (a: ApplicationRow) => boolean) => rows.filter(f).length
-    const approved = rows.filter((a) => (a.status === 'qualified' || a.status === 'qualified_with_limit') && a.decision?.limit)
-    return {
-      total: rows.length,
-      clarification: by((a) => a.status === 'needs_clarification'),
-      review: by((a) => a.status === 'human_review'),
-      // Approved per request: the requested amount if it fits the line.
-      approvedAmount: approved.reduce((s, a) => s + (a.decision ? (approvalOf(a.decision, a.request?.amount)?.value ?? 0) : 0), 0),
-      approvedCount: approved.length,
-      qualified: by((a) => a.status === 'qualified' || a.status === 'qualified_with_limit'),
-      rejected: by((a) => a.status === 'not_qualified' || a.status === 'failed'),
-      busy: by((a) => ['received', 'extracting', 'extracted', 'deciding'].includes(a.status)),
-    }
-  }, [data])
+  const stats = useMemo(() => computeApplicationsStats(data), [data])
 
   const filter = FILTERS.find((f) => f.key === estado) ?? FILTERS[0]
   const needle = q.trim().toLowerCase()
@@ -59,68 +145,7 @@ export function ApplicationsPage() {
     <div>
       <PageTitle title="Solicitudes" muted={me.data?.tenant.name} />
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <Card rise={0} className="col-span-2 xl:col-span-1">
-          <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
-            <h2 className="text-[17px] font-medium tracking-tight">Solicitudes</h2>
-            <div>
-              {isPending ? <Skeleton className="h-12 w-28" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.total}</p>}
-              <p className="mt-2 text-[13px] text-muted">{stats.busy > 0 ? `${String(stats.busy)} procesándose ahora` : 'Todas con resultado'}</p>
-            </div>
-            <SegmentBar
-              segments={[
-                { value: stats.qualified, className: 'bg-accent', label: 'Calificadas' },
-                { value: stats.clarification, className: 'bg-indigo', label: 'Aclaración' },
-                { value: stats.review, className: 'bg-amber', label: 'Revisión' },
-                { value: stats.rejected, className: 'bg-ink', label: 'No calificadas o fallidas' },
-                { value: stats.busy, className: 'hatch', label: 'En proceso' },
-              ]}
-            />
-          </div>
-        </Card>
-
-        <Card rise={1}>
-          <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[17px] font-medium tracking-tight">Piden aclaración</h2>
-              <Link to="/aclaraciones" className="grid size-9 place-items-center rounded-full border border-line hover:bg-sunken" aria-label="Ir a Aclaraciones">
-                <Icon name="right" size={16} />
-              </Link>
-            </div>
-            <div>
-              {isPending ? <Skeleton className="h-12 w-20" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.clarification}</p>}
-              <p className="mt-2 flex items-center gap-1.5 text-[13px] text-muted">
-                <Icon name="chat" size={14} /> {me.data?.tenant.whatsapp_linked_number ? 'Se preguntan por WhatsApp o correo' : 'Sin WhatsApp: respondes desde aquí'}
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card rise={2}>
-          <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[17px] font-medium tracking-tight">Revisión humana</h2>
-              <Link to="/revision" className="grid size-9 place-items-center rounded-full border border-line hover:bg-sunken" aria-label="Ir a Revisión">
-                <Icon name="right" size={16} />
-              </Link>
-            </div>
-            <div>
-              {isPending ? <Skeleton className="h-12 w-20" /> : <p className="display tnum text-[40px] sm:text-[52px]">{stats.review}</p>}
-              <p className="mt-2 text-[13px] text-muted">Un analista decide qué sigue</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card rise={3}>
-          <div className="flex h-full flex-col justify-between gap-4 p-5 sm:gap-5 sm:p-6">
-            <h2 className="text-[17px] font-medium tracking-tight">Monto aprobado</h2>
-            <div>
-              {isPending ? <Skeleton className="h-12 w-40" /> : <BigMoney value={stats.approvedCount ? stats.approvedAmount : null} className="text-[32px] sm:text-[44px] xl:text-[40px] 2xl:text-[46px]" />}
-              <p className="mt-2 text-[13px] text-muted">{stats.approvedCount ? `En ${String(stats.approvedCount)} solicitud${stats.approvedCount === 1 ? '' : 'es'}` : 'Aún ninguna califica'}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
+      <ApplicationsSummaryCards stats={stats} isPending={isPending} whatsappLinked={Boolean(me.data?.tenant.whatsapp_linked_number)} />
 
       <Card className="mt-4 pb-3" rise={4}>
         <CardHeader
@@ -199,10 +224,69 @@ export function ApplicationsPage() {
   )
 }
 
+function resolveRowReason(a: ApplicationRow): string | undefined {
+  if (a.status === 'failed') return describeFailure(a.failure_reason).label
+  if (a.failure_reason?.startsWith('document_discarded:')) return 'Documento descartado por el analista'
+  return a.decision?.reasons[0]?.message
+}
+
+function RowStatusInfo({
+  status,
+  oldStatement,
+  openClarifications,
+  reason,
+}: {
+  status: ApplicationStatus
+  oldStatement: boolean
+  openClarifications: number
+  reason: string | undefined
+}) {
+  return (
+    <div className="min-w-0 justify-self-end lg:justify-self-stretch">
+      <StatusChip status={status} />
+      {oldStatement && (
+        <Chip tone="amber" className="ml-1.5 align-middle" icon="alert">
+          Estado antiguo
+        </Chip>
+      )}
+      {openClarifications > 0 ? (
+        <p className="mt-1.5 hidden truncate text-[12.5px] text-indigo-ink lg:block">
+          {openClarifications === 1 ? '1 pregunta abierta' : `${String(openClarifications)} preguntas abiertas`}
+        </p>
+      ) : reason ? (
+        <p className="mt-1.5 hidden truncate text-[12.5px] text-muted lg:block" title={reason}>
+          {reason}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function RowDecisionInfo({ decision }: { decision: ApplicationRow['decision'] }) {
+  if (decision && decision.limit !== null) {
+    return (
+      <div className="hidden min-w-0 lg:block">
+        <p className="tnum text-[15px] font-medium">{money(decision.limit)}</p>
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="w-full max-w-24">
+            <Meter value={decision.score ?? 0} />
+          </div>
+          <span className="tnum text-[12px] text-muted">{number(decision.score)}</span>
+        </div>
+      </div>
+    )
+  }
+  const scoreText = decision?.status === 'not_qualified' && decision.score !== null ? `Score ${number(decision.score)}` : '—'
+  return (
+    <div className="hidden min-w-0 lg:block">
+      <span className="text-[13px] text-muted">{scoreText}</span>
+    </div>
+  )
+}
+
 function Row({ a }: { a: ApplicationRow }) {
-  // Statement older than the tenant's age limit: analyzed anyway, with a warning.
   const oldStatement = a.decision?.reasons.some((r) => r.code === DOCUMENT_AGE_WARNING) ?? false
-  const reason = a.status === 'failed' ? describeFailure(a.failure_reason).label : a.failure_reason?.startsWith('document_discarded:') ? 'Documento descartado por el analista' : a.decision?.reasons[0]?.message
+  const reason = resolveRowReason(a)
   return (
     <Link
       to="/solicitudes/$id"
@@ -217,40 +301,12 @@ function Row({ a }: { a: ApplicationRow }) {
           {a.document && a.document.issues > 0 ? ` · ${String(a.document.issues)} alertas` : ''}
         </p>
       </div>
-      <div className="min-w-0 justify-self-end lg:justify-self-stretch">
-        <StatusChip status={a.status} />
-        {oldStatement ? (
-          <Chip tone="amber" className="ml-1.5 align-middle" icon="alert">
-            Estado antiguo
-          </Chip>
-        ) : null}
-        {a.open_clarifications > 0 ? (
-          <p className="mt-1.5 hidden truncate text-[12.5px] text-indigo-ink lg:block">{a.open_clarifications === 1 ? '1 pregunta abierta' : `${String(a.open_clarifications)} preguntas abiertas`}</p>
-        ) : reason ? (
-          <p className="mt-1.5 hidden truncate text-[12.5px] text-muted lg:block" title={reason}>
-            {reason}
-          </p>
-        ) : null}
-      </div>
+      <RowStatusInfo status={a.status} oldStatement={oldStatement} openClarifications={a.open_clarifications} reason={reason} />
       <p className="tnum text-[14.5px] lg:text-[15px]">
         <span className="mr-2 text-[12px] text-muted lg:hidden">Solicitado</span>
         {money(a.request?.amount)}
       </p>
-      <div className="hidden min-w-0 lg:block">
-        {a.decision && a.decision.limit !== null ? (
-          <>
-            <p className="tnum text-[15px] font-medium">{money(a.decision.limit)}</p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <div className="w-full max-w-24">
-                <Meter value={a.decision.score ?? 0} />
-              </div>
-              <span className="tnum text-[12px] text-muted">{number(a.decision.score)}</span>
-            </div>
-          </>
-        ) : (
-          <span className="text-[13px] text-muted">{a.decision?.status === 'not_qualified' && a.decision.score !== null ? `Score ${number(a.decision.score)}` : '—'}</span>
-        )}
-      </div>
+      <RowDecisionInfo decision={a.decision} />
       <p className="hidden text-[13.5px] text-muted lg:block">{ago(a.created_at)}</p>
       <Icon name="right" size={18} className="hidden text-muted transition-transform group-hover:translate-x-0.5 lg:block" />
     </Link>

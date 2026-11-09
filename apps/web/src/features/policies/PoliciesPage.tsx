@@ -16,6 +16,247 @@ const STATUS_CHIP = { draft: ['Borrador', 'plain'], shadow: ['En sombra', 'indig
 const SEG: Record<DecisionStatus, string> = { qualified: 'bg-accent', qualified_with_limit: 'bg-accent-ink', not_qualified: 'bg-ink', needs_clarification: 'bg-indigo', human_review: 'bg-amber' }
 const ORDER: DecisionStatus[] = ['qualified', 'qualified_with_limit', 'not_qualified', 'needs_clarification', 'human_review']
 
+interface VersionsSidebarProps {
+  data: PolicyVersionItem[]
+  selectedId: string | undefined
+  onSelect: (id: string) => void
+}
+
+function VersionsSidebar({ data, selectedId, onSelect }: VersionsSidebarProps) {
+  return (
+    <Card rise={0} className="self-start pb-3">
+      <CardHeader title="Versiones" subtitle="Borrador → simular → sombra → activa" />
+      <ul className="mt-3 px-3">
+        {data.map((x) => (
+          <li key={x.id}>
+            <button
+              type="button"
+              aria-current={selectedId === x.id}
+              onClick={() => { onSelect(x.id) }}
+              className={clsx('flex w-full items-center justify-between gap-3 rounded-3xl px-4 py-3.5 text-left transition-colors', selectedId === x.id ? 'bg-sunken' : 'hover:bg-sunken/60')}
+            >
+              <span>
+                <span className="block text-[15px] font-medium">Versión {x.version}</span>
+                <span className="mt-0.5 block text-[12.5px] text-muted">{x.activated_at ? `activada ${dateTime(x.activated_at)}` : dateTime(x.created_at)}</span>
+              </span>
+              <Chip tone={STATUS_CHIP[x.status][1]} dot>
+                {STATUS_CHIP[x.status][0]}
+              </Chip>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+interface PolicyStatusBannerProps {
+  check: { ok: true } | { ok: false; errors: readonly { path: string; message: string }[] }
+  dirty: boolean
+}
+
+function PolicyStatusBanner({ check, dirty }: PolicyStatusBannerProps) {
+  return (
+    <div id="policy-status" className="mt-3" role="status">
+      {check.ok ? (
+        <p className="flex items-center gap-2 text-[13px] font-medium text-accent-ink">
+          <Icon name="check" size={15} /> Política válida{dirty ? ' · con cambios sin guardar' : ''}
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {check.errors.slice(0, 4).map((e, i) => (
+            <li key={i} className="rounded-2xl bg-coral-soft px-3.5 py-2 text-[12.5px] text-coral-ink">
+              {e.path ? <code className="mr-1.5 font-mono font-medium">{e.path}</code> : null}
+              {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+interface PolicyActionFooterProps {
+  selected: PolicyVersionItem
+  isSimulating: boolean
+  isShadowing: boolean
+  onSimulate: () => void
+  onShadow: () => void
+  onActivate: () => void
+}
+
+function PolicyActionFooter({ selected, isSimulating, isShadowing, onSimulate, onShadow, onActivate }: PolicyActionFooterProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line px-6 py-4">
+      <Button size="sm" variant="primary" disabled={isSimulating} onClick={onSimulate}>
+        <Icon name="flask" size={15} /> {isSimulating ? 'Simulando…' : 'Simular'}
+      </Button>
+      <Button size="sm" variant="ghost" disabled={selected.status === 'shadow' || selected.status === 'archived' || selected.status === 'active' || isShadowing} onClick={onShadow}>
+        Activar en sombra
+      </Button>
+      <Button size="sm" variant="accent" disabled={selected.status === 'active' || selected.status === 'archived'} onClick={onActivate}>
+        Promover a activa
+      </Button>
+      <p className="ml-auto text-[12px] text-muted">{selected.status === 'draft' ? 'Simula antes de promover.' : ''}</p>
+    </div>
+  )
+}
+
+interface PolicyEditorBodyProps {
+  view: 'form' | 'json'
+  doc: PolicyDoc | null
+  text: string
+  checkOk: boolean
+  onChangeDoc: (next: PolicyDoc) => void
+  onChangeText: (next: string) => void
+}
+
+function PolicyEditorBody({ view, doc, text, checkOk, onChangeDoc, onChangeText }: PolicyEditorBodyProps) {
+  if (view === 'form') {
+    if (!doc) {
+      return <p className="rounded-2xl bg-coral-soft px-4 py-3 text-[13px] text-coral-ink">El JSON no se puede leer; corrígelo en la vista JSON para volver al formulario.</p>
+    }
+    return <PolicyForm doc={doc} onChange={onChangeDoc} />
+  }
+  return (
+    <>
+      <label className="sr-only" htmlFor="policy-json">
+        Documento de la política en JSON
+      </label>
+      <textarea id="policy-json" spellCheck={false} value={text} onChange={(e) => { onChangeText(e.target.value) }} className="input scroll-thin h-80 resize-y font-mono text-[12.5px] leading-relaxed" aria-invalid={!checkOk} aria-describedby="policy-status" />
+    </>
+  )
+}
+
+interface ActivateModalProps {
+  open: boolean
+  version: number | undefined
+  isPending: boolean
+  onClose: () => void
+  onConfirm: () => void
+}
+
+function ActivateModal({ open, version, isPending, onClose, onConfirm }: ActivateModalProps) {
+  return (
+    <Modal open={open} onClose={onClose} title={`Promover v${String(version)} a activa`}>
+      <p className="text-[14.5px] leading-relaxed text-ink-2">
+        Las solicitudes nuevas se decidirán con esta versión y la activa actual pasará a archivada. Las decisiones ya tomadas no cambian. Queda en la bitácora con tu usuario.
+      </p>
+      <div className="mt-6 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button variant="accent" disabled={isPending} onClick={onConfirm}>
+          {isPending ? 'Activando…' : 'Promover'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+function validatePolicyText(text: string) {
+  try {
+    const parsed = parsePolicy(JSON.parse(text))
+    return parsed.ok ? ({ ok: true } as const) : ({ ok: false, errors: parsed.errors } as const)
+  } catch (e) {
+    return { ok: false, errors: [{ path: '', message: e instanceof Error ? `JSON inválido: ${e.message}` : 'JSON inválido' }] } as const
+  }
+}
+
+interface PolicyContentProps {
+  data: PolicyVersionItem[]
+  selected: PolicyVersionItem | undefined
+  view: 'form' | 'json'
+  doc: PolicyDoc | null
+  text: string
+  check: { ok: true } | { ok: false; errors: readonly { path: string; message: string }[] }
+  dirty: boolean
+  isCreating: boolean
+  isSimulating: boolean
+  isShadowing: boolean
+  onSelectVersion: (id: string) => void
+  onToggleView: (v: 'form' | 'json') => void
+  onChangeDoc: (next: PolicyDoc) => void
+  onChangeText: (next: string) => void
+  onCreate: () => void
+  onSimulate: () => void
+  onShadow: () => void
+  onActivate: () => void
+}
+
+function PolicyContent({
+  data,
+  selected,
+  view,
+  doc,
+  text,
+  check,
+  dirty,
+  isCreating,
+  isSimulating,
+  isShadowing,
+  onSelectVersion,
+  onToggleView,
+  onChangeDoc,
+  onChangeText,
+  onCreate,
+  onSimulate,
+  onShadow,
+  onActivate,
+}: PolicyContentProps) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <VersionsSidebar data={data} selectedId={selected?.id} onSelect={onSelectVersion} />
+
+      <div className="min-w-0 space-y-4">
+        <Card rise={1}>
+          <CardHeader
+            title={`Política v${String(selected?.version)}`}
+            subtitle="Edítala con el formulario o en JSON: las dos vistas son el mismo documento, validado con el esquema del motor"
+            action={
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="ghost" size="sm" disabled={!check.ok || !dirty || isCreating} onClick={onCreate}>
+                  Guardar como nueva versión
+                </Button>
+              </div>
+            }
+          />
+          <div className="px-6 pb-2 pt-4">
+            <div role="tablist" aria-label="Vista del editor" className="mb-3 flex gap-1.5">
+              {(['form', 'json'] as const).map((k) => (
+                <button key={k} role="tab" type="button" aria-selected={view === k} onClick={() => { onToggleView(k) }} className={clsx('inline-flex h-9 items-center rounded-full px-4 text-[13.5px] font-medium transition-colors', view === k ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
+                  {k === 'form' ? 'Formulario' : 'JSON'}
+                </button>
+              ))}
+            </div>
+            <PolicyEditorBody
+              view={view}
+              doc={doc}
+              text={text}
+              checkOk={check.ok}
+              onChangeDoc={onChangeDoc}
+              onChangeText={onChangeText}
+            />
+            <PolicyStatusBanner check={check} dirty={dirty} />
+          </div>
+          {selected ? (
+            <PolicyActionFooter
+              selected={selected}
+              isSimulating={isSimulating}
+              isShadowing={isShadowing}
+              onSimulate={onSimulate}
+              onShadow={onShadow}
+              onActivate={onActivate}
+            />
+          ) : null}
+        </Card>
+
+        {selected?.simulation ? <SimulationView report={selected.simulation} /> : <SimulationEmpty />}
+      </div>
+    </div>
+  )
+}
+
 export function PoliciesPage() {
   const { data, isPending, isError, error, refetch } = usePolicyVersions()
   const { v } = useSearch({ from: '/shell/configuracion/politicas' })
@@ -26,29 +267,20 @@ export function PoliciesPage() {
   const [text, setText] = useState('')
   const [confirm, setConfirm] = useState<'activate' | null>(null)
   const [view, setView] = useState<'form' | 'json'>('form')
-  // The form edits the parsed JSON; with JSON that does not parse, only the JSON view works.
   const doc = useMemo((): PolicyDoc | null => {
     try {
-      const v: unknown = JSON.parse(text)
-      return v && typeof v === 'object' && !Array.isArray(v) ? (v as PolicyDoc) : null
+      const val: unknown = JSON.parse(text)
+      return val && typeof val === 'object' && !Array.isArray(val) ? (val as PolicyDoc) : null
     } catch {
       return null
     }
   }, [text])
 
-  // The editor starts from the chosen version's document; editing doesn't change it (versions are immutable).
   useEffect(() => {
     if (selected) setText(JSON.stringify(selected.document, null, 2))
   }, [selected?.id])
 
-  const check = useMemo(() => {
-    try {
-      const parsed = parsePolicy(JSON.parse(text))
-      return parsed.ok ? ({ ok: true } as const) : ({ ok: false, errors: parsed.errors } as const)
-    } catch (e) {
-      return { ok: false, errors: [{ path: '', message: e instanceof Error ? `JSON inválido: ${e.message}` : 'JSON inválido' }] } as const
-    }
-  }, [text])
+  const check = useMemo(() => validatePolicyText(text), [text])
   const dirty = selected ? text !== JSON.stringify(selected.document, null, 2) : false
 
   const fail = (e: unknown) => { toast.error(e instanceof ApiError ? (e.issues[0] ? `${e.issues[0].path}: ${e.issues[0].message}` : e.message) : 'No se pudo completar') }
@@ -68,126 +300,52 @@ export function PoliciesPage() {
   const shadow = useMutation({ mutationFn: (id: string) => api.shadow(id), onSuccess: done('La política corre en sombra: se evalúa y se registra sin decidir'), onError: fail })
   const activate = useMutation({
     mutationFn: (id: string) => api.activate(id),
-    onSuccess: () => { setConfirm(null); done('Política activada')() },
+    onSuccess: () => {
+      setConfirm(null)
+      done('Política activada')()
+    },
     onError: fail,
   })
 
   return (
     <div>
       <PageTitle title="Políticas" muted={selected ? `v${String(selected.version)}` : undefined} />
-      {isError ? (
+      {isError && (
         <Card>
           <ErrorState message={error.message} onRetry={() => void refetch()} />
         </Card>
-      ) : isPending ? (
-        <Skeleton className="h-96 rounded-[28px]" />
-      ) : (
-        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <Card rise={0} className="self-start pb-3">
-            <CardHeader title="Versiones" subtitle="Borrador → simular → sombra → activa" />
-            <ul className="mt-3 px-3">
-              {data.map((x) => (
-                <li key={x.id}>
-                  <button type="button" aria-current={selected?.id === x.id} onClick={() => { void navigate({ search: { v: x.id } }) }} className={clsx('flex w-full items-center justify-between gap-3 rounded-3xl px-4 py-3.5 text-left transition-colors', selected?.id === x.id ? 'bg-sunken' : 'hover:bg-sunken/60')}>
-                    <span>
-                      <span className="block text-[15px] font-medium">Versión {x.version}</span>
-                      <span className="mt-0.5 block text-[12.5px] text-muted">{x.activated_at ? `activada ${dateTime(x.activated_at)}` : dateTime(x.created_at)}</span>
-                    </span>
-                    <Chip tone={STATUS_CHIP[x.status][1]} dot>
-                      {STATUS_CHIP[x.status][0]}
-                    </Chip>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </Card>
-
-          <div className="min-w-0 space-y-4">
-            <Card rise={1}>
-              <CardHeader
-                title={`Política v${String(selected?.version)}`}
-                subtitle="Edítala con el formulario o en JSON: las dos vistas son el mismo documento, validado con el esquema del motor"
-                action={
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button variant="ghost" size="sm" disabled={!check.ok || !dirty || create.isPending} onClick={() => { create.mutate() }}>
-                      Guardar como nueva versión
-                    </Button>
-                  </div>
-                }
-              />
-              <div className="px-6 pb-2 pt-4">
-                <div role="tablist" aria-label="Vista del editor" className="mb-3 flex gap-1.5">
-                  {(['form', 'json'] as const).map((k) => (
-                    <button key={k} role="tab" type="button" aria-selected={view === k} onClick={() => { setView(k) }} className={clsx('inline-flex h-9 items-center rounded-full px-4 text-[13.5px] font-medium transition-colors', view === k ? 'bg-ink text-white' : 'bg-sunken text-ink-2 hover:bg-line')}>
-                      {k === 'form' ? 'Formulario' : 'JSON'}
-                    </button>
-                  ))}
-                </div>
-                {view === 'form' ? (
-                  doc ? (
-                    <PolicyForm doc={doc} onChange={(next) => { setText(JSON.stringify(next, null, 2)) }} />
-                  ) : (
-                    <p className="rounded-2xl bg-coral-soft px-4 py-3 text-[13px] text-coral-ink">El JSON no se puede leer; corrígelo en la vista JSON para volver al formulario.</p>
-                  )
-                ) : (
-                  <>
-                    <label className="sr-only" htmlFor="policy-json">
-                      Documento de la política en JSON
-                    </label>
-                    <textarea id="policy-json" spellCheck={false} value={text} onChange={(e) => { setText(e.target.value) }} className="input scroll-thin h-80 resize-y font-mono text-[12.5px] leading-relaxed" aria-invalid={!check.ok} aria-describedby="policy-status" />
-                  </>
-                )}
-                <div id="policy-status" className="mt-3" role="status">
-                  {check.ok ? (
-                    <p className="flex items-center gap-2 text-[13px] font-medium text-accent-ink">
-                      <Icon name="check" size={15} /> Política válida{dirty ? ' · con cambios sin guardar' : ''}
-                    </p>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {check.errors.slice(0, 4).map((e, i) => (
-                        <li key={i} className="rounded-2xl bg-coral-soft px-3.5 py-2 text-[12.5px] text-coral-ink">
-                          {e.path ? <code className="mr-1.5 font-mono font-medium">{e.path}</code> : null}
-                          {e.message}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-              {selected ? (
-                <div className="flex flex-wrap items-center gap-2 border-t border-line px-6 py-4">
-                  <Button size="sm" variant="primary" disabled={simulate.isPending} onClick={() => { simulate.mutate(selected.id) }}>
-                    <Icon name="flask" size={15} /> {simulate.isPending ? 'Simulando…' : 'Simular'}
-                  </Button>
-                  <Button size="sm" variant="ghost" disabled={selected.status === 'shadow' || selected.status === 'archived' || selected.status === 'active' || shadow.isPending} onClick={() => { shadow.mutate(selected.id) }}>
-                    Activar en sombra
-                  </Button>
-                  <Button size="sm" variant="accent" disabled={selected.status === 'active' || selected.status === 'archived'} onClick={() => { setConfirm('activate') }}>
-                    Promover a activa
-                  </Button>
-                  <p className="ml-auto text-[12px] text-muted">{selected.status === 'draft' ? 'Simula antes de promover.' : ''}</p>
-                </div>
-              ) : null}
-            </Card>
-
-            {selected?.simulation ? <SimulationView report={selected.simulation} /> : <SimulationEmpty />}
-          </div>
-        </div>
+      )}
+      {isPending && <Skeleton className="h-96 rounded-[28px]" />}
+      {!isError && !isPending && (
+        <PolicyContent
+          data={data}
+          selected={selected}
+          view={view}
+          doc={doc}
+          text={text}
+          check={check}
+          dirty={dirty}
+          isCreating={create.isPending}
+          isSimulating={simulate.isPending}
+          isShadowing={shadow.isPending}
+          onSelectVersion={(id) => { void navigate({ search: { v: id } }) }}
+          onToggleView={setView}
+          onChangeDoc={(next) => { setText(JSON.stringify(next, null, 2)) }}
+          onChangeText={setText}
+          onCreate={() => { create.mutate() }}
+          onSimulate={() => { if (selected) simulate.mutate(selected.id) }}
+          onShadow={() => { if (selected) shadow.mutate(selected.id) }}
+          onActivate={() => { setConfirm('activate') }}
+        />
       )}
 
-      <Modal open={confirm === 'activate'} onClose={() => { setConfirm(null) }} title={`Promover v${String(selected?.version)} a activa`}>
-        <p className="text-[14.5px] leading-relaxed text-ink-2">
-          Las solicitudes nuevas se decidirán con esta versión y la activa actual pasará a archivada. Las decisiones ya tomadas no cambian. Queda en la bitácora con tu usuario.
-        </p>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => { setConfirm(null) }}>
-            Cancelar
-          </Button>
-          <Button variant="accent" disabled={activate.isPending} onClick={() => { if (selected) activate.mutate(selected.id) }}>
-            {activate.isPending ? 'Activando…' : 'Promover'}
-          </Button>
-        </div>
-      </Modal>
+      <ActivateModal
+        open={confirm === 'activate'}
+        version={selected?.version}
+        isPending={activate.isPending}
+        onClose={() => { setConfirm(null) }}
+        onConfirm={() => { if (selected) activate.mutate(selected.id) }}
+      />
     </div>
   )
 }
