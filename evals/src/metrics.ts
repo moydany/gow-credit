@@ -214,13 +214,10 @@ export function flatten(doc: StatementExtraction): FlatTx[] {
 
 const ratio = (a: number, b: number) => (b === 0 ? 1 : a / b)
 
-export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): DocumentScore {
-  const gtTx = gt.accounts.flatMap((a) => a.periods.flatMap((p) => p.transactions))
-  const exTx = flatten(doc)
-  const m = matchTransactions(gtTx, exTx)
+function scoreRowFields(m: ReturnType<typeof matchTransactions>) {
   const n = m.pairs.length
   const withBalance = m.pairs.filter((p) => p.gt.balance !== null)
-  const row_fields = {
+  return {
     date: ratio(m.pairs.filter((p) => p.ex.date === p.gt.date).length, n),
     amount: ratio(m.pairs.filter((p) => cents(p.ex.amount) === cents(p.gt.amount)).length, n),
     type: ratio(m.pairs.filter((p) => p.ex.type === p.gt.type).length, n),
@@ -228,8 +225,31 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
     description: ratio(m.pairs.filter((p) => descriptionMatches(p.gt, p.ex)).length, n),
     internal_transfer: ratio(m.pairs.filter((p) => p.ex.internal_transfer === p.gt.internal_transfer).length, n),
   }
+}
 
-  // Header and summary: accounts matched by shared movements, then by order.
+function scoreAccountPeriods(ga: GroundTruth['accounts'][0], ea: StatementExtraction['accounts'][0], prefix: string, header: FieldScore[]) {
+  const add = (s: FieldScore | null) => {
+    if (s) header.push(s)
+  }
+  ga.periods.forEach((gp, pi) => {
+    const ep = ea.periods[pi]
+    const pp = `${prefix}.${gp.key}`
+    if (!ep) {
+      header.push({ field: `${pp}.missing`, ok: false, invented: false })
+      return
+    }
+    add(scoreField(`${pp}.period_start`, gp.period_start.value, ep.period_start.value, 'skip'))
+    add(scoreField(`${pp}.period_end`, gp.period_end.value, ep.period_end.value, 'skip'))
+    add(scoreField(`${pp}.opening_balance`, gp.opening_balance.value, ep.summary.opening_balance.value, 'skip', 'money'))
+    add(scoreField(`${pp}.closing_balance`, gp.closing_balance.value, ep.summary.closing_balance.value, 'skip', 'money'))
+    add(scoreField(`${pp}.total_credits`, gp.total_credits.value, ep.summary.total_credits.value, 'skip', 'money'))
+    add(scoreField(`${pp}.total_debits`, gp.total_debits.value, ep.summary.total_debits.value, 'skip', 'money'))
+    add(scoreField(`${pp}.credits_count`, gp.credits_count.value, ep.summary.credits_count.value, 'skip'))
+    add(scoreField(`${pp}.debits_count`, gp.debits_count.value, ep.summary.debits_count.value, 'skip'))
+  })
+}
+
+function scoreHeaderFields(doc: StatementExtraction, gt: GroundTruth): FieldScore[] {
   const header: FieldScore[] = []
   const add = (s: FieldScore | null) => {
     if (s) header.push(s)
@@ -262,26 +282,13 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
     add(scoreField(`${prefix}.account_number`, ga.account_number.value, ea.account_number.value, 'must_be_null', 'digits'))
     add(scoreField(`${prefix}.clabe`, ga.clabe.value, ea.clabe.value, 'must_be_null', 'digits'))
     add(scoreField(`${prefix}.currency`, ga.currency.value, ea.currency.value, 'skip'))
-    ga.periods.forEach((gp, pi) => {
-      const ep = ea.periods[pi]
-      const pp = `${prefix}.${gp.key}`
-      if (!ep) {
-        header.push({ field: `${pp}.missing`, ok: false, invented: false })
-        return
-      }
-      add(scoreField(`${pp}.period_start`, gp.period_start.value, ep.period_start.value, 'skip'))
-      add(scoreField(`${pp}.period_end`, gp.period_end.value, ep.period_end.value, 'skip'))
-      add(scoreField(`${pp}.opening_balance`, gp.opening_balance.value, ep.summary.opening_balance.value, 'skip', 'money'))
-      add(scoreField(`${pp}.closing_balance`, gp.closing_balance.value, ep.summary.closing_balance.value, 'skip', 'money'))
-      add(scoreField(`${pp}.total_credits`, gp.total_credits.value, ep.summary.total_credits.value, 'skip', 'money'))
-      add(scoreField(`${pp}.total_debits`, gp.total_debits.value, ep.summary.total_debits.value, 'skip', 'money'))
-      add(scoreField(`${pp}.credits_count`, gp.credits_count.value, ep.summary.credits_count.value, 'skip'))
-      add(scoreField(`${pp}.debits_count`, gp.debits_count.value, ep.summary.debits_count.value, 'skip'))
-    })
+    scoreAccountPeriods(ga, ea, prefix, header)
   })
   if (exAccounts.length > gt.accounts.length) header.push({ field: 'accounts.extra', ok: false, invented: true })
+  return header
+}
 
-  // CFDI: matched by UUID, then by order.
+function scoreFiscalFields(doc: StatementExtraction, gt: GroundTruth): FieldScore[] {
   const fiscal: FieldScore[] = []
   const usedF = new Set<number>()
   gt.fiscal_documents.forEach((gf, i) => {
@@ -315,6 +322,17 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
   })
   const extraFiscal = doc.fiscal_documents.length - usedF.size
   for (let i = 0; i < extraFiscal; i++) fiscal.push({ field: 'cfdi.extra', ok: false, invented: true })
+  return fiscal
+}
+
+export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): DocumentScore {
+  const gtTx = gt.accounts.flatMap((a) => a.periods.flatMap((p) => p.transactions))
+  const exTx = flatten(doc)
+  const m = matchTransactions(gtTx, exTx)
+  const n = m.pairs.length
+  const row_fields = scoreRowFields(m)
+  const header = scoreHeaderFields(doc, gt)
+  const fiscal = scoreFiscalFields(doc, gt)
 
   const periods = doc.accounts.flatMap((a) => a.periods)
   const reconciled_final = periods.length > 0 && periods.every((p) => p.reconciliation?.status === 'reconciled')
@@ -337,7 +355,6 @@ export function scoreDocument(doc: StatementExtraction, gt: GroundTruth): Docume
     reconciled_first_pass: reconciled_final && retryCalls.length === 0,
     retry_pages: retryCalls.length,
     pages_with_errors: errorPages,
-    // Cost at list price of the calls that produced the extraction, even if they now come from cache.
     cost_usd: Math.round(doc.extraction.calls.reduce((s, c) => s + costUsd(c.model, c.usage), 0) * 1e4) / 1e4,
     models: [...new Set(doc.extraction.calls.map((c) => c.model))],
   }

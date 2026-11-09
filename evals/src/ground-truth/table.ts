@@ -27,59 +27,79 @@ export interface GroupOptions {
   orphan?: 'previous' | 'next'
 }
 
-export function groupRows(lines: Line[], opts: GroupOptions): RowGroup[] {
-  const useful = lines.filter((l) => !(opts.isNoise?.(l) ?? false))
+function groupFollowing(useful: Line[], isAnchor: (l: Line) => boolean): RowGroup[] {
   const groups: RowGroup[] = []
-  if (opts.attach === 'following') {
-    let current: RowGroup | null = null
-    for (const l of useful) {
-      if (opts.isAnchor(l)) {
-        current = { anchor: l, lines: [l] }
-        groups.push(current)
-      } else if (current) current.lines.push(l)
-    }
-    return groups
-  }
-  const band = opts.band ?? 12
-  const anchors = useful.filter((l) => opts.isAnchor(l))
-  for (const a of anchors) groups.push({ anchor: a, lines: [a] })
-  const pending: Line[] = []
-  const indexOf = (g: RowGroup) => useful.indexOf(g.anchor)
+  let current: RowGroup | null = null
   for (const l of useful) {
-    if (opts.isAnchor(l)) {
-      // Orphans waiting for the next row (page break) are handled here.
-      const g = groups.find((x) => x.anchor === l)
-      if (g && pending.length > 0) g.lines.unshift(...pending.splice(0))
-      continue
+    if (isAnchor(l)) {
+      current = { anchor: l, lines: [l] }
+      groups.push(current)
+    } else if (current) {
+      current.lines.push(l)
     }
-    const samePage = groups.filter((g) => g.anchor.page === l.page)
-    let best: RowGroup | null = null
-    let bestD = Infinity
-    for (const g of samePage) {
-      const d = Math.abs(g.anchor.y - l.y)
-      if (d < bestD) {
-        bestD = d
-        best = g
-      }
+  }
+  return groups
+}
+
+function findNearestGroup(samePage: RowGroup[], y: number): { best: RowGroup | null; bestD: number } {
+  let best: RowGroup | null = null
+  let bestD = Infinity
+  for (const g of samePage) {
+    const d = Math.abs(g.anchor.y - y)
+    if (d < bestD) {
+      bestD = d
+      best = g
     }
-    if (best && bestD <= band) {
-      best.lines.push(l)
-      continue
+  }
+  return { best, bestD }
+}
+
+function attachOrphan(l: Line, useful: Line[], groups: RowGroup[], orphanMode: 'previous' | 'next', pending: Line[]) {
+  const idx = useful.indexOf(l)
+  if (orphanMode === 'next') {
+    const next = groups.find((g) => useful.indexOf(g.anchor) > idx)
+    if (next) {
+      if (next.anchor.page === l.page) next.lines.push(l)
+      else pending.push(l)
     }
-    const idx = useful.indexOf(l)
-    if ((opts.orphan ?? 'previous') === 'next') {
-      const next = groups.find((g) => indexOf(g) > idx)
-      if (next) {
-        if (next.anchor.page === l.page) next.lines.push(l)
-        else pending.push(l)
-      }
-    } else {
-      const prev = [...groups].reverse().find((g) => indexOf(g) < idx)
-      if (prev) prev.lines.push(l)
-    }
+  } else {
+    const prev = [...groups].reverse().find((g) => useful.indexOf(g.anchor) < idx)
+    if (prev) prev.lines.push(l)
+  }
+}
+
+function processNearestLine(l: Line, useful: Line[], groups: RowGroup[], opts: GroupOptions, pending: Line[]) {
+  if (opts.isAnchor(l)) {
+    const g = groups.find((x) => x.anchor === l)
+    if (g && pending.length > 0) g.lines.unshift(...pending.splice(0))
+    return
+  }
+  const samePage = groups.filter((g) => g.anchor.page === l.page)
+  const { best, bestD } = findNearestGroup(samePage, l.y)
+  const band = opts.band ?? 12
+  if (best && bestD <= band) {
+    best.lines.push(l)
+    return
+  }
+  attachOrphan(l, useful, groups, opts.orphan ?? 'previous', pending)
+}
+
+function groupNearest(useful: Line[], opts: GroupOptions): RowGroup[] {
+  const groups: RowGroup[] = useful.filter((l) => opts.isAnchor(l)).map((a) => ({ anchor: a, lines: [a] }))
+  const pending: Line[] = []
+  for (const l of useful) {
+    processNearestLine(l, useful, groups, opts, pending)
   }
   for (const g of groups) g.lines.sort((a, b) => (a.page - b.page) || (a.y - b.y))
   return groups
+}
+
+export function groupRows(lines: Line[], opts: GroupOptions): RowGroup[] {
+  const useful = lines.filter((l) => !(opts.isNoise?.(l) ?? false))
+  if (opts.attach === 'following') {
+    return groupFollowing(useful, opts.isAnchor)
+  }
+  return groupNearest(useful, opts)
 }
 
 export interface ColumnAmount {

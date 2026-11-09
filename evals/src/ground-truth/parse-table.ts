@@ -63,40 +63,42 @@ export interface ParsedRow {
 
 type Columns = Record<string, number>
 
-function tableLines(pages: Line[][], spec: TableSpec, columnsByPage: Map<number, Columns>): Line[] {
-  const out: Line[] = []
-  pages.forEach((lines, i) => {
-    const page = i + 1
-    if (!spec.pages(page)) return
-    const hasStart = spec.start !== null && lines.some((l) => spec.start?.test(l.segments.map((s) => s.str).join(' ')))
-    let inside = spec.start === null || (spec.startOptional === true && !hasStart)
-    for (const l of lines) {
-      const text = l.segments.map((s) => s.str).join(' ')
-      if (!inside) {
-        if (spec.start?.test(text)) {
-          inside = true
-          if (spec.headerColumns) {
-            const cols: Columns = {}
-            for (const [name, re] of Object.entries(spec.headerColumns.titles)) {
-              const seg = l.segments.find((s) => re.test(s.str))
-              if (seg) cols[name] = seg.x2 + spec.headerColumns.offset
-            }
-            columnsByPage.set(page, cols)
-          }
-        }
-        continue
-      }
-      if (spec.stop?.test(text)) break
-      out.push(l)
-    }
-  })
-  return out
+function extractHeaderColumns(l: Line, headerCols: NonNullable<TableSpec['headerColumns']>): Columns {
+  const cols: Columns = {}
+  for (const [name, re] of Object.entries(headerCols.titles)) {
+    const seg = l.segments.find((s) => re.test(s.str))
+    if (seg) cols[name] = seg.x2 + headerCols.offset
+  }
+  return cols
 }
 
-export function parseTable(pages: Line[][], spec: TableSpec): ParsedRow[] {
-  const columnsByPage = new Map<number, Columns>()
-  const lines = tableLines(pages, spec, columnsByPage)
-  // Sections are marked before grouping: a section line closes the previous row.
+function collectPageLines(lines: Line[], page: number, spec: TableSpec, columnsByPage: Map<number, Columns>): Line[] {
+  if (!spec.pages(page)) return []
+  const hasStart = spec.start !== null && lines.some((l) => spec.start?.test(l.segments.map((s) => s.str).join(' ')))
+  let inside = spec.start === null || (spec.startOptional === true && !hasStart)
+  const pageOut: Line[] = []
+  for (const l of lines) {
+    const text = l.segments.map((s) => s.str).join(' ')
+    if (!inside) {
+      if (spec.start?.test(text)) {
+        inside = true
+        if (spec.headerColumns) {
+          columnsByPage.set(page, extractHeaderColumns(l, spec.headerColumns))
+        }
+      }
+      continue
+    }
+    if (spec.stop?.test(text)) break
+    pageOut.push(l)
+  }
+  return pageOut
+}
+
+function tableLines(pages: Line[][], spec: TableSpec, columnsByPage: Map<number, Columns>): Line[] {
+  return pages.flatMap((lines, i) => collectPageLines(lines, i + 1, spec, columnsByPage))
+}
+
+function partitionBySection(lines: Line[], spec: TableSpec): Map<string, Line[]> {
   const sectionOf = new Map<Line, string>()
   let section = 'main'
   const content: Line[] = []
@@ -114,9 +116,19 @@ export function parseTable(pages: Line[][], spec: TableSpec): ParsedRow[] {
     const s = sectionOf.get(l) ?? 'main'
     bySection.set(s, [...(bySection.get(s) ?? []), l])
   }
+  return bySection
+}
+
+function parseSectionRows(bySection: Map<string, Line[]>, spec: TableSpec, columnsByPage: Map<number, Columns>): ParsedRow[] {
   const rows: ParsedRow[] = []
   for (const [sec, secLines] of bySection) {
-    const groups = groupRows(secLines, { isAnchor: spec.isAnchor, attach: spec.attach, ...(spec.isNoise ? { isNoise: spec.isNoise } : {}), ...(spec.band !== undefined ? { band: spec.band } : {}), ...(spec.orphan ? { orphan: spec.orphan } : {}) })
+    const groups = groupRows(secLines, {
+      isAnchor: spec.isAnchor,
+      attach: spec.attach,
+      ...(spec.isNoise ? { isNoise: spec.isNoise } : {}),
+      ...(spec.band !== undefined ? { band: spec.band } : {}),
+      ...(spec.orphan ? { orphan: spec.orphan } : {}),
+    })
     for (const g of groups) {
       const row = toRow(g, spec, sec, columnsByPage)
       if (spec.skip?.(row)) continue
@@ -127,29 +139,24 @@ export function parseTable(pages: Line[][], spec: TableSpec): ParsedRow[] {
   return rows
 }
 
-function toRow(g: RowGroup, spec: TableSpec, section: string, columnsByPage: Map<number, Columns>): ParsedRow {
-  const a = spec.parseAnchor(g.anchor)
-  const problems: string[] = []
-  const amounts = g.lines.flatMap((l) => columnAmounts(l, columnsByPage.get(l.page) ?? (spec.columns as Columns), spec.columnTolerance ?? 30))
-  const of = (c: string) => amounts.filter((x) => x.column === c)
-  const debit = of('debit')
-  const credit = of('credit')
-  const signed = of('amount')
-  let amount = 0
-  let type: 'credit' | 'debit' = 'debit'
-  const moving = [...debit, ...credit, ...signed].filter((x) => x.value !== 0)
+export function parseTable(pages: Line[][], spec: TableSpec): ParsedRow[] {
+  const columnsByPage = new Map<number, Columns>()
+  const lines = tableLines(pages, spec, columnsByPage)
+  const bySection = partitionBySection(lines, spec)
+  return parseSectionRows(bySection, spec, columnsByPage)
+}
+
+function resolveRowMovement(moving: { value: number; column: string }[], problems: string[]): { amount: number; type: 'credit' | 'debit' } {
   if (moving.length !== 1) problems.push(`montos de movimiento: ${String(moving.length)}`)
   const m = moving[0]
-  if (m) {
-    amount = Math.abs(m.value)
-    type = m.column === 'credit' ? 'credit' : m.column === 'debit' ? 'debit' : m.value < 0 ? 'debit' : 'credit'
-  }
-  const bal = of('balance')
-  const bal2 = of('balance2')
-  if (bal.length > 1) problems.push('más de un saldo')
+  if (!m) return { amount: 0, type: 'debit' }
+  const type: 'credit' | 'debit' = m.column === 'credit' ? 'credit' : m.column === 'debit' ? 'debit' : m.value < 0 ? 'debit' : 'credit'
+  return { amount: Math.abs(m.value), type }
+}
+
+function resolveRowText(g: RowGroup, a: AnchorInfo, spec: TableSpec, problems: string[]) {
   const [from, to] = spec.description
-  const descLines = g.lines
-  let description = textInRange(descLines, from, to)
+  let description = textInRange(g.lines, from, to)
   let head = textInRange([g.anchor], from, to)
   if (a.head) {
     description = `${a.head} ${description}`.trim()
@@ -163,12 +170,30 @@ function toRow(g: RowGroup, spec: TableSpec, section: string, columnsByPage: Map
   }
   if (!description) problems.push('sin concepto')
   return {
+    description: description || '(sin concepto)',
+    head: head || '(sin concepto)',
+    reference: reference && reference.length > 0 ? reference : null,
+  }
+}
+
+function toRow(g: RowGroup, spec: TableSpec, section: string, columnsByPage: Map<number, Columns>): ParsedRow {
+  const a = spec.parseAnchor(g.anchor)
+  const problems: string[] = []
+  const amounts = g.lines.flatMap((l) => columnAmounts(l, columnsByPage.get(l.page) ?? (spec.columns as Columns), spec.columnTolerance ?? 30))
+  const of = (c: string) => amounts.filter((x) => x.column === c)
+  const bal = of('balance')
+  const bal2 = of('balance2')
+  if (bal.length > 1) problems.push('más de un saldo')
+  const moving = amounts.filter((x) => (x.column === 'debit' || x.column === 'credit' || x.column === 'amount') && x.value !== 0)
+  const { amount, type } = resolveRowMovement(moving, problems)
+  const { description, head, reference } = resolveRowText(g, a, spec, problems)
+  return {
     section,
     page: g.anchor.page,
     date: a.date,
-    description: description || '(sin concepto)',
-    description_head: head || '(sin concepto)',
-    reference: reference && reference.length > 0 ? reference : null,
+    description,
+    description_head: head,
+    reference,
     amount: round2(amount),
     type,
     balance: bal[0]?.value ?? null,
@@ -190,7 +215,7 @@ export interface ChainCheck {
 }
 
 /** Running balance: balance(n) = balance(n-1) +/- amount(n), carrying the expected one over rows with no balance. */
-export function checkChain(rows: ParsedRow[], opening: number | null, opts: { reverse?: boolean; excludeInternal?: boolean } = {}): ChainCheck {
+export function checkChain(rows: readonly ParsedRow[], opening: number | null, opts: { reverse?: boolean; excludeInternal?: boolean } = {}): ChainCheck {
   const ordered = opts.reverse ? [...rows].reverse() : rows
   let expected = opening
   const breaks: ChainCheck['breaks'] = []

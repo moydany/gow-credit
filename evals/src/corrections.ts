@@ -43,6 +43,39 @@ export function verdict(now: string | number | null, read: string | number | nul
 
 const label = (t: CorrectionTarget) => `${t.kind}.${t.field}`
 
+type CorrectionItem = CorrectionsExport['corrections'][number]
+
+function buildPdfHashMap(pdfDirs: string[]): Map<string, string> {
+  const byHash = new Map<string, string>()
+  for (const d of pdfDirs.filter(existsSync)) {
+    for (const f of readdirSync(d).filter((x) => x.toLowerCase().endsWith('.pdf'))) {
+      const hash = createHash('sha256').update(readFileSync(join(d, f))).digest('hex')
+      byHash.set(hash, join(d, f))
+    }
+  }
+  return byHash
+}
+
+function processCorrectionItems(
+  corrections: readonly CorrectionItem[],
+  doc: Parameters<typeof readValue>[0],
+  short: string,
+  totals: Record<Verdict, number>,
+  lines: string[],
+): void {
+  for (const c of corrections) {
+    let now: string | number | null
+    try {
+      now = readValue(doc, c.target)
+    } catch {
+      now = null
+    }
+    const v = verdict(now, c.read_value, c.value)
+    totals[v]++
+    lines.push(`| ${short} | ${label(c.target)} | ${c.page === null ? '—' : String(c.page)} | ${v} |`)
+  }
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { model: { type: 'string', default: EXTRACTION_MODEL } } })
   const dir = process.env.CORRECTIONS_DIR ?? join(REPO, 'data/corrections')
@@ -51,10 +84,7 @@ async function main(): Promise<void> {
     console.log(`No hay ${dir}. Exporta primero: pnpm corrections:export --tenant <id>`)
     return
   }
-  const byHash = new Map<string, string>()
-  for (const d of pdfDirs.filter(existsSync)) {
-    for (const f of readdirSync(d).filter((x) => x.toLowerCase().endsWith('.pdf'))) byHash.set(createHash('sha256').update(readFileSync(join(d, f))).digest('hex'), join(d, f))
-  }
+  const byHash = buildPdfHashMap(pdfDirs)
   const totals: Record<Verdict, number> = { fixed: 0, same_error: 0, other: 0, not_in_document: 0 }
   const lines = ['# Correcciones del analista contra el modelo actual', '', `Modelo \`${values.model}\`, extracción desde caché.`, '', '| Documento | Campo | Página | Resultado |', '|---|---|---|---|']
   let skipped = 0
@@ -73,17 +103,7 @@ async function main(): Promise<void> {
       lines.push(`| ${short} | — | — | sin caché (${r.misses.join(', ')}) |`)
       continue
     }
-    for (const c of file.corrections) {
-      let now: string | number | null
-      try {
-        now = readValue(r.doc, c.target)
-      } catch {
-        now = null
-      }
-      const v = verdict(now, c.read_value, c.value)
-      totals[v]++
-      lines.push(`| ${short} | ${label(c.target)} | ${c.page === null ? '—' : String(c.page)} | ${v} |`)
-    }
+    processCorrectionItems(file.corrections, r.doc, short, totals, lines)
   }
   const counted = totals.fixed + totals.same_error + totals.other
   const summary = `Corregidas por el modelo actual: ${String(totals.fixed)} de ${String(counted)} · mismo error: ${String(totals.same_error)} · otro valor: ${String(totals.other)} · dato que el documento no trae: ${String(totals.not_in_document)}${skipped ? ` · documentos sin PDF o sin caché: ${String(skipped)}` : ''}`
