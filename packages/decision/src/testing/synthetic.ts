@@ -32,43 +32,30 @@ const GROWING_KINDS: ReadonlySet<SyntheticFlowKind> = new Set(['customer_payment
 /** Fictitious issuer of the fee CFDI. */
 export const SYNTHETIC_BANK_RFC = 'BFI990101AB1'
 
+const FLOW_DESCRIPTIONS: Record<SyntheticFlowKind, (seq: number, cp: string | null, rfc: string) => string> = {
+  customer_payment: (seq, cp, rfc) => `SPEI RECIBIDO ${cp ?? 'CLIENTE VARIOS'}${rfc} REF ${String(seq)}`,
+  sales_settlement: (seq) => `ABONO VENTAS TPV LOTE ${String(seq)}`,
+  cash_deposit: (seq) => `DEPOSITO EN EFECTIVO SUCURSAL ${String(seq)}`,
+  unclassified_credit: (seq, cp, rfc) => `${cp ?? 'OPERACION'}${rfc} ${String(seq)}`,
+  loan_disbursement: (_, cp) => `DISPOSICION DE CREDITO ${cp ?? 'FINANCIERA'}`,
+  own_transfer_in: () => 'TRASPASO ENTRE CUENTAS PROPIAS',
+  own_transfer_out: () => 'TRASPASO ENTRE CUENTAS PROPIAS',
+  refund: (seq) => `DEVOLUCION SPEI ${String(seq)}`,
+  interest: () => 'INTERESES GANADOS',
+  supplier_payment: (seq, cp, rfc) => `PAGO A PROVEEDOR ${cp ?? 'PROVEEDOR GENERAL'}${rfc} REF ${String(seq)}`,
+  payroll: (seq) => `PAGO DE NOMINA QUINCENA ${String(seq)}`,
+  tax: (seq) => `PAGO REFERENCIADO SAT ${String(seq)}`,
+  fee: () => 'COMISION MANEJO DE CUENTA',
+  loan_payment: (_, cp) => `PAGO DE CREDITO ${cp ?? 'FINANCIERA'}`,
+  cash_withdrawal: (seq) => `RETIRO CAJERO AUTOMATICO ${String(seq)}`,
+  card_purchase: (seq, cp) => `COMPRA TARJETA ${cp ?? 'COMERCIO'} ${String(seq)}`,
+}
+
 function describe(flow: SyntheticFlow, seq: number): string {
   if (flow.description) return flow.description
-  const cp = flow.counterparty
   const rfc = flow.counterparty_rfc ? ` RFC ${flow.counterparty_rfc}` : ''
-  switch (flow.kind) {
-    case 'customer_payment':
-      return `SPEI RECIBIDO ${cp ?? 'CLIENTE VARIOS'}${rfc} REF ${String(seq)}`
-    case 'sales_settlement':
-      return `ABONO VENTAS TPV LOTE ${String(seq)}`
-    case 'cash_deposit':
-      return `DEPOSITO EN EFECTIVO SUCURSAL ${String(seq)}`
-    case 'unclassified_credit':
-      return `${cp ?? 'OPERACION'}${rfc} ${String(seq)}`
-    case 'loan_disbursement':
-      return `DISPOSICION DE CREDITO ${cp ?? 'FINANCIERA'}`
-    case 'own_transfer_in':
-    case 'own_transfer_out':
-      return 'TRASPASO ENTRE CUENTAS PROPIAS'
-    case 'refund':
-      return `DEVOLUCION SPEI ${String(seq)}`
-    case 'interest':
-      return 'INTERESES GANADOS'
-    case 'supplier_payment':
-      return `PAGO A PROVEEDOR ${cp ?? 'PROVEEDOR GENERAL'}${rfc} REF ${String(seq)}`
-    case 'payroll':
-      return `PAGO DE NOMINA QUINCENA ${String(seq)}`
-    case 'tax':
-      return `PAGO REFERENCIADO SAT ${String(seq)}`
-    case 'fee':
-      return 'COMISION MANEJO DE CUENTA'
-    case 'loan_payment':
-      return `PAGO DE CREDITO ${cp ?? 'FINANCIERA'}`
-    case 'cash_withdrawal':
-      return `RETIRO CAJERO AUTOMATICO ${String(seq)}`
-    case 'card_purchase':
-      return `COMPRA TARJETA ${cp ?? 'COMERCIO'} ${String(seq)}`
-  }
+  const formatter = FLOW_DESCRIPTIONS[flow.kind]
+  return formatter(seq, flow.counterparty ?? null, rfc)
 }
 
 function verified<T>(value: T, page: number) {
@@ -128,101 +115,107 @@ function holderBlock(holder: SyntheticHolder, redacted: boolean) {
   return { name: printed(holder.name), rfc: printed(holder.rfc), holder_type: missing(), address: printed(holder.address) }
 }
 
-export function syntheticStatement(input: z.input<typeof SyntheticStatement>, holder: SyntheticHolder, seed: string): StatementExtraction {
-  const spec = SyntheticStatement.parse(input)
-  const months = Array.from({ length: spec.months }, (_, m) => ({ month: m + 1, start: toDay(addMonths(spec.start, m)), end: toDay(addDays(addMonths(spec.start, m + 1), -1)) }))
-  const seq = { n: 0 }
-  const drafts = months.flatMap((m) => monthDrafts(spec, m.month, m.start, m.end, seq)).sort((a, b) => a.day - b.day || a.order - b.order)
-  const ranges = spec.periods === 'monthly' ? months : [{ month: 1, start: months[0]?.start ?? toDay(spec.start), end: months.at(-1)?.end ?? toDay(spec.start) }]
+function buildPeriodTransactions(drafts: Draft[], start: number, end: number, page: number, pi: number, running: { balance: number }): Transaction[] {
+  return drafts
+    .filter((d) => d.day >= start && d.day <= end)
+    .map((d, ti) => {
+      running.balance = round2(running.balance + (d.type === 'credit' ? d.amount : -d.amount))
+      const date = fromDay(d.day)
+      return {
+        id: `a1.p${String(pi + 1)}.t${String(ti + 1).padStart(4, '0')}`,
+        date,
+        settlement_date: null,
+        description: d.description,
+        reference: null,
+        amount: d.amount,
+        type: d.type,
+        balance: running.balance,
+        internal_transfer: false,
+        source: { page, snippet: `${date} ${d.description}` },
+        verification: d.verification,
+        confidence: d.verification === 'verified' ? 1 : 0.4,
+        provenance: 'extracted' as const,
+        classification: null,
+      }
+    })
+}
 
-  let balance = spec.opening_balance
-  const periods: Period[] = ranges.map((r, pi) => {
-    const page = pi + 1
-    const opening = balance
-    const txs: Transaction[] = drafts
-      .filter((d) => d.day >= r.start && d.day <= r.end)
-      .map((d, ti) => {
-        balance = round2(balance + (d.type === 'credit' ? d.amount : -d.amount))
-        const date = fromDay(d.day)
-        return {
-          id: `a1.p${String(pi + 1)}.t${String(ti + 1).padStart(4, '0')}`,
-          date,
-          settlement_date: null,
-          description: d.description,
-          reference: null,
-          amount: d.amount,
-          type: d.type,
-          balance,
-          internal_transfer: false,
-          source: { page, snippet: `${date} ${d.description}` },
-          verification: d.verification,
-          confidence: d.verification === 'verified' ? 1 : 0.4,
-          provenance: 'extracted' as const,
-          classification: null,
-        }
-      })
-    const credits = round2(txs.filter((t) => t.type === 'credit').reduce((s, t) => s + t.amount, 0))
-    const debits = round2(txs.filter((t) => t.type === 'debit').reduce((s, t) => s + t.amount, 0))
-    const closing = balance
-    const printedClosing = spec.reconciled ? closing : round2(closing + 1000)
-    const amountCheck = (v: number) => ({ printed: v, extracted: v, difference: 0, ok: true })
-    return {
-      id: `a1.p${String(pi + 1)}`,
-      period_start: verified(fromDay(r.start), page),
-      period_end: verified(fromDay(r.end), page),
-      statement_date: verified(fromDay(r.end), page),
-      pages: [page],
-      summary: {
-        opening_balance: verified(opening, page),
-        closing_balance: verified(printedClosing, page),
-        total_credits: verified(credits, page),
-        total_debits: verified(debits, page),
-        credits_count: verified(txs.filter((t) => t.type === 'credit').length, page),
-        debits_count: verified(txs.filter((t) => t.type === 'debit').length, page),
-        average_balance: missing(),
-        fees_charged: missing(),
-        interest_earned: missing(),
-        tax_withheld: missing(),
+function buildSyntheticPeriod(
+  r: { start: number; end: number },
+  pi: number,
+  drafts: Draft[],
+  spec: z.infer<typeof SyntheticStatement>,
+  running: { balance: number },
+): Period {
+  const page = pi + 1
+  const opening = running.balance
+  const txs = buildPeriodTransactions(drafts, r.start, r.end, page, pi, running)
+  const credits = round2(txs.filter((t) => t.type === 'credit').reduce((s, t) => s + t.amount, 0))
+  const debits = round2(txs.filter((t) => t.type === 'debit').reduce((s, t) => s + t.amount, 0))
+  const closing = running.balance
+  const printedClosing = spec.reconciled ? closing : round2(closing + 1000)
+  const amountCheck = (v: number) => ({ printed: v, extracted: v, difference: 0, ok: true })
+  return {
+    id: `a1.p${String(pi + 1)}`,
+    period_start: verified(fromDay(r.start), page),
+    period_end: verified(fromDay(r.end), page),
+    statement_date: verified(fromDay(r.end), page),
+    pages: [page],
+    summary: {
+      opening_balance: verified(opening, page),
+      closing_balance: verified(printedClosing, page),
+      total_credits: verified(credits, page),
+      total_debits: verified(debits, page),
+      credits_count: verified(txs.filter((t) => t.type === 'credit').length, page),
+      debits_count: verified(txs.filter((t) => t.type === 'debit').length, page),
+      average_balance: missing(),
+      fees_charged: missing(),
+      interest_earned: missing(),
+      tax_withheld: missing(),
+    },
+    transactions: txs,
+    reconciliation: {
+      status: spec.reconciled ? 'reconciled' : 'not_reconciled',
+      tolerance: 1,
+      global: {
+        opening_balance: opening,
+        credits,
+        debits,
+        expected_closing: closing,
+        printed_closing: printedClosing,
+        difference: round2(printedClosing - closing),
+        ok: spec.reconciled,
+        excludes_internal_transfers: false,
+        adjustments: [],
       },
-      transactions: txs,
-      reconciliation: {
-        status: spec.reconciled ? 'reconciled' : 'not_reconciled',
-        tolerance: 1,
-        global: {
-          opening_balance: opening,
-          credits,
-          debits,
-          expected_closing: closing,
-          printed_closing: printedClosing,
-          difference: round2(printedClosing - closing),
-          ok: spec.reconciled,
-          excludes_internal_transfers: false,
-          adjustments: [],
-        },
-        totals: {
-          credits: amountCheck(credits),
-          debits: amountCheck(debits),
-          credits_count: { printed: txs.filter((t) => t.type === 'credit').length, extracted: txs.filter((t) => t.type === 'credit').length, ok: true },
-          debits_count: { printed: txs.filter((t) => t.type === 'debit').length, extracted: txs.filter((t) => t.type === 'debit').length, ok: true },
-        },
-        running_balance: { rows_checked: txs.length, rows_without_balance: 0, breaks: [], ok: true },
+      totals: {
+        credits: amountCheck(credits),
+        debits: amountCheck(debits),
+        credits_count: { printed: txs.filter((t) => t.type === 'credit').length, extracted: txs.filter((t) => t.type === 'credit').length, ok: true },
+        debits_count: { printed: txs.filter((t) => t.type === 'debit').length, extracted: txs.filter((t) => t.type === 'debit').length, ok: true },
       },
-    }
-  })
+      running_balance: { rows_checked: txs.length, rows_without_balance: 0, breaks: [], ok: true },
+    },
+  }
+}
 
-  const pageCount = periods.length + 1
-  const fiscal: FiscalDocument[] = []
-  if (spec.fiscal) {
-    const f = spec.fiscal
-    const last = periods.at(-1)
-    // The bank's CFDI covers the fees of the whole document.
-    const fees = round2(periods.flatMap((x) => x.transactions).filter((t) => t.type === 'debit' && t.description.startsWith('COMISION')).reduce((s, t) => s + t.amount, 0))
-    const total = round2(fees + (f.fees_match ? 0 : 150))
-    const subtotal = round2(total / 1.16)
-    const certified = `${addDays(last?.period_end.value ?? spec.start, f.certified_days_after_end)}T10:15:07`
-    const receiverRfc = f.receiver_rfc ?? (spec.holder_redacted ? null : holder.rfc)
-    const p = pageCount
-    fiscal.push({
+function buildSyntheticFiscal(
+  spec: z.infer<typeof SyntheticStatement>,
+  periods: Period[],
+  holder: SyntheticHolder,
+  pageCount: number,
+): FiscalDocument[] {
+  if (!spec.fiscal) return []
+  const f = spec.fiscal
+  const last = periods.at(-1)
+  const fees = round2(periods.flatMap((x) => x.transactions).filter((t) => t.type === 'debit' && t.description.startsWith('COMISION')).reduce((s, t) => s + t.amount, 0))
+  const total = round2(fees + (f.fees_match ? 0 : 150))
+  const subtotal = round2(total / 1.16)
+  const certified = `${addDays(last?.period_end.value ?? spec.start, f.certified_days_after_end)}T10:15:07`
+  const receiverRfc = f.receiver_rfc ?? (spec.holder_redacted ? null : holder.rfc)
+  const p = pageCount
+  return [
+    {
       id: 'f1',
       kind: 'income',
       version: verified('4.0', p),
@@ -251,9 +244,21 @@ export function syntheticStatement(input: z.input<typeof SyntheticStatement>, ho
       seals: { issuer_present: true, sat_present: true, chain_present: true, looks_truncated: false },
       original_chain: { uuid: verified(f.uuid, p), certified_at: verified(certified, p), sat_certificate: verified('00001000000700000001', p) },
       source: { page: p, snippet: 'Este documento es una representación impresa de un CFDI' },
-    })
-  }
+    },
+  ]
+}
 
+export function syntheticStatement(input: z.input<typeof SyntheticStatement>, holder: SyntheticHolder, seed: string): StatementExtraction {
+  const spec = SyntheticStatement.parse(input)
+  const months = Array.from({ length: spec.months }, (_, m) => ({ month: m + 1, start: toDay(addMonths(spec.start, m)), end: toDay(addDays(addMonths(spec.start, m + 1), -1)) }))
+  const seq = { n: 0 }
+  const drafts = months.flatMap((m) => monthDrafts(spec, m.month, m.start, m.end, seq)).sort((a, b) => a.day - b.day || a.order - b.order)
+  const ranges = spec.periods === 'monthly' ? months : [{ month: 1, start: months[0]?.start ?? toDay(spec.start), end: months.at(-1)?.end ?? toDay(spec.start) }]
+
+  const running = { balance: spec.opening_balance }
+  const periods = ranges.map((r, pi) => buildSyntheticPeriod(r, pi, drafts, spec, running))
+  const pageCount = periods.length + 1
+  const fiscal = buildSyntheticFiscal(spec, periods, holder, pageCount)
   const sha = createHash('sha256').update(`${seed}\n${JSON.stringify(spec)}`).digest('hex')
   const redacted = spec.holder_redacted
   return StatementExtraction.parse({

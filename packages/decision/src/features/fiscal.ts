@@ -26,31 +26,45 @@ const GENERIC_RECEIVER_NOTE = 'el CFDI va al RFC genérico; el régimen impreso 
 /** With no printed receiver RFC the regime cannot be attributed to the holder (BBVA prints 616 with no RFC). */
 const NO_RECEIVER_NOTE = 'el CFDI no trae RFC receptor; el régimen impreso no se puede atribuir al titular'
 
+interface FoundRegime {
+  code: string
+  verification: Verification
+  where: string
+  end: number
+}
+
+function findFiscalRegimeInDoc(
+  doc: StatementContext['ledger']['documents'][number],
+  periods: StatementContext['ledger']['periods'],
+): { found: FoundRegime | null; note: string | null } {
+  const end = Math.max(...periods.filter((p) => p.doc === doc).map((p) => p.end ?? 0))
+  const fiscal = [...doc.statement.fiscal_documents].sort((a, b) => (a.kind === 'income' ? 0 : 1) - (b.kind === 'income' ? 0 : 1))
+  let skippedNote: string | null = null
+  for (const f of fiscal) {
+    const raw = f.receiver.tax_regime.value
+    const code = raw === null ? null : regimeCode(raw)
+    if (code === null) continue
+    const rfc = f.receiver.rfc.value
+    if (rfc === null || rfc.trim() === '') {
+      skippedNote ??= NO_RECEIVER_NOTE
+      continue
+    }
+    if (checkRfc(rfc).kind === 'generic') {
+      skippedNote = GENERIC_RECEIVER_NOTE
+      continue
+    }
+    return { found: { code, verification: f.receiver.tax_regime.verification, where: `${doc.tag}:${f.id}.receiver.tax_regime`, end }, note: skippedNote }
+  }
+  return { found: null, note: skippedNote }
+}
+
 export function fiscalRegime(ctx: StatementContext): Entry {
-  // The most recent document wins; if two documents give different regimes, it is a conflict.
-  const found: { code: string; verification: Verification; where: string; end: number }[] = []
+  const found: FoundRegime[] = []
   let skippedNote: string | null = null
   for (const doc of ctx.ledger.documents) {
-    const end = Math.max(...ctx.ledger.periods.filter((p) => p.doc === doc).map((p) => p.end ?? 0))
-    const fiscal = [...doc.statement.fiscal_documents].sort((a, b) => (a.kind === 'income' ? 0 : 1) - (b.kind === 'income' ? 0 : 1))
-    for (const f of fiscal) {
-      const raw = f.receiver.tax_regime.value
-      const code = raw === null ? null : regimeCode(raw)
-      if (code === null) continue
-      // A CFDI to XAXX010101000 / XEXX010101000 prints the regime given to "público en general"
-      // (616 at BBVA), not the holder's: useless for the profile.
-      const rfc = f.receiver.rfc.value
-      if (rfc === null || rfc.trim() === '') {
-        skippedNote ??= NO_RECEIVER_NOTE
-        continue
-      }
-      if (checkRfc(rfc).kind === 'generic') {
-        skippedNote = GENERIC_RECEIVER_NOTE
-        continue
-      }
-      found.push({ code, verification: f.receiver.tax_regime.verification, where: `${doc.tag}:${f.id}.receiver.tax_regime`, end })
-      break
-    }
+    const res = findFiscalRegimeInDoc(doc, ctx.ledger.periods)
+    if (res.note) skippedNote = res.note
+    if (res.found) found.push(res.found)
   }
   if (found.length === 0) return unknown(skippedNote ?? 'sin CFDI o el CFDI no imprime el régimen del receptor')
   found.sort((a, b) => b.end - a.end)
@@ -64,6 +78,28 @@ export function fiscalRegime(ctx: StatementContext): Entry {
   })
 }
 
+interface AnchorCheck {
+  ok: boolean
+  where: string
+  verification: Verification
+}
+
+function checkDocFiscalAnchor(
+  f: StatementContext['ledger']['submitted'][number]['statement']['fiscal_documents'][number],
+  doc: StatementContext['ledger']['submitted'][number],
+  submittedRows: StatementContext['ledger']['submittedRows'],
+): AnchorCheck | null {
+  if (f.kind !== 'income') return null
+  const total = f.total.value ?? (f.subtotal.value !== null && f.tax.value !== null ? round2(f.subtotal.value + f.tax.value) : null)
+  const subtotal = f.subtotal.value
+  if (total === null && subtotal === null) return null
+  const feeRows = submittedRows.filter((r) => r.doc === doc && r.type === 'debit' && r.classification.category === 'fee')
+  const fees = sumMoney(feeRows.map((r) => r.amount))
+  const ok = (total !== null && Math.abs(fees - total) <= FISCAL_ANCHOR_TOLERANCE) || (subtotal !== null && Math.abs(fees - subtotal) <= FISCAL_ANCHOR_TOLERANCE)
+  const verification = worst(f.total.verification, f.subtotal.verification, ...feeRows.map((r) => (r.verified ? 'verified' : 'unverified')))
+  return { ok, where: `${doc.tag}:${f.id} comisiones=${String(fees)} cfdi=${String(total ?? subtotal)}`, verification }
+}
+
 /**
  * Fiscal anchor: the fee CFDI is signed by the SAT, outside the editable PDF. The document's fee
  * rows must add up to its total (if the bank itemizes IVA) or its subtotal (if not). A document
@@ -71,18 +107,11 @@ export function fiscalRegime(ctx: StatementContext): Entry {
  * its movements: the CFDI covers the document, not the evaluated months (ADR 0072).
  */
 export function fiscalAnchor(ctx: StatementContext): Entry {
-  const checks: { ok: boolean; where: string; verification: Verification }[] = []
+  const checks: AnchorCheck[] = []
   for (const doc of ctx.ledger.submitted) {
     for (const f of doc.statement.fiscal_documents) {
-      if (f.kind !== 'income') continue
-      const total = f.total.value ?? (f.subtotal.value !== null && f.tax.value !== null ? round2(f.subtotal.value + f.tax.value) : null)
-      const subtotal = f.subtotal.value
-      if (total === null && subtotal === null) continue
-      const feeRows = ctx.ledger.submittedRows.filter((r) => r.doc === doc && r.type === 'debit' && r.classification.category === 'fee')
-      const fees = sumMoney(feeRows.map((r) => r.amount))
-      const ok = (total !== null && Math.abs(fees - total) <= FISCAL_ANCHOR_TOLERANCE) || (subtotal !== null && Math.abs(fees - subtotal) <= FISCAL_ANCHOR_TOLERANCE)
-      const verification = worst(f.total.verification, f.subtotal.verification, ...feeRows.map((r) => (r.verified ? 'verified' : 'unverified')))
-      checks.push({ ok, where: `${doc.tag}:${f.id} comisiones=${String(fees)} cfdi=${String(total ?? subtotal)}`, verification })
+      const check = checkDocFiscalAnchor(f, doc, ctx.ledger.submittedRows)
+      if (check) checks.push(check)
     }
   }
   if (checks.length === 0) return unknown('ningún CFDI de comisiones con importes impresos')

@@ -63,6 +63,31 @@ function googleUsage(u: UsageLike, raw: Record<string, unknown> | undefined): To
   return { input_tokens: Math.max(0, n(u.inputTokens) - cached), output_tokens: n(u.outputTokens), cache_creation_input_tokens: 0, cache_read_input_tokens: cached }
 }
 
+function buildDocumentContent<T>(req: StructuredRequest<T>, provider: string) {
+  if (!req.document) return []
+  return [
+    {
+      type: 'file' as const,
+      data: req.document.base64,
+      mediaType: 'application/pdf',
+      ...(req.document.cache && provider === 'anthropic' ? { providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' as const } } } } : {}),
+    },
+  ]
+}
+
+function resolveTokenUsage(
+  provider: Provider,
+  usage: UsageLike,
+  providerMetadata: Record<string, unknown> | undefined,
+): TokenUsage {
+  if (provider === 'anthropic') {
+    const raw = (providerMetadata?.anthropic as { usage?: Record<string, unknown> } | undefined)?.usage
+    return toTokenUsage(usage, raw)
+  }
+  const raw = (providerMetadata?.google as { usageMetadata?: Record<string, unknown> } | undefined)?.usageMetadata
+  return googleUsage(usage, raw)
+}
+
 export class MastraStructuredLlm implements StructuredLlm {
   readonly #agents = new Map<string, Agent>()
   readonly #anthropic: ReturnType<typeof createAnthropic> | null
@@ -109,21 +134,9 @@ export class MastraStructuredLlm implements StructuredLlm {
     const provider = providerOf(req.model)
     const agent = this.#agent(req.model, provider, req.system)
     const content = [
-      ...(req.document
-        ? [
-            {
-              type: 'file' as const,
-              data: req.document.base64,
-              mediaType: 'application/pdf',
-              // Gemini caches the prefix implicitly; cache_control only exists on Anthropic.
-              ...(req.document.cache && provider === 'anthropic' ? { providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' as const } } } } : {}),
-            },
-          ]
-        : []),
+      ...buildDocumentContent(req, provider),
       { type: 'text' as const, text: req.instruction },
     ]
-    // Two constants, not a ternary of literals: without exactOptionalPropertyTypes (packages/mastra),
-     // TypeScript normalizes the union with `google?: undefined` and it is no longer ProviderOptions.
     const anthropicOptions = {
       anthropic: {
         thinking: { type: 'adaptive' as const },
@@ -144,10 +157,7 @@ export class MastraStructuredLlm implements StructuredLlm {
       })
       stream = out
       const [object, usage, finishReason, providerMetadata] = await Promise.all([out.object, out.usage, out.finishReason, out.providerMetadata])
-      const tokenUsage =
-        provider === 'anthropic'
-          ? toTokenUsage(usage, (providerMetadata?.anthropic as { usage?: Record<string, unknown> } | undefined)?.usage)
-          : googleUsage(usage, (providerMetadata?.google as { usageMetadata?: Record<string, unknown> } | undefined)?.usageMetadata)
+      const tokenUsage = resolveTokenUsage(provider, usage, providerMetadata)
       await assertFinished(finishReason, req.maxOutputTokens, out)
       const parsed = req.schema.safeParse(object)
       if (!parsed.success) throw new LlmCallError('invalid_output', 'la salida no valida contra el esquema', { retryable: true, cause: parsed.error, rawOutput: JSON.stringify(object) })

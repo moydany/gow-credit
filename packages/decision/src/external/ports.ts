@@ -103,13 +103,72 @@ function cfdiQueries(statements: readonly StatementExtraction[]): CfdiQuery[] {
 }
 
 function counterpartyRfcs(statements: readonly StatementExtraction[]): string[] {
-  const out = new Set<string>()
-  for (const s of statements) for (const a of s.accounts) for (const p of a.periods) for (const t of p.transactions) if (t.classification?.counterparty_rfc) out.add(t.classification.counterparty_rfc)
-  return [...out]
+  const rfcs = statements
+    .flatMap((s) => s.accounts)
+    .flatMap((a) => a.periods)
+    .flatMap((p) => p.transactions)
+    .map((t) => t.classification?.counterparty_rfc)
+    .filter((r): r is string => Boolean(r))
+  return [...new Set(rfcs)]
 }
 
 function uuidsOf(statements: readonly StatementExtraction[]): string[] {
   return [...new Set(statements.flatMap((s) => s.fiscal_documents.map((f) => f.uuid.value?.toUpperCase() ?? null)).filter((u): u is string => u !== null))]
+}
+
+async function fetchCreditsSnapshot(port: ExistingCreditsPort, supplierId: string): Promise<ExternalSnapshot['existing_credits']> {
+  const r = await attempt(() => port.creditsOf(supplierId))
+  return { available: r.ok, simulated: port.simulated, credits: r.ok ? r.value : [] }
+}
+
+async function fetchBureauSnapshot(port: CreditBureauPort, supplierId: string, rfc: string | null): Promise<ExternalSnapshot['credit_bureau']> {
+  const r = await attempt(() => port.reportOf(supplierId, rfc))
+  return { available: r.ok, simulated: port.simulated, report: r.ok ? r.value : null }
+}
+
+async function fetchTaxSnapshot(
+  tax: TaxAuthorityPort,
+  q: ExternalQuery,
+  rfc: string | null,
+  extraCounterpartyRfcs: readonly string[],
+): Promise<ExternalSnapshot['tax_authority']> {
+  const tp = await attempt(() => tax.taxpayer(q.supplierId, rfc))
+  const checks: CfdiCheck[] = []
+  let ok = tp.ok
+  for (const query of cfdiQueries(q.statements)) {
+    const r = await attempt(() => tax.cfdiStatus(query))
+    if (!r.ok) ok = false
+    else if (r.value !== null) checks.push({ uuid: query.uuid, status: r.value })
+  }
+  const rfcs = [...new Set([...counterpartyRfcs(q.statements), ...extraCounterpartyRfcs])]
+  const listed = rfcs.length > 0 ? await attempt(() => tax.listedAmong(rfcs)) : { ok: true as const, value: [] }
+  return { available: ok && listed.ok, simulated: tax.simulated, taxpayer: tp.ok ? tp.value : null, cfdi: checks, listed_counterparties: listed.ok ? listed.value : [] }
+}
+
+async function fetchProgramSnapshot(program: ProgramPort, buyer: NonNullable<ApplicationRequest['buyer']> | null): Promise<ExternalSnapshot['program']> {
+  if (buyer === null) {
+    return { available: true, simulated: program.simulated, available_limit: null }
+  }
+  const r = await attempt(() => program.availableLimit(buyer))
+  return { available: r.ok, simulated: program.simulated, available_limit: r.ok ? r.value : null }
+}
+
+async function fetchHistorySnapshot(
+  h: ApplicationHistoryPort,
+  supplierId: string,
+  statements: readonly StatementExtraction[],
+): Promise<ExternalSnapshot['internal']> {
+  const uuids = uuidsOf(statements)
+  const prior = await attempt(() => h.priorApplications(supplierId))
+  const reuse = await attempt(() => h.statementReuse(uuids))
+  const seen = await attempt(() => h.seenElsewhere(uuids))
+  return {
+    available: prior.ok && reuse.ok && seen.ok,
+    simulated: h.simulated,
+    prior_applications: prior.ok ? prior.value : [],
+    statement_reuse: reuse.ok ? reuse.value : [],
+    seen_elsewhere: seen.ok ? seen.value : [],
+  }
 }
 
 /**
@@ -119,49 +178,10 @@ function uuidsOf(statements: readonly StatementExtraction[]): string[] {
 export async function gatherExternal(ports: ExternalPorts, q: ExternalQuery, extraCounterpartyRfcs: readonly string[] = []): Promise<ExternalSnapshot> {
   const snap = emptyExternalSnapshot()
   const rfc = holderRfc(q)
-  if (ports.existingCredits) {
-    const r = await attempt(() => (ports.existingCredits as ExistingCreditsPort).creditsOf(q.supplierId))
-    snap.existing_credits = { available: r.ok, simulated: ports.existingCredits.simulated, credits: r.ok ? r.value : [] }
-  }
-  if (ports.creditBureau) {
-    const r = await attempt(() => (ports.creditBureau as CreditBureauPort).reportOf(q.supplierId, rfc))
-    snap.credit_bureau = { available: r.ok, simulated: ports.creditBureau.simulated, report: r.ok ? r.value : null }
-  }
-  if (ports.taxAuthority) {
-    const tax = ports.taxAuthority
-    const tp = await attempt(() => tax.taxpayer(q.supplierId, rfc))
-    const checks: CfdiCheck[] = []
-    let ok = tp.ok
-    for (const query of cfdiQueries(q.statements)) {
-      const r = await attempt(() => tax.cfdiStatus(query))
-      if (!r.ok) ok = false
-      else if (r.value !== null) checks.push({ uuid: query.uuid, status: r.value })
-    }
-    const rfcs = [...new Set([...counterpartyRfcs(q.statements), ...extraCounterpartyRfcs])]
-    const listed = rfcs.length > 0 ? await attempt(() => tax.listedAmong(rfcs)) : { ok: true as const, value: [] }
-    snap.tax_authority = { available: ok && listed.ok, simulated: tax.simulated, taxpayer: tp.ok ? tp.value : null, cfdi: checks, listed_counterparties: listed.ok ? listed.value : [] }
-  }
-  if (ports.program) {
-    const buyer = q.request?.buyer ?? null
-    const program = ports.program
-    if (buyer !== null) {
-      const r = await attempt(() => program.availableLimit(buyer))
-      snap.program = { available: r.ok, simulated: program.simulated, available_limit: r.ok ? r.value : null }
-    }
-  }
-  if (ports.history) {
-    const h = ports.history
-    const uuids = uuidsOf(q.statements)
-    const prior = await attempt(() => h.priorApplications(q.supplierId))
-    const reuse = await attempt(() => h.statementReuse(uuids))
-    const seen = await attempt(() => h.seenElsewhere(uuids))
-    snap.internal = {
-      available: prior.ok && reuse.ok && seen.ok,
-      simulated: h.simulated,
-      prior_applications: prior.ok ? prior.value : [],
-      statement_reuse: reuse.ok ? reuse.value : [],
-      seen_elsewhere: seen.ok ? seen.value : [],
-    }
-  }
+  if (ports.existingCredits) snap.existing_credits = await fetchCreditsSnapshot(ports.existingCredits, q.supplierId)
+  if (ports.creditBureau) snap.credit_bureau = await fetchBureauSnapshot(ports.creditBureau, q.supplierId, rfc)
+  if (ports.taxAuthority) snap.tax_authority = await fetchTaxSnapshot(ports.taxAuthority, q, rfc, extraCounterpartyRfcs)
+  if (ports.program) snap.program = await fetchProgramSnapshot(ports.program, q.request?.buyer ?? null)
+  if (ports.history) snap.internal = await fetchHistorySnapshot(ports.history, q.supplierId, q.statements)
   return snap
 }

@@ -142,6 +142,24 @@ export function buyerMatch(text: string, counterpartyRfc: string | null, buyer: 
   return null
 }
 
+function matchOwnTransfer(raw: string, text: string, ctx: RuleContext): RuleMatch | null {
+  const holderRfc = normalizeRfc(ctx.holderRfc)
+  if (holderRfc !== null && raw.toUpperCase().replace(/\s/g, '').includes(holderRfc)) {
+    return { rule: 'own_rfc', classification: classification('own_transfer', 0.9, null, null), buyerMatch: null }
+  }
+  if (ctx.holderName !== null && nameTokens(ctx.holderName).length >= 2 && mentionsName(text, ctx.holderName)) {
+    return { rule: 'own_name', classification: classification('own_transfer', 0.8, null, null), buyerMatch: null }
+  }
+  return null
+}
+
+function matchFeeBankPlan(t: RuleInput, text: string, ctx: RuleContext, counterpartyRfc: string | null): RuleMatch | null {
+  if (t.type === 'debit' && /\bMENSUALIDAD\b/.test(text) && !/\bCREDITOS?\b/.test(text) && ctx.bankTokens.some((b) => new RegExp(`\\b${b}\\b`).test(text))) {
+    return { rule: 'fee_bank_plan', classification: classification('fee', 0.85, null, counterpartyRfc), buyerMatch: null }
+  }
+  return null
+}
+
 /** Classifies a movement with the rules. Never fails: unrecognizable gets confidence 0.5. */
 export function classifyByRules(t: RuleInput, ctx: RuleContext): RuleMatch {
   const raw = [t.description, t.reference ?? ''].join(' ')
@@ -156,18 +174,12 @@ export function classifyByRules(t: RuleInput, ctx: RuleContext): RuleMatch {
     return { rule: `buyer_${buyer}`, classification: classification('customer_payment', buyer === 'rfc' ? 0.98 : 0.95, ctx.buyer.name, counterpartyRfc), buyerMatch: buyer }
   }
 
-  const holderRfc = normalizeRfc(ctx.holderRfc)
-  if (holderRfc !== null && raw.toUpperCase().replace(/\s/g, '').includes(holderRfc)) {
-    return { rule: 'own_rfc', classification: classification('own_transfer', 0.9, null, null), buyerMatch: null }
-  }
-  if (ctx.holderName !== null && nameTokens(ctx.holderName).length >= 2 && mentionsName(text, ctx.holderName)) {
-    return { rule: 'own_name', classification: classification('own_transfer', 0.8, null, null), buyerMatch: null }
-  }
+  const own = matchOwnTransfer(raw, text, ctx)
+  if (own) return own
 
   // The bank's own monthly fee is a commission; a loan's is debt payment.
-  if (t.type === 'debit' && /\bMENSUALIDAD\b/.test(text) && !/\bCREDITOS?\b/.test(text) && ctx.bankTokens.some((b) => new RegExp(`\\b${b}\\b`).test(text))) {
-    return { rule: 'fee_bank_plan', classification: classification('fee', 0.85, null, counterpartyRfc), buyerMatch: null }
-  }
+  const fee = matchFeeBankPlan(t, text, ctx, counterpartyRfc)
+  if (fee) return fee
 
   for (const r of RULES) {
     if (sideMatches(r.side, t.type) && r.test.test(text)) {

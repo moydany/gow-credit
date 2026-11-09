@@ -34,18 +34,45 @@ export function mentionsName(description: string, name: string): boolean {
   return tokens.every((t) => words.has(t))
 }
 
+function initDistanceMatrix(rows: number, cols: number): number[][] {
+  const matrix: number[][] = []
+  for (let i = 0; i <= rows; i++) {
+    const row = Array.from({ length: cols + 1 }, () => 0)
+    row[0] = i
+    matrix.push(row)
+  }
+  for (let j = 0; j <= cols; j++) {
+    const firstRow = matrix[0]
+    if (firstRow) firstRow[j] = j
+  }
+  return matrix
+}
+
+function computeCellDistance(
+  a: string,
+  b: string,
+  i: number,
+  j: number,
+  rows: number[][],
+): number {
+  const row = rows[i] as number[]
+  const prev = rows[i - 1] as number[]
+  const cost = a[i - 1] === b[j - 1] ? 0 : 1
+  let d = Math.min((prev[j] ?? 0) + 1, (row[j - 1] ?? 0) + 1, (prev[j - 1] ?? 0) + cost)
+  if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+    d = Math.min(d, (rows[i - 2]?.[j - 2] ?? 0) + 1)
+  }
+  return d
+}
+
 /** Edit distance with transposition (restricted Damerau-Levenshtein), cut off at `max + 1`. */
 export function editDistance(a: string, b: string, max: number): number {
   if (Math.abs(a.length - b.length) > max) return max + 1
-  const rows: number[][] = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)))
+  const rows = initDistanceMatrix(a.length, b.length)
   for (let i = 1; i <= a.length; i++) {
+    const row = rows[i] as number[]
     for (let j = 1; j <= b.length; j++) {
-      const row = rows[i] as number[]
-      const prev = rows[i - 1] as number[]
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      let d = Math.min((prev[j] ?? 0) + 1, (row[j - 1] ?? 0) + 1, (prev[j - 1] ?? 0) + cost)
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d = Math.min(d, (rows[i - 2]?.[j - 2] ?? 0) + 1)
-      row[j] = d
+      row[j] = computeCellDistance(a, b, i, j, rows)
     }
   }
   return Math.min(rows[a.length]?.[b.length] ?? max + 1, max + 1)

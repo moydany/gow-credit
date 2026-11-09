@@ -75,8 +75,7 @@ function gateFixes(policy: Policy, base: Core): FeatureChange[] {
   return out
 }
 
-/** Caps and dimensions, measured on the result with the gates already resolved. */
-function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candidate[] {
+function capCandidates(policy: Policy, after: Core): Candidate[] {
   const out: Candidate[] = []
   for (const c of after.caps) {
     if (!c.applied) continue
@@ -85,8 +84,13 @@ function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candida
     const target = satisfyingValue(negate(cap.when))
     if (target !== undefined) out.push({ code: codeOf('cap', c.feature), changes: withCompanions(c.feature, target), priority: 1 })
   }
+  return out
+}
+
+function dimensionCandidates(policy: Policy, profile: Profile, after: Core): Candidate[] {
   const next = policy.decision.bands[after.bandIndex - 1]
-  if (next === undefined) return out
+  if (next === undefined) return []
+  const out: Candidate[] = []
   for (const d of policy.score.dimensions) {
     const ev = after.dimensions.find((x) => x.id === d.id)
     if (!ev || ev.points >= d.weight) continue
@@ -100,13 +104,17 @@ function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candida
     }
     const rel = numberOf(profile, d.relativeTo)
     if (rel !== null && rel > 0) out.push({ code: codeOf('improve', d.id), changes: [{ feature: d.feature, value: roundToward(d.feature, ratio * rel, up) }], priority: 2 })
-    // Asking for less also raises capacity: amount / target ratio.
     const main = numberOf(profile, d.feature)
     if (d.relativeTo === 'requested_amount' && !d.inverse && main !== null && main > 0 && ratio > 0) {
       out.push({ code: 'reduce_requested_amount', changes: [{ feature: 'requested_amount', value: roundToward('requested_amount', main / ratio, false) }], priority: 3 })
     }
   }
   return out
+}
+
+/** Caps and dimensions, measured on the result with the gates already resolved. */
+function scoreCandidates(policy: Policy, profile: Profile, after: Core): Candidate[] {
+  return [...capCandidates(policy, after), ...dimensionCandidates(policy, profile, after)]
 }
 
 /**
@@ -131,6 +139,29 @@ function nudge(c: Candidate): Candidate | null {
   return { ...c, changes: [{ feature: main.feature, value: Math.round((main.value + direction * step) * 10_000) / 10_000 }, ...rest] }
 }
 
+function evaluateCandidate(
+  c0: Candidate,
+  fixes: FeatureChange[],
+  policy: Policy,
+  profile: Profile,
+  base: Core,
+  afterGates: Core,
+  opts: CoreOptions,
+): { c: Candidate; to: Core } | null {
+  let c: Candidate = { ...c0, changes: [...c0.changes, ...fixes.filter((f) => !c0.changes.some((x) => x.feature === f.feature))] }
+  const useful = (t: Core) => improves(afterGates, t) && improves(base, t)
+  let to = evaluateCore(policy, withFeatures(profile, c.changes), opts)
+  if (!useful(to)) {
+    const n = nudge(c)
+    if (n === null) return null
+    const toN = evaluateCore(policy, withFeatures(profile, n.changes), opts)
+    if (!useful(toN)) return null
+    c = n
+    to = toN
+  }
+  return { c, to }
+}
+
 /**
  * With blocking gates, an isolated change almost never moves the status. So the first step is to
  * pass all gates together (`pass_gates`), and each cap or dimension is measured on that result:
@@ -144,19 +175,8 @@ export function counterfactuals(policy: Policy, profile: Profile, base: Core, op
   if (fixes.length > 0 && improves(base, afterGates)) found.push({ c: { code: 'pass_gates', changes: fixes, priority: 0 }, to: afterGates })
 
   for (const c0 of scoreCandidates(policy, profile, afterGates)) {
-    let c: Candidate = { ...c0, changes: [...c0.changes, ...fixes.filter((f) => !c0.changes.some((x) => x.feature === f.feature))] }
-    // Must improve what is left after the gates and not end up worse than the current status.
-    const useful = (t: Core) => improves(afterGates, t) && improves(base, t)
-    let to = evaluateCore(policy, withFeatures(profile, c.changes), opts)
-    if (!useful(to)) {
-      const n = nudge(c)
-      if (n === null) continue
-      const toN = evaluateCore(policy, withFeatures(profile, n.changes), opts)
-      if (!useful(toN)) continue
-      c = n
-      to = toN
-    }
-    found.push({ c, to })
+    const res = evaluateCandidate(c0, fixes, policy, profile, base, afterGates, opts)
+    if (res) found.push(res)
   }
   found.sort((x, y) => x.c.priority - y.c.priority || DECISION_STATUS_RANK[y.to.status] - DECISION_STATUS_RANK[x.to.status] || y.to.score - x.to.score)
   const seen = new Set<string>()

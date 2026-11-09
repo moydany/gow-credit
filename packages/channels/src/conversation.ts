@@ -248,7 +248,7 @@ const NOT_A_NAME = /^(hola|buen(os|as)|que tal|hey|gracias|ok|okay|si|no|sale|va
 /** What is stripped from "mi cliente es X" or "se llama X" before reading the name. */
 const BUYER_PREFIX = /^\s*(?:(?:mi )?(?:cliente(?: principal)?|comprador)\s+(?:es|se llama)\s+|(?:es|se llama|son)\s+)/i
 
-function normalize(text: string): string {
+export function normalize(text: string): string {
   return text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{L}\d\s]/gu, ' ').replace(/\s+/g, ' ').trim()
 }
 
@@ -284,26 +284,36 @@ function readBuyerName(text: string): { name: string } | 'decline' | null {
   return name !== null && name.length <= 120 ? { name } : null
 }
 
+function parseCategorizedReply<C extends string>(
+  text: string,
+  q: Question,
+  keywords: readonly (readonly [C | 'decline', RegExp])[],
+  onCategory: (category: C) => OwnerAnswer,
+): OwnerAnswer | null {
+  const c = readOption(normalize(text), q, keywords)
+  if (c === null) return null
+  if (c === 'decline') return { question_id: q.id, kind: 'decline', note: null }
+  return onCategory(c)
+}
+
+function parseBuyerReply(text: string, q: Question): OwnerAnswer | null {
+  const read = readBuyerName(text)
+  if (read === null) return null
+  if (read === 'decline') return { question_id: q.id, kind: 'decline', note: null }
+  return { question_id: q.id, kind: 'buyer', name: read.name }
+}
+
 /** The reply to a conversational question, or null if it cannot be read without guessing. */
 export function parseReply(text: string, q: Question): OwnerAnswer | null {
-  const decline = { question_id: q.id, kind: 'decline' as const, note: null }
   switch (q.kind) {
-    case 'deposit': {
-      const c = readOption(normalize(text), q, KEYWORDS)
-      return c === null ? null : c === 'decline' ? decline : { question_id: q.id, kind: 'deposit', category: c, counterparty: null }
-    }
-    case 'charge': {
-      const c = readOption(normalize(text), q, CHARGE_KEYWORDS)
-      return c === null ? null : c === 'decline' ? decline : { question_id: q.id, kind: 'charge', category: c, counterparty: null }
-    }
-    case 'account_use': {
-      const c = readOption(normalize(text), q, ACCOUNT_USE_KEYWORDS)
-      return c === null ? null : c === 'decline' ? decline : { question_id: q.id, kind: 'account_use', use: c }
-    }
-    case 'buyer': {
-      const read = readBuyerName(text)
-      return read === null ? null : read === 'decline' ? decline : { question_id: q.id, kind: 'buyer', name: read.name }
-    }
+    case 'deposit':
+      return parseCategorizedReply(text, q, KEYWORDS, (category) => ({ question_id: q.id, kind: 'deposit', category, counterparty: null }))
+    case 'charge':
+      return parseCategorizedReply(text, q, CHARGE_KEYWORDS, (category) => ({ question_id: q.id, kind: 'charge', category, counterparty: null }))
+    case 'account_use':
+      return parseCategorizedReply(text, q, ACCOUNT_USE_KEYWORDS, (use) => ({ question_id: q.id, kind: 'account_use', use }))
+    case 'buyer':
+      return parseBuyerReply(text, q)
     case 'identity':
     case 'documents':
       return null
@@ -406,6 +416,34 @@ export const AMOUNT_OFFER = {
   skipped: 'Va. Si más adelante quieres un adelanto, mándanos tu estado de cuenta más reciente por aquí.',
 } as const
 
+function renderQualified(invoice: string | null, tenantName: string, limit: string | null): string {
+  if (invoice) {
+    return `Buenas noticias: ${invoice} califica para adelanto con ${tenantName}. Te contactaremos para los siguientes pasos.`
+  }
+  return `Buenas noticias: calificas para adelanto con ${tenantName}${limit ? ` hasta por ${limit}` : ''}. Te contactaremos para los siguientes pasos.`
+}
+
+function renderQualifiedWithLimit(
+  invoice: string | null,
+  tenantName: string,
+  limit: string | null,
+  requestAmount: number | null | undefined,
+  limitNum: number | null,
+): string {
+  if (invoice && requestAmount != null && limitNum !== null && requestAmount <= limitNum + 0.005) {
+    return `Buenas noticias: ${invoice} está aprobada con ${tenantName}. Te contactaremos para los siguientes pasos.`
+  }
+  if (invoice) {
+    return `Revisamos ${invoice}. Califica con un límite: podemos adelantarte hasta ${limit ?? 'un monto menor al de la factura'}. Te contactaremos para los siguientes pasos.`
+  }
+  return `Revisamos tu estado de cuenta. Podemos adelantarte hasta ${limit ?? 'un monto limitado'} con ${tenantName}. Te contactaremos para los siguientes pasos.`
+}
+
+function renderNotQualified(invoice: string | null, tenantName: string, reasons?: readonly string[]): string {
+  const why = reasons?.length ? ` porque ${listEs(reasons)}` : ''
+  return `Revisamos ${invoice ?? 'tu estado de cuenta'}. Por ahora ${invoice ? 'no califica' : 'no calificas'} para adelanto con ${tenantName}${why}. Si tu situación cambia, mándanos un estado de cuenta más reciente.`
+}
+
 /**
  * Verdict notice to the supplier. Fixed templates: the result and, if it qualifies, the amount.
  * Never balances, RFC, CLABE or engine reasons, which can quote figures from the document.
@@ -424,15 +462,11 @@ export function renderVerdict(v: {
   const limit = v.limit === null ? null : formatPesos(v.limit)
   switch (v.status) {
     case 'qualified':
-      return invoice ? `Buenas noticias: ${invoice} califica para adelanto con ${v.tenantName}. Te contactaremos para los siguientes pasos.` : `Buenas noticias: calificas para adelanto con ${v.tenantName}${limit ? ` hasta por ${limit}` : ''}. Te contactaremos para los siguientes pasos.`
+      return renderQualified(invoice, v.tenantName, limit)
     case 'qualified_with_limit':
-      // The request fits under the line: approved in full; "con límite" only if they asked for more.
-      if (invoice && v.request?.amount != null && v.limit !== null && v.request.amount <= v.limit + 0.005) return `Buenas noticias: ${invoice} está aprobada con ${v.tenantName}. Te contactaremos para los siguientes pasos.`
-      return invoice ? `Revisamos ${invoice}. Califica con un límite: podemos adelantarte hasta ${limit ?? 'un monto menor al de la factura'}. Te contactaremos para los siguientes pasos.` : `Revisamos tu estado de cuenta. Podemos adelantarte hasta ${limit ?? 'un monto limitado'} con ${v.tenantName}. Te contactaremos para los siguientes pasos.`
-    case 'not_qualified': {
-      const why = v.reasons?.length ? ` porque ${listEs(v.reasons)}` : ''
-      return `Revisamos ${invoice ?? 'tu estado de cuenta'}. Por ahora ${invoice ? 'no califica' : 'no calificas'} para adelanto con ${v.tenantName}${why}. Si tu situación cambia, mándanos un estado de cuenta más reciente.`
-    }
+      return renderQualifiedWithLimit(invoice, v.tenantName, limit, v.request?.amount, v.limit)
+    case 'not_qualified':
+      return renderNotQualified(invoice, v.tenantName, v.reasons)
     case 'human_review':
       return `Revisamos ${invoice ?? 'tu estado de cuenta'} y un analista de ${v.tenantName} necesita confirmar algunos datos antes de darte una respuesta. Te avisaremos por aquí.`
     case 'failed':
@@ -621,114 +655,4 @@ export const CONFIRMATION_REPLIES = {
   too_many: (given: number, pending: number) => `Recibí ${String(given)} respuestas, pero ${pending === 1 ? 'solo queda una pregunta' : `quedan ${String(pending)} preguntas`}.`,
 } as const
 
-const ORDINALS: readonly (readonly [RegExp, number])[] = [
-  [/^primer[oa]?$/, 1],
-  [/^segund[oa]$/, 2],
-  [/^tercer[oa]?$/, 3],
-  [/^cuart[oa]$/, 4],
-  [/^quint[oa]$/, 5],
-  [/^sext[oa]$/, 6],
-  [/^(?:septim|setim)[oa]$/, 7],
-  [/^octav[oa]$/, 8],
-  [/^noven[oa]$/, 9],
-  [/^decim[oa]$/, 10],
-]
-const ORDINAL_WORD = /\b(?:(?:el|la) )?(primer[oa]?|segund[oa]|tercer[oa]?|cuart[oa]|quint[oa]|sext[oa]|septim[oa]|setim[oa]|octav[oa]|noven[oa]|decim[oa])\b/g
-
-function ordinalOf(word: string): number {
-  return ORDINALS.find(([re]) => re.test(word))?.[1] ?? 0
-}
-
-/** What precedes the answer in "el 2 era préstamo" or "el primero es cliente". */
-const LEAD = /^(?:(?:es|era|eran|fue|son|seria|en realidad|realmente|debe ser|deberia ser|mas bien|cambialo a|cambiala a|cambiar a|a|por|y|que|la|el|lo)\s+)*/
-
-function stripLead(t: string): string {
-  return t.trim().replace(LEAD, '').trim()
-}
-
-/** What a multi-answer message carries, or null if it is not shaped like one. */
-export type MultiReply = { kind: 'answers'; answers: OwnerAnswer[] } | { kind: 'too_many'; given: number; pending: number } | { kind: 'invalid' }
-
-/**
- * Several answers in one message for the pending questions (`pending`, current first): "1, 3, 1",
- * "1 3 1", "el primero es cliente y el segundo préstamo" or "cliente, préstamo". Only for
- * questions with options; each part is read with `parseReply` against its question. Null if the
- * message is not shaped like that (read as a single answer); `invalid` if it is but something is
- * not understood.
- */
-export function parseMultipleReplies(text: string, pending: readonly Question[]): MultiReply | null {
-  const closed: Question[] = []
-  for (const q of pending) {
-    if (q.options.length === 0) break
-    closed.push(q)
-  }
-  if (closed.length === 0) return null
-  const t = normalize(text)
-
-  // Numbers only: "1, 3, 1", "1 3 1", "1 y 3".
-  if (/^\d{1,2}(?: (?:y )?\d{1,2})+$/.test(t)) {
-    const nums = t.split(' ').filter((x) => x !== 'y')
-    if (nums.length > pending.length) return { kind: 'too_many', given: nums.length, pending: pending.length }
-    if (nums.length > closed.length) return { kind: 'invalid' }
-    const answers = nums.map((n, i) => parseReply(n, closed[i] as Question))
-    return answers.every((a): a is OwnerAnswer => a !== null) ? { kind: 'answers', answers } : { kind: 'invalid' }
-  }
-
-  // Ordinals: "el primero es cliente y el segundo préstamo" (the first is the current question).
-  const marks = [...t.matchAll(ORDINAL_WORD)]
-  if (marks.length >= 2) {
-    const read: { ord: number; answer: OwnerAnswer }[] = []
-    for (const [k, m] of marks.entries()) {
-      const ord = ordinalOf(m[1] ?? '')
-      const q = closed[ord - 1]
-      const end = marks[k + 1]?.index ?? t.length
-      const answer = q ? parseReply(stripLead(t.slice(m.index + m[0].length, end).trim().replace(/\s*\by$/, '')), q) : null
-      if (!answer || read.some((r) => r.ord === ord)) return { kind: 'invalid' }
-      read.push({ ord, answer })
-    }
-    return { kind: 'answers', answers: read.sort((a, b) => a.ord - b.ord).map((r) => r.answer) }
-  }
-
-  // Short separate parts: "cliente, préstamo", one per line or "cliente y préstamo". If any part
-  // is unreadable, the message is taken as a single answer ("pago de cliente, de Cadena Norte").
-  const parts = text
-    .split(/[\n;,]+|\s+y\s+/i)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-  if (parts.length < 2 || parts.length > closed.length || parts.some((p) => normalize(p).split(' ').length > 6)) return null
-  const answers = parts.map((p, i) => parseReply(p, closed[i] as Question))
-  return answers.every((a): a is OwnerAnswer => a !== null) ? { kind: 'answers', answers } : null
-}
-
-/** What they answered to the summary. `number` is the summary list's number (from 1). */
-export type ConfirmationRead = { kind: 'confirm' } | { kind: 'reject' } | { kind: 'change'; number: number } | { kind: 'correct'; number: number; answer: OwnerAnswer }
-
-/**
- * Reads the reply to the summary: "sí" confirms; a number asks to change that answer; "el 2 era
- * préstamo" or "me equivoqué en la segunda, es un traspaso" corrects it (read with `parseReply`
- * against that question); "no" asks which to change. Null if not understood.
- */
-export function parseConfirmation(text: string, questions: readonly Question[]): ConfirmationRead | null {
-  const t = normalize(text)
-  if (!t) return null
-  const convo = conversationalIndexes(questions).map((i) => questions[i] as Question)
-  const bare = /^(?:(?:la|el|numero|pregunta|respuesta|cambiar|cambia|cambio|quiero cambiar)\s+)*(\d{1,2})$/.exec(t)
-  if (bare) return { kind: 'change', number: Number(bare[1]) }
-
-  const byNumber = /(?:^|\b(?:la|el|numero|pregunta|respuesta)\s+)(\d{1,2})\b/.exec(t)
-  const byOrdinal = byNumber ? null : [...t.matchAll(ORDINAL_WORD)][0]
-  const ref = byNumber ? { number: Number(byNumber[1]), index: byNumber.index, length: byNumber[0].length } : byOrdinal ? { number: ordinalOf(byOrdinal[1] ?? ''), index: byOrdinal.index, length: byOrdinal[0].length } : null
-  if (ref && ref.number > 0) {
-    const q = convo[ref.number - 1]
-    if (!q) return { kind: 'change', number: ref.number }
-    const after = stripLead(t.slice(ref.index + ref.length))
-    const before = stripLead(t.slice(0, ref.index).trim().replace(/\s*\b(?:era|es|fue)$/, ''))
-    const answer = (after ? parseReply(after, q) : null) ?? (before ? parseReply(before, q) : null)
-    return answer ? { kind: 'correct', number: ref.number, answer } : { kind: 'change', number: ref.number }
-  }
-
-  if (parseYesNo(text) === true) return { kind: 'confirm' }
-  if (/^(si|correcto|todo (esta )?bien|esta bien|perfecto|ok|okay|de acuerdo|asi es|exacto|listo|adelante|envialo|enviar)\b/.test(t) && !/\b(no|pero|cambi\w*)\b/.test(t)) return { kind: 'confirm' }
-  if (parseYesNo(text) === false || /^(no|incorrecto)\b/.test(t)) return { kind: 'reject' }
-  return null
-}
+export { parseMultipleReplies, parseConfirmation, type MultiReply, type ConfirmationRead } from './replies.ts'
