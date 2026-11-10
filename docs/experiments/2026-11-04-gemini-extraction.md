@@ -2,7 +2,7 @@
 
 - Fecha: 2026-11-04
 - Autorización: el dueño de los datos pidió explícitamente mandar estos dos PDFs a Google
-  (ADR 0010: sin `--allow-third-party` el CLI se niega).
+  (sin `--allow-third-party` el CLI se niega).
 - Mismos prompts, esquema (`extraction_chunk.v2`), `effort` (traducido a `thinkingLevel`) y
   verificación que Opus. El clasificador siguió en Haiku. Referencia: Opus de la corrida 2.
 - Comando: `pnpm extract <pdf> --model gemini-3.8-flash --allow-third-party --out data/out/extractions-gemini`.
@@ -43,4 +43,4 @@ tarda lo mismo. Es el candidato más fuerte a modelo de extracción por costo.
 Ninguna todavía. Cambiar el modelo por defecto exige (1) evals de la fase 3 sobre los 9
 documentos contra ground truth, no contra Opus; (2) verificar el precio oficial; y (3) que el
 dueño de los datos y GOW acepten mandar estados de cuenta a Google (LFPDPPP, `docs/05`). Si
-las tres pasan, va en una ADR nueva que reemplace a la 0003.
+las tres pasan, el cambio queda en el registro de decisiones.

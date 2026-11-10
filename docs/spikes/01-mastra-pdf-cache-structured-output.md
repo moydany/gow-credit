@@ -6,7 +6,7 @@
 - **Veredicto: Mastra se queda para la extracción; no se usa la salida de emergencia.**
   La caché funciona solo si todas las llamadas sobre el documento usan **el mismo esquema
   de salida**: `output_config.format` forma parte del prefijo cacheado (medido en vivo,
-  ver abajo y ADR 0005).
+  ver abajo).
 
 ## Qué probé
 
@@ -92,5 +92,5 @@ Diferencias con el SDK directo y cosas a cuidar:
 3. Las pasadas de movimientos van por `agent.stream()`.
 4. **Un solo esquema de salida por documento** para todas las llamadas de extracción
    (resumen, bloques de movimientos, reintentos por página): cada pasada llena su parte y
-   deja la otra vacía. ADR 0005.
+   deja la otra vacía.
 5. La salida de emergencia queda documentada y probada en el cable, pero no hace falta.

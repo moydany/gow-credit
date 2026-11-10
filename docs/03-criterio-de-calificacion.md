@@ -384,7 +384,7 @@ sigue calculando y se informa, pero no cambia el estado ni se pregunta al provee
   titular. La plantilla base no la usa; una política que la exija pide `statement_with_address`, un PDF que
   traiga el domicilio. El domicilio queda en `suppliers.address`, nunca en el perfil.
 
-### Meses que se evalúan (2026-11-07, ADR 0072)
+### Meses que se evalúan (2026-11-07)
 
 - **§4, tope por historia.** Se quita de la plantilla base y de las políticas de ejemplo el tope "menos de 3
   meses de historia → a lo más `qualified_with_limit`". En su lugar, la política dice cuántos meses se

@@ -18,7 +18,7 @@
 | BBVA relecturas necesarias | 0 | 0 | 4 (5 páginas rotas en la primera lectura) |
 | BBVA costo / duración | USD 1.00 / 101 s | USD 0.50 / 64 s | USD 0.05 / 196 s |
 | **Nu** movimientos | 332 | 333: los 332 de Opus y **un cargo de 500.00 duplicado** en el cambio de página 13 a 14 | — |
-| Nu cuadre | exacto (consolidado, ADR 0009) | **no cuadra** (diferencia 500 sobre la fórmula consolidada) | — |
+| Nu cuadre | exacto (consolidado) | **no cuadra** (diferencia 500 sobre la fórmula consolidada) | — |
 | Nu traspasos internos marcados | 136 | 136, mismos montos | — |
 | Nu costo / duración | USD 1.57 / 164 s | USD 0.84 / 105 s | — |
 

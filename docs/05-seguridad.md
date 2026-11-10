@@ -436,7 +436,7 @@ El cotejo del RFC del titular del documento y la política siguen aplicando. `go
   viaja aparte, solo hacia esta tabla.
 - Pendiente: retención. Hoy viven lo que vive el proveedor.
 
-### 2026-11-07: nombre y monto antes del estado de cuenta en el registro (ADR 0070)
+### 2026-11-07: nombre y monto antes del estado de cuenta en el registro
 
 - El nombre de quien escribe y el monto que pide se guardan en `supplier_registrations`
   (`contact_name`, `requested_amount`), con la misma RLS forzada. La bitácora no los lleva: el

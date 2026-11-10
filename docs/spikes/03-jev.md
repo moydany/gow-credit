@@ -44,7 +44,7 @@
 Jev devuelve probabilidades calibradas; Haiku solo puede autoreportar una confianza, y
 `04` 3 dice que la confianza autoreportada está mal calibrada. Con Haiku:
 
-- La etiqueta se usa para rutear y etiquetar, nunca para descartar un documento (ADR 0002).
+- La etiqueta se usa para rutear y etiquetar, nunca para descartar un documento.
 - La "confianza" de Haiku no alimenta umbrales de la política. Las features que dependen de
   clasificación de movimientos llevan `confidence` derivada de chequeos (cuadre, doble
   lectura), no de lo que diga el modelo.

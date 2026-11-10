@@ -69,6 +69,5 @@ versiones exactas sin `^` y lockfile en git.
 - `exactOptionalPropertyTypes` se mantiene en `tsconfig.base.json` (contratos, decisión,
   extracción, API) y se apaga solo en los paquetes que componen workflows de Mastra
   (`spikes`, y `packages/mastra` cuando exista), con un comentario en su `tsconfig.json`.
-  Registrado en la ADR 0004.
 - La condición de un loop tras un sub-workflow se escribe con cast local al esquema Zod
   conocido, no con un parámetro tipado.

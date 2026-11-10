@@ -73,10 +73,10 @@ en el README para que no parezca una omisión.
   exporta y se guarda como artefacto.
 - **Prompts y artefactos**: carpeta `prompts/` versionada con changelog; los artefactos
   intermedios (análisis, borradores) en `docs/artefactos/`.
-- **Decisiones de diseño**: carpeta `docs/adr/` con una ADR por decisión ya tomada:
+- **Decisiones de diseño**: un registro de decisiones (`docs/decisions.md`) con cada decisión ya tomada:
   Mastra sobre SDK directo y LangGraph, Jev, Baileys sobre Cloud API, Express 5 sobre
   Hono, pg-boss sobre Supabase Queues, Drizzle sobre Prisma, Evalite, Cloud Run. Hoy
-  están repartidas en los documentos; una ADR por decisión es lo que esperan.
+  están repartidas en los documentos; un registro con el porqué de cada una es lo que esperan.
 - **Spec**: `docs/00-spec.md` con qué se entendió, supuestos y alcance. Se escribe antes
   del código, en una página, a partir de lo ya documentado. El punto de partida para
   quien construye es `docs/00-brief.md` (índice en `docs/README.md`).
@@ -89,7 +89,7 @@ El diseño es grande para 72 horas. Se define ahora qué es obligatorio y dónde
 
 | Nivel | Contenido |
 |---|---|
-| Obligatorio | contrato de extracción, CLI de evaluación, extracción en dos pasadas con verificación, perfil y motor de políticas con política base, aclaración por CLI, ground truth y evals en CI, README, spec, ADRs, prompts, harness, pipeline de CI, plan de deploy |
+| Obligatorio | contrato de extracción, CLI de evaluación, extracción en dos pasadas con verificación, perfil y motor de políticas con política base, aclaración por CLI, ground truth y evals en CI, README, spec, registro de decisiones, prompts, harness, pipeline de CI, plan de deploy |
 | Debería | workflow en Mastra con suspend/resume, esquema Supabase con RLS y tests de aislamiento, pg-boss, Jev con fallback, 6 a 8 escenarios, backoffice con solicitudes, detalle y aclaraciones |
 | Si alcanza | Baileys y Resend reales, resto del backoffice (revisión, políticas con simulador, outcomes, operación), Langfuse, catálogo completo de escenarios, calibración nocturna |
 
@@ -128,17 +128,17 @@ cifrado de columna, pentest. Todo está diseñado y priorizado en los documentos
 
 ## Cambios durante la implementación
 
-- **Dos llaves en `standalone`** (ADR 0011, 2026-11-04). La sección A dice que el camino
+- **Dos llaves en `standalone`** (2026-11-04). La sección A dice que el camino
   sin infraestructura solo necesita `ANTHROPIC_API_KEY`; desde que la extracción corre
   en `gemini-3.8-flash`, necesita también `GOOGLE_GENERATIVE_AI_API_KEY`. El costo por
   documento de la sección I baja a unos USD 0.20 a 0.35.
-- **C y E, ground truth y caché** (ADR 0012, 2026-11-04). C proponía partir de la
-  extracción del sistema; la ADR 0001 lo prohíbe y el ground truth sale de un parser
+- **C y E, ground truth y caché** (2026-11-04). C proponía partir de la
+  extracción del sistema; eso sería circular y el ground truth sale de un parser
   determinístico de la capa de texto validado por la aritmética del banco (3 a 4 horas,
   como se estimó). E decía que la caché de los 9 documentos iría "en el repo privado"; la
   regla de que nada de `data/` se versiona manda: la caché queda en `data/llm-cache/` y CI
   la restaura desde almacenamiento privado. Solo se versiona la de los PDFs sintéticos.
-- **A e I, comando de evaluación** (ADR 0015, 2026-11-05):
+- **A e I, comando de evaluación** (2026-11-05):
 
   ```
   pnpm run evaluate <carpeta|pdf>... [--out] [--request k=v,...|archivo.json] [--answers] [--as-of] [--policy] [--interactive] [--cache read] [--force]
@@ -151,13 +151,13 @@ cifrado de columna, pentest. Todo está diseñado y priorizado en los documentos
   - **Llaves**: la extracción sigue necesitando las dos del cambio anterior. Sin
     `TYPESAFE_API_KEY`, los movimientos los clasifica Haiku y el reporte lo dice.
   - **`--cache read`**: corre sin ninguna llamada con lo que haya en `data/llm-cache`.
-- **A, documentos redactados** (ADR 0015 §20 a §22, 2026-11-05):
+- **A, documentos redactados** (2026-11-05):
   - **El problema**: sin registro de proveedores ni identidad legible, la política base nunca
     pasa la compuerta de identidad.
   - **La salida**: para evaluar sin ese bloqueo está
     `--policy policies/examples/standalone-evaluation.v1.json`, que solo deja pasar la identidad
     que no se puede comparar. `evaluate` la sugiere cuando hace falta.
   - **El resumen**: muestra la línea máxima junto al estado.
-- **H.4 y el modo full** (ADR 0018, 2026-11-05): el suspend/resume entre procesos que probó el spike 4
+- **H.4 y el modo full** (2026-11-05): el suspend/resume entre procesos que probó el spike 4
   ya es el camino real del worker (`PostgresStore`, otra instancia de Mastra al reanudar). En
   local, `docker compose up -d` y `pnpm db:migrate`; los escenarios full no necesitan llaves.

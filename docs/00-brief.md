@@ -28,12 +28,12 @@ descartaron alternativas.
   números de WhatsApp; cómo lidiar con alucinaciones. El diseño responde cada una y el
   código debe hacerlas visibles.
 
-## 2. Decisiones finales (no reabrir sin ADR)
+## 2. Decisiones finales (no reabrir sin registrar la decisión)
 
 | Tema | Decisión | Detalle |
 |---|---|---|
 | Orquestación | **Mastra** (agentes, workflows con suspend/resume, scorers, tracing). Salida de emergencia: SDK de Anthropic directo dentro de un step | `02` |
-| Extracción | **`gemini-3.8-flash`** como modelo de extracción (ADR 0011); emergencia `gemini-4-carbon` ante fallas de calidad y `claude-opus-5-5` ante fallas del proveedor. PDF nativo (texto + imagen por página), structured output con esquema Zod, dos pasadas (resumen, luego movimientos por bloques) con caché implícita del proveedor; verificación por cuadre, saldo corrido, validadores y doble lectura adaptativa con un modelo de otra familia | `02` 2, `04`, ADR 0011 |
+| Extracción | **`gemini-3.8-flash`** como modelo de extracción; emergencia `gemini-4-carbon` ante fallas de calidad y `claude-opus-5-5` ante fallas del proveedor. PDF nativo (texto + imagen por página), structured output con esquema Zod, dos pasadas (resumen, luego movimientos por bloques) con caché implícita del proveedor; verificación por cuadre, saldo corrido, validadores y doble lectura adaptativa con un modelo de otra familia | `02` 2, `04` |
 | Clasificación | **Jev** `jev-1.13.0` (TypeSafe AI) tras la interfaz `Classifier`, con fallback automático a `claude-haiku-5-5` si no hay llave | `02` 4c |
 | Decisión | Perfil de features fijo + **política JSON por tenant** validada con Zod (DSL cerrado), motor puro y determinístico, salida con diagnóstico y contrafactuales | `03` |
 | Aclaración | Interfaz `ClarificationChannel`: consola/archivo (`standalone`), **Baileys** para WhatsApp y **Resend** para correo (`full`); una sola ronda; el bot no contesta consultas | `02` 3, `05` 2b |
@@ -53,7 +53,7 @@ descartaron alternativas.
 1. **Dos modos desde el primer día**: `standalone` (libSQL, en proceso, consola) y
    `full` (Supabase, pg-boss, Baileys, Resend). El comando `pnpm run evaluate <carpeta>`
    es lo que los evaluadores ejecutan: necesita `ANTHROPIC_API_KEY`; con `GEMINI_API_KEY`
-   extrae con Gemini y sin ella con Opus (ADR 0011), y debe funcionar
+   extrae con Gemini y sin ella con Opus, y debe funcionar
    sobre documentos nunca vistos sin crashear (salida parcial con banderas antes que un
    error).
 2. **Zod es la única fuente de verdad** de cada contrato: extracción, perfil, política,
@@ -71,7 +71,7 @@ descartaron alternativas.
    bloque `document`. Si existe el skill `claude-api` en el entorno, cargarlo antes de
    escribir cualquier llamada al SDK. A través de Mastra estas opciones viajan por
    `providerOptions.anthropic`; verificar en el spike 1 de `07` H que llegan. Para Gemini
-   (`@ai-sdk/google`, ADR 0010 y 0011): `responseJsonSchema`, `thinkingLevel` derivado de
+   (`@ai-sdk/google`): `responseJsonSchema`, `thinkingLevel` derivado de
    `effort`, PDF como `inlineData`, caché implícita del proveedor; precio oficial verificado
    en ai.google.dev antes de reportar costos.
 7. **Evals antes de cambiar prompts**: ningún cambio de prompt, modelo o `effort` se
@@ -79,8 +79,8 @@ descartaron alternativas.
 8. **Idioma**: código, identificadores y commits en inglés; documentación, README y
    mensajes al proveedor en español. README con resumen en inglés.
 9. **Git desde el primer commit**, commits pequeños con mensajes que cuenten la historia.
-   Cada decisión nueva o cambiada: una ADR en `docs/adr/` (formato: contexto, opciones,
-   decisión, consecuencias). Las decisiones de la tabla de arriba se escriben como ADRs
+   Cada decisión nueva o cambiada queda en el registro de decisiones (`docs/decisions.md`: qué se
+   decidió, frente a qué y por qué). Las decisiones de la tabla de arriba se pasan al registro
    en la fase 8 a partir de los documentos.
 10. **No tocar la historia de `docs/01` a `08`**: si algo cambia, se agrega una sección
     "Cambios durante la implementación" al final del documento afectado.
@@ -144,7 +144,7 @@ se ve con los valores no verificados resaltados.
 
 **Fase 8: entregables de proceso.** README (cómo correr ambos modos, costo estimado, qué
 reproducibilidad se promete, privacidad del dataset), `docs/00-spec.md` (una página),
-`docs/adr/` (una ADR por fila de la tabla de decisiones), `docs/harness.md`
+`docs/decisions.md` (el registro de decisiones, con cada fila de la tabla), `docs/harness.md`
 (herramientas, configuración, cómo se trabajó, esta carpeta como artefacto),
 `prompts/` con changelog, GitHub Actions (typecheck, lint, test, eval con umbral,
 gitleaks, osv-scanner, build de imágenes) y `docs/deploy.md` con el plan de Cloud Run,
@@ -159,16 +159,16 @@ sobre `data/dev/`.
   estados de cuenta traen su propio CFDI (`09`), lo que explica el término; se asume
   estados de cuenta y el bloque fiscal se extrae siempre.
 - ~~Acceso a Jev~~ **Resuelto**: Jev `jev-1.13.0` responde con `TYPESAFE_API_KEY` (32 de 33
-  en la eval del clasificador, ADR 0022). Sin llave, clasifica Haiku y el reporte lo indica.
+  en la eval del clasificador). Sin llave, clasifica Haiku y el reporte lo indica.
 - Falta el décimo documento de desarrollo en el Drive.
 - `gemini-4-carbon`: precio y límites por verificar en ai.google.dev y fijar en
   `models.ts`; una corrida de prueba sobre Nu antes de dejarlo como emergencia. **Sigue
-  abierto por decisión del dueño**: mientras tanto, la emergencia por calidad es Opus (ADR 0011).
+  abierto por decisión del dueño**: mientras tanto, la emergencia por calidad es Opus.
 - ~~Los documentos salen a Google y a Anthropic~~ **Resuelto**: el README lo dice antes del
   primer comando, y `05` ("Cambios", fase 8) lista a Google, a Anthropic y a TypeSafe como
   encargados, con los términos de la Gemini API de pago citados.
 - Datos de la solicitud (monto, vencimiento, comprador) no vienen con los PDFs: sin ellos
-  la salida es línea máxima y perfil, no veredicto completo. **Resuelto así** (ADR 0015):
+  la salida es línea máxima y perfil, no veredicto completo. **Resuelto así**:
   `--request` da los datos cuando existen, y sin ellos la salida trae la línea máxima.
 
 ## 6. Qué mostrar en la llamada
@@ -182,24 +182,24 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
 
 ## Cambios durante la implementación
 
-- **Fase 2, Mercado Pago (ADR 0006).** El documento de desarrollo imprime un solo periodo
+- **Fase 2, Mercado Pago.** El documento de desarrollo imprime un solo periodo
   (13 de junio a 11 de septiembre) con un solo saldo inicial y final, sin cortes por mes. La
   definición de terminado pasa de "tres periodos" a "un periodo con los movimientos de los
   tres meses, cuadrado contra los saldos impresos"; los meses los cuenta el perfil (fase 4).
-- **Fase 2, esquema del modelo (ADR 0007).** El esquema que ve el modelo no es el contrato:
+- **Fase 2, esquema del modelo.** El esquema que ve el modelo no es el contrato:
   la API limita las uniones (16) y el tamaño de la gramática. Montos como texto impreso,
   valores citados en listas `{field, value, page, snippet}`; el código traduce al contrato.
-- **Fase 2, caché (ADR 0005).** Todas las llamadas de extracción sobre un documento usan el
+- **Fase 2, caché.** Todas las llamadas de extracción sobre un documento usan el
   mismo esquema de salida, porque el esquema forma parte del prefijo cacheado.
-- **Fase 3, ground truth y evals (ADR 0012).** El ground truth no vive en
+- **Fase 3, ground truth y evals.** El ground truth no vive en
   `evals/ground-truth/` sino en `data/ground-truth/` (no se versiona: son movimientos reales);
   en `evals/ground-truth/` quedan el manifiesto sin datos personales y el README de
   convenciones. No se revisó "una muestra por página" de la extracción: un parser por banco
   sobre la capa de texto arma el libro completo (1,513 movimientos) y la aritmética del banco
-  lo valida, sin pasar por el modelo (ADR 0001). La caché de los 9 documentos tampoco se
+  lo valida, sin pasar por el modelo. La caché de los 9 documentos tampoco se
   versiona; CI la restaura desde almacenamiento privado (fase 8). La de los PDFs adversarios
   sintéticos sí se versiona y la eval de inyección corre en CI sin llaves.
-- **Fase 4, perfil y motor (ADR 0013 y 0014).** `packages/decision` y `scenarios/`:
+- **Fase 4, perfil y motor.** `packages/decision` y `scenarios/`:
   - **Clasificación.** Ninguna extracción trae movimientos clasificados, porque el paso Jev es
     del workflow de la fase 5. El perfil usa un clasificador por reglas (`rules-v1`) como
     respaldo gratuito, y Jev entra encima cuando exista.
@@ -211,7 +211,7 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
     pasan 4, 7, 10, 17 y los fiscales 21 a 25. Comando `pnpm scenario run <id>|--all`.
   - **Comandos nuevos.** `pnpm decide`: perfil y veredicto sobre extracciones ya hechas, sin
     costo. `pnpm simulate`: política borrador contra la vigente.
-- **Fase 5, workflow y modo standalone (ADR 0015).** `packages/mastra` y `pnpm run evaluate`:
+- **Fase 5, workflow y modo standalone.** `packages/mastra` y `pnpm run evaluate`:
   - **Una solicitud por PDF.** El comando escribe `<id>.extraction.json`, `<id>.result.json`
     (`ApplicationResult`, publicado en `docs/schema/`) y `<id>.md`. Una solicitud pausada se
     reanuda en otra invocación con `--answers`; también se puede contestar en la terminal con
@@ -224,7 +224,7 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
     `qualified_with_limit` está probado con datos sintéticos.
   - **Costo de la corrida completa de los 9**: USD 0.0159 (Jev y Haiku). La extracción sale de
     caché.
-- **Fase 6, modo full (ADR 0016 a 0018).** `packages/db`, `packages/channels`,
+- **Fase 6, modo full.** `packages/db`, `packages/channels`,
   `packages/platform`, `apps/api`, `apps/worker`, `apps/whatsapp` y el runner full de `scenarios/`:
   - **Terminado como se pidió.** `docker compose up -d` levanta Postgres 17 con los roles.
     `pnpm scenario run --all --mode full` pasa 7 de 7 (casos 1, 5, 6, 12, 15, 16 y 19). La prueba
@@ -236,7 +236,7 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
     - La sesión de Baileys queda en un directorio local y no se probó contra WhatsApp real.
     - El almacenamiento es local, detrás de la interfaz; el de Supabase es de la fase 8.
     - Por WhatsApp o correo solo se preguntan abonos; identidad y documentos van por la API.
-- **Fase 7, backoffice (ADR 0019).** `apps/web` (React 19 + Vite) y la API `/bo/v1`:
+- **Fase 7, backoffice.** `apps/web` (React 19 + Vite) y la API `/bo/v1`:
   - **Terminado como se pidió.** El detalle de una solicitud real (PDF, extracción, decisión) se ve
     con los valores no verificados resaltados y el salto a la página citada; las aclaraciones se
     responden a mano, sin WhatsApp, y reanudan el workflow real.
@@ -245,14 +245,14 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
     `LLM_CACHE_MODE=read pnpm worker`, `pnpm demo:load --key ...`, `pnpm tenant user add ...` y
     `pnpm web`. Con la caché de respuestas, costo cero.
   - **Pendiente.** Proveedores y Configuración.
-  - **Corrección en revisión humana (ADR 0020).** Hecha: pares leído/correcto guardados, `analyst_answer`,
+  - **Corrección en revisión humana.** Hecha: pares leído/correcto guardados, `analyst_answer`,
     reevaluación sin modelos. Falta descartar un documento y exportar los pares a las evals.
 - **Fase 8, entregables de proceso.**
   - **README**: corrida standalone en 5 minutos, costo estimado, privacidad del dataset,
     reproducibilidad y los dos modos.
   - **Documentos nuevos**: `docs/00-spec.md`, `docs/harness.md` y `docs/deploy.md`.
-  - **ADRs 0021 a 0032**: una por fila de la tabla de decisiones. Las filas Extracción, Evals y
-    Bloque fiscal ya tenían ADR (0011, 0012 y 0008).
+  - **Registro de decisiones** (`docs/decisions.md`): cada fila de la tabla de decisiones, con lo
+    que se descartó y por qué.
   - **CI en `.github/workflows/`**, con acciones fijadas por SHA:
     - typecheck, lint y test con Postgres;
     - escenarios unitarios y full;
@@ -264,7 +264,7 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
     sin los secretos, avisa y no corre.
   - **Distinto al plan**:
     - `evaluate` usa por defecto la política de evaluación standalone, para que los documentos
-      redactados no se detengan todos en identidad (ADR 0015, "Cambios").
+      redactados no se detengan todos en identidad.
     - `evaluate` ganó `--help`.
     - El despliegue queda como plan: no se crean cuentas.
   - **Menores del punto 6, también hechos:**
@@ -275,7 +275,7 @@ de evals por banco con invención y omisión separadas. Y las frases de `04` 7 y
 
     La revisión de esa muestra la tiene que hacer una persona y sigue pendiente.
 
-- **Prompts en la base (ADR 0065).** Las reglas 5 y 7 se mantienen para el repositorio:
+- **Prompts en la base.** Las reglas 5 y 7 se mantienen para el repositorio:
   - `prompts/` con su changelog es la fuente del código, de las evals y del modo standalone.
   - En modo full, cada `pnpm db:migrate` siembra los archivos en la base.
   - El backoffice permite crear versiones nuevas (inmutables) y elegir la activa de cada prompt.

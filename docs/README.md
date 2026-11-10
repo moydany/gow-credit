@@ -24,7 +24,7 @@ primera línea de código. **Quien construye empieza por `00-brief.md`.**
 Cuando un documento contradiga a otro, manda el de número más alto, salvo `07` y `00`,
 que mandan sobre todos. Si durante la implementación una decisión cambia, no se reescribe
 la historia: se agrega una sección "Cambios durante la implementación" al final del
-documento afectado y una ADR en `docs/adr/`.
+documento afectado y una entrada en el registro de decisiones (`docs/decisions.md`).
 
 ## Glosario
 
@@ -76,7 +76,7 @@ dos últimos piden algo antes de decidir.
 
 **Clasificación de movimiento**: `customer_payment | own_transfer | loan_disbursement |
 loan_payment | payroll | supplier_payment | tax | fee | interest | other`. (`loan_payment` se
-agregó en la fase 4, ADR 0013.)
+agregó en la fase 4.)
 
 ## Dataset de desarrollo
 

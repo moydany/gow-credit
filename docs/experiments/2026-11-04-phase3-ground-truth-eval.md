@@ -1,14 +1,14 @@
 # Evals de la fase 3: Gemini 3.8 Flash y Opus 5.5 contra ground truth
 
 - Fecha: 2026-11-04
-- Pregunta: ¿se confirma `gemini-3.8-flash` como modelo de extracción (ADR 0011) al medirlo
+- Pregunta: ¿se confirma `gemini-3.8-flash` como modelo de extracción al medirlo
   contra ground truth independiente en los 9 documentos, y no contra Opus?
-- Ground truth: ADR 0012 (parser determinístico de la capa de texto + aritmética del banco;
-  1,513 movimientos, los 9 documentos cierran). Nada sale de un modelo.
+- Ground truth: parser determinístico de la capa de texto + aritmética del banco
+  (1,513 movimientos, los 9 documentos cierran). Nada sale de un modelo.
 - Comando: `pnpm extract data/dev --model <modelo>` llena la caché; `pnpm eval` la reproduce,
   puntúa y aplica umbrales (`evals/src/thresholds.ts`). Mismos prompts, esquema y `effort`.
 - Alcance acordado con el dueño: Gemini y Opus en los 9. Sonnet (2 de 9 en caché, de la fase 2)
-  y Haiku (sin caché vigente: desde la ADR 0011 sus relecturas van con Opus) no se corrieron.
+  y Haiku (sin caché vigente: desde el cambio a Gemini sus relecturas van con Opus) no se corrieron.
 
 ## Resultado
 
@@ -46,5 +46,5 @@ Haiku 33/33; Jev cuesta un tercio y es unas 8 veces más rápido.
 
 ## Decisión
 
-Se confirma la ADR 0011: `gemini-3.8-flash` queda como modelo de extracción; ningún banco cae
-bajo el umbral, así que ninguno se enruta a Opus. Anotado en la ADR 0011.
+Se confirma el cambio: `gemini-3.8-flash` queda como modelo de extracción; ningún banco cae
+bajo el umbral, así que ninguno se enruta a Opus.

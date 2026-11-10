@@ -177,7 +177,7 @@ muestra personalización y el loop de aprendizaje.
       el aviso de privacidad.
   - **Revisión humana: descartar el documento** con un motivo cerrado. La solicitud cierra en
     `not_qualified` sin reevaluar.
-    **Avisa al proveedor por WhatsApp** con el motivo (ADR 0069); sin contacto verificado queda en la bitácora.
+    **Avisa al proveedor por WhatsApp** con el motivo; sin contacto verificado queda en la bitácora.
   - **Revisión humana: exportar las correcciones** a las evals (`pnpm corrections:export`) y
     medirlas contra el modelo actual (`pnpm -F @gow/evals corrections`).
   - **Sigue pendiente**: el formulario de política generado del esquema, la vinculación de

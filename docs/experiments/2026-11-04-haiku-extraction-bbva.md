@@ -53,5 +53,5 @@ y omisión por separado. Opciones a medir entonces:
 
 1. Haiku en todo, con más páginas releídas por documento.
 2. Haiku en la primera lectura y Opus solo en las relecturas (cascada), comparada contra la
-   alternativa más simple: Opus con `effort` más bajo (ADR 0003).
+   alternativa más simple: Opus con `effort` más bajo.
 3. Opus en todo (hoy, alrededor de USD 1 por documento).
