@@ -16,14 +16,14 @@ A unit of work is closed by evidence, not by the author's opinion of it. Run the
    report it as open.
 4. **Review what a gate cannot see.** In parallel: `privacy-reviewer` on the diff, and
    `docs-auditor` on the documents that govern the area.
-5. **Leave the paper trail.** A new or changed decision gets an ADR in `docs/adr/` and a row in its
-   README. A design that changed gets a "Cambios durante la implementación" section in the affected
+5. **Leave the paper trail.** A new or changed decision gets a row in `docs/decisions.md`, with what it
+   was chosen over and why. A design that changed gets a "Cambios durante la implementación" section in the affected
    document. A prompt change gets its changelog entry.
 6. **Report, then stop.** Four sections, in this order:
    - **What was done**: the change, by package.
    - **What was verified by running it**: the gate table from `gate-runner`, verbatim.
    - **What it cost**: tokens and USD of paid model calls in this unit, zero if cache-only.
-   - **What changed against the brief**: each divergence with its ADR, and every open item.
+   - **What changed against the brief**: each divergence with its entry in the decision log, and every open item.
 
 The person reads the report and decides whether to continue. Do not commit, push or start the next
 unit on your own.

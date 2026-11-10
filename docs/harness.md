@@ -30,13 +30,13 @@ and the person, not the agent, decides when a unit of work is closed.
 ```mermaid
 flowchart TD
     H([Person: sets the goal, approves spend, closes the phase])
-    C[Context<br/>CLAUDE.md, docs/00-brief.md, docs/01 to 09, ADRs]
+    C[Context<br/>CLAUDE.md, docs/00-brief.md, docs/01 to 09, decision log]
     P[Plan<br/>scope, definition of done, what could cost money]
     A[Act<br/>orchestrator or extraction-engineer<br/>small diff, one concern]
     G{{guard hook<br/>privacy, attribution, prompt versions,<br/>paid calls, push and deploy}}
     V[Verify<br/>gate-runner: typecheck, lint, dup,<br/>tests, scenarios, cache-only evals]
     R[Review<br/>privacy-reviewer and docs-auditor]
-    T[Record<br/>ADR, changelog, 'Cambios durante la implementación']
+    T[Record<br/>decision log, changelog, 'Cambios durante la implementación']
     S{{stop-check hook<br/>is the paper trail complete?}}
     O[Report<br/>done, verified, cost, changes against the brief]
 
@@ -62,7 +62,7 @@ Each stage exists for a reason:
 | Guard | A hook inspects every tool call | The rules that must never break are enforced by code, not by the agent remembering them |
 | Verify | A separate agent with no write access runs the gates and reports | The author does not grade its own work, and "should pass" is not a result |
 | Review | Two read-only agents check what a test suite cannot: leaked personal data, and drift from the design | Passing tests say nothing about a name in a log line or a decision that changed silently |
-| Record | A decision becomes an ADR; a prompt change becomes a changelog entry | Evaluators judge the reasoning as much as the result |
+| Record | A decision becomes an entry in the decision log; a prompt change becomes a changelog entry | Evaluators judge the reasoning as much as the result |
 | Stop check | A hook refuses to end the turn while the record is incomplete | The paper trail is the step most easily skipped |
 | Report | Four sections: done, verified, cost, changes against the brief | The person decides whether to continue on evidence |
 
@@ -74,14 +74,14 @@ machine (push, merge, deploy), and at the end of every unit.
 | File | Role |
 |---|---|
 | [`CLAUDE.md`](../CLAUDE.md) | Entry point: what to read first, the rules that are not negotiable, the pinned model versions, the commands |
-| [`docs/00-brief.md`](00-brief.md) | The implementation brief: the table of final decisions (not reopened without an ADR), the phases with their definition of done, the cut lines |
+| [`docs/00-brief.md`](00-brief.md) | The implementation brief: the table of final decisions (not reopened without recording why), the phases with their definition of done, the cut lines |
 | [`docs/01` to `09`](README.md) | The design, written before the first line of code. Never rewritten: what changed while building is appended as "Cambios durante la implementación", so planned and built stay distinguishable |
-| `docs/adr/` | 73 decision records (ADRs): one per decision made or changed while building, and one per row of the brief's decision table. This log is my working record and is not published; the numbers cited here, in the README and in code comments point to it |
+| [`docs/decisions.md`](decisions.md) | The decision log: each decision that shaped the system, what it was chosen over and why, including the ones that were later reversed |
 | [`prompts/`](../prompts/CHANGELOG.md) | Every product prompt as a versioned file with a changelog from the first draft. A version is immutable once evaluated; the version is part of the cache key and of the queue's idempotency key |
 | [`docs/spikes/`](spikes/README.md), [`docs/experiments/`](experiments/) | Measurements taken before building on an assumption |
 
-When the agent believed a decision in the brief was wrong, the rule was to write the objection in
-an ADR and proceed with what was decided. ADR 0011 (Gemini as the extraction model) is the
+When the agent believed a decision in the brief was wrong, the rule was to write the objection
+down and proceed with what was decided. The switch to Gemini as the extraction model is the
 example: objection recorded, small experiment run, decision confirmed by the phase 3 evals.
 
 ## Agents
@@ -130,7 +130,7 @@ write:
 
 [`stop-check.mjs`](../.claude/hooks/stop-check.mjs) runs when the agent tries to end a turn. It
 blocks once, with the reason, if a prompt file changed without an entry in
-`prompts/CHANGELOG.md`, or if a new ADR is not listed in `docs/adr/README.md`.
+`prompts/CHANGELOG.md`.
 
 The same file turns off agent attribution on commits and pull requests. The history has one
 author because one person is accountable for it.
@@ -154,7 +154,7 @@ A change is not done until these are green. The same commands run locally, throu
 Two properties make the extraction gate trustworthy rather than decorative:
 
 - **The ground truth does not come from the model being measured.** It is produced by a parser
-  per bank over the PDF text layer and arbitrated by the bank's own arithmetic (ADR 0001).
+  per bank over the PDF text layer and arbitrated by the bank's own arithmetic.
 - **No prompt or model change in the repository merges if it drops a bank below its threshold.**
   That is how the switch to Gemini was confirmed instead of assumed.
 
@@ -198,7 +198,7 @@ Only then was Gemini measured on all 9 documents against the ground truth.
   whether to continue.
 - **Spikes before commitments** ([`docs/spikes/`](spikes/README.md)). Four assumptions were
   measured before anything was built on them: Mastra with PDF input, caching and structured
-  output (which showed the schema is part of the cached prefix and led to ADR 0005), version
+  output (which showed the schema is part of the cached prefix and led to the single-schema decision), version
   compatibility, Jev against Haiku, and suspend and resume across processes.
 - **One session per phase from phase 3**, plus a separate documentation-analysis session with a
   clean context that audited the repository against the documents at each phase close and sent
@@ -214,7 +214,7 @@ The agent wrote the code in all eight phases; I directed, reviewed and decided. 
 time is how the loop was enforced. During the build, the stops, the independent audit, the gates
 and the cost approvals were held by instructions (`CLAUDE.md`, the brief) and by my review of each
 report. The agents, skills and hooks under `.claude/` were written on 2026-11-09, at the end of
-the build, to enforce the same loop with tooling for every change from here on (ADR 0073). They
+the build, to enforce the same loop with tooling for every change from here on. They
 encode what was practiced; they were not what the first 318 commits ran through.
 
 ## What I would do differently

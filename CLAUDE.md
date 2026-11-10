@@ -49,7 +49,7 @@ Quien cambia no verifica, y la persona decide cuándo algo está terminado.
 | `phase-gate` | `.claude/skills/` | Cerrar una fase, una funcionalidad o un refactor |
 | `paid-run` | `.claude/skills/` | Antes de cualquier comando que pueda llamar a un modelo pagado |
 | `guard.mjs` | `.claude/hooks/` | Antes de cada comando, lectura y escritura: niega o pide confirmación |
-| `stop-check.mjs` | `.claude/hooks/` | Al cerrar el turno: el changelog de prompts y el índice de ADR están al día |
+| `stop-check.mjs` | `.claude/hooks/` | Al cerrar el turno: el changelog de prompts está al día |
 
 Cuando un hook niega algo, no lo rodees con otro comando: corrige la causa o pregunta.
 
@@ -62,7 +62,7 @@ Cuando un hook niega algo, no lo rodees con otro comando: corrige la causa o pre
   Baileys, Resend. **El modo standalone nunca puede romperse.**
 - Zod es la única fuente de verdad de cada contrato; tipos con `z.infer`.
 - Código e identificadores en inglés. Documentación y mensajes al proveedor en español, salvo
-  `README.md` y `docs/harness.md`, que van en inglés (`README.es.md` es la versión en español).
+  `README.md`, `docs/harness.md` y `docs/decisions.md`, que van en inglés (`README.es.md` es la versión en español).
 
 ### Modelos y prompts
 
@@ -80,17 +80,17 @@ Cuando un hook niega algo, no lo rodees con otro comando: corrige la causa o pre
   llamadas al SDK.
 - Gemini vía `@ai-sdk/google` fijado en el lockfile: `responseJsonSchema`, `thinkingLevel`
   derivado de `effort`, PDF como `inlineData`, caché implícita. El precio oficial se verifica
-  antes de reportar costos (ADR 0011).
+  antes de reportar costos.
 - Los prompts viven en `prompts/` con changelog. Son la fuente del código, de las evals y del
   modo standalone; en modo full se siembran en la base y la versión activa se elige en el
-  backoffice (ADR 0065).
+  backoffice.
 - Una versión de prompt no se edita después de medirse: un cambio crea `v<N+1>`, sube la versión
   en `PROMPT_CATALOG` y deja una entrada en `prompts/CHANGELOG.md` con las métricas de antes y
   después.
 - Ningún cambio de prompt o modelo en el repositorio (`prompts/`, `PROMPT_CATALOG`, `models.ts`)
   se fusiona si baja las métricas de evals bajo el umbral. Una versión creada en el backoffice no
   tiene evals: se marca "Sin evals" y la activa un editor con confirmación. Para volverla la del
-  código, pasa a `prompts/` y por las evals (ADR 0065).
+  código, pasa a `prompts/` y por las evals.
 - El gasto en modelos lo aprueba la persona, por corrida y con una estimación delante. Primero la
   caché (`LLM_CACHE_MODE=read` o `--cache read`), luego uno o dos documentos, y solo después una
   corrida completa.
@@ -104,8 +104,8 @@ Cuando un hook niega algo, no lo rodees con otro comando: corrige la causa o pre
 
 ### Documentación y decisiones
 
-- Decisión nueva o cambiada: ADR en `docs/adr/` y su fila en el índice. `docs/adr/` es el
-  registro del dueño y no se publica: si no existe en este clon, no lo recrees, pregunta.
+- Decisión nueva o cambiada: una fila en `docs/decisions.md`, en su sección, con lo que se
+  descartó y por qué. Si reemplaza a otra, también en "Decisions that were reversed".
 - No reescribir `docs/01` a `08`. Lo que cambió al construir va en "Cambios durante la
   implementación" al final del documento afectado.
 - Una medición que informa una decisión queda como nota fechada en `docs/experiments/`, también
@@ -139,7 +139,7 @@ Cuando un hook niega algo, no lo rodees con otro comando: corrige la causa o pre
   - Una solicitud pausada se reanuda con `--answers`.
   - Documentos redactados: `--policy policies/examples/standalone-evaluation.v1.json`.
   - Tres meses seguidos en vez de uno: `--policy policies/examples/standalone-tres-meses.v1.json`.
-  - Una subcarpeta es una solicitud con varios PDF (ADR 0072).
+  - Una subcarpeta es una solicitud con varios PDF.
 - `pnpm decide <extracción.json>`: perfil y veredicto sin costo; salida en `data/out/profiles/`.
 - `pnpm simulate --policy <json>`.
 

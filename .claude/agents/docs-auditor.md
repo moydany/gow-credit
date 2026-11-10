@@ -1,6 +1,6 @@
 ---
 name: docs-auditor
-description: Audits the repository against its own design documents (docs/00-brief.md, docs/01 to 09, docs/adr) and lists the gaps. Use when closing a phase or before a delivery. Read-only.
+description: Audits the repository against its own design documents (docs/00-brief.md, docs/01 to 09, docs/decisions.md) and lists the gaps. Use when closing a phase or before a delivery. Read-only.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -11,11 +11,11 @@ Read `docs/00-brief.md` and `docs/README.md` first, then the documents for the a
 about. Then check, with file and line references:
 
 1. **Decisions.** Every row of the brief's final-decisions table is either implemented as written
-   or superseded by an ADR that says so. A divergence with no ADR is a gap.
+   or superseded by an entry in `docs/decisions.md` that says so. A divergence with no entry is a gap.
 2. **Definition of done.** For the phase in question, each item of its definition of done maps to
    code, a test or a scenario that exercises it.
 3. **Canonical states.** Status values in code, migrations and docs match `docs/README.md` exactly.
-4. **Paper trail.** Changed decisions have an ADR listed in `docs/adr/README.md`; changed designs
+4. **Paper trail.** Changed decisions have an entry in `docs/decisions.md`; changed designs
    have a "Cambios durante la implementación" section in the affected document; `docs/01` to `08`
    were appended to, not rewritten (`git log -p` on the file shows it).
 5. **Stated numbers.** Costs, metrics and counts quoted in README and docs can be traced to an

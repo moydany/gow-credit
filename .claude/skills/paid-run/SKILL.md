@@ -13,7 +13,7 @@ Model spend is approved by the person, per run, with a number in front of them.
    full set. A full run comes after the small one says it is worth it.
 3. **Estimate.** Documents x calls per document x the per-document cost already measured in
    `docs/experiments/` for that model. Prices come from the provider's official page, checked the
-   same day, never from memory (ADR 0011).
+   same day, never from memory.
 4. **Ask.** State the command, the model, the number of documents, the estimate and what decision
    the result will inform. Wait for a yes.
 5. **Run and record.** Afterwards report the actual tokens and USD next to the estimate. A result

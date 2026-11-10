@@ -19,7 +19,7 @@ How a change is made:
    entry in `PROMPT_CATALOG` and a `prompts/CHANGELOG.md` entry with what changed, why, and the
    metrics before and after.
 4. The Zod schema in `packages/contracts` is the only source of truth; types come from `z.infer`.
-   The output schema is part of the cached prefix (ADR 0005): changing it invalidates the cache
+   The output schema is part of the cached prefix: changing it invalidates the cache
    for every document, so say what a full rerun will cost before asking for it.
 5. A new prompt version has no cached responses. Measuring it calls a paid model: estimate the
    cost from the per-document figures in `docs/experiments/`, ask the person, and only then run.

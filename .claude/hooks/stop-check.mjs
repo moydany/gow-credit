@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Stop check. Before the agent ends a turn, the working tree must be consistent with the paper
-// trail the repository promises: a prompt change comes with its changelog entry, and a new ADR is
-// listed in the index. Cheap on purpose (one `git status`); the expensive gates live in the
-// phase-gate skill and in CI. Blocks once and explains; never loops.
+// trail the repository promises: a prompt change comes with its changelog entry. Cheap on purpose
+// (one `git status`); the expensive gates live in the phase-gate skill and in CI. Blocks once and
+// explains; never loops.
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
@@ -13,23 +13,13 @@ function changedFiles() {
   return out
     .split('\n')
     .filter(Boolean)
-    .map((line) => ({ status: line.slice(0, 2), file: line.slice(3).replace(/^.* -> /, '') }))
+    .map((line) => line.slice(3).replace(/^.* -> /, ''))
 }
 
 function findings(files) {
-  const names = new Set(files.map((f) => f.file))
-  const problems = []
-  const prompts = files.filter((f) => /^prompts\/[\w-]+\.v\d+\.md$/.test(f.file))
-  if (prompts.length > 0 && !names.has('prompts/CHANGELOG.md')) {
-    problems.push(
-      `Prompt files changed (${prompts.map((f) => f.file).join(', ')}) without an entry in prompts/CHANGELOG.md.`,
-    )
-  }
-  const newAdrs = files.filter((f) => /^docs\/adr\/\d{4}-.+\.md$/.test(f.file) && /^(\?\?|A)/.test(f.status))
-  if (newAdrs.length > 0 && !names.has('docs/adr/README.md')) {
-    problems.push(`New ADR (${newAdrs.map((f) => f.file).join(', ')}) is not listed in docs/adr/README.md.`)
-  }
-  return problems
+  const prompts = files.filter((file) => /^prompts\/[\w-]+\.v\d+\.md$/.test(file))
+  if (prompts.length === 0 || files.includes('prompts/CHANGELOG.md')) return []
+  return [`Prompt files changed (${prompts.join(', ')}) without an entry in prompts/CHANGELOG.md.`]
 }
 
 function main() {
