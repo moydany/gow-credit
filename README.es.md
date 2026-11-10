@@ -58,7 +58,7 @@ Todo lo que pide el worksample, y dónde está.
 |---|---|
 | Un sistema funcionando | [Prueba la demo en vivo](#prueba-la-demo-en-vivo), o [córrelo en local](#correrlo-en-tu-máquina) con un comando |
 | Lo que entendimos, supuestos y alcance | [`docs/00-spec.md`](docs/00-spec.md) |
-| Decisiones de diseño y por qué | [Arquitectura](#arquitectura), [Cómo se decide el crédito](#cómo-se-decide-el-crédito) y el diseño completo en `docs/01` a `docs/09` |
+| Decisiones de diseño y por qué | El [registro de decisiones](docs/decisions.md) (en inglés): cada decisión, frente a qué se eligió y por qué. Después, [Arquitectura](#arquitectura), [Cómo se decide el crédito](#cómo-se-decide-el-crédito) y el diseño completo en `docs/01` a `docs/09` |
 | Prompts | [`prompts/`](prompts/), versionados, con su [changelog](prompts/CHANGELOG.md) |
 | Harness de desarrollo con agentes | [`docs/harness.md`](docs/harness.md) (en inglés): el ciclo, los agentes, skills y hooks de [`.claude/`](.claude/), las instrucciones del agente en [`CLAUDE.md`](CLAUDE.md) y lo que costó construirlo |
 | Artefactos de proceso | El brief de implementación ([`docs/00-brief.md`](docs/00-brief.md)), los [spikes](docs/spikes/README.md) y los [experimentos de modelos](docs/experiments/) |

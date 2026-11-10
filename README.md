@@ -58,7 +58,7 @@ Everything the worksample asks for, and where to find it.
 |---|---|
 | A running system | [Try the live demo](#try-the-live-demo), or [run it locally](#run-it-on-your-machine) in one command |
 | What we understood, assumptions and scope | [`docs/00-spec.md`](docs/00-spec.md) |
-| Design decisions and why | [Architecture](#architecture), [How credit is decided](#how-credit-is-decided), and the full design in `docs/01` to `docs/09` |
+| Design decisions and why | The [decision log](docs/decisions.md): each decision, what it was chosen over and why. Then [Architecture](#architecture), [How credit is decided](#how-credit-is-decided), and the full design in `docs/01` to `docs/09` |
 | Prompts | [`prompts/`](prompts/), versioned, with a [changelog](prompts/CHANGELOG.md) |
 | Development harness with agents | [`docs/harness.md`](docs/harness.md): the loop, the agents, skills and hooks in [`.claude/`](.claude/), the agent's instructions in [`CLAUDE.md`](CLAUDE.md), and what the build cost |
 | Process artifacts | The implementation brief ([`docs/00-brief.md`](docs/00-brief.md)), the [spikes](docs/spikes/README.md) and the [model experiments](docs/experiments/) |
