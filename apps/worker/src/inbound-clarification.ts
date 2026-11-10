@@ -99,9 +99,13 @@ async function handleConfirmingStep(
       })
     }
     const updated = withMergedAnswers(answers, [read.answer])
-    return answer('corrected', `${CONFIRMATION_REPLIES.changed(read.number)}\n\n${summary()}`, 'summary', {
-      answers: updated,
-    })
+    // The summary shows the answers as they are after the correction, not the ones it replaced.
+    return answer(
+      'corrected',
+      `${CONFIRMATION_REPLIES.changed(read.number)}\n\n${renderSummary(questions, updated)}`,
+      'summary',
+      { answers: updated },
+    )
   }
   if (isComplete(questions, answers)) {
     return answer(
