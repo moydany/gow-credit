@@ -22,7 +22,7 @@
  * its processing is enqueued. The bytes move from the inbound row to the tenant's storage and the
  * column is emptied. The sender only gets a fixed text reply.
  *
- * With a policy that evaluates three months (ADR 0072), the PDFs picked together arrive one by one:
+ * With a policy that evaluates three months, the PDFs picked together arrive one by one:
  * the first one's analysis (or resume, when it answers the missing months) waits a short window and
  * the others from the same supplier join it (send-batch.ts).
  *

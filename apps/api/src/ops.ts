@@ -141,7 +141,7 @@ export async function recordCorrections(deps: { db: Db; boss: PgBoss }, tenantId
     const [a] = await tx.select().from(applications).where(eq(applications.id, applicationId))
     if (!a) throw new HttpError(404, 'solicitud no encontrada')
     if (a.status !== 'human_review') throw new HttpError(409, `la solicitud está ${a.status}; solo se corrige en revisión humana`)
-    // The document being corrected (ADR 0072): the one given, which must be in the request, or the first one submitted.
+    // The document being corrected: the one given, which must be in the request, or the first one submitted.
     const links = await tx.select().from(applicationDocuments).where(eq(applicationDocuments.applicationId, applicationId))
     const link = body.document_id ? links.find((l) => l.documentId === body.document_id) : await firstSubmitted(tx, links)
     if (body.document_id && !link) throw new HttpError(404, 'el documento no es de esta solicitud')

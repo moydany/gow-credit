@@ -203,7 +203,7 @@ export const DecisionRules = z
   })
   .meta({ id: 'DecisionRules' })
 
-/** Months of statements evaluated: the most recent one, or the three most recent in a row (ADR 0072). */
+/** Months of statements evaluated: the most recent one, or the three most recent in a row. */
 export const HISTORY_MONTHS = [1, 3] as const
 export type HistoryMonths = (typeof HISTORY_MONTHS)[number]
 /** Id of the gate the engine adds when the policy evaluates more than one month. */

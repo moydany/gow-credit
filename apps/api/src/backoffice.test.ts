@@ -220,7 +220,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect((await call('POST', `/applications/${app}/corrections`, { cookie: a, body: { corrections: [fix] } })).status).toBe(409)
   })
 
-  it('ADR 0072: el detalle trae cada estado de cuenta con sus periodos frente a los meses evaluados, y se corrige el que se indica', async () => {
+  it('el detalle trae cada estado de cuenta con sus periodos frente a los meses evaluados, y se corrige el que se indica', async () => {
     const q = (t: string, v: unknown[]) => admin.query(t, v)
     const sup = randomUUID()
     const app = randomUUID()
@@ -385,7 +385,7 @@ describe.skipIf(!available)('Backoffice (necesita el Postgres de docker compose)
     expect(docs.rowCount).toBe(1)
   })
 
-  it('ADR 0072: varios estados de cuenta en una solicitud: se abre en espera, se agregan y se arranca una vez', async () => {
+  it('varios estados de cuenta en una solicitud: se abre en espera, se agregan y se arranca una vez', async () => {
     const a = tokenFor(userA, tenantA, 'a@prestamista.test')
     const sup = (await call('POST', '/suppliers', { bearer: a, body: { legal_name: 'Proveedor De Tres Meses' } })).json.id as string
     const month = (m: string) => Buffer.from(`%PDF-1.7\n% estado de cuenta ${m}\n%%EOF\n`)

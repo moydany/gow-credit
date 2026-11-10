@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Plantilla base GOW, tres meses",
-  "description": "La plantilla base (policies/gow-base.v1.json) evaluando los 3 meses más recientes, seguidos (ADR 0072). Si llegan menos o hay un hueco, pide los meses que faltan; por WhatsApp, los 3 PDF juntos en un solo envío. Para usarla, créala como versión de la política del tenant (backoffice o POST /v1/policies/versions) y actívala.",
+  "description": "La plantilla base (policies/gow-base.v1.json) evaluando los 3 meses más recientes, seguidos. Si llegan menos o hay un hueco, pide los meses que faltan; por WhatsApp, los 3 PDF juntos en un solo envío. Para usarla, créala como versión de la política del tenant (backoffice o POST /v1/policies/versions) y actívala.",
   "history": { "months": 3 },
   "gates": [
     {

@@ -32,7 +32,7 @@ const STATUS_TEXT: Record<ApplicationStatus, string> = {
 
 /** Default policy of `evaluate`: the base template without the statement-age gate. */
 export const STANDALONE_POLICY_PATH = 'policies/examples/standalone-evaluation.v1.json'
-/** The same policy evaluating three months in a row (ADR 0072). */
+/** The same policy evaluating three months in a row. */
 export const THREE_MONTHS_POLICY_PATH = 'policies/examples/standalone-tres-meses.v1.json'
 
 /** The identity gate blocked for lack of anything to compare with (not because of a mismatch). */

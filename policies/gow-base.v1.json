@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Plantilla base GOW",
-  "description": "Política base de docs/03 §4. Cada tenant arranca clonándola. Evalúa un solo mes, el más reciente, sin tope por meses de historial (ADR 0072). Agrega el tope por falta de pagos del comprador que pide el escenario 11 de docs/06 y las compuertas de robustez documental: páginas faltantes y señales de manipulación.",
+  "description": "Política base de docs/03 §4. Cada tenant arranca clonándola. Evalúa un solo mes, el más reciente, sin tope por meses de historial. Agrega el tope por falta de pagos del comprador que pide el escenario 11 de docs/06 y las compuertas de robustez documental: páginas faltantes y señales de manipulación.",
   "history": { "months": 1 },
   "gates": [
     {

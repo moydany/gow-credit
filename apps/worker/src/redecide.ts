@@ -29,7 +29,7 @@ async function storedExtractions(tx: Tx, documentIds: readonly string[]): Promis
 const rangesOf = (s: StatementExtraction): [string, string][] => s.accounts.flatMap((a) => a.periods.flatMap((p) => (p.period_start.value && p.period_end.value ? [[p.period_start.value, p.period_end.value] as [string, string]] : [])))
 
 /**
- * The submitted statements and, from the answers, those that add months (ADR 0072): an answer that
+ * The submitted statements and, from the answers, those that add months: an answer that
  * covers days already there replaced or repeated a document and stays out, as in the workflow.
  */
 function withAddedMonths(submitted: readonly StatementExtraction[], answers: readonly StatementExtraction[]): StatementExtraction[] {
@@ -43,7 +43,7 @@ function withAddedMonths(submitted: readonly StatementExtraction[], answers: rea
 
 /**
  * What the re-evaluation starts from: corrections, answered rounds, the last verdict and the
- * statements, each with its own corrections (ADR 0072). A failed extraction stays out unless it is
+ * statements, each with its own corrections. A failed extraction stays out unless it is
  * the first one; answers add months only if they do not overlap.
  */
 async function loadForRedecide(s: WorkerServices, job: RedecideJob, applicationId: string, submitted: readonly { id: string }[], answered: readonly { id: string }[]) {
@@ -125,7 +125,7 @@ export async function handleRedecide(s: WorkerServices, job: RedecideJob): Promi
   // The API puts the request in `deciding` when saving corrections; if it no longer is, this job already ran.
   if (ctx.application.status !== 'deciding') return ctx.application.status
   if (!ctx.active) throw new Error('el tenant no tiene una política activa')
-  // Submitted documents first, then the ones answers brought (the missing months, ADR 0072).
+  // Submitted documents first, then the ones answers brought (the missing months).
   const submitted = ctx.submitted.length > 0 ? ctx.submitted : ctx.documents
   const answered = ctx.documents.filter((d) => !submitted.some((x) => x.id === d.id))
   const [doc, ...extra] = submitted

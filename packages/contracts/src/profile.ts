@@ -57,7 +57,7 @@ export const ProfileParameters = z
     low_balance_threshold: Money.describe('Umbral de saldo bajo para low_balance_days'),
     min_classification_confidence: Confidence.describe('Debajo de esto un movimiento clasificado cuenta como no clasificado'),
     debt_capacity_months: z.int().min(1).max(36).describe('Meses de flujo libre que soporta la línea: debt_capacity = flujo libre mensual × este número'),
-    evaluation_months: z.int().min(1).max(12).default(1).describe('Meses que se evalúan, contados hacia atrás desde el corte más reciente (history.months de la política, ADR 0072); lo anterior no entra al perfil'),
+    evaluation_months: z.int().min(1).max(12).default(1).describe('Meses que se evalúan, contados hacia atrás desde el corte más reciente (history.months de la política); lo anterior no entra al perfil'),
   })
   .meta({ id: 'ProfileParameters' })
 export type ProfileParameters = z.infer<typeof ProfileParameters>

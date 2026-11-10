@@ -78,7 +78,7 @@ const isPdf = (f: string) => f.toLowerCase().endsWith('.pdf')
 
 /**
  * Each PDF is a request; a subfolder of a given folder is one request with all its PDFs, as if they
- * were sent together (the three months of a policy with `history.months: 3`, ADR 0072).
+ * were sent together (the three months of a policy with `history.months: 3`).
  */
 function collectGroups(inputs: string[]): Group[] {
   const out: Group[] = []

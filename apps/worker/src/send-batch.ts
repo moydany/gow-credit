@@ -1,5 +1,5 @@
 /**
- * PDFs sent together over WhatsApp (ADR 0072). WhatsApp has no message with several files: the
+ * PDFs sent together over WhatsApp. WhatsApp has no message with several files: the
  * PDFs a supplier picks together arrive as separate messages, seconds apart. When the tenant's
  * active policy evaluates more than one month (`history.months`), what the first PDF starts waits
  * `SEND_WINDOW_SECONDS` (the analysis of the request it opens, or the resume when it answers the

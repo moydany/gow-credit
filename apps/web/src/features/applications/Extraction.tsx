@@ -61,7 +61,7 @@ const TABS: { key: ExtractionTab; label: string }[] = [
   { key: 'alertas', label: 'Alertas' },
 ]
 
-/** Several statements (ADR 0072): the months tab and what the profile did with each period of this one. */
+/** Several statements: the months tab and what the profile did with each period of this one. */
 export interface MonthsView {
   statements: readonly DetailStatement[]
   selected: string

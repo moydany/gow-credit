@@ -1,4 +1,4 @@
-# One statement: the base policy evaluates one month (ADR 0072), so a healthy profile qualifies
+# One statement: the base policy evaluates one month, so a healthy profile qualifies
 # with no history cap.
 id: proveedor-nuevo-un-mes
 catalog: 3

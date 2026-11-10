@@ -1,5 +1,5 @@
 /**
- * The documents of a request for the detail view (ADR 0072): each extraction with the analyst's
+ * The documents of a request for the detail view: each extraction with the analyst's
  * corrections on that document, and what the profile did with each period against the evaluated
  * months. The window comes from the same code as the profile, so the view and the verdict agree.
  */

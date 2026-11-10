@@ -18,7 +18,7 @@ function withIdentityGate() {
 }
 
 /**
- * The base no longer caps by history (ADR 0072); the cap mechanics are tested with the cap the base
+ * The base no longer caps by history; the cap mechanics are tested with the cap the base
  * used to have: under 3 months, at most `qualified_with_limit`.
  */
 const monthsCapPolicy = (() => {
@@ -131,7 +131,7 @@ describe('evaluate(policy, profile) con la política base', () => {
   })
 
   describe('topes y bandas', () => {
-    it('ADR 0072: la plantilla base evalúa un mes y no topa por historia', () => {
+    it('la plantilla base evalúa un mes y no topa por historia', () => {
       const d = evaluate(policy, profile({ months_of_history: 1 }))
       expect([d.status, d.limit]).toEqual(['qualified', 150000])
       expect(d.evaluation.gates.map((g) => g.id)).not.toContain('history_months')
@@ -257,7 +257,7 @@ describe('evaluate(policy, profile) con la política base', () => {
   })
 })
 
-describe('ADR 0072: history.months', () => {
+describe('history.months', () => {
   it('con 3 meses, menos de 3 seguidos pide los que faltan; 3 o más califica', () => {
     const short = evaluate(threeMonths, profile({ months_of_history: 2 }))
     expect([short.status, short.clarification?.topics]).toEqual(['needs_clarification', ['additional_months']])

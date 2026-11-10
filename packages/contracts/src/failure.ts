@@ -37,7 +37,7 @@ export function scannedUnreadableReason(detail: string | null): string {
 /**
  * One PDF holding several statements, when extraction is told to reject it
  * (`rejectMultipleStatements`). By default it is not rejected: the profile evaluates only the most
- * recent month (ADR 0072). The text stays so requests that failed this way still read well.
+ * recent month. The text stays so requests that failed this way still read well.
  */
 export function multipleStatementsReason(count: number): string {
   return `el PDF trae ${String(count)} estados de cuenta`

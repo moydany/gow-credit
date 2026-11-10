@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Evaluación standalone, tres meses",
-  "description": "Igual que standalone-evaluation.v1.json, pero evalúa los 3 meses más recientes, seguidos (ADR 0072). Si llegan menos o hay un hueco, la solicitud pide los meses que faltan (additional_months). Los 3 meses pueden venir en 3 PDFs (en pnpm run evaluate, una subcarpeta por solicitud) o en un solo PDF que los cubra. No es una política para producción.",
+  "description": "Igual que standalone-evaluation.v1.json, pero evalúa los 3 meses más recientes, seguidos. Si llegan menos o hay un hueco, la solicitud pide los meses que faltan (additional_months). Los 3 meses pueden venir en 3 PDFs (en pnpm run evaluate, una subcarpeta por solicitud) o en un solo PDF que los cubra. No es una política para producción.",
   "history": {
     "months": 3
   },

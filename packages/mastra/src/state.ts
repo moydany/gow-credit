@@ -10,7 +10,7 @@ export const AppInput = z.object({
   application_id: z.string().min(1),
   pdf_path: z.string().min(1),
   /**
-   * More statements of the same request, sent together (ADR 0072): the other months when the policy
+   * More statements of the same request, sent together: the other months when the policy
    * evaluates three. They are extracted like the first; one that fails is noted and left out.
    */
   extra_pdf_paths: z.array(z.string().min(1)).optional(),

@@ -104,7 +104,7 @@ function checkDocFiscalAnchor(
  * Fiscal anchor: the fee CFDI is signed by the SAT, outside the editable PDF. The document's fee
  * rows must add up to its total (if the bank itemizes IVA) or its subtotal (if not). A document
  * with no CFDI amounts does not count. It checks the whole document, every submitted one, with all
- * its movements: the CFDI covers the document, not the evaluated months (ADR 0072).
+ * its movements: the CFDI covers the document, not the evaluated months.
  */
 export function fiscalAnchor(ctx: StatementContext): Entry {
   const checks: AnchorCheck[] = []

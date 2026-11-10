@@ -58,7 +58,7 @@ export const ClarificationItem = z.strictObject({
 })
 export type ClarificationItem = z.infer<typeof ClarificationItem>
 
-/** What became of a period against the evaluated months (ADR 0072). */
+/** What became of a period against the evaluated months. */
 export const PeriodWindowStatus = z.enum(['evaluated', 'cut', 'outside', 'excluded'])
 export type PeriodWindowStatus = z.infer<typeof PeriodWindowStatus>
 
@@ -84,7 +84,7 @@ export const ApplicationDetail = z.strictObject({
   documents: z.array(z.strictObject({ id: z.uuid(), sha256: Sha256, size_bytes: z.number(), media_type: z.string() })),
   /** The statement whose period is the most recent (the one shown first); null while reading. */
   extraction: StatementExtraction.nullable(),
-  /** Every extracted document, oldest cutoff first (ADR 0072). */
+  /** Every extracted document, oldest cutoff first. */
   statements: z.array(DetailStatement).default([]),
   /** The evaluated months: how many the policy asks for and the dates they cover. */
   evaluation: z.strictObject({ months: z.int().min(1), start: z.string().nullable(), end: z.string().nullable() }).nullable().default(null),

@@ -1,5 +1,5 @@
 /**
- * Several statements in one request (ADR 0072): which months each document covers and what the
+ * Several statements in one request: which months each document covers and what the
  * profile did with them (evaluated, cut to the evaluated months, left out), a picker to move
  * between documents and the table of every month side by side.
  */

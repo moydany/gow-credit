@@ -1,5 +1,5 @@
 # Healthy profile, but the buyer doesn't appear in the statement: at most `qualified_with_limit`
-# (base policy cap). Three months arrive; the base evaluates the most recent one (ADR 0072).
+# (base policy cap). Three months arrive; the base evaluates the most recent one.
 id: sin-pagos-del-comprador
 catalog: 11
 title: Perfil sano sin pagos del comprador

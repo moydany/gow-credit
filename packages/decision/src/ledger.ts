@@ -13,7 +13,7 @@
  *   (no RFC, not the buyer, confidence below `PRESUMPTION_CONFIDENCE`) drops to
  *   `MIXED_PRESUMED_CONFIDENCE` and stops counting as income.
  * - Only the evaluated months enter: the most recent one, or the `months` most recent (the policy's
- *   `history.months`, ADR 0072). Periods and movements before them are left out, and a period
+ *   `history.months`). Periods and movements before them are left out, and a period
  *   that starts earlier is cut.
  */
 import type { AccountUse, ApplicationRequest, Period, Provenance, StatementExtraction, Transaction, TransactionClassification, TransactionRef } from '@gow/contracts'
@@ -400,7 +400,7 @@ export function keepLatestMonths(ledger: Ledger, months: number): Ledger {
   return { documents: ledger.documents.filter((d) => docs.has(d)), submitted: ledger.submitted, periods, rows, submittedRows: ledger.submittedRows, skipped }
 }
 
-/** What became of a period of a submitted statement (ADR 0072), for the backoffice. */
+/** What became of a period of a submitted statement, for the backoffice. */
 export type PeriodWindowStatus = 'evaluated' | 'cut' | 'outside' | 'excluded'
 
 export interface PeriodWindow {

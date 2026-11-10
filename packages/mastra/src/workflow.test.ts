@@ -83,7 +83,7 @@ DOCS['sin-pagina.pdf'] = {
   issues: [{ id: 'i91', code: 'page_missing', severity: 'warning', message: 'Faltan páginas', page: null, path: null, account_id: null, period_id: null, transaction_id: null, details: { missing: [2], total: 3 } }],
 }
 
-// ADR 0072: single months for a three-month policy; the copy is the same file sent twice.
+// Single months for a three-month policy; the copy is the same file sent twice.
 const monthOf = (start: string) =>
   syntheticStatement({ start, opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 60000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, `mes-${start}`)
 DOCS['mes-ago.pdf'] = monthOf('2026-08-01')
@@ -340,7 +340,7 @@ describe('processApplication', () => {
     expect(read.state?.decision?.status).toBe('qualified_with_limit')
   })
 
-  it('varios estados de cuenta en un PDF no fallan la solicitud: se evalúa el mes más reciente (ADR 0072)', async () => {
+  it('varios estados de cuenta en un PDF no fallan la solicitud: se evalúa el mes más reciente', async () => {
     for (const file of ['varios-estados.pdf', 'varios-estados-sin-issue.pdf']) {
       const run = await startApplication(createRuntime(deps(), db()), input(file))
       expect(run.state?.failure_reason, file).toBeNull()
@@ -358,7 +358,7 @@ describe('processApplication', () => {
     expect(describeFailure(invoice.state?.failure_reason ?? null).kind).toBe('not_bank_statement')
   })
 
-  it('ADR 0072: dos meses y uno repetido piden solo el que falta, por nombre; con él califica', async () => {
+  it('dos meses y uno repetido piden solo el que falta, por nombre; con él califica', async () => {
     const file = db()
     const send = input('mes-sep.pdf', { extra_pdf_paths: ['/docs/mes-oct.pdf', '/docs/mes-oct-copia.pdf'], policy: threeMonths, policy_id: 'gow-base-tres-meses.v1', as_of: '2026-11-05' })
     const first = await startApplication(createRuntime(deps(), file), send)
@@ -372,7 +372,7 @@ describe('processApplication', () => {
     expect(['qualified', 'qualified_with_limit']).toContain(second.state?.decision?.status)
   })
 
-  it('ADR 0072: con un solo mes pide los dos que faltan juntos; si la respuesta no trae meses nuevos no se repite', async () => {
+  it('con un solo mes pide los dos que faltan juntos; si la respuesta no trae meses nuevos no se repite', async () => {
     const file = db()
     const first = await startApplication(createRuntime(deps(), file), input('mes-oct.pdf', { policy: threeMonths, policy_id: 'gow-base-tres-meses.v1', as_of: '2026-11-05' }))
     const q = first.state?.questions[0]
@@ -383,7 +383,7 @@ describe('processApplication', () => {
     expect(second.state?.decision?.reasons.map((r) => r.code)).toContain('clarification_already_asked')
   })
 
-  it('ADR 0072: si la respuesta trae un mes pero falta otro, pide solo ese', async () => {
+  it('si la respuesta trae un mes pero falta otro, pide solo ese', async () => {
     const file = db()
     const first = await startApplication(createRuntime(deps(), file), input('mes-oct.pdf', { policy: threeMonths, policy_id: 'gow-base-tres-meses.v1', as_of: '2026-11-05' }))
     const q = first.state?.questions[0]

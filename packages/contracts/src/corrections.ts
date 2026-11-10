@@ -33,7 +33,7 @@ export type CorrectionInput = z.infer<typeof CorrectionInput>
 
 export const CorrectionsBody = z.strictObject({
   corrections: z.array(CorrectionInput).min(1).max(50),
-  /** The document being corrected; without it, the first one the request was opened with (ADR 0072). */
+  /** The document being corrected; without it, the first one the request was opened with. */
   document_id: z.uuid().optional(),
 })
 

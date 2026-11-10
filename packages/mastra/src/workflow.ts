@@ -181,7 +181,7 @@ export function holderTypeOf(state: Pick<AppState, 'statements'>): HolderType | 
  */
 export function questionKey(q: Pick<Question, 'topic' | 'transaction'> & { facts?: Question['facts'] }): string {
   if (q.transaction) return `${q.topic}:${q.transaction.document_sha256}#${q.transaction.transaction_id}`
-  // The missing months are asked again only if the answer brought months (ADR 0072): the key carries
+  // The missing months are asked again only if the answer brought months: the key carries
   // how many there were.
   if (q.topic === 'additional_months') return `${q.topic}:${String(q.facts?.find((f) => f.name === 'meses_recibidos')?.value ?? '')}`
   return q.topic

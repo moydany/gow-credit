@@ -1,6 +1,6 @@
 # No credit with us, but the statement shows a received loan and payments to another institution:
 # debt service goes up, capacity goes down; bureau confirms open accounts. The other clients carry
-# their RFC: without the history cap (ADR 0072), unidentified deposits near the band would be asked.
+# their RFC: without the history cap, unidentified deposits near the band would be asked.
 id: proveedor-con-deuda-externa
 catalog: 7
 title: Proveedor con deuda con otra institución

@@ -23,7 +23,7 @@ const specArb = fc.record({
 })
 
 const at = (s: StatementExtraction) => `${s.accounts[0]?.periods.at(-1)?.period_end.value ?? '2026-12-31'}T12:00:00.000Z`
-/** By default the whole statement is evaluated (window wider than any spec); `months` narrows it (ADR 0072). */
+/** By default the whole statement is evaluated (window wider than any spec); `months` narrows it. */
 const profileOf = (s: StatementExtraction, months = 12) => buildProfile({ statements: [s], request: null, supplier: null, computedAt: at(s), parameters: { evaluation_months: months } })
 
 const MONTHLY = ['months_of_history', 'operating_income_monthly', 'operating_expenses_monthly', 'debt_service_monthly', 'free_cash_flow_monthly', 'payment_capacity_pct', 'debt_capacity', 'avg_daily_balance', 'low_balance_days', 'income_trend', 'new_debt_in_period'] as const

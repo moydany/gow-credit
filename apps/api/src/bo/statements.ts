@@ -3,7 +3,7 @@
  * Same path as the integration API (`POST /v1/applications`): it stores the PDF, opens the request
  * and enqueues its processing; the page follows the request's status. Several statements for a
  * policy that evaluates three months go in one request: opened with `hold`, added with `/documents`
- * and started with `/start` (ADR 0072). One PDF with several months needs nothing else. The verdict only goes out
+ * and started with `/start`. One PDF with several months needs nothing else. The verdict only goes out
  * over WhatsApp if the supplier has a verified number; clarifications without a verified contact
  * are answered from Aclaraciones.
  */
@@ -76,7 +76,7 @@ async function heldApplication(tx: Tx, supplierId: string, applicationId: string
 
 const PDF_BODY = express.raw({ type: 'application/pdf', limit: MAX_DOCUMENT_BYTES })
 
-/** Several statements in one request (ADR 0072): add them while it waits, then start it. */
+/** Several statements in one request: add them while it waits, then start it. */
 function heldRoutes(r: express.Router, deps: BackofficeDeps): void {
   /** Another statement for a request opened with `hold`, before it starts. */
   r.post('/suppliers/:id/statements/:applicationId/documents', PDF_BODY, async (req, res) => {
@@ -122,7 +122,7 @@ export function statementsRouter(deps: BackofficeDeps): express.Router {
   const r = express.Router()
   /**
    * Opens a request with the PDF. With `?hold=1` it waits for more PDFs (`/documents`) and for
-   * `/start`: several statements sent together, the months of a policy that evaluates three (ADR 0072).
+   * `/start`: several statements sent together, the months of a policy that evaluates three.
    */
   r.post('/suppliers/:id/statements', PDF_BODY, async (req, res) => {
     const id = parse(z.uuid(), req.params.id)

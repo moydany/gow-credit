@@ -40,7 +40,7 @@ export const DOCUMENT_REPLIES = {
   /** Same file sent again, still without the address. */
   address_same_file: 'Este es el mismo archivo que ya recibimos y no trae tu domicilio. Descarga un estado de cuenta que sí lo traiga y mándalo por aquí.',
   /**
-   * The tenant's policy evaluates three months (ADR 0072): added wherever the statement is asked
+   * The tenant's policy evaluates three months: added wherever the statement is asked
    * for. WhatsApp has no message with several files: the PDFs picked together arrive one after the
    * other and are joined into one request.
    */
@@ -196,7 +196,7 @@ export function isDocumentRequest(q: Question): boolean {
 
 /** The `isDocumentRequest` question as sent over chat: the text and how to answer it. */
 export function renderDocumentRequest(q: Question): string {
-  // The missing months (ADR 0072): several PDFs, picked together and sent at once.
+  // The missing months: several PDFs, picked together and sent at once.
   if (q.topic === 'additional_months' && q.facts.find((f) => f.name === 'meses_faltantes')?.value !== 1) return `${q.text}\n\nSelecciona los PDF y mándalos juntos por este chat, en un solo envío, tal como los descargaste de tu banco.`
   return `${q.text}\n\nMándalo por este chat como PDF, tal como lo descargaste de tu banco.`
 }

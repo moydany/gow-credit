@@ -76,7 +76,7 @@ function rulesNote(rows: readonly LedgerRow[]): string {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Months in a row up to the most recent cutoff (ADR 0072): only the last stretch with no gaps
+ * Months in a row up to the most recent cutoff: only the last stretch with no gaps
  * counts, so a missing month in between lowers the value and a policy that requires three asks for
  * the missing ones.
  */

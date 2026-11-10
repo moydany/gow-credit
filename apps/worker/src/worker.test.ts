@@ -472,7 +472,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     const r = await resolveInbound(worker.db, tenant, await inbound(phone, '', Buffer.from(`%PDF-1.7\n% ${seed}\n%%EOF\n`)), opts)
     expect(r.resolution).toBe('document_received')
     const appId = r.process?.job.application_id ?? ''
-    // The client carries its RFC: without the history cap (ADR 0072), a deposit of unknown origin near a band would be asked about.
+    // The client carries its RFC: without the history cap, a deposit of unknown origin near a band would be asked about.
     const doc: SyntheticDocument = { input: { start: '2026-09-01', opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 80000, counterparty: 'Cadena Norte SA de CV', counterparty_rfc: 'CNO850101AB1' }, { kind: 'supplier_payment', amount: 30000 }] }, holder, seed }
     const path = `${tenant}/${randomUUID()}${SYNTHETIC_SUFFIX}`
     await services.storage.put(path, Buffer.from(JSON.stringify(doc)))
@@ -938,7 +938,7 @@ describe.skipIf(!available)('worker del modo full (necesita el Postgres de docke
     })
   })
 
-  describe('ADR 0072: política de tres meses por WhatsApp, los PDF juntos en un solo envío', () => {
+  describe('política de tres meses por WhatsApp, los PDF juntos en un solo envío', () => {
     const TENANT = randomUUID()
     const SUPPLIER = randomUUID()
     const PHONE = '+5215512340072'

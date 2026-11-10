@@ -35,7 +35,7 @@ export function withoutDocumentAgeGates(policy: Policy): Policy {
 }
 
 /**
- * The policy with the history gate (ADR 0072): with `history.months` above 1, the months in a row
+ * The policy with the history gate: with `history.months` above 1, the months in a row
  * up to the latest cutoff must reach it; otherwise the supplier is asked for the missing ones. It is
  * the first gate so that request goes out before any other question about documents.
  */

@@ -19,7 +19,7 @@ const withBuyer: ApplicationRequest = { amount: 100000, maturity: null, buyer }
 const noBuyer: ApplicationRequest = { amount: 100000, maturity: null, buyer: null }
 const declared = (d: Partial<OwnerDeclarations>): OwnerDeclarations => ({ buyer: null, account_use: null, answered: [], ...d })
 
-/** Three months; the base evaluates the most recent one (ADR 0072). */
+/** Three months; the base evaluates the most recent one. */
 function stmt(monthly: z.input<typeof SyntheticStatement>['monthly'], who = moral, seed = 'q1'): StatementExtraction {
   return syntheticStatement({ start: '2026-07-01', months: 3, opening_balance: 400000, monthly }, who, seed)
 }

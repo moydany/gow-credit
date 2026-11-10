@@ -417,7 +417,7 @@ function clarificationResult(c: Ctx, asks: Ask[]): DecideResult {
 }
 
 export function decide(raw: DecideInput): DecideResult {
-  // The months evaluated are the policy's (ADR 0072): the profile only sees those.
+  // The months evaluated are the policy's: the profile only sees those.
   const input: DecideInput = { ...raw, parameters: { ...raw.parameters, evaluation_months: raw.policy.history.months } }
   const { profile, ledger } = buildProfileWithLedger(input)
   const rounds = input.clarificationRoundsUsed ?? 0

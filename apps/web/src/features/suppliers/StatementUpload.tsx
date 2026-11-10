@@ -2,7 +2,7 @@
  * Evaluate a supplier from their page: upload the bank statement, optionally the amount to request,
  * and follow the request here until it has a result. The PDF goes to `POST /suppliers/:id/statements`
  * and progress is polled from a status endpoint that does not touch the audit log. When the active
- * policy evaluates three months, several PDFs go into one request (ADR 0072): the first opens it on
+ * policy evaluates three months, several PDFs go into one request: the first opens it on
  * hold, the rest are added and then it starts. One PDF with several months is enough too.
  */
 import type { ApplicationStatus, SupplierDetail, SupplierStatementStatus } from '@gow/contracts'

@@ -36,7 +36,7 @@ const changesNothing = (s: { from: { status: string; limit: number | null }; to:
 
 describe('contrafactuales: cuentan solo si cambian el estado o suben la línea', () => {
   const base = basePolicyTemplate()
-  // The base no longer caps by history (ADR 0072): these cases use a policy that does.
+  // The base no longer caps by history: these cases use a policy that does.
   const monthsCap = (() => {
     const raw = structuredClone(base)
     raw.decision.caps = [{ when: { feature: 'months_of_history', op: '<', value: 3 }, maxStatus: 'qualified_with_limit' }, ...raw.decision.caps]

@@ -107,7 +107,7 @@ export async function handleProcess(s: WorkerServices, job: ProcessJob): Promise
     await setStatus(s.db, job.tenant_id, job.application_id, 'failed', 'el tenant no tiene una política activa')
     return 'failed'
   }
-  // Sent together (ADR 0072): the first one opened the request, the rest are the other months.
+  // Sent together: the first one opened the request, the rest are the other months.
   const [doc, ...extra] = ctx.submitted.length > 0 ? ctx.submitted : ctx.documents
   if (!doc) {
     await setStatus(s.db, job.tenant_id, job.application_id, 'failed', 'la solicitud no tiene documento')

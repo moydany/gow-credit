@@ -1,4 +1,4 @@
-# Three consecutive statements with a policy that evaluates three months (ADR 0072): all three
+# Three consecutive statements with a policy that evaluates three months: all three
 # count and the income trend appears.
 id: proveedor-tres-meses
 catalog: 4

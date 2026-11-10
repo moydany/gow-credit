@@ -63,7 +63,7 @@ describe('perfil desde un estado de cuenta', () => {
     expect(f(p, 'operating_expenses_monthly').confidence).toBe(1)
   })
 
-  it('ADR 0072: con tres meses se evalúa solo el último, venga en un periodo impreso o en tres mensuales', () => {
+  it('con tres meses se evalúa solo el último, venga en un periodo impreso o en tres mensuales', () => {
     const spec: Spec = { months: 3, monthly: BASIC }
     const single = profileOf([stmt({ ...spec, periods: 'single' })])
     const monthly = profileOf([stmt({ ...spec, periods: 'monthly' })])
@@ -76,13 +76,13 @@ describe('perfil desde un estado de cuenta', () => {
     }
   })
 
-  it('ADR 0072: con un solo mes evaluado no hay tendencia de ingresos, aunque lleguen tres', () => {
+  it('con un solo mes evaluado no hay tendencia de ingresos, aunque lleguen tres', () => {
     const growing = profileOf([stmt({ months: 3, growth: 0.1, monthly: [{ kind: 'customer_payment', amount: 100000, count: 2 }] })], { at: '2026-12-05T12:00:00.000Z' })
     expect(f(growing, 'income_trend').value).toBeNull()
     expect(f(growing, 'months_of_history').value).toBe(1)
   })
 
-  it('ADR 0072: periodWindows dice qué se evaluó, qué se recortó y qué quedó fuera', () => {
+  it('periodWindows dice qué se evaluó, qué se recortó y qué quedó fuera', () => {
     const single = stmt({ months: 3, periods: 'single', monthly: BASIC }, 'pw1')
     const one = periodWindows([single], 1)
     expect(one.periods).toMatchObject([{ status: 'cut', start: '2026-11-01', end: '2026-11-30' }])
@@ -92,7 +92,7 @@ describe('perfil desde un estado de cuenta', () => {
     expect(monthly.periods.map((p) => p.status)).toEqual(['outside', 'outside', 'evaluated'])
   })
 
-  it('ADR 0072: de varios documentos entra el del mes más reciente; los anteriores quedan en la nota', () => {
+  it('de varios documentos entra el del mes más reciente; los anteriores quedan en la nota', () => {
     const old = stmt({ start: '2026-08-01', monthly: BASIC }, 'old')
     const recent = stmt({ start: '2026-09-01', monthly: [{ kind: 'customer_payment', amount: 50000, count: 2 }] }, 'recent')
     const { profile, ledger } = buildProfileWithLedger({ statements: [old, recent], request: null, supplier: null, computedAt: AT })
@@ -468,7 +468,7 @@ describe('el sobregiro calculado solo se cree si el periodo cuadra', () => {
     expect(f(p, 'integrity_ok').value).toBe(false)
   })
 
-  it('ADR 0072: con dos meses solo cuenta el último; el saldo inicial del mes evaluado sale del anterior', () => {
+  it('con dos meses solo cuenta el último; el saldo inicial del mes evaluado sale del anterior', () => {
     // Month 1 goes to -400; month 2 opens at 4,100 and never goes below zero.
     const s = negative({ months: 2 })
     expect(f(profileOf([s]), 'red_flags').value).toEqual([])

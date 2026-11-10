@@ -53,7 +53,7 @@ describe('políticas de ejemplo', () => {
   })
 })
 
-describe('ADR 0072: un mes o tres meses seguidos', () => {
+describe('un mes o tres meses seguidos', () => {
   const months = (start: string, n = 1, periods: 'monthly' | 'single' = 'monthly', seed = start) =>
     syntheticStatement({ start, months: n, periods, opening_balance: 20000, monthly: [{ kind: 'customer_payment', amount: 90000, count: 2, counterparty: 'Cadena Norte SA de CV' }, { kind: 'supplier_payment', amount: 40000 }] }, holder, `m-${seed}-${String(n)}-${periods}`)
   const at = '2026-12-05T12:00:00.000Z'

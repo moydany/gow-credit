@@ -1,4 +1,4 @@
-# Policy that evaluates three months in a row (ADR 0072), but only two consecutive months arrive:
+# Policy that evaluates three months in a row, but only two consecutive months arrive:
 # the request asks for the missing ones instead of deciding. Over WhatsApp, the supplier sends the
 # PDFs together in one send.
 id: tres-meses-falta-uno

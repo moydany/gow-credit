@@ -262,7 +262,7 @@ export function missingMonthCutoffs(decision: Decision, statements: readonly Sta
 }
 
 /**
- * The missing months (ADR 0072): only what is missing, by name, so a supplier who already sent some
+ * The missing months: only what is missing, by name, so a supplier who already sent some
  * is not asked for all of them again. Several go together, in one send.
  */
 function monthsQuestion(decision: Decision, statements: readonly StatementExtraction[], gate: GateEvaluation | null): Pick<Question, 'kind' | 'facts' | 'text'> {
